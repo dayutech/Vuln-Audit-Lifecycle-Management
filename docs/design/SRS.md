@@ -35,11 +35,13 @@
 
 #### 2.1.2 核心功能
 - **资产 CRUD**：支持资产的创建、读取、更新、删除操作
+- **资产访问控制**：安全工程师需申请访问资产，部门领导控制工程师能查看哪些内容（文档、文件等）
 - **目标分组**：支持多对多关系，一个目标可属于多个分组（如按客户、按项目等）
 - **目标来源**：区分客户委托目标和自主发现目标
 - **重要程度标记**：P0/P1/P2/P3 四级优先级
 - **历史记录**：记录资产的所有变更历史
 - **关联漏洞**：管理与资产相关的漏洞列表
+- **资产文件管理**：管理目标系统的ISO镜像、VMDK磁盘文件、安装包、提取的程序代码、依赖配置文件等，支持多版本管理
 
 #### 2.1.3 数据模型
 ```
@@ -68,6 +70,49 @@ AssetGroup {
 AssetGroupRelation {
     asset_id: UUID
     group_id: UUID
+}
+
+AssetAccess {
+    id: UUID
+    asset_id: UUID (关联资产)
+    user_id: UUID (申请人/安全工程师)
+    status: Enum (pending/approved/rejected)
+    access_scope: JSON (可访问的内容范围：{documents: true/false, files: ["类型1", "类型2"], environments: true/false})
+    request_note: Text (申请说明)
+    reviewed_by: UUID (审批人/部门领导)
+    reviewed_at: DateTime
+    review_note: Text (审批备注)
+    created_at: DateTime
+    updated_at: DateTime
+}
+
+AssetFile {
+    id: UUID
+    asset_id: UUID (关联资产)
+    name: String (文件名)
+    file_type: Enum (iso/vmdk/exe/zip/7z/tar/gz/源码包/二进制程序/配置文件/其他)
+    category: Enum (系统镜像/磁盘文件/安装包/提取程序/配置文件/其他)
+    description: Text (文件描述)
+    file_size: BigInteger (文件大小字节)
+    file_path: String (存储路径)
+    checksum: String (SHA256校验值)
+    version: Integer (当前版本号)
+    status: Enum (active/archived)
+    uploaded_by: UUID
+    created_at: DateTime
+    updated_at: DateTime
+}
+
+AssetFileVersion {
+    id: UUID
+    file_id: UUID
+    version: Integer (版本号)
+    file_path: String (存储路径)
+    file_size: BigInteger
+    checksum: String
+    changelog: Text (版本变更说明)
+    uploaded_by: UUID
+    created_at: DateTime
 }
 ```
 
@@ -125,26 +170,33 @@ EnvironmentTemplate {
 ### 2.3 文档管理系统
 
 #### 2.3.1 功能描述
-集中存储各类挖掘文档，支持版本控制和权限管理。
+集中存储各类挖掘文档，支持在线创建、编辑、查看、删除等操作。用户可查看其他用户创建的文档及上传的资源列表，但查看具体内容需由部门领导审批。
 
 #### 2.3.2 核心功能
+- **文档在线创建**：支持在线创建新文档，选择文档类型和关联资产
+- **文档在线编辑**：富文本编辑器，支持在线编辑文档内容
+- **文档在线查看**：在线查看文档内容，支持渲染富文本
+- **文档删除**：支持删除自己创建的文档
+- **文档与资产关联**：每个资产可关联多个用户的文档空间
+- **用户文档隔离存储**：文档按用户ID目录结构隔离存储，层次化管理，结构清晰
+- **文档列表可见**：用户可查看其他用户有哪些文档、安装包等资源（仅列表，不含内容）
+- **文档申请查看**：用户可申请查看其他用户的文档内容，由部门领导审批后可得
 - **文档分类**：环境搭建指南、漏洞分析报告、利用思路、技术笔记
 - **版本控制**：支持文档的多版本管理
-- **权限管理**：文档级别的访问控制
 - **全文检索**：支持文档内容搜索
-- **协作编辑**：支持多人协同编辑
 
 #### 2.3.3 数据模型
 ```
 Document {
     id: UUID
     title: String
-    category: Enum (guide/report/notes|tech/case)
-    content: Text
-    asset_id: UUID (可选，关联资产)
-    author_id: UUID
+    category: Enum (guide/report/notes/tech/case)
+    content: Text (富文本内容，支持Markdown/HTML)
+    asset_id: UUID (关联资产)
+    author_id: UUID (文档所有者)
     status: Enum (draft/published/archived)
     version: Integer
+    word_count: Integer (字数统计)
     created_at: DateTime
     updated_at: DateTime
 }
@@ -316,24 +368,105 @@ TeamMember {
 ### 2.7 权限与安全控制
 
 #### 2.7.1 功能描述
-基于角色的访问控制机制，确保敏感信息安全。
+基于API级别的细粒度权限控制，支持内置角色和自定义权限分配。管理员拥有最高权限，可控制每个用户能访问哪些API接口。按漏洞挖掘部门架构管理用户（项目负责人、小组长、工程师等）。
 
 #### 2.7.2 核心功能
-- **角色管理**：定义不同角色及其权限
-- **权限分配**：用户-角色-权限映射
-- **数据权限**：细粒度的数据访问控制
-- **操作审计**：记录所有敏感操作
-- **数据备份**：定期自动备份
-- **灾难恢复**：快速恢复能力
+- **API权限管理**：每个API接口单独管理权限，管理员可控制用户能访问哪些接口
+- **内置角色**：预定义项目负责人、小组长、漏洞挖掘工程师、新成员等角色
+- **角色权限分配**：每个角色包含一组API权限
+- **用户角色分配**：将角色分配给用户，支持一个用户多个角色
+- **用户权限继承**：用户权限 = 角色权限的并集 + 单独分配的权限
+- **审批授权管理**：部门领导只能审批其直属下属的申请，审批权限由上级领导授予
+- **审批权限继承**：小组长只能审批自己被授权范围内的资产访问，审批范围由项目负责人分配
+- **操作审计**：记录所有敏感操作日志
 
 #### 2.7.3 角色定义
 | 角色 | 权限描述 |
 |------|----------|
-| 管理员 | 系统全权管理 |
-| 团队负责人 | 团队全部权限 |
-| 漏洞工程师 | 漏洞挖掘相关操作 |
-| 审计人员 | 只读访问 |
-| 新成员 | 受限操作 |
+| 管理员 | 系统全权管理，可管理所有用户、角色、权限 |
+| 项目负责人 | 管理整个项目，审批资产访问，查看所有数据 |
+| 小组长 | 管理小组团队成员，审批小组内资产访问申请 |
+| 漏洞挖掘工程师 | 挖掘漏洞，上传文档/文件，申请资产访问 |
+| 新成员 | 受限操作，需申请资产访问权限 |
+
+#### 2.7.4 数据模型
+```
+Permission {
+    id: UUID
+    name: String (权限名称，如 "资产查看", "漏洞提交")
+    code: String (权限代码，如 "asset:read", "vulnerability:create")
+    api_path: String (API路径，如 "/api/v1/assets")
+    http_method: String (HTTP方法，如 GET/POST/PUT/DELETE)
+    description: Text
+    created_at: DateTime
+}
+
+Role {
+    id: UUID
+    name: String (角色名称)
+    code: String (角色代码)
+    description: Text
+    is_system: Boolean (是否系统内置角色)
+    created_at: DateTime
+    updated_at: DateTime
+}
+
+RolePermission {
+    id: UUID
+    role_id: UUID
+    permission_id: UUID
+    created_at: DateTime
+}
+
+UserRole {
+    id: UUID
+    user_id: UUID
+    role_id: UUID
+    assigned_by: UUID (分配者)
+    assigned_at: DateTime
+}
+
+UserPermission {
+    id: UUID
+    user_id: UUID
+    permission_id: UUID
+    granted_by: UUID (授权者)
+    granted_at: DateTime
+    expires_at: DateTime (过期时间，可选)
+}
+
+ApprovalScope {
+    id: UUID
+    approver_id: UUID (被授权的审批者ID)
+    scope_type: Enum (team/asset_category/asset)
+    scope_id: UUID (团队ID/资产分类ID/资产ID)
+    granted_by: UUID (授权者，通常是项目负责人或更高级别)
+    granted_at: DateTime
+    expires_at: DateTime (可选)
+}
+
+User {
+    id: UUID
+    username: String
+    email: String
+    password_hash: String
+    team_id: UUID (所属团队/部门)
+    leader_id: UUID (上级领导，用于小组长关联)
+    position: String (职位)
+    status: Enum (active/inactive/archived)
+    created_at: DateTime
+    updated_at: DateTime
+}
+
+Team {
+    id: UUID
+    name: String (团队/部门名称)
+    parent_id: UUID (上级团队，可用于层级结构)
+    leader_id: UUID (团队负责人)
+    description: Text
+    created_at: DateTime
+}
+```
 
 ---
 
@@ -364,12 +497,95 @@ KnowledgeArticle {
     updated_at: DateTime
 }
 
+```
 KnowledgeComment {
     id: UUID
     article_id: UUID
     user_id: UUID
     content: Text
     created_at: DateTime
+}
+```
+
+### 2.9 消息通知模块
+
+#### 2.9.1 功能描述
+实现系统消息通知功能，当用户的申请被审批、任务被分配、有新漏洞更新等事件发生时，发送通知给相关用户。
+
+#### 2.9.2 核心功能
+- **通知中心**：统一接收和查看所有通知
+- **通知类型**：资产访问审批结果、任务分配、漏洞状态变更、文档评论、系统公告
+- **通知方式**：站内消息（必选）、邮件通知（可选）、webhook推送（可选）
+- **通知订阅**：用户可订阅感兴趣的资产和漏洞动态
+- **已读未读**：标记通知为已读，支持批量操作
+- **历史记录**：保留通知历史，支持查询
+
+#### 2.9.3 数据模型
+```
+Notification {
+    id: UUID
+    user_id: UUID (接收用户)
+    type: Enum (asset_access_approved/asset_access_rejected/task_assigned/vulnerability_updated/document_comment/system_announcement)
+    title: String
+    content: Text
+    related_type: String (关联类型：asset/task/vulnerability/document)
+    related_id: UUID (关联ID)
+    is_read: Boolean
+    read_at: DateTime
+    created_at: DateTime
+}
+
+NotificationSetting {
+    id: UUID
+    user_id: UUID
+    type: String (通知类型)
+    enabled: Boolean (是否启用)
+    notify_email: Boolean (邮件通知)
+    notify_webhook: Boolean (webhook推送)
+}
+
+SystemAnnouncement {
+    id: UUID
+    title: String
+    content: Text
+    target_roles: Array(String) (目标角色，为空则全员)
+    priority: Enum (normal/important/urgent)
+    published_at: DateTime
+    expires_at: DateTime (可选)
+    created_at: DateTime
+}
+```
+
+### 2.10 仪表盘与统计模块
+
+#### 2.10.1 功能描述
+提供数据统计和可视化展示，帮助管理层了解团队工作进度、资产安全状况、漏洞挖掘成果等。
+
+#### 2.10.2 核心功能
+- **资产统计**：资产总数、按状态分布、按类型分布、按重要程度分布
+- **漏洞统计**：漏洞总数、按状态分布、按危害等级分布、按资产分布
+- **工作量统计**：各工程师提交漏洞数量、文档数量、资产处理数量
+- **趋势分析**：漏洞发现趋势、工作量趋势、资产增长趋势
+- **仪表盘配置**：用户可自定义展示的统计卡片和布局
+- **导出报表**：支持导出统计报表（Excel/PDF）
+
+#### 2.10.3 数据模型
+```
+DashboardConfig {
+    id: UUID
+    user_id: UUID
+    layout: JSON (仪表盘布局配置)
+    cards: Array(String) (启用的统计卡片)
+    created_at: DateTime
+    updated_at: DateTime
+}
+
+StatCache {
+    id: UUID
+    stat_type: String (统计类型)
+    stat_key: String (统计维度，如日期、资产ID等)
+    stat_value: JSON (统计值)
+    calculated_at: DateTime
 }
 ```
 
@@ -406,11 +622,12 @@ KnowledgeComment {
 采用前后端分离架构，后端提供RESTful API，前端采用单页应用(SPA)架构。
 
 ### 4.2 技术选型
-- 后端: Python FastAPI / Node.js Express
+- 后端: Java Spring Boot
 - 前端: React / Vue.js
 - 数据库: PostgreSQL + Redis
-- 文件存储: 本地存储 / 对象存储
+- 文件存储: 本地存储 / 对象存储(MinIO)
 - 容器化: Docker
+- 构建工具: Maven
 
 ---
 

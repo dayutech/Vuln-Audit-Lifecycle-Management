@@ -78,6 +78,8 @@ sequenceDiagram
 
 ## 4. 环境创建与部署流程
 
+> **说明**：本模块为靶场环境管理功能，相关流程暂保持为空实现，待后续需求明确后再行开发。
+
 ```mermaid
 sequenceDiagram
     participant Engineer as 漏洞工程师
@@ -297,7 +299,59 @@ sequenceDiagram
     Frontend-->>User: 显示无权限提示
 ```
 
-## 10. 数据备份流程
+## 10. 资产认领流程
+
+```mermaid
+sequenceDiagram
+    participant Engineer as 安全工程师
+    participant Frontend as 前端应用
+    participant ClaimAPI as 资产认领API
+    participant ClaimService as 认领服务
+    participant ClaimRepo as 认领仓储
+    participant NotifyService as 通知服务
+    participant Leader as 团队负责人
+
+    Engineer->>Frontend: 选择资产并提交认领申请
+    Frontend->>ClaimAPI: POST /api/assets/{id}/claims
+    ClaimAPI->>ClaimService: create_claim()
+    ClaimService->>ClaimRepo: 保存认领记录
+    ClaimRepo-->>ClaimService: 返回认领信息
+    ClaimService->>NotifyService: 发送认领申请通知
+    NotifyService-->>Leader: 通知有待审核的认领申请
+    ClaimService-->>ClaimAPI: 返回认领信息
+    ClaimAPI-->>Frontend: 返回认领申请结果
+    Frontend-->>Engineer: 显示认领申请已提交
+
+    Note over Engineer,Frontend: 团队负责人审核认领
+
+    Leader->>Frontend: 查看认领申请列表
+    Frontend->>ClaimAPI: GET /api/claims?status=pending
+    ClaimAPI-->>Frontend: 返回待审核列表
+    Frontend-->>Leader: 显示认领申请
+
+    Leader->>Frontend: 审核通过/拒绝认领
+    Frontend->>ClaimAPI: PUT /api/claims/{id}/review
+    ClaimAPI->>ClaimService: review_claim()
+    ClaimService->>ClaimRepo: 更新认领状态
+    ClaimRepo-->>ClaimService: 返回更新结果
+    ClaimService->>NotifyService: 发送审核结果通知
+    NotifyService-->>Engineer: 通知认领审核结果
+    ClaimService-->>ClaimAPI: 返回审核结果
+    ClaimAPI-->>Frontend: 返回审核结果
+    Frontend-->>Leader: 显示审核成功
+
+    Note over Engineer,Frontend: 工程师完成认领工作
+
+    Engineer->>Frontend: 完成漏洞挖掘，标记认领完成
+    Frontend->>ClaimAPI: PUT /api/claims/{id}
+    ClaimAPI->>ClaimService: complete_claim()
+    ClaimService->>ClaimRepo: 更新认领状态为completed
+    ClaimService-->>ClaimAPI: 返回完成结果
+    ClaimAPI-->>Frontend: 返回完成结果
+    Frontend-->>Engineer: 显示认领已完成
+```
+
+## 11. 数据备份流程
 
 ```mermaid
 sequenceDiagram

@@ -32,19 +32,24 @@
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
 | id | UUID | 是 | 自动生成 | 主键ID |
-| name | VARCHAR(100) | 是 | - | 权限名称 |
-| resource | VARCHAR(50) | 是 | - | 资源类型：asset/vulnerability/environment等 |
-| action | VARCHAR(50) | 是 | - | 操作类型：create/read/update/delete |
+| name | VARCHAR(100) | 是 | - | 权限名称，如"资产查看" |
+| code | VARCHAR(50) | 是 | - | 权限代码，如"asset:read" |
+| api_path | VARCHAR(200) | 是 | - | API路径，如"/api/v1/assets" |
+| http_method | VARCHAR(10) | 是 | - | HTTP方法：GET/POST/PUT/DELETE |
 | description | VARCHAR(255) | 否 | null | 权限描述 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 
-### 1.4 用户角色关联表 (user_roles)
+### 1.4 角色表 (roles)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
 | id | UUID | 是 | 自动生成 | 主键ID |
-| user_id | UUID | 是 | - | 外键，关联users表 |
-| role_id | UUID | 是 | - | 外键，关联roles表 |
-| granted_at | TIMESTAMP | 是 | 当前时间 | 授予时间 |
+| name | VARCHAR(100) | 是 | - | 角色名称 |
+| code | VARCHAR(50) | 是 | - | 角色代码 |
+| description | VARCHAR(255) | 否 | null | 角色描述 |
+| is_system | BOOLEAN | 是 | false | 是否系统内置角色 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+| updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
 
 ### 1.5 角色权限关联表 (role_permissions)
 
@@ -53,8 +58,30 @@
 | id | UUID | 是 | 自动生成 | 主键ID |
 | role_id | UUID | 是 | - | 外键，关联roles表 |
 | permission_id | UUID | 是 | - | 外键，关联permissions表 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 
-### 1.6 团队表 (teams)
+### 1.6 用户角色关联表 (user_roles)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| user_id | UUID | 是 | - | 外键，关联users表 |
+| role_id | UUID | 是 | - | 外键，关联roles表 |
+| assigned_by | UUID | 是 | - | 外键，关联users表，分配者 |
+| assigned_at | TIMESTAMP | 是 | 当前时间 | 分配时间 |
+
+### 1.7 用户权限关联表 (user_permissions)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| user_id | UUID | 是 | - | 外键，关联users表 |
+| permission_id | UUID | 是 | - | 外键，关联permissions表 |
+| granted_by | UUID | 是 | - | 外键，关联users表，授权者 |
+| granted_at | TIMESTAMP | 是 | 当前时间 | 授权时间 |
+| expires_at | TIMESTAMP | 否 | null | 过期时间 |
+
+### 1.8 团队表 (teams)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -128,6 +155,56 @@
 | changed_by | UUID | 是 | - | 外键，关联users表 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 变更时间 |
 
+### 2.5 资产认领表 (asset_claims)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| asset_id | UUID | 是 | - | 外键，关联assets表 |
+| user_id | UUID | 是 | - | 外键，关联users表，认领人/安全工程师 |
+| status | VARCHAR(20) | 是 | 'pending' | 状态：pending/approved/rejected/completed/abandoned |
+| claimed_at | TIMESTAMP | 否 | null | 认领时间 |
+| completed_at | TIMESTAMP | 否 | null | 完成时间 |
+| note | TEXT | 否 | null | 认领备注 |
+| reviewed_by | UUID | 否 | null | 外键，关联users表，审核人 |
+| reviewed_at | TIMESTAMP | 否 | null | 审核时间 |
+| review_note | TEXT | 否 | null | 审核备注 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+| updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
+
+### 2.6 资产文件表 (asset_files)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| asset_id | UUID | 是 | - | 外键，关联assets表 |
+| name | VARCHAR(500) | 是 | - | 文件名 |
+| file_type | VARCHAR(20) | 是 | - | 文件类型：iso/vmdk/exe/zip/7z/tar/gz/源码包/二进制程序/配置文件/其他 |
+| category | VARCHAR(20) | 是 | - | 分类：系统镜像/磁盘文件/安装包/提取程序/配置文件/其他 |
+| description | TEXT | 否 | null | 文件描述 |
+| file_size | BIGINT | 否 | null | 文件大小（字节） |
+| file_path | VARCHAR(500) | 是 | - | 存储路径 |
+| checksum | VARCHAR(100) | 否 | null | SHA256校验值 |
+| version | INTEGER | 是 | 1 | 当前版本号 |
+| status | VARCHAR(20) | 是 | 'active' | 状态：active/archived |
+| uploaded_by | UUID | 是 | - | 外键，关联users表 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+| updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
+
+### 2.7 资产文件版本表 (asset_file_versions)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| file_id | UUID | 是 | - | 外键，关联asset_files表 |
+| version | INTEGER | 是 | - | 版本号 |
+| file_path | VARCHAR(500) | 是 | - | 存储路径 |
+| file_size | BIGINT | 否 | null | 文件大小（字节） |
+| checksum | VARCHAR(100) | 否 | null | SHA256校验值 |
+| changelog | TEXT | 否 | null | 版本变更说明 |
+| uploaded_by | UUID | 是 | - | 外键，关联users表 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+
 ---
 
 ## 3. 漏洞管理相关表
@@ -188,6 +265,8 @@
 ---
 
 ## 4. 环境管理相关表
+
+> **说明**：本模块为靶场环境管理功能，相关表暂保持为空实现，待后续需求明确后再行开发。
 
 ### 4.1 环境表 (environments)
 
@@ -261,14 +340,19 @@
 | created_by | UUID | 是 | - | 外键，关联users表 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 
-### 5.3 文档权限表 (document_permissions)
+### 5.3 文档访问申请表 (document_access)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
 | id | UUID | 是 | 自动生成 | 主键ID |
 | document_id | UUID | 是 | - | 外键，关联documents表 |
-| user_id | UUID | 是 | - | 外键，关联users表 |
-| permission | VARCHAR(20) | 是 | 'read' | 权限：read/write/admin |
+| user_id | UUID | 是 | - | 外键，关联users表，申请查看的用户 |
+| status | VARCHAR(20) | 是 | 'pending' | 状态：pending/approved/rejected |
+| request_note | TEXT | 否 | null | 申请说明 |
+| reviewed_by | UUID | 否 | null | 外键，关联users表，审批人 |
+| reviewed_at | TIMESTAMP | 否 | null | 审批时间 |
+| review_note | TEXT | 否 | null | 审批备注 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 
 ---
 
@@ -507,3 +591,139 @@
 | exploit | 利用工具 |
 | poc | POC代码 |
 | auxiliary | 辅助工具 |
+
+### 10.8 资产认领状态 (asset_claim_status)
+| 值 | 描述 |
+|----|------|
+| pending | 待审核 |
+| approved | 已批准 |
+| rejected | 已拒绝 |
+| completed | 已完成 |
+| abandoned | 已放弃 |
+
+### 10.10 资产文件类型 (asset_file_type)
+| 值 | 描述 |
+|----|------|
+| iso | ISO镜像文件 |
+| vmdk | VMDK虚拟机磁盘 |
+| installer | 安装包 |
+| source_code | 源代码 |
+| config | 配置文件 |
+| other | 其他文件 |
+
+### 10.11 资产文件分类 (asset_file_category)
+| 值 | 描述 |
+|----|------|
+| system | 系统镜像 |
+| application | 应用程序 |
+| database | 数据库文件 |
+| network | 网络设备固件 |
+| iot | IoT设备固件 |
+| other | 其他 |
+
+---
+
+## 11. 消息通知相关表
+
+### 11.1 通知表 (notifications)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| user_id | UUID | 是 | - | 外键，关联users表 |
+| type | VARCHAR(50) | 是 | - | 通知类型 |
+| title | VARCHAR(200) | 是 | - | 通知标题 |
+| content | TEXT | 是 | - | 通知内容 |
+| related_type | VARCHAR(50) | 否 | null | 关联类型 |
+| related_id | UUID | 否 | null | 关联ID |
+| is_read | BOOLEAN | 是 | false | 是否已读 |
+| read_at | TIMESTAMP | 否 | null | 阅读时间 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+
+### 11.2 通知设置表 (notification_settings)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| user_id | UUID | 是 | - | 外键，关联users表 |
+| type | VARCHAR(50) | 是 | - | 通知类型 |
+| enabled | BOOLEAN | 是 | true | 是否启用 |
+| notify_email | BOOLEAN | 是 | false | 邮件通知 |
+| notify_webhook | BOOLEAN | 是 | false | webhook推送 |
+
+### 11.3 系统公告表 (system_announcements)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| title | VARCHAR(200) | 是 | - | 公告标题 |
+| content | TEXT | 是 | - | 公告内容 |
+| target_roles | JSONB | 否 | null | 目标角色 |
+| priority | VARCHAR(20) | 是 | normal | 优先级 |
+| published_at | TIMESTAMP | 是 | - | 发布时间 |
+| expires_at | TIMESTAMP | 否 | null | 过期时间 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+
+### 11.4 资产订阅表 (asset_subscriptions)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| user_id | UUID | 是 | - | 外键，关联users表 |
+| asset_id | UUID | 是 | - | 外键，关联assets表 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 订阅时间 |
+
+---
+
+## 12. 仪表盘与统计相关表
+
+### 12.1 仪表盘配置表 (dashboard_configs)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| user_id | UUID | 是 | - | 外键，关联users表 |
+| layout | JSONB | 是 | - | 布局配置 |
+| cards | JSONB | 是 | - | 启用的卡片 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+| updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
+
+### 12.2 审批范围表 (approval_scopes)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| approver_id | UUID | 是 | - | 审批者ID |
+| scope_type | VARCHAR(20) | 是 | - | 范围类型 |
+| scope_id | UUID | 是 | - | 范围ID |
+| granted_by | UUID | 是 | - | 授权者 |
+| granted_at | TIMESTAMP | 是 | 当前时间 | 授权时间 |
+| expires_at | TIMESTAMP | 否 | null | 过期时间 |
+
+### 12.3 统计缓存表 (stat_cache)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| stat_type | VARCHAR(50) | 是 | - | 统计类型 |
+| stat_key | VARCHAR(100) | 是 | - | 统计维度 |
+| stat_value | JSONB | 是 | - | 统计值 |
+| calculated_at | TIMESTAMP | 是 | 当前时间 | 计算时间 |
+
+---
+
+## 13. 第三方登录相关表（预留）
+
+### 13.1 第三方账号绑定表 (oauth_bindings)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| user_id | UUID | 是 | - | 外键，关联users表 |
+| provider | VARCHAR(20) | 是 | - | 提供商 |
+| provider_user_id | VARCHAR(100) | 是 | - | 第三方用户ID |
+| access_token | TEXT | 否 | null | 访问令牌 |
+| refresh_token | TEXT | 否 | null | 刷新令牌 |
+| expires_at | TIMESTAMP | 否 | null | 令牌过期时间 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 绑定时间 |
+| updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |

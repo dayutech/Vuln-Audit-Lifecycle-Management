@@ -110,6 +110,8 @@ stateDiagram-v2
 
 ## 3. 环境状态图
 
+> **说明**：本模块为靶场环境管理功能，相关状态暂保持为空实现，待后续需求明确后再行开发。
+
 ```mermaid
 stateDiagram-v2
     [*] --> Created: 创建环境
@@ -308,7 +310,46 @@ stateDiagram-v2
     end note
 ```
 
-## 9. 漏洞优先级与状态关系
+## 9. 资产认领状态图
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: 提交认领申请
+    Pending --> Approved: 团队负责人批准
+    Pending --> Rejected: 团队负责人拒绝
+    Approved --> Completed: 工程师完成挖掘
+    Approved --> Abandoned: 工程师放弃认领
+    Completed --> [*]
+    Abandoned --> [*]
+    Rejected --> [*]
+    
+    note right of Pending
+        待审核
+        等待团队负责人审批
+    end note
+    
+    note right of Approved
+        已批准
+        安全工程师可以开始漏洞挖掘
+    end note
+    
+    note right of Rejected
+        已拒绝
+        认领申请未通过
+    end note
+    
+    note right of Completed
+        已完成
+        工程师完成漏洞挖掘工作
+    end note
+    
+    note right of Abandoned
+        已放弃
+        工程师主动放弃认领
+    end note
+```
+
+## 10. 漏洞优先级与状态关系
 
 ```mermaid
 graph LR
@@ -361,3 +402,7 @@ graph LR
 | Review | Done | 审核通过 | 团队负责人 | 自动通知 |
 | Draft | Review | 提交审核 | 文档作者 | 需指定审核人 |
 | Review | Published | 审核通过 | 审核人 | 自动索引 |
+| Pending | Approved | 认领批准 | 团队负责人 | 审核通过 |
+| Pending | Rejected | 认领拒绝 | 团队负责人 | 审核拒绝 |
+| Approved | Completed | 挖掘完成 | 安全工程师 | 完成漏洞挖掘 |
+| Approved | Abandoned | 放弃认领 | 安全工程师 | 主动放弃 |

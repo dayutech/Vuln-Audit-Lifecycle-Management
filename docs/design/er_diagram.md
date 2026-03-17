@@ -11,6 +11,11 @@ erDiagram
     ASSETS }o--o{ ASSET_GROUPS : "属于"
     ASSET_GROUPS ||--o{ ASSET_GROUP_RELATIONS : ""
     ASSETS ||--o{ ASSET_GROUP_RELATIONS : ""
+    ASSETS ||--o{ ASSET_CLAIMS : "认领"
+    ASSETS ||--o{ ASSET_FILES : "包含"
+    ASSET_FILES ||--o{ ASSET_FILE_VERSIONS : "版本"
+    USERS ||--o{ ASSET_CLAIMS : "认领"
+    USERS ||--o{ ASSET_FILES : "上传"
     
     USERS {
         uuid id PK
@@ -80,6 +85,50 @@ erDiagram
         uuid changed_by FK
         timestamp created_at
     }
+    
+    ASSET_CLAIMS {
+        uuid id PK
+        uuid asset_id FK
+        uuid user_id FK
+        string status
+        timestamp claimed_at
+        timestamp completed_at
+        text note
+        uuid reviewed_by FK
+        timestamp reviewed_at
+        text review_note
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    ASSET_FILES {
+        uuid id PK
+        uuid asset_id FK
+        string name
+        string file_type
+        string category
+        text description
+        bigint file_size
+        string file_path
+        string checksum
+        int version
+        string status
+        uuid uploaded_by FK
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    ASSET_FILE_VERSIONS {
+        uuid id PK
+        uuid file_id FK
+        int version
+        string file_path
+        bigint file_size
+        string checksum
+        text changelog
+        uuid uploaded_by FK
+        timestamp created_at
+    }
 ```
 
 ## 2. 漏洞管理实体关系
@@ -143,6 +192,8 @@ erDiagram
 
 ## 3. 环境管理实体关系
 
+> **说明**：本模块为靶场环境管理功能，相关表结构暂保持为空实现，待后续需求明确后再行开发。
+
 ```mermaid
 erDiagram
     ASSETS ||--o{ ENVIRONMENTS : "关联"
@@ -191,7 +242,8 @@ erDiagram
     USERS ||--o{ DOCUMENTS : "创建"
     ASSETS ||--o{ DOCUMENTS : "关联"
     DOCUMENTS ||--o{ DOCUMENT_VERSIONS : "版本"
-    DOCUMENTS ||--o{ DOCUMENT_PERMISSIONS : "权限"
+    DOCUMENTS ||--o{ DOCUMENT_ACCESS : "访问申请"
+    USERS ||--o{ DOCUMENT_ACCESS : "申请"
     
     DOCUMENTS {
         uuid id PK
@@ -216,11 +268,16 @@ erDiagram
         timestamp created_at
     }
     
-    DOCUMENT_PERMISSIONS {
+    DOCUMENT_ACCESS {
         uuid id PK
         uuid document_id FK
         uuid user_id FK
-        string permission
+        string status
+        text request_note
+        uuid reviewed_by FK
+        timestamp reviewed_at
+        text review_note
+        timestamp created_at
     }
 ```
 
@@ -335,37 +392,76 @@ erDiagram
 ```mermaid
 erDiagram
     USERS ||--o{ USER_ROLES : "拥有"
+    USERS ||--o{ USER_PERMISSIONS : "直接拥有"
     ROLES ||--o{ USER_ROLES : "分配"
     ROLES ||--o{ ROLE_PERMISSIONS : "包含"
     PERMISSIONS ||--o{ ROLE_PERMISSIONS : "定义"
+    PERMISSIONS ||--o{ USER_PERMISSIONS : "授权"
     USERS ||--o{ AUDIT_LOGS : "操作"
+    TEAMS ||--o{ TEAM_MEMBERS : "包含"
+    TEAMS ||--o{ TEAMS : "上级"
+    USERS ||--o{ TEAMS : "属于"
     
     ROLES {
         uuid id PK
         string name
+        string code
         string description
+        boolean is_system
         timestamp created_at
+        timestamp updated_at
     }
     
     PERMISSIONS {
         uuid id PK
         string name
-        string resource
-        string action
+        string code
+        string api_path
+        string http_method
         string description
+        timestamp created_at
     }
     
     USER_ROLES {
         uuid id PK
         uuid user_id FK
         uuid role_id FK
+        uuid assigned_by FK
+        timestamp assigned_at
+    }
+    
+    USER_PERMISSIONS {
+        uuid id PK
+        uuid user_id FK
+        uuid permission_id FK
+        uuid granted_by FK
         timestamp granted_at
+        timestamp expires_at
     }
     
     ROLE_PERMISSIONS {
         uuid id PK
         uuid role_id FK
         uuid permission_id FK
+        timestamp created_at
+    }
+    
+    TEAMS {
+        uuid id PK
+        string name
+        uuid parent_id FK
+        uuid leader_id FK
+        string description
+        timestamp created_at
+    }
+    
+    TEAM_MEMBERS {
+        uuid id PK
+        uuid user_id FK
+        uuid team_id FK
+        string role
+        string status
+        timestamp joined_at
     }
     
     AUDIT_LOGS {
@@ -381,7 +477,112 @@ erDiagram
     }
 ```
 
-## 9. 完整ER图概览
+## 9. 消息通知实体关系
+
+```mermaid
+erDiagram
+    USERS ||--o{ NOTIFICATIONS : "接收"
+    USERS ||--o{ NOTIFICATION_SETTINGS : "配置"
+    USERS ||--o{ ASSET_SUBSCRIPTIONS : "订阅"
+    ASSETS ||--o{ ASSET_SUBSCRIPTIONS : "被订阅"
+    SYSTEM_ANNOUNCEMENTS {
+        uuid id PK
+        string title
+        text content
+        json target_roles
+        string priority
+        timestamp published_at
+        timestamp expires_at
+        timestamp created_at
+    }
+    
+    NOTIFICATIONS {
+        uuid id PK
+        uuid user_id FK
+        string type
+        string title
+        text content
+        string related_type
+        uuid related_id
+        boolean is_read
+        timestamp read_at
+        timestamp created_at
+    }
+    
+    NOTIFICATION_SETTINGS {
+        uuid id PK
+        uuid user_id FK
+        string type
+        boolean enabled
+        boolean notify_email
+        boolean notify_webhook
+    }
+    
+    ASSET_SUBSCRIPTIONS {
+        uuid id PK
+        uuid user_id FK
+        uuid asset_id FK
+        timestamp created_at
+    }
+```
+
+## 10. 仪表盘与统计实体关系
+
+```mermaid
+erDiagram
+    USERS ||--o{ DASHBOARD_CONFIGS : "配置"
+    USERS ||--o{ APPROVAL_SCOPES : "拥有审批范围"
+    APPROVAL_SCOPES ||--o{ TEAMS : "按团队"
+    APPROVAL_SCOPES ||--o{ ASSETS : "按资产"
+    
+    DASHBOARD_CONFIGS {
+        uuid id PK
+        uuid user_id FK
+        json layout
+        json cards
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    APPROVAL_SCOPES {
+        uuid id PK
+        uuid approver_id FK
+        string scope_type
+        uuid scope_id FK
+        uuid granted_by FK
+        timestamp granted_at
+        timestamp expires_at
+    }
+    
+    STAT_CACHE {
+        uuid id PK
+        string stat_type
+        string stat_key
+        json stat_value
+        timestamp calculated_at
+    }
+```
+
+## 11. 第三方登录实体关系（预留）
+
+```mermaid
+erDiagram
+    USERS ||--o{ OAUTH_BINDINGS : "绑定"
+    
+    OAUTH_BINDINGS {
+        uuid id PK
+        uuid user_id FK
+        string provider
+        string provider_user_id
+        text access_token
+        text refresh_token
+        timestamp expires_at
+        timestamp created_at
+        timestamp updated_at
+    }
+```
+
+## 12. 完整ER图概览
 
 ```mermaid
 erDiagram
@@ -394,6 +595,8 @@ erDiagram
     USERS ||--o{ TASKS : ""
     USERS ||--o{ KNOWLEDGE_ARTICLES : ""
     USERS ||--o{ AUDIT_LOGS : ""
+    USERS ||--o{ ASSET_CLAIMS : ""
+    USERS ||--o{ ASSET_FILES : ""
     
     TEAMS ||--o{ ASSETS : ""
     TEAMS ||--o{ TASKS : ""
@@ -401,12 +604,17 @@ erDiagram
     ASSETS ||--o{ VULNERABILITIES : ""
     ASSETS ||--o{ ENVIRONMENTS : ""
     ASSETS ||--o{ DOCUMENTS : ""
+    ASSETS ||--o{ ASSET_CLAIMS : ""
+    ASSETS ||--o{ ASSET_FILES : ""
+    ASSET_FILES ||--o{ ASSET_FILE_VERSIONS : ""
     
     ENVIRONMENT_TEMPLATES ||--o{ ENVIRONMENTS : ""
     
     VULNERABILITIES ||--o{ VULNERABILITY_HISTORY : ""
     
     DOCUMENTS ||--o{ DOCUMENT_VERSIONS : ""
+    DOCUMENTS ||--o{ DOCUMENT_ACCESS : ""
+    USERS ||--o{ DOCUMENT_ACCESS : ""
     
     TOOLS ||--o{ TOOL_VERSIONS : ""
     

@@ -33,9 +33,48 @@ classDiagram
     class Permission {
         +UUID id
         +string name
-        +string resource
-        +string action
+        +string code
+        +string api_path
+        +string http_method
         +string description
+        +datetime created_at
+        +create() Permission
+    }
+
+    class Role {
+        +UUID id
+        +string name
+        +string code
+        +string description
+        +boolean is_system
+        +datetime created_at
+        +datetime updated_at
+        +create() Role
+        +update() Role
+    }
+
+    class RolePermission {
+        +UUID id
+        +UUID role_id
+        +UUID permission_id
+        +datetime created_at
+    }
+
+    class UserRole {
+        +UUID id
+        +UUID user_id
+        +UUID role_id
+        +UUID assigned_by
+        +datetime assigned_at
+    }
+
+    class UserPermission {
+        +UUID id
+        +UUID user_id
+        +UUID permission_id
+        +UUID granted_by
+        +datetime granted_at
+        +datetime expires_at
     }
 
     class Team {
@@ -58,8 +97,12 @@ classDiagram
         +datetime joined_at
     }
 
-    User "1" --> "*" Role : has
-    Role "1" --> "*" Permission : contains
+    User "1" --> "*" UserRole : has
+    UserRole "1" --> "1" Role : assigned
+    Role "1" --> "*" RolePermission : has
+    RolePermission "1" --> "1" Permission : grants
+    User "1" --> "*" UserPermission : has_direct
+    UserPermission "1" --> "1" Permission : grants
     Team "1" --> "*" TeamMember : has
     User "1" --> "*" TeamMember : belongs_to
 ```
@@ -110,6 +153,62 @@ classDiagram
 
     Asset "1" --> "*" AssetGroupRelation : has
     AssetGroup "1" --> "*" AssetGroupRelation : has
+
+    class AssetClaim {
+        +UUID id
+        +UUID asset_id
+        +UUID user_id
+        +string status
+        +datetime claimed_at
+        +datetime completed_at
+        +text note
+        +datetime created_at
+        +datetime updated_at
+        +create() AssetClaim
+        +approve() bool
+        +reject() bool
+        +complete() bool
+        +abandon() bool
+    }
+
+    Asset "1" --> "*" AssetClaim : has
+    User "1" --> "*" AssetClaim : claims
+
+    class AssetFile {
+        +UUID id
+        +UUID asset_id
+        +string name
+        +string file_type
+        +string category
+        +text description
+        +BigInteger file_size
+        +string file_path
+        +string checksum
+        +int version
+        +string status
+        +UUID uploaded_by
+        +datetime created_at
+        +datetime updated_at
+        +upload() AssetFile
+        +download() binary
+        +addVersion() AssetFileVersion
+        +archive() bool
+    }
+
+    class AssetFileVersion {
+        +UUID id
+        +UUID file_id
+        +int version
+        +string file_path
+        +BigInteger file_size
+        +string checksum
+        +text changelog
+        +UUID uploaded_by
+        +datetime created_at
+    }
+
+    Asset "1" --> "*" AssetFile : has
+    AssetFile "1" --> "*" AssetFileVersion : has
 
     class AssetHistory {
         +UUID id
@@ -175,6 +274,8 @@ classDiagram
 ```
 
 ### 1.3 环境管理类图
+
+> **说明**：本模块为靶场环境管理功能，相关类暂保持为空实现，待后续需求明确后再行开发。
 
 ```mermaid
 classDiagram
@@ -262,11 +363,19 @@ classDiagram
         +rollback() bool
     }
 
-    class DocumentPermission {
+    class DocumentAccess {
         +UUID id
         +UUID document_id
         +UUID user_id
-        +string permission
+        +string status
+        +text request_note
+        +UUID reviewed_by
+        +datetime reviewed_at
+        +text review_note
+        +datetime created_at
+        +requestAccess() DocumentAccess
+        +approve() bool
+        +reject() bool
     }
 
     class User {
@@ -275,8 +384,9 @@ classDiagram
     }
 
     Document "1" --> "*" DocumentVersion : has
-    Document "1" --> "*" DocumentPermission : controls
-    User "1" --> "*" Document : authors
+    User "1" --> "*" Document : owns
+    Document "1" --> "*" DocumentAccess : received
+    DocumentAccess "*" --> "1" User : requests
 ```
 
 ### 1.5 工具资源库类图

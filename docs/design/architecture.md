@@ -92,12 +92,11 @@ graph TB
     end
 
     subgraph Backend["后端技术栈"]
-        FastAPI["FastAPI"]
-        SQLAlchemy["SQLAlchemy"]
-        Pydantic["Pydantic"]
+        SpringBoot["Spring Boot"]
+        Hibernate["Hibernate JPA"]
         JWT["JWT认证"]
-        Celery["Celery异步任务"]
         RedisCache["Redis缓存"]
+        Quartz["Quartz定时任务"]
     end
 
     subgraph Database["数据存储"]
@@ -109,16 +108,15 @@ graph TB
     subgraph DevOps["DevOps"]
         Docker["Docker"]
         DockerCompose["Docker Compose"]
-        GitLab["GitLab CI/CD"]
+        Jenkins["Jenkins CI/CD"]
     end
     
     Vue3 --> Axios
-    Axios --> FastAPI
-    FastAPI --> SQLAlchemy
-    SQLAlchemy --> PostgreSQL
-    FastAPI --> RedisCache
-    FastAPI --> Celery
-    Celery --> MinIO
+    Axios --> SpringBoot
+    SpringBoot --> Hibernate
+    Hibernate --> PostgreSQL
+    SpringBoot --> RedisCache
+    SpringBoot --> MinIO
 ```
 
 ## 3. 部署架构图
