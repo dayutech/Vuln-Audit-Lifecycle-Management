@@ -165,12 +165,12 @@ DocumentVersion {
 ### 2.4 漏洞生命周期跟踪
 
 #### 2.4.1 功能描述
-实现从漏洞发现、验证、利用到厂商修复标记的全流程跟踪。
+实现从漏洞发现、验证、客户确认、利用开发、出场测试到交付归档的全流程跟踪。
 
 #### 2.4.2 漏洞状态流转
 ```
-发现 -> 验证 -> 利用分析 -> 报告编写 -> 归档关闭
-     -> 厂商修复跟踪 -> 已修复标记
+发现 -> 验证 -> 分析完成 -> 客户确认 -> 利用开发 -> 出场测试 -> 已交付 -> 归档关闭
+                                              \-> 厂商修复跟踪 -> 已修复标记
 ```
 
 #### 2.4.3 核心功能
@@ -178,6 +178,10 @@ DocumentVersion {
 - **状态变更**：跟踪漏洞状态变更历史
 - **处理进度**：可视化漏洞处理进度
 - **漏洞评级**：CVSS评分、内部评级
+- **客户确认**：跟踪客户是否确认接收漏洞
+- **利用开发**：记录漏洞利用代码开发阶段（探测、突破、控守）
+- **出场测试**：跟踪漏洞利用代码的测试进度
+- **交付管理**：记录漏洞交付状态和交付时间
 - **厂商修复跟踪**：跟踪目标厂商是否修复了该漏洞，标记为"已修复"
 - **关联资产**：管理与漏洞相关的资产
 
@@ -191,7 +195,17 @@ Vulnerability {
     type: String (漏洞类型)
     severity: Enum (critical/high/medium/low)
     cvss_score: Float
-    status: Enum (discovered|verified|analyzing|analyzed|reported|closed|fixed)
+    status: Enum (discovered|verified|analyzing|analyzed|customer_confirmed|exploit_development|field_testing|delivered|closed|fixed)
+    
+    customer_confirmed: Boolean (客户是否确认接收)
+    customer_confirmed_at: DateTime (客户确认时间)
+    exploit_stage: Enum (探测|突破|控守|已完成)
+    exploit_code: Text (利用代码)
+    field_test_status: Enum (待测试|测试中|测试通过|测试失败)
+    field_test_result: Text (测试结果)
+    delivered_at: DateTime (交付时间)
+    delivery_note: Text (交付备注)
+    
     vendor_notified: Boolean (是否已通知厂商)
     vendor_fixed: Boolean (厂商是否已修复)
     fixed_at: DateTime (修复时间)

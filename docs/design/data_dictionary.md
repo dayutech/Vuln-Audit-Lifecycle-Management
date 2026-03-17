@@ -143,7 +143,15 @@
 | type | VARCHAR(100) | 是 | - | 漏洞类型：SQL注入/XSS/RCE等 |
 | severity | VARCHAR(10) | 是 | 'medium' | 严重程度：critical/high/medium/low |
 | cvss_score | DECIMAL(3,1) | 否 | null | CVSS评分 |
-| status | VARCHAR(20) | 是 | 'discovered' | 状态：discovered/verified/analyzing/analyzed/reported/closed/rejected |
+| status | VARCHAR(30) | 是 | 'discovered' | 状态 |
+| customer_confirmed | BOOLEAN | 是 | false | 客户是否确认接收 |
+| customer_confirmed_at | TIMESTAMP | 否 | null | 客户确认时间 |
+| exploit_stage | VARCHAR(20) | 是 | '探测' | 利用阶段：探测/突破/控守/已完成 |
+| exploit_code | TEXT | 否 | null | 利用代码 |
+| field_test_status | VARCHAR(20) | 是 | '待测试' | 出场测试状态 |
+| field_test_result | TEXT | 否 | null | 测试结果 |
+| delivered_at | TIMESTAMP | 否 | null | 交付时间 |
+| delivery_note | TEXT | 否 | null | 交付备注 |
 | description | TEXT | 是 | - | 漏洞描述 |
 | impact | TEXT | 否 | null | 影响分析 |
 | poc_code | TEXT | 否 | null | POC代码 |
@@ -444,12 +452,31 @@
 | verified | 已验证 |
 | analyzing | 分析中 |
 | analyzed | 已分析 |
-| reported | 已报告 |
+| customer_confirmed | 客户已确认 |
+| exploit_development | 利用开发中 |
+| field_testing | 出场测试中 |
+| delivered | 已交付 |
 | closed | 已关闭 |
 | fixed | 厂商已修复 |
 | rejected | 已拒绝 |
 
-### 10.5 目标来源 (target_source)
+### 10.5 漏洞利用阶段 (exploit_stage)
+| 值 | 描述 |
+|----|------|
+| 探测 | 探测阶段 |
+| 突破 | 突破阶段 |
+| 控守 | 控守阶段 |
+| 已完成 | 利用代码完成 |
+
+### 10.6 出场测试状态 (field_test_status)
+| 值 | 描述 |
+|----|------|
+| 待测试 | 待出场测试 |
+| 测试中 | 出场测试中 |
+| 测试通过 | 测试通过 |
+| 测试失败 | 测试失败 |
+
+### 10.7 目标来源 (target_source)
 | 值 | 描述 |
 |----|------|
 | 客户委托 | 客户委托进行挖掘的目标 |

@@ -131,6 +131,14 @@ classDiagram
         +string severity
         +float cvss_score
         +string status
+        +boolean customer_confirmed
+        +datetime customer_confirmed_at
+        +string exploit_stage
+        +text exploit_code
+        +string field_test_status
+        +text field_test_result
+        +datetime delivered_at
+        +text delivery_note
         +boolean vendor_notified
         +boolean vendor_fixed
         +datetime fixed_at
@@ -143,6 +151,10 @@ classDiagram
         +create() Vulnerability
         +update_status() bool
         +assign() bool
+        +confirm_customer() bool
+        +update_exploit_stage() bool
+        +submit_field_test() bool
+        +mark_delivered() bool
         +mark_vendor_fixed() bool
     }
 

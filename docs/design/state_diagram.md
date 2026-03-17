@@ -9,9 +9,14 @@ stateDiagram-v2
     Discovered --> Rejected: 审核拒绝
     Verified --> Analyzing: 开始分析
     Analyzing --> Analyzed: 分析完成
-    Analyzed --> Reported: 报告编写完成
-    Reported --> Closed: 归档关闭
-    Reported --> Fixed: 厂商已修复
+    Analyzed --> CustomerConfirmed: 客户确认接收
+    Analyzed --> Rejected: 客户拒绝
+    CustomerConfirmed --> ExploitDev: 开始利用开发
+    ExploitDev --> FieldTesting: 出场测试
+    FieldTesting --> ExploitDev: 测试失败
+    FieldTesting --> Delivered: 测试通过
+    Delivered --> Closed: 归档交付
+    Delivered --> Fixed: 厂商已修复
     Fixed --> Closed: 归档
     Rejected --> [*]
     Closed --> [*]
@@ -33,12 +38,27 @@ stateDiagram-v2
     
     note right of Analyzed
         分析已完成
-        待编写报告
+        待客户确认
     end note
     
-    note right of Reported
-        漏洞报告已提交
-        完成归档
+    note right of CustomerConfirmed
+        客户确认接收漏洞
+        开始利用开发
+    end note
+    
+    note right of ExploitDev
+        利用代码开发
+        探测/突破/控守
+    end note
+    
+    note right of FieldTesting
+        出场测试
+        验证利用有效性
+    end note
+    
+    note right of Delivered
+        已交付客户
+        记录交付时间
     end note
     
     note right of Fixed

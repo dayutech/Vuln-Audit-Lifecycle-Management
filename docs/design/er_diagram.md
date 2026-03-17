@@ -101,6 +101,14 @@ erDiagram
         string severity
         float cvss_score
         string status
+        boolean customer_confirmed
+        timestamp customer_confirmed_at
+        string exploit_stage
+        text exploit_code
+        string field_test_status
+        text field_test_result
+        timestamp delivered_at
+        text delivery_note
         boolean vendor_notified
         boolean vendor_fixed
         timestamp fixed_at

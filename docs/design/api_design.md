@@ -618,7 +618,70 @@ Authorization: Bearer <token>
 }
 ```
 
-### 5.5 标记厂商修复
+### 5.5 客户确认接收
+
+**请求**
+```
+PUT /api/v1/vulnerabilities/{id}/customer-confirm
+Authorization: Bearer <token>
+```
+
+**请求体**
+```json
+{
+    "customer_confirmed": true,
+    "comment": "客户确认接收漏洞"
+}
+```
+
+### 5.6 更新利用阶段
+
+**请求**
+```
+PUT /api/v1/vulnerabilities/{id}/exploit-stage
+Authorization: Bearer <token>
+```
+
+**请求体**
+```json
+{
+    "exploit_stage": "突破",
+    "exploit_code": "利用代码内容"
+}
+```
+
+### 5.7 提交出场测试
+
+**请求**
+```
+POST /api/v1/vulnerabilities/{id}/field-test
+Authorization: Bearer <token>
+```
+
+**请求体**
+```json
+{
+    "field_test_status": "测试中",
+    "test_code": "测试代码"
+}
+```
+
+### 5.8 标记已交付
+
+**请求**
+```
+PUT /api/v1/vulnerabilities/{id}/deliver
+Authorization: Bearer <token>
+```
+
+**请求体**
+```json
+{
+    "delivery_note": "交付备注"
+}
+```
+
+### 5.9 标记厂商修复
 
 **请求**
 ```
@@ -634,7 +697,7 @@ Authorization: Bearer <token>
 }
 ```
 
-### 5.6 分配漏洞
+### 5.10 分配漏洞
 
 **请求**
 ```
@@ -649,7 +712,7 @@ Authorization: Bearer <token>
 }
 ```
 
-### 5.7 获取漏洞历史
+### 5.11 获取漏洞历史
 
 **请求**
 ```
@@ -657,7 +720,7 @@ GET /api/v1/vulnerabilities/{id}/history
 Authorization: Bearer <token>
 ```
 
-### 5.8 上传漏洞附件
+### 5.12 上传漏洞附件
 
 **请求**
 ```
