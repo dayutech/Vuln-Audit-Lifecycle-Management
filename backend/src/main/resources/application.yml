@@ -1,0 +1,29 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: vuln-audit-lifecycle-management
+  datasource:
+    url: jdbc:mysql://localhost:3306/vuln_audit?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: ${DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+
+jwt:
+  secret: ${JWT_SECRET:vuln-audit-secret-key-change-in-production}
+  expiration: 86400000
+  refresh-expiration: 604800000
+
+logging:
+  level:
+    com.vulnaudit: DEBUG
+    org.springframework.security: DEBUG
