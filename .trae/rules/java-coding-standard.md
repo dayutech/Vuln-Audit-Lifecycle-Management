@@ -1,115 +1,56 @@
 # Java Coding Standard
 
-This document defines coding standards for the Vuln-Audit-Lifecycle-Management backend project.
-
 ## 1. Project Structure
+com.vulnaudit包下：config(配置) | controller(控制器) | service(业务) | repository(持久化) | entity(实体) | dto(传输对象) | vo(视图对象) | enums(枚举) | exception(异常) | util(工具)
 
-Base package: com.vulnaudit
+## 2. Naming
+- Entity: AssetEntity
+- Repository: AssetRepository
+- Service: AssetService / AssetServiceImpl
+- Controller: AssetController
+- DTO: CreateAssetRequestDTO / AssetResponseDTO
+- VO: AssetDetailVO
+- 方法/变量: camelCase
+- 常量: UPPER_SNAKE_CASE
 
-- config: Configuration classes
-- controller: REST controllers
-- service: Business logic layer
-- repository: Data access layer
-- entity: Domain entities
-- dto: Data transfer objects (Request/Response)
-- vo: View objects
-- enums: Enumerations
-- exception: Custom exceptions
-- util: Utility classes
-- security: Security related classes
-- mapper: DTO/VO to Entity mappers
+## 3. Controller
+- @RestController + @RequestMapping
+- @RequiredArgsConstructor依赖注入
+- 请求/响应使用DTO，与Entity分离
+- @Valid + 注解验证 (@NotNull, @NotBlank, @Size等)
+- GET查询 / POST创建 / PUT更新 / DELETE删除
+- 列表使用分页
 
-## 2. Naming Conventions
+## 4. Service
+- @Service注解
+- @Transactional事务控制
+- @Transactional(readOnly = true)只读方法
+- 重要操作需日志记录
 
-### Class Naming
+## 5. Repository
+- 继承JpaRepository
+- 复杂查询用@Query + @Param
 
-| Type | Convention | Example |
-|------|------------|---------|
-| Entity | EntityName + Entity | AssetEntity |
-| Repository | EntityName + Repository | AssetRepository |
-| Service | EntityName + Service | AssetService |
-| Service Impl | EntityName + ServiceImpl | AssetServiceImpl |
-| Controller | EntityName + Controller | AssetController |
-| DTO | EntityName + DTO | AssetDTO, CreateAssetRequestDTO |
-| VO | EntityName + VO | AssetVO, AssetDetailVO |
-| Enum | Name + Enum | AssetStatusEnum |
+## 6. DTO/VO
+- 请求/响应分别定义
+- 添加验证注解
+- @Valid级联验证
 
-### Variable Naming
+## 7. Entity
+- JPA注解映射
+- Lombok: @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
+- @EntityListeners(AuditingEntityListener.class)自动时间戳
 
-- Variables and methods: camelCase
-- Constants: UPPER_SNAKE_CASE
-- Boolean variables: prefix with is, has, can
-
-## 3. REST Controller
-
-- Use @RestController and @RequestMapping
-- Use @RequiredArgsConstructor for dependency injection
-- Use DTO for request and response, separate from Entity
-- Validate all user input using @Valid annotation
-- Use validation constraints in DTO: @NotNull, @NotBlank, @Size, @Pattern, etc.
-- Follow standard HTTP methods: GET for query, POST for create, PUT for update, DELETE for delete
-- Return appropriate HTTP status codes
-- Use pagination for list endpoints
-
-## 4. Service Layer
-
-- Use @Service annotation
-- Use @Transactional for business operations
-- Use @Transactional(readOnly = true) for read-only methods
-- Include logging for important operations
-- Validate input parameters
-
-## 5. Repository Layer
-
-- Extend JpaRepository
-- Use Spring Data JPA query method naming conventions
-- Use @Query for complex queries
-- Use @Param for query parameters
-
-## 6. DTO Design
-
-- Use separate DTOs for request and response
-- Add validation constraints: @NotNull, @NotBlank, @Size, @Min, @Max, @Pattern, @Email, etc.
-- Use @Valid on nested objects
-- Group validation constraints by scenario: create, update
-
-## 7. Entity Design
-
-- Use JPA annotations for mapping
-- Use Lombok annotations: @Getter, @Setter, @Builder, @NoArgsConstructor, @AllArgsConstructor
-- Use @EntityListeners(AuditingEntityListener.class) for automatic timestamp
-- Define proper relationships between entities
-- Use appropriate fetch types
-
-## 8. Exception Handling
-
-- Create custom exception classes extending RuntimeException
-- Use @RestControllerAdvice for global exception handling
-- Return appropriate HTTP status codes
-- Log errors appropriately
+## 8. Exception
+- 自定义异常继承RuntimeException
+- @RestControllerAdvice全局处理
+- 统一返回HTTP状态码
 
 ## 9. Security
+- Spring Security + JWT
+- 接口权限校验
 
-- Use Spring Security for authentication and authorization
-- Use JWT for stateless authentication
-- Configure appropriate security filters
-- Validate permissions for each endpoint
-
-## 10. API Response Format
-
-- Standard success response with success flag and data
-- Standard error response with error code and message
-- Paginated response with items, total, page, pageSize
-
-## 11. Testing
-
-- Write unit tests for service layer
-- Use Mockito for mocking dependencies
-- Follow test naming conventions
-- Test both success and failure scenarios
-
----
-
-| Version | Date | Description |
-|---------|------|-------------|
-| 1.0 | 2024-01-01 | Initial version |
+## 10. API Response
+- 成功: {success: true, data: ...}
+- 错误: {success: false, code, message}
+- 分页: {items: [], total, page, pageSize}

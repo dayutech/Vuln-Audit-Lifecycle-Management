@@ -13,6 +13,9 @@ erDiagram
     ASSETS ||--o{ ASSET_GROUP_RELATIONS : ""
     ASSETS ||--o{ ASSET_CLAIMS : "认领"
     ASSETS ||--o{ ASSET_FILES : "包含"
+    ASSETS ||--o{ ASSET_APP_METADATA : "应用元数据"
+    ASSET_APP_METADATA ||--o{ ASSET_APP_METADATA_HISTORY : "版本历史"
+    ASSETS }o--o{ ASSET_TAGS : "标签"
     ASSET_FILES ||--o{ ASSET_FILE_VERSIONS : "版本"
     USERS ||--o{ ASSET_CLAIMS : "认领"
     USERS ||--o{ ASSET_FILES : "上传"
@@ -76,6 +79,14 @@ erDiagram
         uuid group_id PK,FK
     }
     
+    ASSET_TAGS {
+        uuid id PK
+        uuid asset_id FK
+        string tag
+        uuid created_by FK
+        timestamp created_at
+    }
+    
     ASSET_HISTORY {
         uuid id PK
         uuid asset_id FK
@@ -129,7 +140,52 @@ erDiagram
         uuid uploaded_by FK
         timestamp created_at
     }
-```
+    
+    ASSET_APP_METADATA {
+        uuid id PK
+        uuid asset_id FK
+        uuid claimed_by FK
+        int version
+        string system_architecture
+        string install_path
+        string startup_script_path
+        string config_file_path
+        string startup_command
+        string programming_language
+        string framework
+        string database_type
+        string database_connection
+        string admin_username
+        string admin_password_encrypted
+        string service_ports
+        string api_endpoints
+        text special_notes
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    ASSET_APP_METADATA_HISTORY {
+        uuid id PK
+        uuid metadata_id FK
+        int version
+        uuid changed_by FK
+        string change_reason
+        string system_architecture
+        string install_path
+        string startup_script_path
+        string config_file_path
+        string startup_command
+        string programming_language
+        string framework
+        string database_type
+        string database_connection
+        string admin_username
+        string admin_password_encrypted
+        string service_ports
+        string api_endpoints
+        text special_notes
+        timestamp created_at
+    }
 
 ## 2. 漏洞管理实体关系
 
@@ -140,6 +196,7 @@ erDiagram
     USERS ||--o{ VULNERABILITIES : "分配"
     VULNERABILITIES ||--o{ VULNERABILITY_HISTORY : "记录"
     VULNERABILITIES ||--o{ VULNERABILITY_ATTACHMENTS : "附件"
+    VULNERABILITIES }o--o{ VULNERABILITY_TAGS : "标签"
     
     VULNERABILITIES {
         uuid id PK
@@ -186,6 +243,14 @@ erDiagram
         string file_path
         string file_type
         uuid uploaded_by FK
+        timestamp created_at
+    }
+    
+    VULNERABILITY_TAGS {
+        uuid id PK
+        uuid vulnerability_id FK
+        string tag
+        uuid created_by FK
         timestamp created_at
     }
 ```
@@ -243,6 +308,7 @@ erDiagram
     ASSETS ||--o{ DOCUMENTS : "关联"
     DOCUMENTS ||--o{ DOCUMENT_VERSIONS : "版本"
     DOCUMENTS ||--o{ DOCUMENT_ACCESS : "访问申请"
+    DOCUMENTS }o--o{ DOCUMENT_TAGS : "标签"
     USERS ||--o{ DOCUMENT_ACCESS : "申请"
     
     DOCUMENTS {
@@ -277,6 +343,14 @@ erDiagram
         uuid reviewed_by FK
         timestamp reviewed_at
         text review_note
+        timestamp created_at
+    }
+    
+    DOCUMENT_TAGS {
+        uuid id PK
+        uuid document_id FK
+        string tag
+        uuid created_by FK
         timestamp created_at
     }
 ```
@@ -606,6 +680,8 @@ erDiagram
     ASSETS ||--o{ DOCUMENTS : ""
     ASSETS ||--o{ ASSET_CLAIMS : ""
     ASSETS ||--o{ ASSET_FILES : ""
+    ASSETS ||--o{ ASSET_APP_METADATA : ""
+    ASSET_APP_METADATA ||--o{ ASSET_APP_METADATA_HISTORY : ""
     ASSET_FILES ||--o{ ASSET_FILE_VERSIONS : ""
     
     ENVIRONMENT_TEMPLATES ||--o{ ENVIRONMENTS : ""

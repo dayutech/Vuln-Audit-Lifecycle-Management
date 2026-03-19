@@ -103,6 +103,52 @@ AssetFile {
     updated_at: DateTime
 }
 
+AssetAppMetadata {
+    id: UUID
+    asset_id: UUID (关联资产，认领后填写)
+    claimed_by: UUID (认领人/安全工程师)
+    version: Integer (当前版本号)
+    system_architecture: String (系统架构：x86/arm/mips等)
+    install_path: String (安装路径)
+    startup_script_path: String (启动脚本位置)
+    config_file_path: String (配置文件位置)
+    startup_command: String (启动命令)
+    programming_language: String (采用语言)
+    framework: String (使用框架)
+    database_type: String (数据库类型)
+    database_connection: String (数据库连接信息，仅存储连接字符串模板)
+    admin_username: String (管理员用户名)
+    admin_password_encrypted: String (管理员密码，加密存储)
+    service_ports: String (服务端口，多个用逗号分隔)
+    api_endpoints: String (API端点列表)
+    special_notes: Text (特殊说明)
+    created_at: DateTime
+    updated_at: DateTime
+}
+
+AssetAppMetadataHistory {
+    id: UUID
+    metadata_id: UUID (关联主表)
+    version: Integer (版本号)
+    changed_by: UUID (修改人)
+    change_reason: String (修改理由，必填)
+    system_architecture: String
+    install_path: String
+    startup_script_path: String
+    config_file_path: String
+    startup_command: String
+    programming_language: String
+    framework: String
+    database_type: String
+    database_connection: String
+    admin_username: String
+    admin_password_encrypted: String
+    service_ports: String
+    api_endpoints: String
+    special_notes: Text
+    created_at: DateTime
+}
+
 AssetFileVersion {
     id: UUID
     file_id: UUID
@@ -300,7 +346,6 @@ Tool {
     id: UUID
     name: String
     category: String
-    tags: Array(String)
     description: Text
     version: String
     file_path: String
@@ -318,6 +363,14 @@ ToolVersion {
     version: String
     file_path: String
     changelog: String
+    created_by: UUID
+    created_at: DateTime
+}
+
+ToolTag {
+    id: UUID
+    tool_id: UUID
+    tag: String
     created_by: UUID
     created_at: DateTime
 }
@@ -488,7 +541,6 @@ KnowledgeArticle {
     id: UUID
     title: String
     category: String
-    tags: Array(String)
     content: Text
     author_id: UUID
     view_count: Integer
@@ -497,12 +549,19 @@ KnowledgeArticle {
     updated_at: DateTime
 }
 
-```
 KnowledgeComment {
     id: UUID
     article_id: UUID
     user_id: UUID
     content: Text
+    created_at: DateTime
+}
+
+KnowledgeTag {
+    id: UUID
+    article_id: UUID
+    tag: String
+    created_by: UUID
     created_at: DateTime
 }
 ```
@@ -624,8 +683,8 @@ StatCache {
 ### 4.2 技术选型
 - 后端: Java Spring Boot
 - 前端: React / Vue.js
-- 数据库: PostgreSQL + Redis
-- 文件存储: 本地存储 / 对象存储(MinIO)
+- 数据库: MariaDB + Redis
+- 文件存储: 本地存储（当前阶段），预留对象存储(MinIO/S3)接口
 - 容器化: Docker
 - 构建工具: Maven
 

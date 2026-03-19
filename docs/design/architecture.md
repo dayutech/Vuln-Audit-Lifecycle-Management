@@ -29,17 +29,18 @@ graph TB
 
     subgraph Service_Layer["服务层"]
         User_Service["用户服务"]
-        File_Service["文件服务"]
+        File_Service["文件服务(本地存储，预留对象存储接口)"]
         Search_Service["搜索服务"]
         Notification_Service["通知服务"]
         Backup_Service["备份服务"]
     end
 
     subgraph Data_Layer["数据层"]
-        PostgreSQL["PostgreSQL数据库"]
+        MariaDB["MariaDB数据库"]
         Redis["Redis缓存"]
-        File_Store["文件存储"]
+        File_Store["文件存储(本地)"]
         Backup_Store["备份存储"]
+        ObjectStorage["对象存储(预留接口)"]
     end
 
     Web --> Nginx
@@ -69,13 +70,13 @@ graph TB
     User_Service --> Notification_Service
     
     File_Service --> File_Store
-    Search_Service --> PostgreSQL
+    Search_Service --> MariaDB
     Notification_Service --> Redis
     Backup_Service --> Backup_Store
     
-    User_Service --> PostgreSQL
-    File_Service --> PostgreSQL
-    Search_Service --> PostgreSQL
+    User_Service --> MariaDB
+    File_Service --> MariaDB
+    Search_Service --> MariaDB
 ```
 
 ## 2. 技术架构图
@@ -100,23 +101,18 @@ graph TB
     end
 
     subgraph Database["数据存储"]
-        PostgreSQL["PostgreSQL"]
+        MariaDB["MariaDB"]
         Redis["Redis"]
-        MinIO["MinIO对象存储"]
-    end
-
-    subgraph DevOps["DevOps"]
-        Docker["Docker"]
-        DockerCompose["Docker Compose"]
-        Jenkins["Jenkins CI/CD"]
+        LocalStorage["本地文件存储(当前)"]
+        ObjectStorage["对象存储(预留接口)"]
     end
     
     Vue3 --> Axios
     Axios --> SpringBoot
     SpringBoot --> Hibernate
-    Hibernate --> PostgreSQL
+    Hibernate --> MariaDB
     SpringBoot --> RedisCache
-    SpringBoot --> MinIO
+    SpringBoot --> LocalStorage
 ```
 
 ## 3. 部署架构图
@@ -139,10 +135,11 @@ graph TB
     end
 
     subgraph Data_Zone["数据区"]
-        MasterDB["PostgreSQL主库"]
-        SlaveDB["PostgreSQL从库"]
+        MasterDB["MariaDB主库"]
+        SlaveDB["MariaDB从库"]
         Cache["Redis集群"]
-        ObjectStore["MinIO对象存储"]
+        LocalStorage["本地文件存储(当前)"]
+        ObjectStorage["对象存储(预留接口)"]
     end
 
     subgraph Monitor["监控区"]

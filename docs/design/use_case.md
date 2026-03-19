@@ -151,7 +151,7 @@ graph TD
     UC3 --> Validate
     UC6 --> History["历史记录服务"]
     UC8 --> AccessControl["访问控制服务"]
-    UC11 --> FileService["文件服务"]
+    UC11 --> FileService["文件服务(本地存储，预留对象存储接口)"]
     UC12 --> FileService
     UC13 --> FileService
     UC14 --> FileService
@@ -295,7 +295,7 @@ graph TD
     Admin --> UC5
     Admin --> UC7
     
-    UC1 --> FileStore["文件存储"]
+    UC1 --> FileStore["文件存储(本地，预留对象存储接口)"]
     UC3 --> Search["搜索服务"]
     UC4 --> FileStore
     UC5 --> Version["版本控制"]
@@ -465,6 +465,11 @@ graph TD
 | UC-ASSET-007 | 下载资产文件 | 漏洞工程师 | 下载已授权的资产文件进行漏洞分析 |
 | UC-ASSET-008 | 管理文件版本 | 漏洞工程师 | 上传新版本文件并保留历史版本 |
 | UC-ASSET-009 | 删除资产文件 | 漏洞工程师 | 删除资产关联的文件 |
+| UC-ASSET-010 | 查看应用元数据 | 认领工程师 | 查看资产的应用元数据信息（当前版本） |
+| UC-ASSET-011 | 填写应用元数据 | 认领工程师 | 首次填写应用元数据（version=1） |
+| UC-ASSET-012 | 更新应用元数据 | 认领工程师 | 更新元数据并保留历史，每次必须填写修改理由 |
+| UC-ASSET-013 | 查看历史版本 | 认领工程师 | 查看应用元数据的所有历史版本列表 |
+| UC-ASSET-014 | 查看版本详情 | 认领工程师 | 查看指定历史版本的完整信息 |
 | UC-ENV-001 | 创建环境 | 漏洞工程师 | 基于模板创建新环境 |
 | UC-ENV-002 | 环境快照 | 漏洞工程师 | 保存当前环境配置快照 |
 | UC-DOC-001 | 在线创建文档 | 漏洞工程师 | 在线创建新的挖掘文档，选择类型和关联资产 |

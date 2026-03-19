@@ -1010,6 +1010,328 @@ Authorization: Bearer <token>
 
 **响应 204**
 
+### 4.22 获取资产的标签列表
+
+**请求**
+```
+GET /api/v1/assets/{id}/tags
+Authorization: Bearer <token>
+```
+
+**响应 200**
+```json
+{
+    "items": [
+        {
+            "id": "uuid",
+            "tag": "高危",
+            "created_by": {
+                "id": "uuid",
+                "username": "string"
+            },
+            "created_at": "datetime"
+        }
+    ]
+}
+```
+
+### 4.23 添加标签到资产
+
+**请求**
+```
+POST /api/v1/assets/{id}/tags
+Authorization: Bearer <token>
+```
+
+**请求体**
+```json
+{
+    "tag": "高危"
+}
+```
+
+**响应 201**
+```json
+{
+    "id": "uuid",
+    "asset_id": "uuid",
+    "tag": "高危",
+    "created_by": "uuid",
+    "created_at": "datetime"
+}
+```
+
+### 4.24 移除资产的标签
+
+**请求**
+```
+DELETE /api/v1/assets/{asset_id}/tags/{tag_id}
+Authorization: Bearer <token>
+```
+
+**响应 204**
+
+### 4.25 获取资产的应用元数据
+
+> **说明**：获取资产的应用元数据信息（当前版本），只有认领人才能查看和编辑
+
+**请求**
+```
+GET /api/v1/assets/{asset_id}/metadata
+Authorization: Bearer <token>
+```
+
+**响应 200**
+```json
+{
+    "id": "uuid",
+    "asset_id": "uuid",
+    "claimed_by": {
+        "id": "uuid",
+        "username": "string"
+    },
+    "version": 2,
+    "system_architecture": "x86_64",
+    "install_path": "/opt/app",
+    "startup_script_path": "/opt/app/start.sh",
+    "config_file_path": "/opt/app/config/application.yml",
+    "startup_command": "./start.sh",
+    "programming_language": "Java",
+    "framework": "Spring Boot",
+    "database_type": "MySQL",
+    "database_connection": "jdbc:mysql://localhost:3306/db",
+    "admin_username": "admin",
+    "admin_password_encrypted": "***",
+    "service_ports": "8080,3306",
+    "api_endpoints": "/api/v1/users,/api/v1/products",
+    "special_notes": "需要先启动MySQL服务",
+    "created_at": "datetime",
+    "updated_at": "datetime"
+}
+```
+
+**响应 404**（未填写元数据）
+```json
+{
+    "success": false,
+    "code": "METADATA_NOT_FOUND",
+    "message": "该资产尚未填写应用元数据"
+}
+```
+
+### 4.26 创建资产应用元数据（首次）
+
+> **说明**：认领资产后首次填写应用元数据
+
+**请求**
+```
+POST /api/v1/assets/{asset_id}/metadata
+Authorization: Bearer <token>
+```
+
+**请求体**
+```json
+{
+    "system_architecture": "x86_64",
+    "install_path": "/opt/app",
+    "startup_script_path": "/opt/app/start.sh",
+    "config_file_path": "/opt/app/config/application.yml",
+    "startup_command": "./start.sh",
+    "programming_language": "Java",
+    "framework": "Spring Boot",
+    "database_type": "MySQL",
+    "database_connection": "jdbc:mysql://localhost:3306/db",
+    "admin_username": "admin",
+    "admin_password": "password123",
+    "service_ports": "8080,3306",
+    "api_endpoints": "/api/v1/users,/api/v1/products",
+    "special_notes": "需要先启动MySQL服务"
+}
+```
+
+**响应 201**
+```json
+{
+    "id": "uuid",
+    "asset_id": "uuid",
+    "claimed_by": {
+        "id": "uuid",
+        "username": "string"
+    },
+    "version": 1,
+    "system_architecture": "x86_64",
+    "install_path": "/opt/app",
+    "startup_script_path": "/opt/app/start.sh",
+    "config_file_path": "/opt/app/config/application.yml",
+    "startup_command": "./start.sh",
+    "programming_language": "Java",
+    "framework": "Spring Boot",
+    "database_type": "MySQL",
+    "database_connection": "jdbc:mysql://localhost:3306/db",
+    "admin_username": "admin",
+    "admin_password_encrypted": "***",
+    "service_ports": "8080,3306",
+    "api_endpoints": "/api/v1/users,/api/v1/products",
+    "special_notes": "需要先启动MySQL服务",
+    "created_at": "datetime",
+    "updated_at": "datetime"
+}
+```
+
+**响应 403**（非认领人）
+```json
+{
+    "success": false,
+    "code": "NOT_CLAIMED",
+    "message": "只有认领人才能填写应用元数据，请先认领该资产"
+}
+```
+
+### 4.27 更新资产应用元数据
+
+> **说明**：更新应用元数据，每次更新必须填写修改理由。系统会保留所有历史版本
+
+**请求**
+```
+PUT /api/v1/assets/{asset_id}/metadata
+Authorization: Bearer <token>
+```
+
+**请求体**
+```json
+{
+    "change_reason": "发现新的配置信息，更新数据库连接字符串",
+    "system_architecture": "x86_64",
+    "install_path": "/opt/app",
+    "startup_script_path": "/opt/app/start.sh",
+    "config_file_path": "/opt/app/config/application.yml",
+    "startup_command": "./start.sh",
+    "programming_language": "Java",
+    "framework": "Spring Boot",
+    "database_type": "MySQL",
+    "database_connection": "jdbc:mysql://db-server:3306/db",
+    "admin_username": "admin",
+    "admin_password": "newpassword",
+    "service_ports": "8080,3306,6379",
+    "api_endpoints": "/api/v1/users,/api/v1/products,/api/v1/orders",
+    "special_notes": "需要先启动MySQL服务"
+}
+```
+
+**响应 200**
+```json
+{
+    "id": "uuid",
+    "asset_id": "uuid",
+    "claimed_by": {
+        "id": "uuid",
+        "username": "string"
+    },
+    "version": 2,
+    "system_architecture": "x86_64",
+    "install_path": "/opt/app",
+    "startup_script_path": "/opt/app/start.sh",
+    "config_file_path": "/opt/app/config/application.yml",
+    "startup_command": "./start.sh",
+    "programming_language": "Java",
+    "framework": "Spring Boot",
+    "database_type": "MySQL",
+    "database_connection": "jdbc:mysql://db-server:3306/db",
+    "admin_username": "admin",
+    "admin_password_encrypted": "***",
+    "service_ports": "8080,3306,6379",
+    "api_endpoints": "/api/v1/users,/api/v1/products,/api/v1/orders",
+    "special_notes": "需要先启动MySQL服务",
+    "created_at": "datetime",
+    "updated_at": "datetime"
+}
+```
+
+**响应 400**（未填写修改理由）
+```json
+{
+    "success": false,
+    "code": "CHANGE_REASON_REQUIRED",
+    "message": "修改应用元数据时必须填写修改理由"
+}
+```
+
+### 4.28 获取应用元数据历史版本
+
+> **说明**：获取应用元数据的所有历史版本，点击"查看更多"可展开查看每个版本的修改理由
+
+**请求**
+```
+GET /api/v1/assets/{asset_id}/metadata/history
+Authorization: Bearer <token>
+```
+
+**响应 200**
+```json
+{
+    "current_version": 2,
+    "items": [
+        {
+            "version": 2,
+            "changed_by": {
+                "id": "uuid",
+                "username": "string"
+            },
+            "change_reason": "发现新的配置信息，更新数据库连接字符串",
+            "created_at": "2024-02-15T10:30:00Z",
+            "summary": "修改了database_connection, service_ports, api_endpoints"
+        },
+        {
+            "version": 1,
+            "changed_by": {
+                "id": "uuid",
+                "username": "string"
+            },
+            "change_reason": "首次填写应用元数据",
+            "created_at": "2024-01-10T09:00:00Z",
+            "summary": "初始版本"
+        }
+    ]
+}
+```
+
+### 4.29 获取应用元数据指定版本详情
+
+> **说明**：查看某个历史版本的完整元数据信息
+
+**请求**
+```
+GET /api/v1/assets/{asset_id}/metadata/{version}
+Authorization: Bearer <token>
+```
+
+**响应 200**
+```json
+{
+    "version": 1,
+    "changed_by": {
+        "id": "uuid",
+        "username": "string"
+    },
+    "change_reason": "首次填写应用元数据",
+    "system_architecture": "x86_64",
+    "install_path": "/opt/app",
+    "startup_script_path": "/opt/app/start.sh",
+    "config_file_path": "/opt/app/config/application.yml",
+    "startup_command": "./start.sh",
+    "programming_language": "Java",
+    "framework": "Spring Boot",
+    "database_type": "MySQL",
+    "database_connection": "jdbc:mysql://localhost:3306/db",
+    "admin_username": "admin",
+    "admin_password_encrypted": "***",
+    "service_ports": "8080,3306",
+    "api_endpoints": "/api/v1/users,/api/v1/products",
+    "special_notes": "需要先启动MySQL服务",
+    "created_at": "2024-01-10T09:00:00Z"
+}
+```
+
 ---
 
 ## 5. 漏洞管理模块 API
@@ -1226,6 +1548,67 @@ Content-Type: multipart/form-data
 file: binary
 description: string
 ```
+
+### 5.13 获取漏洞的标签列表
+
+**请求**
+```
+GET /api/v1/vulnerabilities/{id}/tags
+Authorization: Bearer <token>
+```
+
+**响应 200**
+```json
+{
+    "items": [
+        {
+            "id": "uuid",
+            "tag": "严重",
+            "created_by": {
+                "id": "uuid",
+                "username": "string"
+            },
+            "created_at": "datetime"
+        }
+    ]
+}
+```
+
+### 5.14 添加标签到漏洞
+
+**请求**
+```
+POST /api/v1/vulnerabilities/{id}/tags
+Authorization: Bearer <token>
+```
+
+**请求体**
+```json
+{
+    "tag": "严重"
+}
+```
+
+**响应 201**
+```json
+{
+    "id": "uuid",
+    "vulnerability_id": "uuid",
+    "tag": "严重",
+    "created_by": "uuid",
+    "created_at": "datetime"
+}
+```
+
+### 5.15 移除漏洞的标签
+
+**请求**
+```
+DELETE /api/v1/vulnerabilities/{vulnerability_id}/tags/{tag_id}
+Authorization: Bearer <token>
+```
+
+**响应 204**
 
 ---
 
@@ -1547,6 +1930,67 @@ Query Parameters:
 
 > **说明**：全文检索文档内容
 
+### 7.13 获取文档的标签列表
+
+**请求**
+```
+GET /api/v1/documents/{id}/tags
+Authorization: Bearer <token>
+```
+
+**响应 200**
+```json
+{
+    "items": [
+        {
+            "id": "uuid",
+            "tag": "重要",
+            "created_by": {
+                "id": "uuid",
+                "username": "string"
+            },
+            "created_at": "datetime"
+        }
+    ]
+}
+```
+
+### 7.14 添加标签到文档
+
+**请求**
+```
+POST /api/v1/documents/{id}/tags
+Authorization: Bearer <token>
+```
+
+**请求体**
+```json
+{
+    "tag": "重要"
+}
+```
+
+**响应 201**
+```json
+{
+    "id": "uuid",
+    "document_id": "uuid",
+    "tag": "重要",
+    "created_by": "uuid",
+    "created_at": "datetime"
+}
+```
+
+### 7.15 移除文档的标签
+
+**请求**
+```
+DELETE /api/v1/documents/{document_id}/tags/{tag_id}
+Authorization: Bearer <token>
+```
+
+**响应 204**
+
 ---
 
 ## 8. 工具资源库模块 API
@@ -1623,6 +2067,67 @@ POST /api/v1/tools/{id}/versions
 Authorization: Bearer <token>
 Content-Type: multipart/form-data
 ```
+
+### 8.8 获取工具的标签列表
+
+**请求**
+```
+GET /api/v1/tools/{id}/tags
+Authorization: Bearer <token>
+```
+
+**响应 200**
+```json
+{
+    "items": [
+        {
+            "id": "uuid",
+            "tag": "string",
+            "created_by": {
+                "id": "uuid",
+                "username": "string"
+            },
+            "created_at": "datetime"
+        }
+    ]
+}
+```
+
+### 8.9 添加标签到工具
+
+**请求**
+```
+POST /api/v1/tools/{id}/tags
+Authorization: Bearer <token>
+```
+
+**请求体**
+```json
+{
+    "tag": "string"
+}
+```
+
+**响应 201**
+```json
+{
+    "id": "uuid",
+    "tool_id": "uuid",
+    "tag": "string",
+    "created_by": "uuid",
+    "created_at": "datetime"
+}
+```
+
+### 8.10 移除工具的标签
+
+**请求**
+```
+DELETE /api/v1/tools/{tool_id}/tags/{tag_id}
+Authorization: Bearer <token>
+```
+
+**响应 204**
 
 ---
 
@@ -1780,6 +2285,67 @@ Authorization: Bearer <token>
     "content": "string"
 }
 ```
+
+### 10.6 获取知识文章的标签列表
+
+**请求**
+```
+GET /api/v1/knowledge/{id}/tags
+Authorization: Bearer <token>
+```
+
+**响应 200**
+```json
+{
+    "items": [
+        {
+            "id": "uuid",
+            "tag": "string",
+            "created_by": {
+                "id": "uuid",
+                "username": "string"
+            },
+            "created_at": "datetime"
+        }
+    ]
+}
+```
+
+### 10.7 添加标签到知识文章
+
+**请求**
+```
+POST /api/v1/knowledge/{id}/tags
+Authorization: Bearer <token>
+```
+
+**请求体**
+```json
+{
+    "tag": "string"
+}
+```
+
+**响应 201**
+```json
+{
+    "id": "uuid",
+    "article_id": "uuid",
+    "tag": "string",
+    "created_by": "uuid",
+    "created_at": "datetime"
+}
+```
+
+### 10.8 移除知识文章的标签
+
+**请求**
+```
+DELETE /api/v1/knowledge/{article_id}/tags/{tag_id}
+Authorization: Bearer <token>
+```
+
+**响应 204**
 
 ---
 

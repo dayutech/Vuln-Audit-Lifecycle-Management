@@ -235,7 +235,7 @@ sequenceDiagram
     participant Frontend as 前端应用
     participant ToolAPI as 工具API
     participant ToolService as 工具服务
-    participant FileService as 文件服务
+    participant FileService as 文件服务(本地存储，预留对象存储接口)
     participant ToolRepo as 工具仓储
     participant SearchService as 搜索服务
 
@@ -358,8 +358,8 @@ sequenceDiagram
     participant System as 系统
     participant BackupScheduler as 备份调度器
     participant BackupService as 备份服务
-    participant Database as PostgreSQL
-    participant FileStorage as 文件存储
+    participant Database as MariaDB
+    participant FileStorage as 文件存储(本地，预留对象存储接口)
     participant BackupStorage as 备份存储
 
     BackupScheduler->>BackupService: 触发每日备份

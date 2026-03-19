@@ -143,7 +143,17 @@
 | asset_id | UUID | 是 | - | 外键，关联assets表 |
 | group_id | UUID | 是 | - | 外键，关联asset_groups表 |
 
-### 2.4 资产历史表 (asset_history)
+### 2.4 资产标签表 (asset_tags)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| asset_id | UUID | 是 | - | 外键，关联assets表 |
+| tag | VARCHAR(50) | 是 | - | 标签名称 |
+| created_by | UUID | 是 | - | 外键，关联users表，创建人 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+
+### 2.5 资产历史表 (asset_history)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -205,6 +215,56 @@
 | uploaded_by | UUID | 是 | - | 外键，关联users表 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 
+### 2.8 资产应用元数据表 (asset_app_metadata)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| asset_id | UUID | 是 | - | 外键，关联assets表 |
+| claimed_by | UUID | 是 | - | 外键，关联users表（认领人） |
+| version | INTEGER | 是 | 1 | 当前版本号 |
+| system_architecture | VARCHAR(50) | 否 | null | 系统架构：x86/arm/mips等 |
+| install_path | VARCHAR(500) | 否 | null | 安装路径 |
+| startup_script_path | VARCHAR(500) | 否 | null | 启动脚本位置 |
+| config_file_path | VARCHAR(500) | 否 | null | 配置文件位置 |
+| startup_command | VARCHAR(1000) | 否 | null | 启动命令 |
+| programming_language | VARCHAR(100) | 否 | null | 采用语言 |
+| framework | VARCHAR(100) | 否 | null | 使用框架 |
+| database_type | VARCHAR(50) | 否 | null | 数据库类型 |
+| database_connection | VARCHAR(500) | 否 | null | 数据库连接信息（仅存储连接字符串模板） |
+| admin_username | VARCHAR(100) | 否 | null | 管理员用户名 |
+| admin_password_encrypted | VARCHAR(255) | 否 | null | 管理员密码（加密存储） |
+| service_ports | VARCHAR(200) | 否 | null | 服务端口（多个用逗号分隔） |
+| api_endpoints | TEXT | 否 | null | API端点列表 |
+| special_notes | TEXT | 否 | null | 特殊说明 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+| updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
+
+### 2.9 资产应用元数据历史表 (asset_app_metadata_history)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| metadata_id | UUID | 是 | - | 外键，关联asset_app_metadata表 |
+| version | INTEGER | 是 | - | 版本号 |
+| changed_by | UUID | 是 | - | 外键，关联users表（修改人） |
+| change_reason | VARCHAR(500) | 是 | - | 修改理由（必填） |
+| system_architecture | VARCHAR(50) | 否 | null | 系统架构 |
+| install_path | VARCHAR(500) | 否 | null | 安装路径 |
+| startup_script_path | VARCHAR(500) | 否 | null | 启动脚本位置 |
+| config_file_path | VARCHAR(500) | 否 | null | 配置文件位置 |
+| startup_command | VARCHAR(1000) | 否 | null | 启动命令 |
+| programming_language | VARCHAR(100) | 否 | null | 采用语言 |
+| framework | VARCHAR(100) | 否 | null | 使用框架 |
+| database_type | VARCHAR(50) | 否 | null | 数据库类型 |
+| database_connection | VARCHAR(500) | 否 | null | 数据库连接信息 |
+| admin_username | VARCHAR(100) | 否 | null | 管理员用户名 |
+| admin_password_encrypted | VARCHAR(255) | 否 | null | 管理员密码（加密存储） |
+| service_ports | VARCHAR(200) | 否 | null | 服务端口 |
+| api_endpoints | TEXT | 否 | null | API端点列表 |
+| special_notes | TEXT | 否 | null | 特殊说明 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+
 ---
 
 ## 3. 漏洞管理相关表
@@ -261,6 +321,16 @@
 | file_size | BIGINT | 否 | null | 文件大小(字节) |
 | uploaded_by | UUID | 是 | - | 外键，关联users表 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 上传时间 |
+
+### 3.4 漏洞标签表 (vulnerability_tags)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| vulnerability_id | UUID | 是 | - | 外键，关联vulnerabilities表 |
+| tag | VARCHAR(50) | 是 | - | 标签名称 |
+| created_by | UUID | 是 | - | 外键，关联users表，创建人 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 
 ---
 
@@ -352,6 +422,16 @@
 | reviewed_by | UUID | 否 | null | 外键，关联users表，审批人 |
 | reviewed_at | TIMESTAMP | 否 | null | 审批时间 |
 | review_note | TEXT | 否 | null | 审批备注 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+
+### 5.4 文档标签表 (document_tags)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| document_id | UUID | 是 | - | 外键，关联documents表 |
+| tag | VARCHAR(50) | 是 | - | 标签名称 |
+| created_by | UUID | 是 | - | 外键，关联users表，创建人 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 
 ---

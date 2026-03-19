@@ -151,8 +151,19 @@ classDiagram
         +UUID group_id
     }
 
+    class AssetTag {
+        +UUID id
+        +UUID asset_id
+        +string tag
+        +UUID created_by
+        +datetime created_at
+        +add() AssetTag
+        +remove() bool
+    }
+
     Asset "1" --> "*" AssetGroupRelation : has
     AssetGroup "1" --> "*" AssetGroupRelation : has
+    Asset "1" --> "*" AssetTag : has
 
     class AssetClaim {
         +UUID id
@@ -209,6 +220,57 @@ classDiagram
 
     Asset "1" --> "*" AssetFile : has
     AssetFile "1" --> "*" AssetFileVersion : has
+
+    class AssetAppMetadata {
+        +UUID id
+        +UUID asset_id
+        +UUID claimed_by
+        +int version
+        +string system_architecture
+        +string install_path
+        +string startup_script_path
+        +string config_file_path
+        +string startup_command
+        +string programming_language
+        +string framework
+        +string database_type
+        +string database_connection
+        +string admin_username
+        +string admin_password_encrypted
+        +string service_ports
+        +string api_endpoints
+        +text special_notes
+        +datetime created_at
+        +datetime updated_at
+        +create() AssetAppMetadata
+        +update(reason) AssetAppMetadata
+    }
+
+    class AssetAppMetadataHistory {
+        +UUID id
+        +UUID metadata_id
+        +int version
+        +UUID changed_by
+        +string change_reason
+        +string system_architecture
+        +string install_path
+        +string startup_script_path
+        +string config_file_path
+        +string startup_command
+        +string programming_language
+        +string framework
+        +string database_type
+        +string database_connection
+        +string admin_username
+        +string admin_password_encrypted
+        +string service_ports
+        +string api_endpoints
+        +text special_notes
+        +datetime created_at
+    }
+
+    Asset "1" --> "0..1" AssetAppMetadata : has
+    AssetAppMetadata "1" --> "*" AssetAppMetadataHistory : has
 
     class AssetHistory {
         +UUID id
@@ -268,9 +330,20 @@ classDiagram
         +create() VulnerabilityHistory
     }
 
+    class VulnerabilityTag {
+        +UUID id
+        +UUID vulnerability_id
+        +string tag
+        +UUID created_by
+        +datetime created_at
+        +add() VulnerabilityTag
+        +remove() bool
+    }
+
     Asset "1" --> "*" Vulnerability : contains
     Asset "1" --> "*" AssetHistory : has
     Vulnerability "1" --> "*" VulnerabilityHistory : tracks
+    Vulnerability "1" --> "*" VulnerabilityTag : has
 ```
 
 ### 1.3 环境管理类图
@@ -378,6 +451,16 @@ classDiagram
         +reject() bool
     }
 
+    class DocumentTag {
+        +UUID id
+        +UUID document_id
+        +string tag
+        +UUID created_by
+        +datetime created_at
+        +add() DocumentTag
+        +remove() bool
+    }
+
     class User {
         +UUID id
         +string username
@@ -386,6 +469,7 @@ classDiagram
     Document "1" --> "*" DocumentVersion : has
     User "1" --> "*" Document : owns
     Document "1" --> "*" DocumentAccess : received
+    Document "1" --> "*" DocumentTag : has
     DocumentAccess "*" --> "1" User : requests
 ```
 
