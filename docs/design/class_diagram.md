@@ -346,7 +346,73 @@ classDiagram
     Vulnerability "1" --> "*" VulnerabilityTag : has
 ```
 
-### 1.3 环境管理类图
+### 1.3 消息通知类图
+
+```mermaid
+classDiagram
+    class Notification {
+        +UUID id
+        +UUID user_id
+        +string type
+        +string title
+        +text content
+        +string related_type
+        +UUID related_id
+        +boolean is_read
+        +datetime read_at
+        +datetime created_at
+        +mark_as_read() bool
+    }
+
+    class NotificationSetting {
+        +UUID id
+        +UUID user_id
+        +string type
+        +boolean enabled
+        +boolean notify_email
+        +boolean notify_sms
+        +boolean notify_webhook
+        +update_setting() NotificationSetting
+    }
+
+    class NotificationRecipient {
+        +UUID id
+        +UUID notification_id
+        +UUID user_id
+        +string recipient_type
+        +string channel
+        +string send_status
+        +datetime sent_at
+        +string error_message
+        +datetime created_at
+    }
+
+    class SystemAnnouncement {
+        +UUID id
+        +string title
+        +text content
+        +JSON target_roles
+        +string priority
+        +datetime published_at
+        +datetime expires_at
+        +datetime created_at
+        +publish() bool
+    }
+
+    class NotificationService {
+        +send_email() bool
+        +send_sms() bool
+        +send_webhook() bool
+        +send_in_app() bool
+        +send_to_leaders() bool
+        +send_to_specific_users() bool
+    }
+
+    Notification "1" --> "*" NotificationRecipient : has
+    NotificationSetting "1" --> "*" Notification : configures
+```
+
+### 1.4 环境管理类图
 
 > **说明**：本模块为靶场环境管理功能，相关类暂保持为空实现，待后续需求明确后再行开发。
 
