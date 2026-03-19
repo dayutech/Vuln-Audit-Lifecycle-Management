@@ -756,12 +756,14 @@ Authorization: Bearer <token>
     "id": "uuid",
     "asset_id": "uuid",
     "user_id": "uuid",
-    "status": "pending",
+    "status": "approved",
     "claimed_at": "datetime",
     "note": "string",
     "created_at": "datetime"
 }
 ```
+
+> **说明**：资产认领为自动批准，无需人工审核
 
 ### 4.13 获取我的认领列表
 
@@ -809,35 +811,6 @@ Authorization: Bearer <token>
 {
     "status": "completed",
     "note": "string"
-}
-```
-
-### 4.15 审核认领申请（团队负责人）
-
-**请求**
-```
-PUT /api/v1/claims/{id}/review
-Authorization: Bearer <token>
-```
-
-**请求体**
-```json
-{
-    "action": "approve",
-    "note": "string"
-}
-```
-
-**响应 200**
-```json
-{
-    "id": "uuid",
-    "asset_id": "uuid",
-    "user_id": "uuid",
-    "status": "approved",
-    "claimed_at": "datetime",
-    "note": "string",
-    "updated_at": "datetime"
 }
 ```
 
@@ -1403,7 +1376,9 @@ Authorization: Bearer <token>
     "severity": "high",
     "cvss_score": 7.5,
     "description": "string",
+    "detail": "string (漏洞详情，Markdown格式)",
     "impact": "string",
+    "poc_code": "string",
     "assigned_to": "uuid"
 }
 ```
@@ -2799,6 +2774,7 @@ Authorization: Bearer <token>
             "type": "asset_access_approved",
             "enabled": true,
             "notify_email": true,
+            "notify_sms": true,
             "notify_webhook": false
         }
     ]
@@ -2837,6 +2813,89 @@ Authorization: Bearer <token>
 ```
 DELETE /api/v1/notifications/subscribe/{asset_id}
 Authorization: Bearer <token>
+```
+
+### 12.11 发送漏洞通知（内部接口）
+
+> **说明**：漏洞发现时自动调用，通知所有上级领导
+
+**请求**
+```
+POST /api/v1/notifications/vulnerability-discovered
+Authorization: Bearer <token>
+```
+
+**请求体**
+```json
+{
+    "vulnerability_id": "uuid",
+    "title": "新漏洞发现：SQL注入",
+    "content": "在资产XXX中发现SQL注入漏洞",
+    "asset_id": "uuid",
+    "severity": "high",
+    "notify_leaders": true,
+    "specific_user_ids": ["uuid1", "uuid2"]
+}
+```
+
+**响应 200**
+```json
+{
+    "success": true,
+    "data": {
+        "notification_id": "uuid",
+        "recipient_count": 5,
+        "recipients": [
+            {
+                "user_id": "uuid",
+                "channel": "email",
+                "send_status": "sent"
+            },
+            {
+                "user_id": "uuid",
+                "channel": "sms",
+                "send_status": "pending"
+            }
+        ]
+    }
+}
+```
+
+### 12.12 获取通知发送记录
+
+> **说明**：查看某条通知的发送记录（发送给哪些人、通过什么渠道）
+
+**请求**
+```
+GET /api/v1/notifications/{notification_id}/recipients
+Authorization: Bearer <token>
+```
+
+**响应 200**
+```json
+{
+    "items": [
+        {
+            "id": "uuid",
+            "user_id": "uuid",
+            "username": "string",
+            "recipient_type": "leader",
+            "channel": "email",
+            "send_status": "sent",
+            "sent_at": "datetime"
+        },
+        {
+            "id": "uuid",
+            "user_id": "uuid",
+            "username": "string",
+            "recipient_type": "specific_user",
+            "channel": "sms",
+            "send_status": "failed",
+            "error_message": "手机号格式错误",
+            "sent_at": null
+        }
+    ]
+}
 ```
 
 ---
@@ -3112,7 +3171,7 @@ Query Parameters:
 
 ---
 
-## 13. 分页响应格式
+## 15. 分页响应格式
 
 ```json
 {

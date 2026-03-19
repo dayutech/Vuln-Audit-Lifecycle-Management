@@ -312,30 +312,19 @@ stateDiagram-v2
 
 ## 9. 资产认领状态图
 
+> **说明**：资产认领为自动批准，无需人工审核
+
 ```mermaid
 stateDiagram-v2
-    [*] --> Pending: 提交认领申请
-    Pending --> Approved: 团队负责人批准
-    Pending --> Rejected: 团队负责人拒绝
+    [*] --> Approved: 提交认领（自动批准）
     Approved --> Completed: 工程师完成挖掘
     Approved --> Abandoned: 工程师放弃认领
     Completed --> [*]
     Abandoned --> [*]
-    Rejected --> [*]
-    
-    note right of Pending
-        待审核
-        等待团队负责人审批
-    end note
     
     note right of Approved
         已批准
         安全工程师可以开始漏洞挖掘
-    end note
-    
-    note right of Rejected
-        已拒绝
-        认领申请未通过
     end note
     
     note right of Completed
@@ -402,7 +391,28 @@ graph LR
 | Review | Done | 审核通过 | 团队负责人 | 自动通知 |
 | Draft | Review | 提交审核 | 文档作者 | 需指定审核人 |
 | Review | Published | 审核通过 | 审核人 | 自动索引 |
-| Pending | Approved | 认领批准 | 团队负责人 | 审核通过 |
-| Pending | Rejected | 认领拒绝 | 团队负责人 | 审核拒绝 |
 | Approved | Completed | 挖掘完成 | 安全工程师 | 完成漏洞挖掘 |
 | Approved | Abandoned | 放弃认领 | 安全工程师 | 主动放弃 |
+
+## 11. 资产访问审批状态图
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: 申请访问
+    Pending --> Approved: 审批通过
+    Pending --> Rejected: 审批拒绝
+    Approved --> Active: 获得访问权限
+    Active --> Expired: 权限过期
+    Rejected --> Pending: 重新申请
+    Active --> [*]: 任务完成
+    Expired --> [*]: 权限结束
+```
+
+| 当前状态 | 目标状态 | 触发条件 | 权限要求 | 备注 |
+|----------|----------|----------|----------|------|
+| Pending | Approved | 审批通过 | 部门领导 | 在审批范围内 |
+| Pending | Rejected | 审批拒绝 | 部门领导 | 在审批范围内 |
+| Approved | Active | 权限生效 | 系统 | 自动激活 |
+| Active | Expired | 权限过期 | 系统 | 超过授权时间 |
+| Rejected | Pending | 重新申请 | 申请者 | 修改申请内容 |
+| Expired | Pending | 重新申请 | 申请者 | 需要重新审批 |

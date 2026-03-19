@@ -192,6 +192,7 @@ graph TD
     
     Team --> Notification["通知服务"]
     Notification --> Email["邮件通知"]
+    Notification --> SMS["短信通知"]
     Notification --> WebHook["WebHook"]
 ```
 

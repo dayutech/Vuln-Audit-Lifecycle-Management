@@ -2,10 +2,13 @@
 
 ## 1. 核心实体关系图
 
+> **设计原则**：
+> - 多对多关系：手动创建中间表管理（如 asset_group_relations）
+> - 一对多/多对一：通过 JSON 字段存储关联 ID 列表，减少 JOIN 查询
+> - 关联详情见各实体字段定义
+
 ```mermaid
 erDiagram
-    USERS ||--o{ TEAM_MEMBERS : "属于"
-    TEAMS ||--o{ TEAM_MEMBERS : "包含"
     TEAMS ||--o{ ASSETS : "管理"
     TEAMS ||--o{ TASKS : "分配"
     ASSETS }o--o{ ASSET_GROUPS : "属于"
@@ -27,6 +30,7 @@ erDiagram
         string password_hash
         string full_name
         string role
+        json asset_ids
         timestamp created_at
         timestamp updated_at
     }
@@ -35,17 +39,9 @@ erDiagram
         uuid id PK
         string name
         string description
+        json task_ids
         uuid leader_id FK
         timestamp created_at
-    }
-    
-    TEAM_MEMBERS {
-        uuid id PK
-        uuid user_id FK
-        uuid team_id FK
-        string role
-        string status
-        timestamp joined_at
     }
     
     ASSETS {
@@ -75,8 +71,10 @@ erDiagram
     }
     
     ASSET_GROUP_RELATIONS {
-        uuid asset_id PK,FK
-        uuid group_id PK,FK
+        uuid id PK
+        uuid asset_id FK
+        uuid group_id FK
+        timestamp created_at
     }
     
     ASSET_TAGS {
@@ -105,9 +103,6 @@ erDiagram
         timestamp claimed_at
         timestamp completed_at
         text note
-        uuid reviewed_by FK
-        timestamp reviewed_at
-        text review_note
         timestamp created_at
         timestamp updated_at
     }
@@ -189,6 +184,8 @@ erDiagram
 
 ## 2. 漏洞管理实体关系
 
+> **设计说明**：一对多关系通过 JSON 字段存储关联 ID
+
 ```mermaid
 erDiagram
     ASSETS ||--o{ VULNERABILITIES : "包含"
@@ -219,7 +216,9 @@ erDiagram
         boolean vendor_fixed
         timestamp fixed_at
         text description
+        text detail
         text impact
+        text poc_code
         uuid discoverer_id FK
         uuid assigned_to FK
         timestamp created_at
@@ -258,13 +257,11 @@ erDiagram
 ## 3. 环境管理实体关系
 
 > **说明**：本模块为靶场环境管理功能，相关表结构暂保持为空实现，待后续需求明确后再行开发。
+> **设计说明**：一对多关系通过 JSON 字段存储关联 ID
 
 ```mermaid
 erDiagram
-    ASSETS ||--o{ ENVIRONMENTS : "关联"
-    ENVIRONMENT_TEMPLATES ||--o{ ENVIRONMENTS : "基于"
-    ENVIRONMENTS ||--o{ ENVIRONMENT_SNAPSHOTS : "快照"
-    USERS ||--o{ ENVIRONMENTS : "创建"
+    ASSETS ||--o{ ENVIRONMENTS : "一对多-JSON"
     
     ENVIRONMENTS {
         uuid id PK
@@ -302,6 +299,8 @@ erDiagram
 
 ## 4. 文档管理实体关系
 
+> **设计说明**：一对多关系通过 JSON 字段存储关联 ID
+
 ```mermaid
 erDiagram
     USERS ||--o{ DOCUMENTS : "创建"
@@ -316,7 +315,7 @@ erDiagram
         string title
         string category
         text content
-        uuid asset_id FK
+        json asset_ids
         uuid author_id FK
         string status
         int version
@@ -357,11 +356,11 @@ erDiagram
 
 ## 5. 工具资源库实体关系
 
+> **设计说明**：一对多关系通过 JSON 字段存储关联 ID
+
 ```mermaid
 erDiagram
-    USERS ||--o{ TOOLS : "创建"
-    TOOLS ||--o{ TOOL_VERSIONS : "版本"
-    TOOLS ||--o{ TOOL_TAGS : "标签"
+    USERS ||--o{ TOOLS : "一对多-JSON"
     
     TOOLS {
         uuid id PK
@@ -397,17 +396,17 @@ erDiagram
 
 ## 6. 任务管理实体关系
 
+> **设计说明**：一对多关系通过 JSON 字段存储关联 ID
+
 ```mermaid
 erDiagram
-    USERS ||--o{ TASKS : "创建"
-    USERS ||--o{ TASKS : "负责"
-    TASKS ||--o{ TASK_COMMENTS : "评论"
+    USERS ||--o{ TASKS : "一对多-JSON"
     
     TASKS {
         uuid id PK
         string title
         string type
-        uuid reference_id
+        json reference_ids
         uuid assignee_id FK
         string priority
         string status
@@ -428,11 +427,11 @@ erDiagram
 
 ## 7. 知识库实体关系
 
+> **设计说明**：一对多关系通过 JSON 字段存储关联 ID
+
 ```mermaid
 erDiagram
-    USERS ||--o{ KNOWLEDGE_ARTICLES : "创建"
-    KNOWLEDGE_ARTICLES ||--o{ KNOWLEDGE_COMMENTS : "评论"
-    KNOWLEDGE_ARTICLES ||--o{ KNOWLEDGE_TAGS : "标签"
+    USERS ||--o{ KNOWLEDGE_ARTICLES : "一对多-JSON"
     
     KNOWLEDGE_ARTICLES {
         uuid id PK
@@ -463,18 +462,15 @@ erDiagram
 
 ## 8. 权限控制实体关系
 
+> **设计说明**：多对多关系手动创建中间表，一对多通过 JSON 字段存储
+
 ```mermaid
 erDiagram
-    USERS ||--o{ USER_ROLES : "拥有"
-    USERS ||--o{ USER_PERMISSIONS : "直接拥有"
-    ROLES ||--o{ USER_ROLES : "分配"
-    ROLES ||--o{ ROLE_PERMISSIONS : "包含"
-    PERMISSIONS ||--o{ ROLE_PERMISSIONS : "定义"
-    PERMISSIONS ||--o{ USER_PERMISSIONS : "授权"
-    USERS ||--o{ AUDIT_LOGS : "操作"
-    TEAMS ||--o{ TEAM_MEMBERS : "包含"
-    TEAMS ||--o{ TEAMS : "上级"
-    USERS ||--o{ TEAMS : "属于"
+    USERS ||--o{ USER_ROLES : "多对多-中间表"
+    ROLES ||--o{ ROLE_PERMISSIONS : "多对多-中间表"
+    TEAMS }o--o{ TEAM_MEMBERS : "多对多-中间表"
+    USERS ||--o{ AUDIT_LOGS : "一对多-JSON"
+    USERS ||--o{ APPROVAL_SCOPES : "审批范围"
     
     ROLES {
         uuid id PK
@@ -549,16 +545,28 @@ erDiagram
         string ip_address
         timestamp created_at
     }
+    
+    APPROVAL_SCOPES {
+        uuid id PK
+        uuid approver_id FK
+        string scope_type
+        uuid scope_id FK
+        uuid granted_by FK
+        timestamp granted_at
+        timestamp expires_at
+    }
 ```
 
 ## 9. 消息通知实体关系
 
+> **设计说明**：多对多关系手动创建中间表，一对多通过 JSON 字段存储
+
 ```mermaid
 erDiagram
-    USERS ||--o{ NOTIFICATIONS : "接收"
-    USERS ||--o{ NOTIFICATION_SETTINGS : "配置"
-    USERS ||--o{ ASSET_SUBSCRIPTIONS : "订阅"
-    ASSETS ||--o{ ASSET_SUBSCRIPTIONS : "被订阅"
+    USERS ||--o{ NOTIFICATIONS : "一对多-JSON"
+    NOTIFICATIONS ||--o{ NOTIFICATION_RECIPIENTS : "一对多"
+    ASSETS }o--o{ ASSET_SUBSCRIPTIONS : "多对多-中间表"
+    
     SYSTEM_ANNOUNCEMENTS {
         uuid id PK
         string title
@@ -589,7 +597,20 @@ erDiagram
         string type
         boolean enabled
         boolean notify_email
+        boolean notify_sms
         boolean notify_webhook
+    }
+    
+    NOTIFICATION_RECIPIENTS {
+        uuid id PK
+        uuid notification_id FK
+        uuid user_id FK
+        string recipient_type
+        string channel
+        string send_status
+        timestamp sent_at
+        string error_message
+        timestamp created_at
     }
     
     ASSET_SUBSCRIPTIONS {
@@ -602,12 +623,12 @@ erDiagram
 
 ## 10. 仪表盘与统计实体关系
 
+> **设计说明**：一对多关系通过 JSON 字段存储关联 ID，多对多手动创建中间表
+
 ```mermaid
 erDiagram
-    USERS ||--o{ DASHBOARD_CONFIGS : "配置"
-    USERS ||--o{ APPROVAL_SCOPES : "拥有审批范围"
-    APPROVAL_SCOPES ||--o{ TEAMS : "按团队"
-    APPROVAL_SCOPES ||--o{ ASSETS : "按资产"
+    USERS ||--o{ DASHBOARD_CONFIGS : "一对多-JSON"
+    APPROVAL_SCOPES }o--o{ APPROVAL_SCOPE_RELATIONS : "多对多-中间表"
     
     DASHBOARD_CONFIGS {
         uuid id PK
@@ -622,10 +643,18 @@ erDiagram
         uuid id PK
         uuid approver_id FK
         string scope_type
-        uuid scope_id FK
+        json team_ids
+        json asset_ids
         uuid granted_by FK
         timestamp granted_at
         timestamp expires_at
+    }
+    
+    APPROVAL_SCOPE_RELATIONS {
+        uuid id PK
+        uuid approval_scope_id FK
+        string scope_type
+        uuid scope_id FK
     }
     
     STAT_CACHE {
@@ -639,9 +668,11 @@ erDiagram
 
 ## 11. 第三方登录实体关系（预留）
 
+> **设计说明**：一对多关系通过 JSON 字段存储关联 ID
+
 ```mermaid
 erDiagram
-    USERS ||--o{ OAUTH_BINDINGS : "绑定"
+    USERS ||--o{ OAUTH_BINDINGS : "一对多-JSON"
     
     OAUTH_BINDINGS {
         uuid id PK

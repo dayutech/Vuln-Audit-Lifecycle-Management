@@ -42,8 +42,12 @@ sequenceDiagram
     AssetService-->>VulnService: 返回资产信息
     VulnService->>VulnRepo: 保存漏洞记录
     VulnRepo-->>VulnService: 返回创建结果
-    VulnService->>NotifyService: 发送漏洞发现通知
+    VulnService->>NotifyService: 发送漏洞发现通知(通知所有上级领导+指定用户)
+    NotifyService->>EmailSender: 发送邮件通知
+    NotifyService->>SmsSender: 发送短信通知
+    NotifyService->>InApp: 站内消息通知
     NotifyService-->>TeamLeader: 通知有新漏洞待审核
+    NotifyService-->>SpecificUser: 通知指定用户
     VulnService-->>VulnAPI: 返回漏洞信息
     VulnAPI-->>Frontend: 返回创建结果
     Frontend-->>Engineer: 显示漏洞创建成功
@@ -301,6 +305,8 @@ sequenceDiagram
 
 ## 10. 资产认领流程
 
+> **说明**：资产认领为自动批准，无需人工审核
+
 ```mermaid
 sequenceDiagram
     participant Engineer as 安全工程师
@@ -311,36 +317,19 @@ sequenceDiagram
     participant NotifyService as 通知服务
     participant Leader as 团队负责人
 
-    Engineer->>Frontend: 选择资产并提交认领申请
+    Engineer->>Frontend: 选择资产并提交认领
     Frontend->>ClaimAPI: POST /api/assets/{id}/claims
     ClaimAPI->>ClaimService: create_claim()
-    ClaimService->>ClaimRepo: 保存认领记录
-    ClaimRepo-->>ClaimService: 返回认领信息
-    ClaimService->>NotifyService: 发送认领申请通知
-    NotifyService-->>Leader: 通知有待审核的认领申请
+    ClaimService->>ClaimRepo: 保存认领记录并自动批准
+    ClaimRepo-->>ClaimService: 返回认领信息(status=approved)
+    ClaimService->>NotifyService: 发送认领成功通知
+    NotifyService-->>Leader: 通知有新的认领记录
+    NotifyService-->>Engineer: 通知认领已批准
     ClaimService-->>ClaimAPI: 返回认领信息
-    ClaimAPI-->>Frontend: 返回认领申请结果
-    Frontend-->>Engineer: 显示认领申请已提交
+    ClaimAPI-->>Frontend: 返回认领结果
+    Frontend-->>Engineer: 显示认领已批准，可以开始挖掘工作
 
-    Note over Engineer,Frontend: 团队负责人审核认领
-
-    Leader->>Frontend: 查看认领申请列表
-    Frontend->>ClaimAPI: GET /api/claims?status=pending
-    ClaimAPI-->>Frontend: 返回待审核列表
-    Frontend-->>Leader: 显示认领申请
-
-    Leader->>Frontend: 审核通过/拒绝认领
-    Frontend->>ClaimAPI: PUT /api/claims/{id}/review
-    ClaimAPI->>ClaimService: review_claim()
-    ClaimService->>ClaimRepo: 更新认领状态
-    ClaimRepo-->>ClaimService: 返回更新结果
-    ClaimService->>NotifyService: 发送审核结果通知
-    NotifyService-->>Engineer: 通知认领审核结果
-    ClaimService-->>ClaimAPI: 返回审核结果
-    ClaimAPI-->>Frontend: 返回审核结果
-    Frontend-->>Leader: 显示审核成功
-
-    Note over Engineer,Frontend: 工程师完成认领工作
+    Note over Engineer,Frontend: 工程师开始漏洞挖掘工作
 
     Engineer->>Frontend: 完成漏洞挖掘，标记认领完成
     Frontend->>ClaimAPI: PUT /api/claims/{id}
@@ -370,4 +359,88 @@ sequenceDiagram
     BackupService->>BackupStorage: 复制到备份存储
     BackupStorage-->>BackupService: 返回备份完成
     BackupService->>System: 记录备份日志
+```
+
+## 12. 资产访问申请与审批流程
+
+```mermaid
+sequenceDiagram
+    participant Engineer as 安全工程师
+    participant Frontend as 前端
+    participant AssetAPI as 资产API
+    participant AssetService as 资产服务
+    participant ApprovalScopeService as 审批范围服务
+    participant NotificationService as 通知服务
+    participant Leader as 部门领导
+
+    Engineer->>Frontend: 申请访问资产
+    Frontend->>AssetAPI: POST /api/v1/assets/{id}/access-request
+    AssetAPI->>AssetService: 创建访问申请
+    AssetService->>ApprovalScopeService: 验证审批权限
+    ApprovalScopeService-->>AssetService: 返回审批人列表
+    AssetService->>NotificationService: 发送审批通知
+    NotificationService-->>Engineer: 通知已发送
+    NotificationService->>Leader: 发送审批请求通知
+    
+    Leader->>Frontend: 查看待审批列表
+    Frontend->>AssetAPI: GET /api/v1/approvals/pending
+    AssetAPI-->>Leader: 返回待审批列表
+    
+    Leader->>Frontend: 审批申请（通过/拒绝）
+    Frontend->>AssetAPI: PUT /api/v1/approvals/{id}
+    AssetAPI->>AssetService: 更新审批状态
+    AssetService->>NotificationService: 发送审批结果通知
+    NotificationService->>Engineer: 通知审批结果
+```
+
+## 13. 消息通知流程
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Frontend as 前端
+    participant NotificationAPI as 通知API
+    participant NotificationService as 通知服务
+    participant EventPublisher as 事件发布器
+    participant Asset as 资产系统
+
+    User->>Frontend: 访问系统
+    Frontend->>NotificationAPI: GET /api/v1/notifications
+    NotificationAPI-->>User: 返回通知列表
+    
+    EventPublisher->>NotificationService: 触发事件(资产审批/任务分配等)
+    NotificationService->>NotificationService: 创建通知记录
+    NotificationService->>User: 推送实时通知
+    
+    User->>Frontend: 点击通知
+    Frontend->>NotificationAPI: PUT /api/v1/notifications/{id}/read
+    NotificationAPI-->>User: 标记已读
+```
+
+## 14. 仪表盘数据统计流程
+
+```mermaid
+sequenceDiagram
+    participant Manager as 管理人员
+    participant Frontend as 前端
+    participant DashboardAPI as 仪表盘API
+    participant StatService as 统计服务
+    participant AssetRepo as 资产仓储
+    participant VulnRepo as 漏洞仓储
+
+    Manager->>Frontend: 访问仪表盘
+    Frontend->>DashboardAPI: GET /api/v1/dashboard/assets
+    DashboardAPI->>StatService: 获取资产统计数据
+    StatService->>AssetRepo: 查询资产数据
+    AssetRepo-->>StatService: 返回统计数据
+    StatService-->>DashboardAPI: 返回统计结果
+    DashboardAPI-->>Manager: 返回资产统计
+    
+    Manager->>Frontend: 查看漏洞统计
+    Frontend->>DashboardAPI: GET /api/v1/dashboard/vulnerabilities
+    DashboardAPI->>StatService: 获取漏洞统计数据
+    StatService->>VulnRepo: 查询漏洞数据
+    VulnRepo-->>StatService: 返回统计数据
+    StatService-->>DashboardAPI: 返回统计结果
+    DashboardAPI-->>Manager: 返回漏洞统计
 ```

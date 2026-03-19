@@ -272,7 +272,8 @@ DocumentVersion {
 ```
 
 #### 2.4.3 核心功能
-- **漏洞记录**：详细记录漏洞信息
+- **漏洞记录**：详细记录漏洞信息（支持Markdown格式的描述和详情）
+- **漏洞详情**：完整的漏洞分析报告，包含漏洞原理、修复建议等
 - **状态变更**：跟踪漏洞状态变更历史
 - **处理进度**：可视化漏洞处理进度
 - **漏洞评级**：CVSS评分、内部评级
@@ -307,8 +308,10 @@ Vulnerability {
     vendor_notified: Boolean (是否已通知厂商)
     vendor_fixed: Boolean (厂商是否已修复)
     fixed_at: DateTime (修复时间)
-    description: Text
+    description: Text (漏洞描述，Markdown格式)
+    detail: Text (漏洞详情，Markdown格式，包含完整的漏洞分析、修复建议等)
     impact: Text
+    poc_code: Text (POC代码)
     discoverer_id: UUID
     assigned_to: UUID
     created_at: DateTime
@@ -573,8 +576,9 @@ KnowledgeTag {
 
 #### 2.9.2 核心功能
 - **通知中心**：统一接收和查看所有通知
-- **通知类型**：资产访问审批结果、任务分配、漏洞状态变更、文档评论、系统公告
-- **通知方式**：站内消息（必选）、邮件通知（可选）、webhook推送（可选）
+- **通知类型**：资产访问审批结果、任务分配、漏洞发现、漏洞状态变更、文档评论、系统公告
+- **通知方式**：站内消息（必选）、邮件通知（可配置）、短信通知（可配置）、webhook推送（可选）
+- **漏洞通知**：新漏洞发现时自动通知所有上级领导，也可指定发送给特定用户
 - **通知订阅**：用户可订阅感兴趣的资产和漏洞动态
 - **已读未读**：标记通知为已读，支持批量操作
 - **历史记录**：保留通知历史，支持查询
@@ -584,7 +588,7 @@ KnowledgeTag {
 Notification {
     id: UUID
     user_id: UUID (接收用户)
-    type: Enum (asset_access_approved/asset_access_rejected/task_assigned/vulnerability_updated/document_comment/system_announcement)
+    type: Enum (asset_access_approved/asset_access_rejected/task_assigned/vulnerability_discovered/vulnerability_updated/document_comment/system_announcement)
     title: String
     content: Text
     related_type: String (关联类型：asset/task/vulnerability/document)
@@ -600,7 +604,20 @@ NotificationSetting {
     type: String (通知类型)
     enabled: Boolean (是否启用)
     notify_email: Boolean (邮件通知)
+    notify_sms: Boolean (短信通知)
     notify_webhook: Boolean (webhook推送)
+}
+
+NotificationRecipient {
+    id: UUID
+    notification_id: UUID (关联通知)
+    user_id: UUID (接收用户)
+    recipient_type: Enum (leader/assignee/specific_user, 接收人类型)
+    channel: Enum (email/sms/webhook/in_app, 通知渠道)
+    send_status: Enum (pending/sent/failed, 发送状态)
+    sent_at: DateTime (发送时间)
+    error_message: String (错误信息)
+    created_at: DateTime
 }
 
 SystemAnnouncement {
