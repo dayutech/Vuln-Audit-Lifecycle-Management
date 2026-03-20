@@ -1,3 +1,7 @@
+---
+alwaysApply: false
+globs: frontend/*
+---
 # Frontend Coding Standard
 
 ## 1. Project Structure

@@ -6,10 +6,8 @@
 graph TD
     subgraph Actor["参与者"]
         Admin["系统管理员"]
-        TeamLeader["团队负责人"]
-        Engineer["漏洞工程师"]
-        Auditor["审计人员"]
-        NewMember["新成员"]
+        TeamLeader["项目负责人/小组长"]
+        Engineer["漏洞挖掘工程师"]
     end
 
     subgraph Asset_Module["目标资产管理"]
@@ -39,8 +37,8 @@ graph TD
     end
 
     subgraph Vuln_Module["漏洞管理"]
-        UC16["创建漏洞"]
-        UC17["漏洞验证"]
+        UC16a["创建漏洞"]
+        UC17a["漏洞验证"]
         UC18["漏洞利用分析"]
         UC19["漏洞报告"]
         UC20["漏洞跟踪"]
@@ -98,37 +96,34 @@ graph TD
     Engineer --> Tool_Module
     Engineer --> Team_Module
     Engineer --> Knowledge_Module
-
-    Auditor --> Asset_Module
-    Auditor --> Doc_Module
-    Auditor --> Vuln_Module
-    Auditor --> Auth_Module
-
-    NewMember --> Asset_Module
-    NewMember --> Env_Module
-    NewMember --> Doc_Module
-    NewMember --> Tool_Module
-    NewMember --> Knowledge_Module
 ```
 
 ## 2. 目标资产管理用例图
 
 ```mermaid
 graph TD
-    Actor["漏洞工程师/团队负责人"] --> UC1["创建资产"]
-    Actor --> UC2["查询资产"]
-    Actor --> UC3["更新资产"]
-    Actor --> UC4["删除资产"]
-    Actor --> UC5["资产分类管理"]
-    Actor --> UC6["查看资产历史"]
-    Actor --> UC7["关联漏洞查看"]
-    Actor --> UC8["申请访问资产"]
-    Actor --> UC9["审批资产访问"]
-    Actor --> UC10["查看认领列表"]
-    Actor --> UC11["上传资产文件"]
-    Actor --> UC12["下载资产文件"]
-    Actor --> UC13["管理文件版本"]
-    Actor --> UC14["删除资产文件"]
+    subgraph Actor["参与者"]
+        Engineer["漏洞挖掘工程师"]
+        Leader["团队负责人"]
+    end
+
+    Engineer --> UC1["创建资产"]
+    Engineer --> UC2["查询资产"]
+    Engineer --> UC3["更新资产"]
+    Engineer --> UC4["删除资产"]
+    Engineer --> UC5["资产分类管理"]
+    Engineer --> UC6["查看资产历史"]
+    Engineer --> UC7["关联漏洞查看"]
+    Engineer --> UC8["申请访问资产"]
+    Engineer --> UC9["审批资产访问"]
+    Engineer --> UC10["查看认领列表"]
+    Engineer --> UC11["上传资产文件"]
+    Engineer --> UC12["下载资产文件"]
+    Engineer --> UC13["管理文件版本"]
+    Engineer --> UC14["删除资产文件"]
+    Leader --> UC3
+    Leader --> UC4
+    Leader --> UC9
     
     UC1 --> DB["资产数据库"]
     UC2 --> DB
@@ -164,7 +159,7 @@ graph TD
 ```mermaid
 graph TD
     subgraph Actor["参与者"]
-        Engineer["漏洞工程师"]
+        Engineer["漏洞挖掘工程师"]
         Leader["团队负责人"]
     end
 
@@ -205,7 +200,7 @@ graph TD
 ```mermaid
 graph TD
     subgraph Actor["参与者"]
-        Engineer["漏洞工程师"]
+        Engineer["漏洞挖掘工程师"]
         Leader["团队负责人"]
     end
 
@@ -271,7 +266,7 @@ graph TD
 ```mermaid
 graph TD
     subgraph Actor["参与者"]
-        Engineer["漏洞工程师"]
+        Engineer["漏洞挖掘工程师"]
         Admin["管理员"]
     end
 
@@ -306,7 +301,7 @@ graph TD
 ```mermaid
 graph TD
     subgraph Actor["参与者"]
-        Engineer["漏洞工程师"]
+        Engineer["漏洞挖掘工程师"]
         Leader["团队负责人"]
     end
 
@@ -412,8 +407,7 @@ graph TD
 ```mermaid
 graph TD
     subgraph Actor["参与者"]
-        Engineer["漏洞工程师"]
-        NewMember["新成员"]
+        Engineer["漏洞挖掘工程师"]
     end
 
     subgraph Knowledge_Management["知识管理"]
@@ -436,11 +430,9 @@ graph TD
     Engineer --> UC3
     Engineer --> UC4
     Engineer --> UC5
-    
-    NewMember --> UC4
-    NewMember --> UC7
-    NewMember --> UC8
-    NewMember --> UC9
+    Engineer --> UC7
+    Engineer --> UC8
+    Engineer --> UC9
     
     UC1 --> KB["知识库"]
     UC2 --> KB
@@ -456,20 +448,20 @@ graph TD
 
 | 用例编号 | 用例名称 | 参与者 | 描述 |
 |----------|----------|--------|------|
-| UC-ASSET-001 | 创建资产 | 漏洞工程师 | 创建新的目标资产记录 |
+| UC-ASSET-001 | 创建资产 | 漏洞挖掘工程师 | 创建新的目标资产记录 |
 | UC-ASSET-002 | 查询资产 | 所有用户 | 根据条件查询资产信息 |
-| UC-ASSET-003 | 申请访问资产 | 安全工程师 | 申请访问某资产，部门领导控制可查看的内容范围 |
-| UC-ASSET-004 | 审批资产访问 | 团队负责人/部门领导 | 审批安全工程师的资产访问申请，控制可查看的内容 |
-| UC-ASSET-005 | 查看认领列表 | 安全工程师/团队负责人 | 查看资产的认领情况或个人认领记录 |
-| UC-ASSET-006 | 上传资产文件 | 漏洞工程师 | 上传目标系统的ISO镜像、VMDK、安装包等文件 |
-| UC-ASSET-007 | 下载资产文件 | 漏洞工程师 | 下载已授权的资产文件进行漏洞分析 |
-| UC-ASSET-008 | 管理文件版本 | 漏洞工程师 | 上传新版本文件并保留历史版本 |
-| UC-ASSET-009 | 删除资产文件 | 漏洞工程师 | 删除资产关联的文件 |
-| UC-ASSET-010 | 查看应用元数据 | 认领工程师 | 查看资产的应用元数据信息（当前版本） |
-| UC-ASSET-011 | 填写应用元数据 | 认领工程师 | 首次填写应用元数据（version=1） |
-| UC-ASSET-012 | 更新应用元数据 | 认领工程师 | 更新元数据并保留历史，每次必须填写修改理由 |
-| UC-ASSET-013 | 查看历史版本 | 认领工程师 | 查看应用元数据的所有历史版本列表 |
-| UC-ASSET-014 | 查看版本详情 | 认领工程师 | 查看指定历史版本的完整信息 |
+| UC-ASSET-003 | 申请访问资产 | 漏洞挖掘工程师 | 申请访问某资产，部门领导控制可查看的内容范围 |
+| UC-ASSET-004 | 审批资产访问 | 团队负责人/部门领导 | 审批漏洞挖掘工程师的资产访问申请，控制可查看的内容 |
+| UC-ASSET-005 | 查看认领列表 | 漏洞挖掘工程师/团队负责人 | 查看资产的认领情况或个人认领记录 |
+| UC-ASSET-006 | 上传资产文件 | 漏洞挖掘工程师 | 上传目标系统的ISO镜像、VMDK、安装包等文件 |
+| UC-ASSET-007 | 下载资产文件 | 漏洞挖掘工程师 | 下载已授权的资产文件进行漏洞分析 |
+| UC-ASSET-008 | 管理文件版本 | 漏洞挖掘工程师 | 上传新版本文件并保留历史版本 |
+| UC-ASSET-009 | 删除资产文件 | 漏洞挖掘工程师 | 删除资产关联的文件 |
+| UC-ASSET-010 | 查看应用元数据 | 漏洞挖掘工程师 | 查看资产的应用元数据信息（当前版本） |
+| UC-ASSET-011 | 填写应用元数据 | 漏洞挖掘工程师 | 首次填写应用元数据（version=1） |
+| UC-ASSET-012 | 更新应用元数据 | 漏洞挖掘工程师 | 更新元数据并保留历史，每次必须填写修改理由 |
+| UC-ASSET-013 | 查看历史版本 | 漏洞挖掘工程师 | 查看应用元数据的所有历史版本列表 |
+| UC-ASSET-014 | 查看版本详情 | 漏洞挖掘工程师 | 查看指定历史版本的完整信息 |
 | UC-NOTI-001 | 查看通知列表 | 所有用户 | 查看收到的所有通知消息 |
 | UC-NOTI-002 | 标记已读 | 所有用户 | 将通知标记为已读 |
 | UC-NOTI-003 | 批量标记已读 | 所有用户 | 批量将多条通知标记为已读 |
@@ -479,19 +471,19 @@ graph TD
 | UC-NOTI-007 | 取消订阅 | 所有用户 | 取消资产动态订阅 |
 | UC-NOTI-008 | 发送漏洞通知 | 系统 | 新漏洞发现时自动通知所有上级领导 |
 | UC-NOTI-009 | 查看发送记录 | 所有用户 | 查看通知的发送记录（发送给谁、通过什么渠道） |
-| UC-ENV-001 | 创建环境 | 漏洞工程师 | 基于模板创建新环境 |
-| UC-ENV-002 | 环境快照 | 漏洞工程师 | 保存当前环境配置快照 |
-| UC-DOC-001 | 在线创建文档 | 漏洞工程师 | 在线创建新的挖掘文档，选择类型和关联资产 |
-| UC-DOC-002 | 在线编辑文档 | 漏洞工程师 | 富文本编辑器在线编辑文档内容 |
-| UC-DOC-003 | 在线查看文档 | 漏洞工程师 | 在线查看文档内容，支持渲染富文本 |
-| UC-DOC-004 | 删除文档 | 漏洞工程师 | 删除自己创建的文档 |
-| UC-DOC-005 | 文档版本管理 | 漏洞工程师 | 管理文档的历史版本，支持回滚 |
-| UC-DOC-006 | 发布/取消发布 | 漏洞工程师 | 将文档发布或取消发布 |
-| UC-DOC-007 | 搜索文档 | 漏洞工程师 | 全文检索文档内容 |
-| UC-VULN-001 | 提交漏洞 | 漏洞工程师 | 提交新发现的漏洞，支持Markdown格式的描述和详情 |
-| UC-VULN-002 | 漏洞验证 | 漏洞工程师 | 验证漏洞真实性和影响范围 |
-| UC-TOOL-001 | 上传工具 | 漏洞工程师 | 上传新的工具或POC |
-| UC-TOOL-002 | 工具检索 | 漏洞工程师 | 根据条件检索工具 |
+| UC-ENV-001 | 创建环境 | 漏洞挖掘工程师 | 基于模板创建新环境 |
+| UC-ENV-002 | 环境快照 | 漏洞挖掘工程师 | 保存当前环境配置快照 |
+| UC-DOC-001 | 在线创建文档 | 漏洞挖掘工程师 | 在线创建新的挖掘文档，选择类型和关联资产 |
+| UC-DOC-002 | 在线编辑文档 | 漏洞挖掘工程师 | 富文本编辑器在线编辑文档内容 |
+| UC-DOC-003 | 在线查看文档 | 漏洞挖掘工程师 | 在线查看文档内容，支持渲染富文本 |
+| UC-DOC-004 | 删除文档 | 漏洞挖掘工程师 | 删除自己创建的文档 |
+| UC-DOC-005 | 文档版本管理 | 漏洞挖掘工程师 | 管理文档的历史版本，支持回滚 |
+| UC-DOC-006 | 发布/取消发布 | 漏洞挖掘工程师 | 将文档发布或取消发布 |
+| UC-DOC-007 | 搜索文档 | 漏洞挖掘工程师 | 全文检索文档内容 |
+| UC-VULN-001 | 提交漏洞 | 漏洞挖掘工程师 | 提交新发现的漏洞，支持Markdown格式的描述和详情 |
+| UC-VULN-002 | 漏洞验证 | 漏洞挖掘工程师 | 验证漏洞真实性和影响范围 |
+| UC-TOOL-001 | 上传工具 | 漏洞挖掘工程师 | 上传新的工具或POC |
+| UC-TOOL-002 | 工具检索 | 漏洞挖掘工程师 | 根据条件检索工具 |
 | UC-TASK-001 | 创建任务 | 团队负责人 | 创建新的工作任务 |
 | UC-TASK-002 | 任务分配 | 团队负责人 | 将任务分配给成员 |
 | UC-AUTH-001 | 管理权限 | 管理员 | 创建、编辑、删除API权限 |
@@ -500,5 +492,5 @@ graph TD
 | UC-AUTH-004 | 直接授权 | 管理员 | 直接分配特定权限给用户（可设置过期时间） |
 | UC-AUTH-005 | 查看权限 | 所有用户 | 查看当前用户拥有的权限 |
 | UC-AUTH-006 | 管理团队 | 管理员/项目负责人 | 创建、编辑、删除团队，管理团队成员 |
-| UC-KNOW-001 | 创建文章 | 漏洞工程师 | 编写知识分享文章 |
+| UC-KNOW-001 | 创建文章 | 漏洞挖掘工程师 | 编写知识分享文章 |
 | UC-KNOW-002 | 知识检索 | 所有用户 | 检索知识库内容 |

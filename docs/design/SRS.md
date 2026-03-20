@@ -35,7 +35,7 @@
 
 #### 2.1.2 核心功能
 - **资产 CRUD**：支持资产的创建、读取、更新、删除操作
-- **资产访问控制**：安全工程师需申请访问资产，部门领导控制工程师能查看哪些内容（文档、文件等）
+- **资产访问控制**：漏洞挖掘工程师需申请访问资产，部门领导控制工程师能查看哪些内容（文档、文件等）
 - **目标分组**：支持多对多关系，一个目标可属于多个分组（如按客户、按项目等）
 - **目标来源**：区分客户委托目标和自主发现目标
 - **重要程度标记**：P0/P1/P2/P3 四级优先级
@@ -53,7 +53,7 @@ Asset {
     target_source: Enum (客户委托/自主发现)
     description: Text
     priority: Enum (P0/P1/P2/P3)
-    status: Enum (active/inactive/archived)
+    status: Enum (active/suspended/deactivated)
     owner_id: UUID
     created_at: DateTime
     updated_at: DateTime
@@ -75,7 +75,7 @@ AssetGroupRelation {
 AssetAccess {
     id: UUID
     asset_id: UUID (关联资产)
-    user_id: UUID (申请人/安全工程师)
+    user_id: UUID (申请人/漏洞挖掘工程师)
     status: Enum (pending/approved/rejected)
     access_scope: JSON (可访问的内容范围：{documents: true/false, files: ["类型1", "类型2"], environments: true/false})
     request_note: Text (申请说明)
@@ -106,7 +106,7 @@ AssetFile {
 AssetAppMetadata {
     id: UUID
     asset_id: UUID (关联资产，认领后填写)
-    claimed_by: UUID (认领人/安全工程师)
+    claimed_by: UUID (认领人/漏洞挖掘工程师)
     version: Integer (当前版本号)
     system_architecture: String (系统架构：x86/arm/mips等)
     install_path: String (安装路径)
@@ -294,7 +294,7 @@ Vulnerability {
     type: String (漏洞类型)
     severity: Enum (critical/high/medium/low)
     cvss_score: Float
-    status: Enum (discovered|verified|analyzing|analyzed|customer_confirmed|exploit_development|field_testing|delivered|closed|fixed)
+    status: Enum (discovered|verified|analyzing|analyzed|customer_confirmed|exploit_development|field_testing|delivered|closed|fixed|rejected)
     
     customer_confirmed: Boolean (客户是否确认接收)
     customer_confirmed_at: DateTime (客户确认时间)
@@ -428,7 +428,7 @@ TeamMember {
 
 #### 2.7.2 核心功能
 - **API权限管理**：每个API接口单独管理权限，管理员可控制用户能访问哪些接口
-- **内置角色**：预定义项目负责人、小组长、漏洞挖掘工程师、新成员等角色
+- **内置角色**：预定义项目负责人、小组长、漏洞挖掘工程师等角色
 - **角色权限分配**：每个角色包含一组API权限
 - **用户角色分配**：将角色分配给用户，支持一个用户多个角色
 - **用户权限继承**：用户权限 = 角色权限的并集 + 单独分配的权限
@@ -442,8 +442,7 @@ TeamMember {
 | 管理员 | 系统全权管理，可管理所有用户、角色、权限 |
 | 项目负责人 | 管理整个项目，审批资产访问，查看所有数据 |
 | 小组长 | 管理小组团队成员，审批小组内资产访问申请 |
-| 漏洞挖掘工程师 | 挖掘漏洞，上传文档/文件，申请资产访问 |
-| 新成员 | 受限操作，需申请资产访问权限 |
+| 漏洞挖掘工程师 | 挖掘漏洞，上传文档/文件，申请资产访问（新成员入职即为此角色） |
 
 #### 2.7.4 数据模型
 ```
@@ -506,12 +505,14 @@ User {
     username: String
     email: String
     password_hash: String
-    team_id: UUID (所属团队/部门)
-    leader_id: UUID (上级领导，用于小组长关联)
+    full_name: String
+    avatar: String
     position: String (职位)
-    status: Enum (active/inactive/archived)
+    status: Enum (active/suspended/deactivated)
     created_at: DateTime
     updated_at: DateTime
+    last_login: DateTime
+    注：用户与团队关系通过 team_members 表管理，用户与角色关系通过 user_roles 表管理
 }
 
 Team {

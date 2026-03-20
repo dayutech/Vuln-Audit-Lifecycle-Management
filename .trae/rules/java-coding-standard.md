@@ -1,3 +1,7 @@
+---
+alwaysApply: false
+globs: backend/*
+---
 # Java Coding Standard
 
 ## 1. Project Structure

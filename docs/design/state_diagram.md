@@ -324,7 +324,7 @@ stateDiagram-v2
     
     note right of Approved
         已批准
-        安全工程师可以开始漏洞挖掘
+        漏洞挖掘工程师可以开始漏洞挖掘
     end note
     
     note right of Completed
@@ -345,29 +345,45 @@ graph LR
     subgraph Critical["严重 P0"]
         C1[Discovered] --> C2[Verified]
         C2 --> C3[Analyzing]
-        C3 --> C4[Reported]
-        C4 --> C5[Closed]
+        C3 --> C4[Analyzed]
+        C4 --> C5[CustomerConfirmed]
+        C5 --> C6[ExploitDev]
+        C6 --> C7[FieldTesting]
+        C7 --> C8[Delivered]
+        C8 --> C9[Closed]
     end
     
     subgraph High["高 P1"]
         H1[Discovered] --> H2[Verified]
         H2 --> H3[Analyzing]
-        H3 --> H4[Reported]
-        H4 --> H5[Closed]
+        H3 --> H4[Analyzed]
+        H4 --> H5[CustomerConfirmed]
+        H5 --> H6[ExploitDev]
+        H6 --> H7[FieldTesting]
+        H7 --> H8[Delivered]
+        H8 --> H9[Closed]
     end
     
     subgraph Medium["中 P2"]
         M1[Discovered] --> M2[Verified]
         M2 --> M3[Analyzing]
-        M3 --> M4[Reported]
-        M4 --> M5[Closed]
+        M3 --> M4[Analyzed]
+        M4 --> M5[CustomerConfirmed]
+        M5 --> M6[ExploitDev]
+        M6 --> M7[FieldTesting]
+        M7 --> M8[Delivered]
+        M8 --> M9[Closed]
     end
     
     subgraph Low["低 P3"]
         L1[Discovered] --> L2[Verified]
         L2 --> L3[Analyzing]
-        L3 --> L4[Reported]
-        L4 --> L5[Closed]
+        L3 --> L4[Analyzed]
+        L4 --> L5[CustomerConfirmed]
+        L5 --> L6[ExploitDev]
+        L6 --> L7[FieldTesting]
+        L7 --> L8[Delivered]
+        L8 --> L9[Closed]
     end
     
     style Critical fill:#ff6666
@@ -376,25 +392,32 @@ graph LR
     style Low fill:#66aaff
 ```
 
-## 10. 状态转换规则表
+## 11. 状态转换规则表
 
 | 当前状态 | 目标状态 | 触发条件 | 权限要求 | 备注 |
 |----------|----------|----------|----------|------|
 | Discovered | Verified | 审核通过 | 团队负责人 | 需要至少一名审核人 |
 | Discovered | Rejected | 审核拒绝 | 团队负责人 | 需要填写拒绝原因 |
-| Verified | Analyzing | 开始分析 | 漏洞工程师 | 自动通知分配人 |
-| Analyzing | Analyzed | 分析完成 | 漏洞工程师 | 需要提交分析报告 |
-| Analyzed | Reported | 报告完成 | 漏洞工程师 | 报告需包含POC |
-| Reported | Closed | 归档关闭 | 团队负责人 | 完成归档 |
+| Verified | Analyzing | 开始分析 | 漏洞挖掘工程师 | 自动通知分配人 |
+| Analyzing | Analyzed | 分析完成 | 漏洞挖掘工程师 | 需要提交分析报告 |
+| Analyzed | CustomerConfirmed | 客户确认接收 | 客户 | 客户确认漏洞 |
+| Analyzed | Rejected | 客户拒绝 | 客户 | 客户拒绝接收 |
+| CustomerConfirmed | ExploitDev | 开始利用开发 | 漏洞挖掘工程师 | 开始编写利用代码 |
+| ExploitDev | FieldTesting | 提交出场测试 | 漏洞挖掘工程师 | 利用代码完成 |
+| FieldTesting | ExploitDev | 测试失败 | 漏洞挖掘工程师 | 需要修复利用代码 |
+| FieldTesting | Delivered | 测试通过 | 漏洞挖掘工程师 | 可以交付 |
+| Delivered | Closed | 归档关闭 | 团队负责人 | 完成归档 |
+| Delivered | Fixed | 厂商已修复 | 团队负责人 | 记录修复时间 |
+| Fixed | Closed | 归档 | 团队负责人 | 完成归档 |
 | Todo | InProgress | 开始处理 | 任务接收人 | 更新团队状态 |
 | InProgress | Review | 提交审核 | 任务处理人 | 产出需可验证 |
 | Review | Done | 审核通过 | 团队负责人 | 自动通知 |
 | Draft | Review | 提交审核 | 文档作者 | 需指定审核人 |
 | Review | Published | 审核通过 | 审核人 | 自动索引 |
-| Approved | Completed | 挖掘完成 | 安全工程师 | 完成漏洞挖掘 |
-| Approved | Abandoned | 放弃认领 | 安全工程师 | 主动放弃 |
+| Approved | Completed | 挖掘完成 | 漏洞挖掘工程师 | 完成漏洞挖掘 |
+| Approved | Abandoned | 放弃认领 | 漏洞挖掘工程师 | 主动放弃 |
 
-## 11. 资产访问审批状态图
+## 12. 资产访问审批状态图
 
 ```mermaid
 stateDiagram-v2

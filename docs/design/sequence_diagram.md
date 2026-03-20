@@ -26,7 +26,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Engineer as 漏洞工程师
+    participant Engineer as 漏洞挖掘工程师
     participant Frontend as 前端应用
     participant VulnAPI as 漏洞API
     participant VulnService as 漏洞服务
@@ -57,7 +57,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Engineer as 漏洞工程师
+    participant Engineer as 漏洞挖掘工程师
     participant Frontend as 前端应用
     participant VulnAPI as 漏洞API
     participant VulnService as 漏洞服务
@@ -86,7 +86,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Engineer as 漏洞工程师
+    participant Engineer as 漏洞挖掘工程师
     participant Frontend as 前端应用
     participant EnvAPI as 环境API
     participant EnvService as 环境服务
@@ -114,7 +114,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Engineer as 漏洞工程师
+    participant Engineer as 漏洞挖掘工程师
     participant Frontend as 前端应用
     participant EnvAPI as 环境API
     participant EnvService as 环境服务
@@ -205,7 +205,7 @@ sequenceDiagram
     participant TaskService as 任务服务
     participant TaskRepo as 任务仓储
     participant NotifyService as 通知服务
-    participant Engineer as 漏洞工程师
+    participant Engineer as 漏洞挖掘工程师
 
     Leader->>Frontend: 创建任务并分配
     Frontend->>TaskAPI: POST /api/tasks
@@ -235,7 +235,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Engineer as 漏洞工程师
+    participant Engineer as 漏洞挖掘工程师
     participant Frontend as 前端应用
     participant ToolAPI as 工具API
     participant ToolService as 工具服务
@@ -309,7 +309,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Engineer as 安全工程师
+    participant Engineer as 漏洞挖掘工程师
     participant Frontend as 前端应用
     participant ClaimAPI as 资产认领API
     participant ClaimService as 认领服务
@@ -365,7 +365,7 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant Engineer as 安全工程师
+    participant Engineer as 漏洞挖掘工程师
     participant Frontend as 前端
     participant AssetAPI as 资产API
     participant AssetService as 资产服务
@@ -383,11 +383,11 @@ sequenceDiagram
     NotificationService->>Leader: 发送审批请求通知
     
     Leader->>Frontend: 查看待审批列表
-    Frontend->>AssetAPI: GET /api/v1/approvals/pending
+    Frontend->>AssetAPI: GET /api/v1/my/access-approval-requests
     AssetAPI-->>Leader: 返回待审批列表
     
     Leader->>Frontend: 审批申请（通过/拒绝）
-    Frontend->>AssetAPI: PUT /api/v1/approvals/{id}
+    Frontend->>AssetAPI: POST /api/v1/access-requests/{id}/review
     AssetAPI->>AssetService: 更新审批状态
     AssetService->>NotificationService: 发送审批结果通知
     NotificationService->>Engineer: 通知审批结果

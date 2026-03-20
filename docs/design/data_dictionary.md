@@ -12,20 +12,23 @@
 | password_hash | VARCHAR(255) | 是 | - | 密码哈希 |
 | full_name | VARCHAR(100) | 是 | - | 真实姓名 |
 | avatar | VARCHAR(500) | 否 | null | 头像URL |
-| role | VARCHAR(20) | 是 | 'engineer' | 角色：admin/leader/engineer/auditor |
 | status | VARCHAR(20) | 是 | 'active' | 状态：active/suspended/deactivated |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 | updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
 | last_login | TIMESTAMP | 否 | null | 最后登录时间 |
+| 注：用户与角色的关系通过 user_roles 表管理 |
 
 ### 1.2 角色表 (roles)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
 | id | UUID | 是 | 自动生成 | 主键ID |
-| name | VARCHAR(50) | 是 | - | 角色名称，唯一 |
+| name | VARCHAR(100) | 是 | - | 角色名称 |
+| code | VARCHAR(50) | 是 | - | 角色代码 |
 | description | VARCHAR(255) | 否 | null | 角色描述 |
+| is_system | BOOLEAN | 是 | false | 是否系统内置角色 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+| updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
 
 ### 1.3 权限表 (permissions)
 
@@ -39,19 +42,7 @@
 | description | VARCHAR(255) | 否 | null | 权限描述 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 
-### 1.4 角色表 (roles)
-
-| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
-|--------|----------|----------|--------|------|
-| id | UUID | 是 | 自动生成 | 主键ID |
-| name | VARCHAR(100) | 是 | - | 角色名称 |
-| code | VARCHAR(50) | 是 | - | 角色代码 |
-| description | VARCHAR(255) | 否 | null | 角色描述 |
-| is_system | BOOLEAN | 是 | false | 是否系统内置角色 |
-| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
-| updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
-
-### 1.5 角色权限关联表 (role_permissions)
+### 1.4 角色权限关联表 (role_permissions)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -60,7 +51,7 @@
 | permission_id | UUID | 是 | - | 外键，关联permissions表 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 
-### 1.6 用户角色关联表 (user_roles)
+### 1.5 用户角色关联表 (user_roles)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -70,7 +61,7 @@
 | assigned_by | UUID | 是 | - | 外键，关联users表，分配者 |
 | assigned_at | TIMESTAMP | 是 | 当前时间 | 分配时间 |
 
-### 1.7 用户权限关联表 (user_permissions)
+### 1.6 用户权限关联表 (user_permissions)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -81,24 +72,25 @@
 | granted_at | TIMESTAMP | 是 | 当前时间 | 授权时间 |
 | expires_at | TIMESTAMP | 否 | null | 过期时间 |
 
-### 1.8 团队表 (teams)
+### 1.7 团队表 (teams)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
 | id | UUID | 是 | 自动生成 | 主键ID |
 | name | VARCHAR(100) | 是 | - | 团队名称 |
+| parent_id | UUID | 否 | null | 外键，关联teams表，上级团队 |
 | description | TEXT | 否 | null | 团队描述 |
 | leader_id | UUID | 是 | - | 外键，关联users表，团队负责人 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 
-### 1.7 团队成员关联表 (team_members)
+### 1.8 团队成员关联表 (team_members)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
 | id | UUID | 是 | 自动生成 | 主键ID |
 | user_id | UUID | 是 | - | 外键，关联users表 |
 | team_id | UUID | 是 | - | 外键，关联teams表 |
-| role | VARCHAR(20) | 是 | 'member' | 成员角色：leader/member |
+| is_leader | BOOLEAN | 是 | false | 是否为团队负责人 |
 | status | VARCHAR(20) | 是 | 'available' | 状态：available/busy/offline |
 | joined_at | TIMESTAMP | 是 | 当前时间 | 加入时间 |
 
@@ -165,13 +157,13 @@
 | changed_by | UUID | 是 | - | 外键，关联users表 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 变更时间 |
 
-### 2.5 资产认领表 (asset_claims)
+### 2.6 资产认领表 (asset_claims)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
 | id | UUID | 是 | 自动生成 | 主键ID |
 | asset_id | UUID | 是 | - | 外键，关联assets表 |
-| user_id | UUID | 是 | - | 外键，关联users表，认领人/安全工程师 |
+| user_id | UUID | 是 | - | 外键，关联users表，认领人/漏洞挖掘工程师 |
 | status | VARCHAR(20) | 是 | 'pending' | 状态：pending/approved/rejected/completed/abandoned |
 | claimed_at | TIMESTAMP | 否 | null | 认领时间 |
 | completed_at | TIMESTAMP | 否 | null | 完成时间 |
@@ -182,7 +174,7 @@
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 | updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
 
-### 2.6 资产文件表 (asset_files)
+### 2.7 资产文件表 (asset_files)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -201,7 +193,7 @@
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 | updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
 
-### 2.7 资产文件版本表 (asset_file_versions)
+### 2.8 资产文件版本表 (asset_file_versions)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -215,7 +207,7 @@
 | uploaded_by | UUID | 是 | - | 外键，关联users表 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 
-### 2.8 资产应用元数据表 (asset_app_metadata)
+### 2.9 资产应用元数据表 (asset_app_metadata)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -240,7 +232,7 @@
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 | updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
 
-### 2.9 资产应用元数据历史表 (asset_app_metadata_history)
+### 2.10 资产应用元数据历史表 (asset_app_metadata_history)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -290,6 +282,7 @@
 | delivered_at | TIMESTAMP | 否 | null | 交付时间 |
 | delivery_note | TEXT | 否 | null | 交付备注 |
 | description | TEXT | 是 | - | 漏洞描述 |
+| detail | TEXT | 是 | - | 漏洞详情（Markdown格式，包含完整的漏洞分析、修复建议等） |
 | impact | TEXT | 否 | null | 影响分析 |
 | poc_code | TEXT | 否 | null | POC代码 |
 | discoverer_id | UUID | 是 | - | 外键，关联users表，发现者 |
@@ -389,7 +382,7 @@
 |--------|----------|----------|--------|------|
 | id | UUID | 是 | 自动生成 | 主键ID |
 | title | VARCHAR(500) | 是 | - | 文档标题 |
-| category | VARCHAR(50) | 是 | - | 分类：guide/report/notes/case |
+| category | VARCHAR(50) | 是 | - | 分类：guide/report/notes/tech/case |
 | content | TEXT | 是 | - | 文档内容 |
 | asset_id | UUID | 否 | null | 外键，关联assets表(可选) |
 | author_id | UUID | 是 | - | 外键，关联users表 |
@@ -589,9 +582,9 @@
 | 值 | 描述 |
 |----|------|
 | admin | 系统管理员 |
-| leader | 团队负责人 |
-| engineer | 漏洞工程师 |
-| auditor | 审计人员 |
+| project_leader | 项目负责人 |
+| team_leader | 小组长 |
+| vulnerability_engineer | 漏洞挖掘工程师（新成员入职即为此角色） |
 
 ### 10.2 资产优先级 (asset_priority)
 | 值 | 描述 |
@@ -646,7 +639,7 @@
 | 客户委托 | 客户委托进行挖掘的目标 |
 | 自主发现 | 团队自主发现并添加的目标 |
 
-### 10.6 任务状态 (task_status)
+### 10.8 任务状态 (task_status)
 | 值 | 描述 |
 |----|------|
 | todo | 待处理 |
@@ -656,15 +649,16 @@
 | cancelled | 已取消 |
 | blocked | 阻塞 |
 
-### 10.6 文档分类 (document_category)
+### 10.9 文档分类 (document_category)
 | 值 | 描述 |
 |----|------|
 | guide | 环境搭建指南 |
 | report | 漏洞分析报告 |
 | notes | 技术笔记 |
+| tech | 技术文档 |
 | case | 典型案例 |
 
-### 10.7 工具分类 (tool_category)
+### 10.10 工具分类 (tool_category)
 | 值 | 描述 |
 |----|------|
 | scanner | 扫描工具 |
@@ -672,7 +666,7 @@
 | poc | POC代码 |
 | auxiliary | 辅助工具 |
 
-### 10.8 资产认领状态 (asset_claim_status)
+### 10.11 资产认领状态 (asset_claim_status)
 | 值 | 描述 |
 |----|------|
 | pending | 待审核 |
@@ -681,25 +675,30 @@
 | completed | 已完成 |
 | abandoned | 已放弃 |
 
-### 10.10 资产文件类型 (asset_file_type)
+### 10.12 资产文件类型 (asset_file_type)
 | 值 | 描述 |
 |----|------|
 | iso | ISO镜像文件 |
 | vmdk | VMDK虚拟机磁盘 |
-| installer | 安装包 |
-| source_code | 源代码 |
-| config | 配置文件 |
-| other | 其他文件 |
+| exe | 可执行文件 |
+| zip | ZIP压缩包 |
+| 7z | 7z压缩包 |
+| tar | TAR归档文件 |
+| gz | GZ压缩文件 |
+| 源码包 | 源代码压缩包 |
+| 二进制程序 | 二进制可执行程序 |
+| 配置文件 | 配置文件 |
+| 其他 | 其他文件 |
 
-### 10.11 资产文件分类 (asset_file_category)
+### 10.13 资产文件分类 (asset_file_category)
 | 值 | 描述 |
 |----|------|
-| system | 系统镜像 |
-| application | 应用程序 |
-| database | 数据库文件 |
-| network | 网络设备固件 |
-| iot | IoT设备固件 |
-| other | 其他 |
+| 系统镜像 | 操作系统镜像文件 |
+| 磁盘文件 | 虚拟机磁盘文件 |
+| 安装包 | 应用安装包 |
+| 提取程序 | 从目标系统提取的程序 |
+| 配置文件 | 系统或应用配置文件 |
+| 其他 | 其他文件 |
 
 ---
 
@@ -729,6 +728,7 @@
 | type | VARCHAR(50) | 是 | - | 通知类型 |
 | enabled | BOOLEAN | 是 | true | 是否启用 |
 | notify_email | BOOLEAN | 是 | false | 邮件通知 |
+| notify_sms | BOOLEAN | 是 | false | 短信通知（可配置） |
 | notify_webhook | BOOLEAN | 是 | false | webhook推送 |
 
 ### 11.3 系统公告表 (system_announcements)

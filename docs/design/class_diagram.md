@@ -83,7 +83,7 @@ classDiagram
         +UUID id
         +UUID user_id
         +UUID team_id
-        +string role
+        +boolean is_leader
         +string status
         +datetime joined_at
     }
@@ -460,7 +460,7 @@ classDiagram
     Environment "1" --> "*" EnvironmentSnapshot : has
 ```
 
-### 1.4 文档管理类图
+### 1.5 文档管理类图
 
 ```mermaid
 classDiagram
@@ -530,7 +530,7 @@ classDiagram
     DocumentAccess "*" --> "1" User : requests
 ```
 
-### 1.5 工具资源库类图
+### 1.6 工具资源库类图
 
 ```mermaid
 classDiagram
@@ -583,7 +583,7 @@ classDiagram
     Tool "1" --> "*" ToolDownload : tracks
 ```
 
-### 1.6 任务管理类图
+### 1.7 任务管理类图
 
 ```mermaid
 classDiagram
@@ -634,7 +634,7 @@ classDiagram
     User "1" --> "*" Task : created_by
 ```
 
-### 1.7 知识库类图
+### 1.8 知识库类图
 
 ```mermaid
 classDiagram
