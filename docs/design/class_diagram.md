@@ -21,15 +21,6 @@ classDiagram
         +check_password() bool
     }
 
-    class Role {
-        +UUID id
-        +string name
-        +string description
-        +datetime created_at
-        +create() Role
-        +update() Role
-    }
-
     class Permission {
         +UUID id
         +string name
