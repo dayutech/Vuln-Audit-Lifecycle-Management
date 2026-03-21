@@ -10,8 +10,10 @@ classDiagram
         +UUID id
         +string username
         +string email
+        +string phone
         +string password_hash
         +string full_name
+        +string position
         +string avatar
         +datetime created_at
         +datetime updated_at
@@ -73,7 +75,9 @@ classDiagram
         +string name
         +string description
         +UUID leader_id
+        +UUID created_by
         +datetime created_at
+        +datetime updated_at
         +create() Team
         +add_member() bool
         +remove_member() bool
@@ -113,9 +117,6 @@ classDiagram
         +string priority
         +string status
         +UUID owner_id
-        +boolean vendor_notified
-        +boolean vendor_fixed
-        +datetime fixed_at
         +datetime created_at
         +datetime updated_at
         +create() Asset
@@ -282,37 +283,45 @@ classDiagram
         +string type
         +string severity
         +float cvss_score
-        +string status
-        +boolean customer_confirmed
+        +string workflow_status
+        +string customer_status
+        +string disclosure_status
         +datetime customer_confirmed_at
+        +datetime customer_rejected_at
+        +text customer_reject_reason
         +string exploit_stage
         +text exploit_code
         +string field_test_status
         +text field_test_result
         +datetime delivered_at
         +text delivery_note
-        +boolean vendor_notified
+        +datetime disclosure_date
+        +string disclosure_source
         +boolean vendor_fixed
-        +datetime fixed_at
+        +datetime vendor_fixed_at
+        +string vendor_fix_version
         +text description
+        +text detail
         +text impact
+        +text poc_code
         +UUID discoverer_id
         +UUID assigned_to
         +datetime created_at
         +datetime updated_at
         +create() Vulnerability
-        +update_status() bool
+        +update_workflow_status() bool
+        +update_customer_status() bool
+        +update_disclosure_status() bool
         +assign() bool
-        +confirm_customer() bool
         +update_exploit_stage() bool
         +submit_field_test() bool
         +mark_delivered() bool
-        +mark_vendor_fixed() bool
     }
 
     class VulnerabilityHistory {
         +UUID id
         +UUID vulnerability_id
+        +string status_type
         +string from_status
         +string to_status
         +UUID changed_by
@@ -343,16 +352,13 @@ classDiagram
 classDiagram
     class Notification {
         +UUID id
-        +UUID user_id
         +string type
         +string title
         +text content
         +string related_type
         +UUID related_id
-        +boolean is_read
-        +datetime read_at
         +datetime created_at
-        +mark_as_read() bool
+        +create() Notification
     }
 
     class NotificationSetting {
@@ -375,7 +381,10 @@ classDiagram
         +string send_status
         +datetime sent_at
         +string error_message
+        +boolean is_read
+        +datetime read_at
         +datetime created_at
+        +mark_as_read() bool
     }
 
     class SystemAnnouncement {
@@ -468,11 +477,13 @@ classDiagram
         +UUID id
         +string title
         +string category
+        +string summary
         +text content
         +UUID asset_id
         +UUID author_id
         +string status
         +int version
+        +int word_count
         +datetime created_at
         +datetime updated_at
         +create() Document

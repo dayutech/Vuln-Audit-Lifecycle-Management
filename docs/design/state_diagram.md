@@ -2,23 +2,24 @@
 
 ## 1. 漏洞生命周期状态图
 
+### 1.1 工作流状态 (workflow_status)
+
 ```mermaid
 stateDiagram-v2
     [*] --> Discovered: 发现漏洞
     Discovered --> Verified: 审核通过
-    Discovered --> Rejected: 审核拒绝
+    Discovered --> Closed: 直接关闭
     Verified --> Analyzing: 开始分析
+    Verified --> Closed: 直接关闭
     Analyzing --> Analyzed: 分析完成
-    Analyzed --> CustomerConfirmed: 客户确认接收
-    Analyzed --> Rejected: 客户拒绝
-    CustomerConfirmed --> ExploitDev: 开始利用开发
-    ExploitDev --> FieldTesting: 出场测试
-    FieldTesting --> ExploitDev: 测试失败
+    Analyzing --> Verified: 分析回退
+    Analyzed --> ExploitDev: 客户确认后开始利用开发
+    Analyzed --> Closed: 直接关闭
+    ExploitDev --> FieldTesting: 提交测试
+    ExploitDev --> Analyzed: 开发回退
     FieldTesting --> Delivered: 测试通过
-    Delivered --> Closed: 归档交付
-    Delivered --> Fixed: 厂商已修复
-    Fixed --> Closed: 归档
-    Rejected --> [*]
+    FieldTesting --> ExploitDev: 测试失败
+    Delivered --> Closed: 归档关闭
     Closed --> [*]
     
     note right of Discovered
@@ -41,11 +42,6 @@ stateDiagram-v2
         待客户确认
     end note
     
-    note right of CustomerConfirmed
-        客户确认接收漏洞
-        开始利用开发
-    end note
-    
     note right of ExploitDev
         利用代码开发
         探测/突破/控守
@@ -61,16 +57,87 @@ stateDiagram-v2
         记录交付时间
     end note
     
-    note right of Fixed
-        厂商已修复漏洞
-        记录修复时间
-    end note
-    
     note right of Closed
         漏洞已关闭
         记录经验教训
     end note
 ```
+
+### 1.2 客户确认状态 (customer_status)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: 分析完成
+    Pending --> Confirmed: 客户确认接收
+    Pending --> Rejected: 客户拒绝
+    Rejected --> Pending: 重新分析提交
+    
+    note right of Pending
+        待确认
+        等待客户确认
+    end note
+    
+    note right of Confirmed
+        已确认
+        客户确认接收漏洞
+    end note
+    
+    note right of Rejected
+        已拒绝
+        客户拒绝接收
+        需填写拒绝原因
+    end note
+```
+
+### 1.3 公开披露状态 (disclosure_status)
+
+```mermaid
+stateDiagram-v2
+    [*] --> Undisclosed: 漏洞发现
+    Undisclosed --> Disclosed: 被公开披露
+    Disclosed --> HasCVE: 分配CVE编号
+    HasCVE --> [*]
+    
+    note right of Undisclosed
+        未公开
+        漏洞信息仅团队内部可见
+    end note
+    
+    note right of Disclosed
+        已公开
+        漏洞被其他人公开披露
+        (安全公告、博客等)
+    end note
+    
+    note right of HasCVE
+        已分配CVE
+        漏洞已被分配CVE编号
+    end note
+```
+
+### 1.4 厂商修复追踪
+
+> **说明**：厂商修复状态通过公开渠道观察，不主动通知厂商。
+
+| 字段 | 说明 |
+|------|------|
+| vendor_fixed | 厂商是否已修复（通过公开渠道观察） |
+| vendor_fixed_at | 厂商修复时间 |
+| vendor_fix_version | 修复版本号 |
+
+### 1.5 状态关联规则
+
+| workflow_status | customer_status | disclosure_status | 说明 |
+|-----------------|-----------------|-------------------|------|
+| analyzed | pending | undisclosed | 分析完成，等待客户确认 |
+| exploit_development | confirmed | any | 客户确认后，进入利用开发 |
+| analyzing | rejected | any | 客户拒绝后，回退到分析中 |
+| any | any | disclosed | 漏洞被公开披露，不影响工作流 |
+
+> **注意**：
+> - disclosure_status 独立于 workflow_status，可在任意阶段更新
+> - 厂商修复状态（vendor_fixed）通过公开渠道观察，不主动通知厂商
+> - 通过CVE数据库、安全公告、社交媒体等渠道观察漏洞是否被披露
 
 ## 2. 资产状态图
 
@@ -346,44 +413,40 @@ graph LR
         C1[Discovered] --> C2[Verified]
         C2 --> C3[Analyzing]
         C3 --> C4[Analyzed]
-        C4 --> C5[CustomerConfirmed]
-        C5 --> C6[ExploitDev]
-        C6 --> C7[FieldTesting]
-        C7 --> C8[Delivered]
-        C8 --> C9[Closed]
+        C4 --> C5[ExploitDev]
+        C5 --> C6[FieldTesting]
+        C6 --> C7[Delivered]
+        C7 --> C8[Closed]
     end
     
     subgraph High["高 P1"]
         H1[Discovered] --> H2[Verified]
         H2 --> H3[Analyzing]
         H3 --> H4[Analyzed]
-        H4 --> H5[CustomerConfirmed]
-        H5 --> H6[ExploitDev]
-        H6 --> H7[FieldTesting]
-        H7 --> H8[Delivered]
-        H8 --> H9[Closed]
+        H4 --> H5[ExploitDev]
+        H5 --> H6[FieldTesting]
+        H6 --> H7[Delivered]
+        H7 --> H8[Closed]
     end
     
     subgraph Medium["中 P2"]
         M1[Discovered] --> M2[Verified]
         M2 --> M3[Analyzing]
         M3 --> M4[Analyzed]
-        M4 --> M5[CustomerConfirmed]
-        M5 --> M6[ExploitDev]
-        M6 --> M7[FieldTesting]
-        M7 --> M8[Delivered]
-        M8 --> M9[Closed]
+        M4 --> M5[ExploitDev]
+        M5 --> M6[FieldTesting]
+        M6 --> M7[Delivered]
+        M7 --> M8[Closed]
     end
     
     subgraph Low["低 P3"]
         L1[Discovered] --> L2[Verified]
         L2 --> L3[Analyzing]
         L3 --> L4[Analyzed]
-        L4 --> L5[CustomerConfirmed]
-        L5 --> L6[ExploitDev]
-        L6 --> L7[FieldTesting]
-        L7 --> L8[Delivered]
-        L8 --> L9[Closed]
+        L4 --> L5[ExploitDev]
+        L5 --> L6[FieldTesting]
+        L6 --> L7[Delivered]
+        L7 --> L8[Closed]
     end
     
     style Critical fill:#ff6666
@@ -392,23 +455,47 @@ graph LR
     style Low fill:#66aaff
 ```
 
+> **说明**：客户确认状态(customer_status)和公开披露状态(disclosure_status)独立于工作流状态，不影响优先级流转。
+
 ## 11. 状态转换规则表
+
+### 11.1 漏洞工作流状态转换规则
 
 | 当前状态 | 目标状态 | 触发条件 | 权限要求 | 备注 |
 |----------|----------|----------|----------|------|
 | Discovered | Verified | 审核通过 | 团队负责人 | 需要至少一名审核人 |
-| Discovered | Rejected | 审核拒绝 | 团队负责人 | 需要填写拒绝原因 |
+| Discovered | Closed | 直接关闭 | 团队负责人 | 无效漏洞 |
 | Verified | Analyzing | 开始分析 | 漏洞挖掘工程师 | 自动通知分配人 |
+| Verified | Closed | 直接关闭 | 团队负责人 | 取消挖掘 |
 | Analyzing | Analyzed | 分析完成 | 漏洞挖掘工程师 | 需要提交分析报告 |
-| Analyzed | CustomerConfirmed | 客户确认接收 | 客户 | 客户确认漏洞 |
-| Analyzed | Rejected | 客户拒绝 | 客户 | 客户拒绝接收 |
-| CustomerConfirmed | ExploitDev | 开始利用开发 | 漏洞挖掘工程师 | 开始编写利用代码 |
+| Analyzing | Verified | 分析回退 | 漏洞挖掘工程师 | 需要重新验证 |
+| Analyzed | ExploitDev | 客户确认后开始利用开发 | 漏洞挖掘工程师 | 需要客户确认 |
+| Analyzed | Closed | 直接关闭 | 团队负责人 | 取消挖掘 |
 | ExploitDev | FieldTesting | 提交出场测试 | 漏洞挖掘工程师 | 利用代码完成 |
-| FieldTesting | ExploitDev | 测试失败 | 漏洞挖掘工程师 | 需要修复利用代码 |
+| ExploitDev | Analyzed | 开发回退 | 漏洞挖掘工程师 | 需要重新分析 |
 | FieldTesting | Delivered | 测试通过 | 漏洞挖掘工程师 | 可以交付 |
+| FieldTesting | ExploitDev | 测试失败 | 漏洞挖掘工程师 | 需要修复利用代码 |
 | Delivered | Closed | 归档关闭 | 团队负责人 | 完成归档 |
-| Delivered | Fixed | 厂商已修复 | 团队负责人 | 记录修复时间 |
-| Fixed | Closed | 归档 | 团队负责人 | 完成归档 |
+
+### 11.2 客户确认状态转换规则
+
+| 当前状态 | 目标状态 | 触发条件 | 权限要求 | 备注 |
+|----------|----------|----------|----------|------|
+| Pending | Confirmed | 客户确认接收 | 客户 | 确认接收漏洞 |
+| Pending | Rejected | 客户拒绝 | 客户 | 需填写拒绝原因 |
+| Rejected | Pending | 重新分析提交 | 漏洞挖掘工程师 | 修改后重新提交 |
+
+### 11.3 公开披露状态转换规则
+
+| 当前状态 | 目标状态 | 触发条件 | 权限要求 | 备注 |
+|----------|----------|----------|----------|------|
+| Undisclosed | Disclosed | 漏洞被公开披露 | 系统自动/手动更新 | 通过公开渠道观察 |
+| Disclosed | HasCVE | 分配CVE编号 | 系统自动/手动更新 | CVE数据库同步 |
+
+### 11.4 其他状态转换规则
+
+| 当前状态 | 目标状态 | 触发条件 | 权限要求 | 备注 |
+|----------|----------|----------|----------|------|
 | Todo | InProgress | 开始处理 | 任务接收人 | 更新团队状态 |
 | InProgress | Review | 提交审核 | 任务处理人 | 产出需可验证 |
 | Review | Done | 审核通过 | 团队负责人 | 自动通知 |

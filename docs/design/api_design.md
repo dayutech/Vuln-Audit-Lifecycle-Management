@@ -88,6 +88,7 @@ Authorization: Bearer <token>
     "id": "uuid",
     "username": "string",
     "email": "string",
+    "phone": "string",
     "full_name": "string",
     "role": "string",
     "avatar": "string",
@@ -184,6 +185,7 @@ Query Parameters:
             "id": "uuid",
             "username": "string",
             "email": "string",
+            "phone": "string",
             "full_name": "string",
             "role": "string",
             "status": "active",
@@ -206,6 +208,7 @@ Authorization: Bearer <token>
 {
     "username": "string",
     "email": "string",
+    "phone": "string",
     "password": "string",
     "full_name": "string",
     "role": "engineer"
@@ -238,6 +241,7 @@ Authorization: Bearer <token>
     "id": "uuid",
     "username": "string",
     "email": "string",
+    "phone": "string",
     "full_name": "string",
     "role": "string",
     "status": "string",
@@ -336,6 +340,18 @@ Authorization: Bearer <token>
 }
 ```
 
+**响应 201**
+```json
+{
+    "id": "uuid",
+    "name": "string",
+    "description": "string",
+    "leader_id": "uuid",
+    "created_by": "uuid",
+    "created_at": "datetime"
+}
+```
+
 ### 3.3 获取团队详情
 
 **请求**
@@ -417,8 +433,6 @@ Query Parameters:
             "target_source": "string",
             "priority": "P0",
             "status": "active",
-            "vendor_notified": false,
-            "vendor_fixed": false,
             "groups": [
                 {
                     "id": "uuid",
@@ -612,16 +626,15 @@ Authorization: Bearer <token>
 **请求体**
 ```json
 {
-    "access_scope": {
-        "documents": true,
-        "files": ["系统镜像", "安装包"],
-        "environments": true
-    },
+    "can_view_documents": true,
+    "can_view_environments": true,
+    "can_view_files": true,
+    "allowed_file_types": "iso,vmdk,zip",
     "request_note": "需要进行漏洞挖掘，需要访问相关文档和文件"
 }
 ```
 
-> **说明**：漏洞挖掘工程师申请访问某个资产，可指定需要访问的内容范围（文档、文件类型、环境等）
+> **说明**：漏洞挖掘工程师申请访问某个资产，可指定需要访问的内容范围（文档、文件、环境等）
 
 **响应 201**
 ```json
@@ -630,11 +643,10 @@ Authorization: Bearer <token>
     "asset_id": "uuid",
     "user_id": "uuid",
     "status": "pending",
-    "access_scope": {
-        "documents": true,
-        "files": ["系统镜像", "安装包"],
-        "environments": true
-    },
+    "can_view_documents": true,
+    "can_view_environments": true,
+    "can_view_files": true,
+    "allowed_file_types": "iso,vmdk,zip",
     "request_note": "需要进行漏洞挖掘，需要访问相关文档和文件",
     "created_at": "datetime"
 }
@@ -661,11 +673,10 @@ Query Parameters:
             "asset_id": "uuid",
             "asset_name": "Web应用系统A",
             "status": "pending",
-            "access_scope": {
-                "documents": true,
-                "files": ["系统镜像"],
-                "environments": false
-            },
+            "can_view_documents": true,
+            "can_view_environments": false,
+            "can_view_files": true,
+            "allowed_file_types": "iso,vmdk",
             "created_at": "datetime"
         }
     ]
@@ -696,11 +707,10 @@ Authorization: Bearer <token>
 ```json
 {
     "action": "approve",
-    "access_scope": {
-        "documents": true,
-        "files": ["系统镜像", "安装包", "配置文件"],
-        "environments": true
-    },
+    "can_view_documents": true,
+    "can_view_environments": true,
+    "can_view_files": true,
+    "allowed_file_types": "iso,vmdk,zip,配置文件",
     "review_note": "已授权访问，请注意保密"
 }
 ```
@@ -714,11 +724,10 @@ Authorization: Bearer <token>
     "asset_id": "uuid",
     "user_id": "uuid",
     "status": "approved",
-    "access_scope": {
-        "documents": true,
-        "files": ["系统镜像", "安装包", "配置文件"],
-        "environments": true
-    },
+    "can_view_documents": true,
+    "can_view_environments": true,
+    "can_view_files": true,
+    "allowed_file_types": "iso,vmdk,zip,配置文件",
     "reviewed_by": "uuid",
     "reviewed_at": "datetime",
     "review_note": "已授权访问，请注意保密"
@@ -1344,7 +1353,9 @@ Query Parameters:
             "type": "string",
             "severity": "critical",
             "cvss_score": 9.8,
-            "status": "verified",
+            "workflow_status": "verified",
+            "customer_status": "pending",
+            "disclosure_status": "undisclosed",
             "discoverer": {
                 "id": "uuid",
                 "username": "string"
@@ -1402,10 +1413,13 @@ Authorization: Bearer <token>
 **请求体**
 ```json
 {
+    "status_type": "workflow",
     "status": "analyzing",
     "comment": "开始进行漏洞利用分析"
 }
 ```
+
+> **说明**：status_type 可选值为 workflow/customer/disclosure，分别对应工作流状态、客户确认状态、公开披露状态
 
 ### 5.5 客户确认接收
 
@@ -1418,10 +1432,12 @@ Authorization: Bearer <token>
 **请求体**
 ```json
 {
-    "customer_confirmed": true,
+    "customer_status": "confirmed",
     "comment": "客户确认接收漏洞"
 }
 ```
+
+> **说明**：customer_status 可选值为 confirmed（确认接收）/ rejected（拒绝接收），拒绝时需填写拒绝原因
 
 ### 5.6 更新利用阶段
 
@@ -1470,11 +1486,31 @@ Authorization: Bearer <token>
 }
 ```
 
-### 5.9 标记厂商修复
+### 5.9 更新公开披露状态
 
 **请求**
 ```
-PUT /api/v1/vulnerabilities/{id}/vendor-fixed
+PUT /api/v1/vulnerabilities/{id}/disclosure-status
+Authorization: Bearer <token>
+```
+
+**请求体**
+```json
+{
+    "disclosure_status": "disclosed",
+    "disclosure_date": "2024-01-15",
+    "disclosure_source": "CVE-2024-1234 安全公告",
+    "comment": "漏洞已被公开披露"
+}
+```
+
+> **说明**：disclosure_status 可选值为 undisclosed（未公开）/ disclosed（已公开）/ has_cve（已分配CVE）
+
+### 5.10 更新厂商修复状态
+
+**请求**
+```
+PUT /api/v1/vulnerabilities/{id}/vendor-fix
 Authorization: Bearer <token>
 ```
 
@@ -1482,11 +1518,15 @@ Authorization: Bearer <token>
 ```json
 {
     "vendor_fixed": true,
-    "fixed_at": "datetime"
+    "vendor_fixed_at": "2024-01-20",
+    "vendor_fix_version": "v2.1.0",
+    "comment": "厂商已发布修复版本"
 }
 ```
 
-### 5.10 分配漏洞
+> **说明**：厂商修复状态通过公开渠道观察，不主动通知厂商
+
+### 5.11 分配漏洞
 
 **请求**
 ```
@@ -1501,7 +1541,7 @@ Authorization: Bearer <token>
 }
 ```
 
-### 5.11 获取漏洞历史
+### 5.12 获取漏洞历史
 
 **请求**
 ```
@@ -1509,7 +1549,7 @@ GET /api/v1/vulnerabilities/{id}/history
 Authorization: Bearer <token>
 ```
 
-### 5.12 上传漏洞附件
+### 5.13 上传漏洞附件
 
 **请求**
 ```
@@ -1524,7 +1564,7 @@ file: binary
 description: string
 ```
 
-### 5.13 获取漏洞的标签列表
+### 5.14 获取漏洞的标签列表
 
 **请求**
 ```
@@ -1549,7 +1589,7 @@ Authorization: Bearer <token>
 }
 ```
 
-### 5.14 添加标签到漏洞
+### 5.15 添加标签到漏洞
 
 **请求**
 ```
@@ -1575,7 +1615,7 @@ Authorization: Bearer <token>
 }
 ```
 
-### 5.15 移除漏洞的标签
+### 5.16 移除漏洞的标签
 
 **请求**
 ```
@@ -1617,12 +1657,45 @@ Authorization: Bearer <token>
     "asset_id": "uuid",
     "template_id": "uuid",
     "config": {
-        "cpu": "2",
-        "memory": "4G",
-        "disk": "50G"
+        "cpu": 2,
+        "memory": 4096,
+        "disk": 50,
+        "network": {
+            "type": "bridge",
+            "ip": "192.168.1.100",
+            "port_mappings": [
+                {"host_port": 8080, "container_port": 80}
+            ]
+        },
+        "os": {
+            "type": "linux",
+            "version": "ubuntu20.04"
+        },
+        "environment_variables": {
+            "JAVA_HOME": "/usr/lib/jvm/java-11"
+        },
+        "startup_command": "/opt/app/start.sh",
+        "health_check": {
+            "enabled": true,
+            "interval": 30,
+            "timeout": 10
+        }
     }
 }
 ```
+
+> **config字段说明**：
+> - cpu: CPU核心数（整数）
+> - memory: 内存大小（MB）
+> - disk: 磁盘大小（GB）
+> - network.type: 网络类型（bridge/nat/host）
+> - network.ip: IP地址（可选）
+> - network.port_mappings: 端口映射列表
+> - os.type: 操作系统类型
+> - os.version: 操作系统版本
+> - environment_variables: 环境变量键值对
+> - startup_command: 启动命令
+> - health_check: 健康检查配置
 
 ### 6.3 获取环境详情
 
@@ -1747,6 +1820,7 @@ Authorization: Bearer <token>
 {
     "title": "Web应用安全测试指南",
     "category": "guide",
+    "summary": "本文档介绍Web应用安全测试的基本方法和流程...",
     "content": "<p>这里是文档内容，支持HTML富文本...</p>",
     "asset_id": "uuid (optional)"
 }
@@ -1758,6 +1832,7 @@ Authorization: Bearer <token>
     "id": "uuid",
     "title": "Web应用安全测试指南",
     "category": "guide",
+    "summary": "本文档介绍Web应用安全测试的基本方法和流程...",
     "content": "<p>这里是文档内容，支持HTML富文本...</p>",
     "asset_id": "uuid",
     "author_id": "uuid",
@@ -2695,13 +2770,19 @@ Query Parameters:
         "items": [
             {
                 "id": "uuid",
-                "type": "asset_access_approved",
-                "title": "资产访问申请已通过",
-                "content": "您申请的资产访问已通过审批",
-                "related_type": "asset",
-                "related_id": "uuid",
+                "notification": {
+                    "id": "uuid",
+                    "type": "asset_access_approved",
+                    "title": "资产访问申请已通过",
+                    "content": "您申请的资产访问已通过审批",
+                    "related_type": "asset",
+                    "related_id": "uuid",
+                    "created_at": "datetime"
+                },
                 "is_read": false,
-                "created_at": "datetime"
+                "read_at": null,
+                "channel": "in_app",
+                "send_status": "sent"
             }
         ],
         "total": 100,
@@ -2956,11 +3037,25 @@ Query Parameters:
     "success": true,
     "data": {
         "total": 200,
-        "by_status": {
-            "new": 50,
-            "verified": 80,
-            "fixed": 50,
-            "accepted": 20
+        "by_workflow_status": {
+            "discovered": 50,
+            "verified": 30,
+            "analyzing": 20,
+            "analyzed": 15,
+            "exploit_development": 25,
+            "field_testing": 10,
+            "delivered": 30,
+            "closed": 20
+        },
+        "by_customer_status": {
+            "pending": 80,
+            "confirmed": 100,
+            "rejected": 20
+        },
+        "by_disclosure_status": {
+            "undisclosed": 150,
+            "disclosed": 30,
+            "has_cve": 20
         },
         "by_severity": {
             "critical": 10,

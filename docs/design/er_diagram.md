@@ -16,19 +16,23 @@ erDiagram
     ASSETS ||--o{ ASSET_GROUP_RELATIONS : ""
     ASSETS ||--o{ ASSET_CLAIMS : "认领"
     ASSETS ||--o{ ASSET_FILES : "包含"
+    ASSETS ||--o{ ASSET_ACCESS : "访问申请"
     ASSETS ||--o{ ASSET_APP_METADATA : "应用元数据"
     ASSET_APP_METADATA ||--o{ ASSET_APP_METADATA_HISTORY : "版本历史"
     ASSETS }o--o{ ASSET_TAGS : "标签"
     ASSET_FILES ||--o{ ASSET_FILE_VERSIONS : "版本"
     USERS ||--o{ ASSET_CLAIMS : "认领"
     USERS ||--o{ ASSET_FILES : "上传"
+    USERS ||--o{ ASSET_ACCESS : "申请"
     
     USERS {
         uuid id PK
         string username
         string email
+        string phone
         string password_hash
         string full_name
+        string position
         string role
         timestamp created_at
         timestamp updated_at
@@ -39,7 +43,9 @@ erDiagram
         string name
         string description
         uuid leader_id FK
+        uuid created_by FK
         timestamp created_at
+        timestamp updated_at
     }
     
     ASSETS {
@@ -53,9 +59,6 @@ erDiagram
         string priority
         string status
         uuid owner_id FK
-        boolean vendor_notified
-        boolean vendor_fixed
-        timestamp fixed_at
         timestamp created_at
         timestamp updated_at
     }
@@ -101,6 +104,23 @@ erDiagram
         timestamp claimed_at
         timestamp completed_at
         text note
+        timestamp created_at
+        timestamp updated_at
+    }
+    
+    ASSET_ACCESS {
+        uuid id PK
+        uuid asset_id FK
+        uuid user_id FK
+        string status
+        boolean can_view_documents
+        boolean can_view_environments
+        boolean can_view_files
+        string allowed_file_types
+        text request_note
+        uuid reviewed_by FK
+        timestamp reviewed_at
+        text review_note
         timestamp created_at
         timestamp updated_at
     }
@@ -202,18 +222,23 @@ erDiagram
         string type
         string severity
         float cvss_score
-        string status
-        boolean customer_confirmed
+        string workflow_status
+        string customer_status
+        string disclosure_status
         timestamp customer_confirmed_at
+        timestamp customer_rejected_at
+        text customer_reject_reason
         string exploit_stage
         text exploit_code
         string field_test_status
         text field_test_result
         timestamp delivered_at
         text delivery_note
-        boolean vendor_notified
+        timestamp disclosure_date
+        string disclosure_source
         boolean vendor_fixed
-        timestamp fixed_at
+        timestamp vendor_fixed_at
+        string vendor_fix_version
         text description
         text detail
         text impact
@@ -227,6 +252,7 @@ erDiagram
     VULNERABILITY_HISTORY {
         uuid id PK
         uuid vulnerability_id FK
+        string status_type
         string from_status
         string to_status
         uuid changed_by FK
@@ -313,11 +339,13 @@ erDiagram
         uuid id PK
         string title
         string category
+        string summary
         text content
         uuid asset_id FK
         uuid author_id FK
         string status
         int version
+        int word_count
         timestamp created_at
         timestamp updated_at
     }
@@ -520,8 +548,10 @@ erDiagram
         string name
         uuid parent_id FK
         uuid leader_id FK
+        uuid created_by FK
         string description
         timestamp created_at
+        timestamp updated_at
     }
     
     TEAM_MEMBERS {
@@ -579,14 +609,11 @@ erDiagram
     
     NOTIFICATIONS {
         uuid id PK
-        uuid user_id FK
         string type
         string title
         text content
         string related_type
         uuid related_id
-        boolean is_read
-        timestamp read_at
         timestamp created_at
     }
     
@@ -609,6 +636,8 @@ erDiagram
         string send_status
         timestamp sent_at
         string error_message
+        boolean is_read
+        timestamp read_at
         timestamp created_at
     }
     
@@ -708,10 +737,12 @@ erDiagram
     ASSETS ||--o{ ENVIRONMENTS : ""
     ASSETS ||--o{ DOCUMENTS : ""
     ASSETS ||--o{ ASSET_CLAIMS : ""
+    ASSETS ||--o{ ASSET_ACCESS : ""
     ASSETS ||--o{ ASSET_FILES : ""
     ASSETS ||--o{ ASSET_APP_METADATA : ""
     ASSET_APP_METADATA ||--o{ ASSET_APP_METADATA_HISTORY : ""
     ASSET_FILES ||--o{ ASSET_FILE_VERSIONS : ""
+    USERS ||--o{ ASSET_ACCESS : ""
     
     ENVIRONMENT_TEMPLATES ||--o{ ENVIRONMENTS : ""
     

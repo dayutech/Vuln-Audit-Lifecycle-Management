@@ -9,9 +9,11 @@
 | id | UUID | 是 | 自动生成 | 主键ID |
 | username | VARCHAR(50) | 是 | - | 用户名，唯一 |
 | email | VARCHAR(255) | 是 | - | 邮箱，唯一 |
+| phone | VARCHAR(20) | 否 | null | 手机号，用于短信通知 |
 | password_hash | VARCHAR(255) | 是 | - | 密码哈希 |
 | full_name | VARCHAR(100) | 是 | - | 真实姓名 |
 | avatar | VARCHAR(500) | 否 | null | 头像URL |
+| position | VARCHAR(100) | 否 | null | 职位 |
 | status | VARCHAR(20) | 是 | 'active' | 状态：active/suspended/deactivated |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 | updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
@@ -81,7 +83,9 @@
 | parent_id | UUID | 否 | null | 外键，关联teams表，上级团队 |
 | description | TEXT | 否 | null | 团队描述 |
 | leader_id | UUID | 是 | - | 外键，关联users表，团队负责人 |
+| created_by | UUID | 是 | - | 外键，关联users表，创建者 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+| updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
 
 ### 1.8 团队成员关联表 (team_members)
 
@@ -111,9 +115,6 @@
 | description | TEXT | 否 | null | 资产描述 |
 | priority | VARCHAR(2) | 是 | 'P2' | 优先级：P0/P1/P2/P3 |
 | status | VARCHAR(20) | 是 | 'active' | 状态：active/under_test/suspended/archived |
-| vendor_notified | BOOLEAN | 是 | false | 是否已通知厂商 |
-| vendor_fixed | BOOLEAN | 是 | false | 厂商是否已修复 |
-| fixed_at | TIMESTAMP | 否 | null | 厂商修复时间 |
 | owner_id | UUID | 是 | - | 外键，关联users表，资产负责人 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 | updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
@@ -174,7 +175,26 @@
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 | updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
 
-### 2.7 资产文件表 (asset_files)
+### 2.7 资产访问申请表 (asset_access)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| asset_id | UUID | 是 | - | 外键，关联assets表 |
+| user_id | UUID | 是 | - | 外键，关联users表，申请人 |
+| status | VARCHAR(20) | 是 | 'pending' | 状态：pending/approved/rejected |
+| can_view_documents | BOOLEAN | 是 | false | 是否可查看文档 |
+| can_view_environments | BOOLEAN | 是 | false | 是否可查看环境配置 |
+| can_view_files | BOOLEAN | 是 | false | 是否可查看文件 |
+| allowed_file_types | VARCHAR(500) | 否 | null | 允许访问的文件类型，多个用逗号分隔 |
+| request_note | TEXT | 否 | null | 申请说明 |
+| reviewed_by | UUID | 否 | null | 外键，关联users表，审批人 |
+| reviewed_at | TIMESTAMP | 否 | null | 审批时间 |
+| review_note | TEXT | 否 | null | 审批备注 |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+| updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
+
+### 2.8 资产文件表 (asset_files)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -193,7 +213,7 @@
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 | updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
 
-### 2.8 资产文件版本表 (asset_file_versions)
+### 2.9 资产文件版本表 (asset_file_versions)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -207,7 +227,7 @@
 | uploaded_by | UUID | 是 | - | 外键，关联users表 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 
-### 2.9 资产应用元数据表 (asset_app_metadata)
+### 2.10 资产应用元数据表 (asset_app_metadata)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -232,7 +252,7 @@
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 | updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
 
-### 2.10 资产应用元数据历史表 (asset_app_metadata_history)
+### 2.11 资产应用元数据历史表 (asset_app_metadata_history)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -272,15 +292,23 @@
 | type | VARCHAR(100) | 是 | - | 漏洞类型：SQL注入/XSS/RCE等 |
 | severity | VARCHAR(10) | 是 | 'medium' | 严重程度：critical/high/medium/low |
 | cvss_score | DECIMAL(3,1) | 否 | null | CVSS评分 |
-| status | VARCHAR(30) | 是 | 'discovered' | 状态 |
-| customer_confirmed | BOOLEAN | 是 | false | 客户是否确认接收 |
+| workflow_status | VARCHAR(30) | 是 | 'discovered' | 工作流状态：discovered/verified/analyzing/analyzed/exploit_development/field_testing/delivered/closed |
+| customer_status | VARCHAR(20) | 是 | 'pending' | 客户确认状态：pending/confirmed/rejected |
+| disclosure_status | VARCHAR(20) | 是 | 'undisclosed' | 公开披露状态：undisclosed/disclosed/has_cve |
 | customer_confirmed_at | TIMESTAMP | 否 | null | 客户确认时间 |
+| customer_rejected_at | TIMESTAMP | 否 | null | 客户拒绝时间 |
+| customer_reject_reason | TEXT | 否 | null | 客户拒绝原因 |
 | exploit_stage | VARCHAR(20) | 是 | '探测' | 利用阶段：探测/突破/控守/已完成 |
 | exploit_code | TEXT | 否 | null | 利用代码 |
 | field_test_status | VARCHAR(20) | 是 | '待测试' | 出场测试状态 |
 | field_test_result | TEXT | 否 | null | 测试结果 |
 | delivered_at | TIMESTAMP | 否 | null | 交付时间 |
 | delivery_note | TEXT | 否 | null | 交付备注 |
+| disclosure_date | TIMESTAMP | 否 | null | 公开披露日期 |
+| disclosure_source | VARCHAR(200) | 否 | null | 披露来源，如CVE、安全公告等 |
+| vendor_fixed | BOOLEAN | 是 | false | 厂商是否已修复（通过公开渠道观察） |
+| vendor_fixed_at | TIMESTAMP | 否 | null | 厂商修复时间 |
+| vendor_fix_version | VARCHAR(50) | 否 | null | 修复版本号 |
 | description | TEXT | 是 | - | 漏洞描述 |
 | detail | TEXT | 是 | - | 漏洞详情（Markdown格式，包含完整的漏洞分析、修复建议等） |
 | impact | TEXT | 否 | null | 影响分析 |
@@ -296,8 +324,9 @@
 |--------|----------|----------|--------|------|
 | id | UUID | 是 | 自动生成 | 主键ID |
 | vulnerability_id | UUID | 是 | - | 外键，关联vulnerabilities表 |
-| from_status | VARCHAR(20) | 是 | - | 变更前状态 |
-| to_status | VARCHAR(20) | 是 | - | 变更后状态 |
+| status_type | VARCHAR(20) | 是 | - | 状态类型：workflow/customer/disclosure |
+| from_status | VARCHAR(30) | 是 | - | 变更前状态 |
+| to_status | VARCHAR(30) | 是 | - | 变更后状态 |
 | changed_by | UUID | 是 | - | 外键，关联users表 |
 | comment | TEXT | 否 | null | 变更说明 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 变更时间 |
@@ -383,11 +412,13 @@
 | id | UUID | 是 | 自动生成 | 主键ID |
 | title | VARCHAR(500) | 是 | - | 文档标题 |
 | category | VARCHAR(50) | 是 | - | 分类：guide/report/notes/tech/case |
+| summary | VARCHAR(200) | 否 | null | 文档摘要，用于列表展示 |
 | content | TEXT | 是 | - | 文档内容 |
 | asset_id | UUID | 否 | null | 外键，关联assets表(可选) |
 | author_id | UUID | 是 | - | 外键，关联users表 |
 | status | VARCHAR(20) | 是 | 'draft' | 状态：draft/review/published/archived |
 | version | INTEGER | 是 | 1 | 版本号 |
+| word_count | INTEGER | 否 | 0 | 字数统计 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 | updated_at | TIMESTAMP | 是 | 当前时间 | 更新时间 |
 
@@ -602,22 +633,33 @@
 | medium | 中危 |
 | low | 低危 |
 
-### 10.4 漏洞状态 (vulnerability_status)
+### 10.4 漏洞工作流状态 (vulnerability_workflow_status)
 | 值 | 描述 |
 |----|------|
 | discovered | 已发现 |
 | verified | 已验证 |
 | analyzing | 分析中 |
 | analyzed | 已分析 |
-| customer_confirmed | 客户已确认 |
 | exploit_development | 利用开发中 |
 | field_testing | 出场测试中 |
 | delivered | 已交付 |
 | closed | 已关闭 |
-| fixed | 厂商已修复 |
+
+### 10.5 客户确认状态 (customer_status)
+| 值 | 描述 |
+|----|------|
+| pending | 待确认 |
+| confirmed | 已确认 |
 | rejected | 已拒绝 |
 
-### 10.5 漏洞利用阶段 (exploit_stage)
+### 10.6 公开披露状态 (disclosure_status)
+| 值 | 描述 |
+|----|------|
+| undisclosed | 未公开 |
+| disclosed | 已公开 |
+| has_cve | 已分配CVE |
+
+### 10.7 漏洞利用阶段 (exploit_stage)
 | 值 | 描述 |
 |----|------|
 | 探测 | 探测阶段 |
@@ -625,7 +667,7 @@
 | 控守 | 控守阶段 |
 | 已完成 | 利用代码完成 |
 
-### 10.6 出场测试状态 (field_test_status)
+### 10.8 出场测试状态 (field_test_status)
 | 值 | 描述 |
 |----|------|
 | 待测试 | 待出场测试 |
@@ -633,13 +675,13 @@
 | 测试通过 | 测试通过 |
 | 测试失败 | 测试失败 |
 
-### 10.7 目标来源 (target_source)
+### 10.9 目标来源 (target_source)
 | 值 | 描述 |
 |----|------|
 | 客户委托 | 客户委托进行挖掘的目标 |
 | 自主发现 | 团队自主发现并添加的目标 |
 
-### 10.8 任务状态 (task_status)
+### 10.10 任务状态 (task_status)
 | 值 | 描述 |
 |----|------|
 | todo | 待处理 |
@@ -649,7 +691,7 @@
 | cancelled | 已取消 |
 | blocked | 阻塞 |
 
-### 10.9 文档分类 (document_category)
+### 10.11 文档分类 (document_category)
 | 值 | 描述 |
 |----|------|
 | guide | 环境搭建指南 |
@@ -658,7 +700,7 @@
 | tech | 技术文档 |
 | case | 典型案例 |
 
-### 10.10 工具分类 (tool_category)
+### 10.12 工具分类 (tool_category)
 | 值 | 描述 |
 |----|------|
 | scanner | 扫描工具 |
@@ -666,7 +708,7 @@
 | poc | POC代码 |
 | auxiliary | 辅助工具 |
 
-### 10.11 资产认领状态 (asset_claim_status)
+### 10.13 资产认领状态 (asset_claim_status)
 | 值 | 描述 |
 |----|------|
 | pending | 待审核 |
@@ -675,7 +717,7 @@
 | completed | 已完成 |
 | abandoned | 已放弃 |
 
-### 10.12 资产文件类型 (asset_file_type)
+### 10.14 资产文件类型 (asset_file_type)
 | 值 | 描述 |
 |----|------|
 | iso | ISO镜像文件 |
@@ -690,7 +732,7 @@
 | 配置文件 | 配置文件 |
 | 其他 | 其他文件 |
 
-### 10.13 资产文件分类 (asset_file_category)
+### 10.15 资产文件分类 (asset_file_category)
 | 值 | 描述 |
 |----|------|
 | 系统镜像 | 操作系统镜像文件 |
@@ -709,17 +751,30 @@
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
 | id | UUID | 是 | 自动生成 | 主键ID |
-| user_id | UUID | 是 | - | 外键，关联users表 |
-| type | VARCHAR(50) | 是 | - | 通知类型 |
+| type | VARCHAR(50) | 是 | - | 通知类型：asset_access_approved/asset_access_rejected/task_assigned/vulnerability_discovered/vulnerability_updated/document_comment/system_announcement |
 | title | VARCHAR(200) | 是 | - | 通知标题 |
 | content | TEXT | 是 | - | 通知内容 |
-| related_type | VARCHAR(50) | 否 | null | 关联类型 |
+| related_type | VARCHAR(50) | 否 | null | 关联类型：asset/task/vulnerability/document |
 | related_id | UUID | 否 | null | 关联ID |
+| created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
+
+### 11.2 通知接收人表 (notification_recipients)
+
+| 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
+|--------|----------|----------|--------|------|
+| id | UUID | 是 | 自动生成 | 主键ID |
+| notification_id | UUID | 是 | - | 外键，关联notifications表 |
+| user_id | UUID | 是 | - | 外键，关联users表，接收用户 |
+| recipient_type | VARCHAR(20) | 是 | - | 接收人类型：leader/assignee/specific_user |
+| channel | VARCHAR(20) | 是 | 'in_app' | 通知渠道：email/sms/webhook/in_app |
+| send_status | VARCHAR(20) | 是 | 'pending' | 发送状态：pending/sent/failed |
+| sent_at | TIMESTAMP | 否 | null | 发送时间 |
+| error_message | VARCHAR(500) | 否 | null | 错误信息 |
 | is_read | BOOLEAN | 是 | false | 是否已读 |
 | read_at | TIMESTAMP | 否 | null | 阅读时间 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 
-### 11.2 通知设置表 (notification_settings)
+### 11.3 通知设置表 (notification_settings)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -731,7 +786,7 @@
 | notify_sms | BOOLEAN | 是 | false | 短信通知（可配置） |
 | notify_webhook | BOOLEAN | 是 | false | webhook推送 |
 
-### 11.3 系统公告表 (system_announcements)
+### 11.4 系统公告表 (system_announcements)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|
@@ -744,7 +799,7 @@
 | expires_at | TIMESTAMP | 否 | null | 过期时间 |
 | created_at | TIMESTAMP | 是 | 当前时间 | 创建时间 |
 
-### 11.4 资产订阅表 (asset_subscriptions)
+### 11.5 资产订阅表 (asset_subscriptions)
 
 | 字段名 | 数据类型 | 是否必填 | 默认值 | 描述 |
 |--------|----------|----------|--------|------|

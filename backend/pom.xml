@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.1</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.vulnaudit</groupId>
+    <artifactId>vuln-audit-backend</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <name>Vuln Audit Lifecycle Management Backend</name>
+    <description>漏洞审计生命周期管理系统后端服务</description>
+
+    <properties>
+        <java.version>17</java.version>
+        <jjwt.version>0.12.5</jjwt.version>
+    </properties>
+
+    <dependencies>
+        <!-- Spring Boot Web Starter: 提供Web开发支持，包括Spring MVC、内嵌Tomcat等 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Data JPA Starter: 提供JPA数据持久化支持，使用Hibernate实现 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Security Starter: 提供安全框架支持，用于认证和授权 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Data Redis Starter: 提供Redis缓存支持 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Validation Starter: 提供数据校验支持，基于JSR-303规范 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- MariaDB JDBC Driver: MariaDB数据库驱动，用于连接MariaDB数据库 -->
+        <dependency>
+            <groupId>org.mariadb.jdbc</groupId>
+            <artifactId>mariadb-java-client</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- JJWT API: JWT令牌生成和解析的API接口 -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>${jjwt.version}</version>
+        </dependency>
+
+        <!-- JJWT Impl: JWT令牌生成和解析的实现 -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- JJWT Jackson: JWT与JSON的序列化/反序列化支持 -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>${jjwt.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Lombok: 简化Java代码，自动生成getter/setter/toString等方法 -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Spring Boot Test Starter: 提供测试支持，包括JUnit、Mockito等 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Spring Security Test: 提供安全相关的测试支持 -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- SpringDoc OpenAPI: 提供Swagger UI和OpenAPI 3.0文档支持 -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>2.3.0</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Spring Boot Maven Plugin: 提供Spring Boot打包和运行支持 -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <!-- Maven Compiler Plugin: 配置Java编译器，启用Lombok注解处理 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>
