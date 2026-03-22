@@ -76,6 +76,46 @@ public class NotificationController {
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
+    /**
+     * 删除通知
+     */
+    @DeleteMapping("/{id}")
+    @Operation(summary = "删除通知", description = "删除指定通知")
+    public ResponseEntity<ApiResponse<Void>> deleteNotification(@PathVariable UUID id) {
+        log.info("删除通知: id={}", id);
+        
+        UUID userId = null;
+        notificationService.deleteNotification(id, userId);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    /**
+     * 发送漏洞通知
+     */
+    @PostMapping("/vulnerability-discovered")
+    @Operation(summary = "发送漏洞通知", description = "发送漏洞发现通知给相关用户")
+    public ResponseEntity<ApiResponse<Void>> sendVulnerabilityNotification(
+            @Parameter(description = "漏洞ID") @RequestParam UUID vulnerabilityId,
+            @Parameter(description = "通知类型") @RequestParam(defaultValue = "vulnerability_discovered") String type,
+            @Parameter(description = "接收者ID列表") @RequestParam(required = false) List<UUID> recipientIds) {
+        
+        log.info("发送漏洞通知: vulnerabilityId={}, type={}", vulnerabilityId, type);
+        
+        notificationService.sendVulnerabilityNotification(vulnerabilityId, type, recipientIds);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    /**
+     * 获取通知发送记录
+     */
+    @GetMapping("/{notificationId}/recipients")
+    @Operation(summary = "获取通知发送记录", description = "获取指定通知的发送记录")
+    public ResponseEntity<ApiResponse<List<?>>> getNotificationRecipients(@PathVariable UUID notificationId) {
+        log.info("获取通知发送记录: notificationId={}", notificationId);
+        
+        return ResponseEntity.ok(ApiResponse.success(notificationService.getNotificationRecipients(notificationId)));
+    }
+
     // ==================== 通知设置 ====================
 
     @GetMapping("/settings")

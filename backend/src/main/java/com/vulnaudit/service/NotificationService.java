@@ -31,6 +31,31 @@ public interface NotificationService {
 
     void sendBulkNotification(List<UUID> userIds, String type, String title, String content);
 
+    /**
+     * 删除通知
+     * 
+     * @param notificationId 通知ID
+     * @param userId 用户ID
+     */
+    void deleteNotification(UUID notificationId, UUID userId);
+
+    /**
+     * 发送漏洞通知
+     * 
+     * @param vulnerabilityId 漏洞ID
+     * @param type 通知类型
+     * @param recipientIds 接收者ID列表（可选）
+     */
+    void sendVulnerabilityNotification(UUID vulnerabilityId, String type, List<UUID> recipientIds);
+
+    /**
+     * 获取通知发送记录
+     * 
+     * @param notificationId 通知ID
+     * @return 接收者列表
+     */
+    List<?> getNotificationRecipients(UUID notificationId);
+
     // 通知设置
     NotificationSetting getSetting(UUID userId, String type);
 

@@ -154,6 +154,43 @@ public class NotificationServiceImpl implements NotificationService {
         notificationRecipientRepository.saveAll(recipients);
     }
 
+    /**
+     * 删除通知
+     */
+    @Override
+    @Transactional
+    public void deleteNotification(UUID notificationId, UUID userId) {
+        log.info("删除通知: notificationId={}, userId={}", notificationId, userId);
+        
+        notificationRecipientRepository.findByNotificationIdAndUserId(notificationId, userId)
+                .ifPresent(notificationRecipientRepository::delete);
+    }
+
+    /**
+     * 发送漏洞通知
+     */
+    @Override
+    @Transactional
+    public void sendVulnerabilityNotification(UUID vulnerabilityId, String type, List<UUID> recipientIds) {
+        log.info("发送漏洞通知: vulnerabilityId={}, type={}", vulnerabilityId, type);
+        
+        String title = "漏洞通知";
+        String content = "漏洞ID: " + vulnerabilityId + " 有新的动态";
+        
+        if (recipientIds != null && !recipientIds.isEmpty()) {
+            sendBulkNotification(recipientIds, type, title, content);
+        }
+    }
+
+    /**
+     * 获取通知发送记录
+     */
+    @Override
+    public List<?> getNotificationRecipients(UUID notificationId) {
+        log.debug("获取通知发送记录: notificationId={}", notificationId);
+        return notificationRecipientRepository.findByNotificationId(notificationId);
+    }
+
     @Override
     public NotificationSetting getSetting(UUID userId, String type) {
         return notificationSettingRepository.findByUserIdAndType(userId, type).orElse(null);

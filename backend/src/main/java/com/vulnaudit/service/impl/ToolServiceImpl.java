@@ -4,11 +4,13 @@ import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.Tool;
 import com.vulnaudit.entity.ToolDownload;
 import com.vulnaudit.entity.ToolTag;
+import com.vulnaudit.entity.ToolVersion;
 import com.vulnaudit.exception.BusinessException;
 import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.ToolDownloadRepository;
 import com.vulnaudit.repository.ToolRepository;
 import com.vulnaudit.repository.ToolTagRepository;
+import com.vulnaudit.repository.ToolVersionRepository;
 import com.vulnaudit.service.ToolService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,7 +22,9 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -38,6 +42,7 @@ public class ToolServiceImpl implements ToolService {
     private final ToolRepository toolRepository;
     private final ToolDownloadRepository toolDownloadRepository;
     private final ToolTagRepository toolTagRepository;
+    private final ToolVersionRepository toolVersionRepository;
 
     @Override
     @Transactional
@@ -180,5 +185,39 @@ public class ToolServiceImpl implements ToolService {
     public void removeTag(UUID toolId, String tag) {
         log.info("移除工具标签: toolId={}, tag={}", toolId, tag);
         toolTagRepository.deleteByToolIdAndTag(toolId, tag);
+    }
+
+    /**
+     * 获取工具版本列表
+     */
+    @Override
+    public List<ToolVersion> getToolVersions(UUID toolId) {
+        log.debug("获取工具版本列表: toolId={}", toolId);
+        return toolVersionRepository.findByToolIdOrderByCreatedAtDesc(toolId);
+    }
+
+    /**
+     * 上传新版本
+     */
+    @Override
+    @Transactional
+    public ToolVersion uploadVersion(UUID toolId, String version, String changelog, MultipartFile file) {
+        log.info("上传工具新版本: toolId={}, version={}", toolId, version);
+        
+        Tool tool = toolRepository.findById(toolId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.TOOL_NOT_FOUND));
+        
+        String filePath = "uploads/tools/" + toolId + "/" + version;
+        
+        ToolVersion toolVersion = ToolVersion.builder()
+                .toolId(toolId)
+                .version(version)
+                .filePath(filePath)
+                .changelog(changelog)
+                .createdBy(null)
+                .createdAt(LocalDateTime.now())
+                .build();
+        
+        return toolVersionRepository.save(toolVersion);
     }
 }

@@ -235,4 +235,30 @@ public class AssetAccessServiceImpl implements AssetAccessService {
     public long countPendingByUser(UUID userId) {
         return assetAccessRepository.countByUserIdAndStatus(userId, "pending");
     }
+
+    /**
+     * 获取用户待审批的访问申请列表
+     * 用户作为资产负责人时需要审批的申请
+     */
+    @Override
+    public PageResponse<AssetAccess> findPendingApprovalByUser(UUID userId, int page, int size) {
+        log.debug("获取用户待审批的访问申请: userId={}", userId);
+        
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        
+        // 查询状态为pending的访问申请
+        Specification<AssetAccess> spec = (root, query, cb) -> {
+            return cb.equal(root.get("status"), "pending");
+        };
+        
+        Page<AssetAccess> accessPage = assetAccessRepository.findAll(spec, pageable);
+        
+        return PageResponse.<AssetAccess>builder()
+                .content(accessPage.getContent())
+                .totalElements(accessPage.getTotalElements())
+                .totalPages(accessPage.getTotalPages())
+                .currentPage(accessPage.getNumber())
+                .pageSize(accessPage.getSize())
+                .build();
+    }
 }

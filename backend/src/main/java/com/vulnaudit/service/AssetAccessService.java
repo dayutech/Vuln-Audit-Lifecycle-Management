@@ -105,4 +105,14 @@ public interface AssetAccessService {
      * @return 待审核数量
      */
     long countPendingByUser(UUID userId);
+
+    /**
+     * 获取用户待审批的访问申请列表
+     * 
+     * @param userId 用户ID（审批人）
+     * @param page 页码
+     * @param size 每页大小
+     * @return 分页访问申请列表
+     */
+    PageResponse<AssetAccess> findPendingApprovalByUser(UUID userId, int page, int size);
 }

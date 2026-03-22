@@ -375,6 +375,39 @@ public class AssetController {
     }
 
     /**
+     * 获取待审批的资产访问申请
+     */
+    @GetMapping("/my/access-approval-requests")
+    @Operation(summary = "获取待审批的资产访问申请", description = "获取当前用户需要审批的资产访问申请")
+    public ResponseEntity<ApiResponse<PageResponse<AssetAccess>>> getMyAccessApprovalRequests(
+            @Parameter(description = "页码") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size) {
+        
+        log.info("获取待审批的资产访问申请");
+        
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        UUID currentUserId = getCurrentUserId(authentication);
+        
+        PageResponse<AssetAccess> result = assetAccessService.findPendingApprovalByUser(currentUserId, page, size);
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /**
+     * 获取我已获授权的资产
+     */
+    @GetMapping("/my/authorized-assets")
+    @Operation(summary = "获取我已获授权的资产", description = "获取当前用户已获授权访问的资产列表")
+    public ResponseEntity<ApiResponse<List<Asset>>> getMyAuthorizedAssets() {
+        log.info("获取我已获授权的资产");
+        
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        UUID currentUserId = getCurrentUserId(authentication);
+        
+        List<Asset> assets = assetService.findAuthorizedAssetsByUser(currentUserId);
+        return ResponseEntity.ok(ApiResponse.success(assets));
+    }
+
+    /**
      * 获取当前用户ID的辅助方法
      */
     private UUID getCurrentUserId(Authentication authentication) {

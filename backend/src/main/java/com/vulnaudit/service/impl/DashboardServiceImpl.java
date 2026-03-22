@@ -248,6 +248,22 @@ public class DashboardServiceImpl implements DashboardService {
         return overview;
     }
 
+    /**
+     * 获取用户个性化仪表盘数据
+     */
+    @Override
+    public Map<String, Object> getUserDashboard(UUID userId) {
+        log.debug("获取用户仪表盘: userId={}", userId);
+        
+        Map<String, Object> dashboard = new HashMap<>();
+        dashboard.put("userId", userId);
+        dashboard.put("overview", getDashboardOverview());
+        dashboard.put("workload", getWorkloadStats(userId));
+        dashboard.put("config", getConfig(userId));
+        
+        return dashboard;
+    }
+
     @Override
     public byte[] exportStats(String type, String format) {
         log.info("导出统计: type={}, format={}", type, format);

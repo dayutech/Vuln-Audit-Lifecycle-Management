@@ -313,4 +313,22 @@ public class AssetServiceImpl implements AssetService {
         
         return result;
     }
+
+    /**
+     * 获取用户已获授权的资产列表
+     */
+    @Override
+    public List<Asset> findAuthorizedAssetsByUser(UUID userId) {
+        log.debug("获取用户已获授权的资产: userId={}", userId);
+        
+        // 获取用户有已批准访问权限的资产
+        List<AssetAccess> accesses = assetAccessRepository.findByUserIdAndStatus(userId, "approved");
+        List<Asset> authorizedAssets = accesses.stream()
+                .map(access -> assetRepository.findById(access.getAssetId()))
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .collect(Collectors.toList());
+        
+        return authorizedAssets;
+    }
 }

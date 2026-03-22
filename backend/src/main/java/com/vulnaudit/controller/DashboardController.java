@@ -3,6 +3,7 @@ package com.vulnaudit.controller;
 import com.vulnaudit.dto.*;
 import com.vulnaudit.entity.DashboardConfig;
 import com.vulnaudit.service.DashboardService;
+import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -10,6 +11,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -27,6 +30,33 @@ import java.util.UUID;
 public class DashboardController {
 
     private final DashboardService dashboardService;
+    private final UserService userService;
+
+    /**
+     * 获取我的仪表盘
+     */
+    @GetMapping("/my")
+    @Operation(summary = "获取我的仪表盘", description = "获取当前用户的个性化仪表盘数据")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getMyDashboard() {
+        log.info("获取我的仪表盘");
+        
+        UUID userId = getCurrentUserId();
+        Map<String, Object> dashboard = dashboardService.getUserDashboard(userId);
+        return ResponseEntity.ok(ApiResponse.success(dashboard));
+    }
+
+    /**
+     * 保存我的仪表盘配置
+     */
+    @PutMapping("/my")
+    @Operation(summary = "保存我的仪表盘配置", description = "保存当前用户的仪表盘配置")
+    public ResponseEntity<ApiResponse<DashboardConfig>> saveMyConfig(@RequestBody DashboardConfig config) {
+        log.info("保存我的仪表盘配置");
+        
+        UUID userId = getCurrentUserId();
+        DashboardConfig savedConfig = dashboardService.saveConfig(userId, config);
+        return ResponseEntity.ok(ApiResponse.success(savedConfig));
+    }
 
     @GetMapping("/overview")
     @Operation(summary = "获取仪表盘概览", description = "获取仪表盘综合统计数据")
@@ -206,5 +236,19 @@ public class DashboardController {
         return ResponseEntity.ok()
                 .header("Content-Disposition", "attachment; filename=" + type + "." + format)
                 .body(data);
+    }
+
+    /**
+     * 获取当前用户ID的辅助方法
+     */
+    private UUID getCurrentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null) {
+            return null;
+        }
+        String username = authentication.getName();
+        return userService.findByUsername(username)
+                .map(user -> user.getId())
+                .orElse(null);
     }
 }

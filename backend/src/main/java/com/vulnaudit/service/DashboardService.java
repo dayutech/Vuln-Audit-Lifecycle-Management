@@ -54,6 +54,14 @@ public interface DashboardService {
     // 综合统计
     Map<String, Object> getDashboardOverview();
 
+    /**
+     * 获取用户个性化仪表盘数据
+     * 
+     * @param userId 用户ID
+     * @return 仪表盘数据
+     */
+    Map<String, Object> getUserDashboard(UUID userId);
+
     // 导出
     byte[] exportStats(String type, String format);
 }

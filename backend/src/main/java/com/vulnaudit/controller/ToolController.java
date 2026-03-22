@@ -2,6 +2,7 @@ package com.vulnaudit.controller;
 
 import com.vulnaudit.dto.*;
 import com.vulnaudit.entity.Tool;
+import com.vulnaudit.entity.ToolVersion;
 import com.vulnaudit.service.ToolService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -13,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
@@ -154,5 +156,37 @@ public class ToolController {
         
         toolService.removeTag(id, tag);
         return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    // ==================== 版本管理 ====================
+
+    /**
+     * 获取工具版本列表
+     */
+    @GetMapping("/{id}/versions")
+    @Operation(summary = "获取工具版本列表", description = "获取工具的所有版本")
+    public ResponseEntity<ApiResponse<List<ToolVersion>>> getToolVersions(@PathVariable UUID id) {
+        log.info("获取工具版本列表: toolId={}", id);
+        
+        List<ToolVersion> versions = toolService.getToolVersions(id);
+        return ResponseEntity.ok(ApiResponse.success(versions));
+    }
+
+    /**
+     * 上传新版本
+     */
+    @PostMapping("/{id}/versions")
+    @Operation(summary = "上传新版本", description = "为工具上传新版本")
+    public ResponseEntity<ApiResponse<ToolVersion>> uploadVersion(
+            @PathVariable UUID id,
+            @Parameter(description = "版本号") @RequestParam String version,
+            @Parameter(description = "变更说明") @RequestParam(required = false) String changelog,
+            @Parameter(description = "文件") @RequestParam(value = "file", required = false) MultipartFile file) {
+        
+        log.info("上传工具新版本: toolId={}, version={}", id, version);
+        
+        ToolVersion toolVersion = toolService.uploadVersion(id, version, changelog, file);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success(toolVersion));
     }
 }

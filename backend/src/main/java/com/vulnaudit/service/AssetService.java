@@ -138,4 +138,12 @@ public interface AssetService {
      * @return 资产列表
      */
     List<Asset> findAccessibleAssets(UUID userId);
+
+    /**
+     * 获取用户已获授权的资产列表
+     * 
+     * @param userId 用户ID
+     * @return 已授权资产列表
+     */
+    List<Asset> findAuthorizedAssetsByUser(UUID userId);
 }
