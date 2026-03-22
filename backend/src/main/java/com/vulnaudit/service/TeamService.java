@@ -28,8 +28,6 @@ public interface TeamService {
 
     boolean existsByName(String name);
 
-    boolean existsByCode(String code);
-
     List<Team> findByParentId(UUID parentId);
 
     List<Team> findRootTeams();

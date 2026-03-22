@@ -38,8 +38,7 @@ public class EnvironmentTemplate {
     @Builder.Default
     private String type = "docker";
 
-    @Column(name = "config_schema", columnDefinition = "JSONB", nullable = false)
-    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "config_schema", columnDefinition = "TEXT", nullable = false)
     private String configSchema;
 
     @Column(name = "deployment_script", columnDefinition = "TEXT")

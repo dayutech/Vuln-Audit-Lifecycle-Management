@@ -42,13 +42,13 @@ public class DashboardConfig {
     /**
      * 布局配置（JSON）
      */
-    @Column(name = "layout", nullable = false, columnDefinition = "jsonb")
+    @Column(name = "layout", nullable = false, columnDefinition = "TEXT")
     private String layout;
 
     /**
      * 启用的卡片（JSON数组）
      */
-    @Column(name = "cards", nullable = false, columnDefinition = "jsonb")
+    @Column(name = "cards", nullable = false, columnDefinition = "TEXT")
     private String cards;
 
     /**

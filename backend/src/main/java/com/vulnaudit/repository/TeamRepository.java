@@ -73,7 +73,6 @@ public interface TeamRepository extends JpaRepository<Team, UUID>, JpaSpecificat
      * @return 如果团队名称已存在返回true，否则返回false
      */
     boolean existsByName(String name);
-    boolean existsByCode(String code);
 
     List<Team> findByParentIdIsNull();
 

@@ -49,7 +49,7 @@ public class SystemAnnouncement {
     /**
      * 目标角色（JSON数组）
      */
-    @Column(name = "target_roles", columnDefinition = "jsonb")
+    @Column(name = "target_roles", columnDefinition = "TEXT")
     private String targetRoles;
 
     /**

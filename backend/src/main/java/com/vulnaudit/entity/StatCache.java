@@ -48,7 +48,7 @@ public class StatCache {
     /**
      * 统计值（JSON）
      */
-    @Column(name = "stat_value", nullable = false, columnDefinition = "jsonb")
+    @Column(name = "stat_value", nullable = false, columnDefinition = "TEXT")
     private String statValue;
 
     /**

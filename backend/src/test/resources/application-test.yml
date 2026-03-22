@@ -9,7 +9,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: create-drop
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
         format_sql: true
@@ -28,6 +28,15 @@ spring:
   sql:
     init:
       mode: never
+  
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 100MB
+  
+  main:
+    allow-circular-references: true
 
 # JWT配置
 jwt:
@@ -38,6 +47,6 @@ jwt:
 # 日志配置
 logging:
   level:
-    com.vulnaudit: DEBUG
-    org.springframework.security: DEBUG
-    org.hibernate.SQL: DEBUG
+    com.vulnaudit: INFO
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN

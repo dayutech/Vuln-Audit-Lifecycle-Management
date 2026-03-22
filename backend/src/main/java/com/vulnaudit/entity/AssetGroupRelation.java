@@ -6,9 +6,10 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.hibernate.annotations.GenericGenerator;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -25,30 +26,44 @@ import java.util.UUID;
 @Builder
 @Entity
 @Table(name = "asset_group_relations")
+@IdClass(AssetGroupRelation.AssetGroupRelationId.class)
 public class AssetGroupRelation {
 
-    /**
-     * 资产ID
-     * 外键，关联 assets 表
-     */
     @Id
     @Column(name = "asset_id", nullable = false)
     private UUID assetId;
 
-    /**
-     * 分组ID
-     * 外键，关联 asset_groups 表
-     */
     @Id
     @Column(name = "group_id", nullable = false)
     private UUID groupId;
 
-    /**
-     * 实体持久化前的回调方法
-     */
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
     @PrePersist
     protected void onCreate() {
+        this.createdAt = LocalDateTime.now();
         log.debug("创建资产分组关联: assetId={}, groupId={}", assetId, groupId);
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        AssetGroupRelation that = (AssetGroupRelation) o;
+        return Objects.equals(assetId, that.assetId) && Objects.equals(groupId, that.groupId);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(assetId, groupId);
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class AssetGroupRelationId implements Serializable {
+        private UUID assetId;
+        private UUID groupId;
+    }
 }

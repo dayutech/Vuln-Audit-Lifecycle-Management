@@ -121,11 +121,6 @@ public class TeamServiceImpl implements TeamService {
     }
 
     @Override
-    public boolean existsByCode(String code) {
-        return teamRepository.existsByCode(code);
-    }
-
-    @Override
     public List<Team> findByParentId(UUID parentId) {
         return teamRepository.findByParentId(parentId);
     }

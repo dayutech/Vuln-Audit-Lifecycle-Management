@@ -40,8 +40,7 @@ public class Environment {
     @Column(name = "template_id", nullable = false)
     private UUID templateId;
 
-    @Column(name = "config", columnDefinition = "JSONB", nullable = false)
-    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "config", columnDefinition = "TEXT", nullable = false)
     private String config;
 
     @Column(name = "status", length = 20, nullable = false)

@@ -37,8 +37,7 @@ public class EnvironmentSnapshot {
     @Column(name = "version", nullable = false)
     private Integer version;
 
-    @Column(name = "config_snapshot", columnDefinition = "JSONB", nullable = false)
-    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "config_snapshot", columnDefinition = "TEXT", nullable = false)
     private String configSnapshot;
 
     @Column(name = "description", length = 500)
