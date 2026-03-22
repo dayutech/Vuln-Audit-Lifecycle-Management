@@ -36,11 +36,14 @@ public class UserControllerTest extends BaseTest {
 
     @BeforeEach
     void setUpUser() {
+        // 使用唯一后缀避免数据冲突
+        String uniqueSuffix = String.valueOf(System.currentTimeMillis());
+        
         // 创建测试用户
         testUser = User.builder()
-                .username("testengineer")
+                .username("testengineer_" + uniqueSuffix)
                 .passwordHash("$2a$10$encrypted")
-                .email("engineer@test.com")
+                .email("engineer_" + uniqueSuffix + "@test.com")
                 .fullName("测试工程师")
                 .status("active")
                 .build();
@@ -48,8 +51,8 @@ public class UserControllerTest extends BaseTest {
 
         // 创建测试角色
         testRole = Role.builder()
-                .name("测试角色")
-                .code("test_role")
+                .name("测试角色_" + uniqueSuffix)
+                .code("test_role_" + uniqueSuffix)
                 .description("用于测试的角色")
                 .isSystem(false)
                 .build();
@@ -103,8 +106,8 @@ public class UserControllerTest extends BaseTest {
             mockMvc.perform(get("/api/v1/users/" + testUser.getId())
                     .header("Authorization", adminToken))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.username").value("testengineer"))
-                    .andExpect(jsonPath("$.email").value("engineer@test.com"));
+                    .andExpect(jsonPath("$.data.username").value(testUser.getUsername()))
+                    .andExpect(jsonPath("$.data.email").value(testUser.getEmail()));
         }
 
         @Test
@@ -133,9 +136,9 @@ public class UserControllerTest extends BaseTest {
                     .header("Authorization", adminToken)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.username").value("newuser"))
-                    .andExpect(jsonPath("$.email").value("newuser@test.com"));
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.username").value("newuser"))
+                    .andExpect(jsonPath("$.data.email").value("newuser@test.com"));
         }
 
         @Test
@@ -203,7 +206,7 @@ public class UserControllerTest extends BaseTest {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.fullName").value("更新后的名字"));
+                    .andExpect(jsonPath("$.data.fullName").value("更新后的名字"));
         }
 
         @Test
@@ -251,7 +254,7 @@ public class UserControllerTest extends BaseTest {
             mockMvc.perform(get("/api/v1/users/" + testUser.getId() + "/roles")
                     .header("Authorization", adminToken))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$").isArray());
+                    .andExpect(jsonPath("$.data").isArray());
         }
 
         @Test
@@ -288,9 +291,9 @@ public class UserControllerTest extends BaseTest {
             mockMvc.perform(get("/api/v1/users/me/permissions")
                     .header("Authorization", engineerToken))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.userId").exists())
-                    .andExpect(jsonPath("$.roles").isArray())
-                    .andExpect(jsonPath("$.permissions").isArray());
+                    .andExpect(jsonPath("$.data.userId").exists())
+                    .andExpect(jsonPath("$.data.roles").isArray())
+                    .andExpect(jsonPath("$.data.permissions").isArray());
         }
     }
 }

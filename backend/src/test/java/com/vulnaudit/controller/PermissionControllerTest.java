@@ -28,9 +28,12 @@ public class PermissionControllerTest extends BaseTest {
 
     @BeforeEach
     void setUpPermission() {
+        // 使用唯一后缀避免数据冲突
+        String uniqueSuffix = String.valueOf(System.currentTimeMillis());
+        
         testPermission = Permission.builder()
-                .name("测试权限")
-                .code("test:permission")
+                .name("测试权限_" + uniqueSuffix)
+                .code("test:permission_" + uniqueSuffix)
                 .apiPath("/api/v1/test")
                 .httpMethod("GET")
                 .description("用于测试的权限")

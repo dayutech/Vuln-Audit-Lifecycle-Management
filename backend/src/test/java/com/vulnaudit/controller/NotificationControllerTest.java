@@ -39,10 +39,13 @@ public class NotificationControllerTest extends BaseTest {
 
     @BeforeEach
     void setUpNotification() {
+        // 使用唯一后缀避免数据冲突
+        String uniqueSuffix = String.valueOf(System.currentTimeMillis());
+        
         testUser = User.builder()
-                .username("notificationuser")
+                .username("notificationuser_" + uniqueSuffix)
                 .passwordHash("$2a$10$encrypted")
-                .email("notify@test.com")
+                .email("notify_" + uniqueSuffix + "@test.com")
                 .fullName("通知测试用户")
                 .status("active")
                 .build();
@@ -81,8 +84,9 @@ public class NotificationControllerTest extends BaseTest {
         @Test
         @DisplayName("获取未读通知列表 - 成功")
         void getUnreadNotifications_Success() throws Exception {
-            mockMvc.perform(get("/api/v1/notifications/unread")
-                    .header("Authorization", engineerToken))
+            mockMvc.perform(get("/api/v1/notifications")
+                    .header("Authorization", engineerToken)
+                    .param("isRead", "false"))
                     .andExpect(status().isOk());
         }
 
@@ -144,9 +148,8 @@ public class NotificationControllerTest extends BaseTest {
         @Test
         @DisplayName("更新通知设置 - 成功")
         void updateSettings_Success() throws Exception {
-            mockMvc.perform(put("/api/v1/notifications/settings")
+            mockMvc.perform(put("/api/v1/notifications/settings/system")
                     .header("Authorization", engineerToken)
-                    .param("type", "system")
                     .param("enabled", "true"))
                     .andExpect(status().isOk());
         }

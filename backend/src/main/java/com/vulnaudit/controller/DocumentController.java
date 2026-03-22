@@ -66,7 +66,8 @@ public class DocumentController {
         
         return documentService.findById(id)
                 .map(doc -> ResponseEntity.ok(ApiResponse.success(doc)))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "文档不存在")));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(404, "文档不存在")));
     }
 
     @GetMapping

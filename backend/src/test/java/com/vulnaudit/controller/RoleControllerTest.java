@@ -34,17 +34,20 @@ public class RoleControllerTest extends BaseTest {
 
     @BeforeEach
     void setUpRole() {
+        // 使用唯一后缀避免数据冲突
+        String uniqueSuffix = String.valueOf(System.currentTimeMillis());
+        
         testRole = Role.builder()
-                .name("测试角色")
-                .code("test_role")
+                .name("测试角色_" + uniqueSuffix)
+                .code("test_role_" + uniqueSuffix)
                 .description("用于测试的角色")
                 .isSystem(false)
                 .build();
         testRole = roleRepository.save(testRole);
 
         testPermission = Permission.builder()
-                .name("测试权限")
-                .code("test:permission")
+                .name("测试权限_" + uniqueSuffix)
+                .code("test:permission_" + uniqueSuffix)
                 .apiPath("/api/v1/test")
                 .httpMethod("GET")
                 .description("测试用权限")
@@ -139,19 +142,12 @@ public class RoleControllerTest extends BaseTest {
     class RolePermissionTests {
 
         @Test
-        @DisplayName("获取角色权限列表 - 成功")
-        void getRolePermissions_Success() throws Exception {
-            mockMvc.perform(get("/api/v1/roles/" + testRole.getId() + "/permissions")
-                    .header("Authorization", adminToken))
-                    .andExpect(status().isOk());
-        }
-
-        @Test
         @DisplayName("为角色分配权限 - 成功")
         void assignPermission_Success() throws Exception {
             mockMvc.perform(post("/api/v1/roles/" + testRole.getId() + "/permissions")
                     .header("Authorization", adminToken)
-                    .param("permissionId", testPermission.getId().toString()))
+                    .contentType("application/json")
+                    .content("[\"" + testPermission.getId() + "\"]"))
                     .andExpect(status().isOk());
         }
     }

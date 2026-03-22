@@ -9,6 +9,8 @@ import com.vulnaudit.entity.Role;
 import com.vulnaudit.entity.User;
 import com.vulnaudit.entity.UserPermission;
 import com.vulnaudit.entity.UserRole;
+import com.vulnaudit.exception.BusinessException;
+import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.UserPermissionRepository;
 import com.vulnaudit.repository.UserRoleRepository;
 import com.vulnaudit.service.PermissionService;
@@ -107,7 +109,7 @@ public class UserController {
         log.debug("查询用户: id={}", id);
         
         User user = userService.findById(id)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         
         user.setPasswordHash(null);
         return ApiResponse.success(user);
@@ -155,7 +157,7 @@ public class UserController {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String currentUsername = authentication.getName();
         User currentUser = userService.findByUsername(currentUsername)
-                .orElseThrow(() -> new RuntimeException("当前用户不存在"));
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         
         boolean isAdmin = authentication.getAuthorities().stream()
                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
@@ -201,7 +203,7 @@ public class UserController {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String currentUsername = authentication.getName();
         User currentUser = userService.findByUsername(currentUsername)
-                .orElseThrow(() -> new RuntimeException("当前用户不存在"));
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         
         User updatedUser = userService.updateStatus(id, status, currentUser.getId());
         updatedUser.setPasswordHash(null);
@@ -230,7 +232,7 @@ public class UserController {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String currentUsername = authentication.getName();
         User currentUser = userService.findByUsername(currentUsername)
-                .orElseThrow(() -> new RuntimeException("当前用户不存在"));
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         
         if (currentUser.getId().equals(id)) {
             log.warn("不能删除自己: userId={}", id);
@@ -263,7 +265,7 @@ public class UserController {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String currentUsername = authentication.getName();
         User currentUser = userService.findByUsername(currentUsername)
-                .orElseThrow(() -> new RuntimeException("当前用户不存在"));
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         
         userService.resetPassword(id, newPassword, currentUser.getId());
         
@@ -354,10 +356,10 @@ public class UserController {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String currentUsername = authentication.getName();
         User currentUser = userService.findByUsername(currentUsername)
-                .orElseThrow(() -> new RuntimeException("当前用户不存在"));
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         
         Role role = roleService.findById(roleId)
-                .orElseThrow(() -> new RuntimeException("角色不存在"));
+                .orElseThrow(() -> new BusinessException(ErrorCode.ROLE_NOT_FOUND));
         
         if (userRoleRepository.existsByUserIdAndRoleId(id, roleId)) {
             return ApiResponse.error("用户已拥有该角色");
@@ -394,7 +396,7 @@ public class UserController {
         log.info("撤销用户角色: userId={}, roleId={}", id, roleId);
         
         UserRole userRole = userRoleRepository.findByUserIdAndRoleId(id, roleId)
-                .orElseThrow(() -> new RuntimeException("用户角色关联不存在"));
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_ROLE_EXISTS));
         
         userRoleRepository.delete(userRole);
         log.info("角色撤销成功: userId={}, roleId={}", id, roleId);
@@ -426,10 +428,10 @@ public class UserController {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String currentUsername = authentication.getName();
         User currentUser = userService.findByUsername(currentUsername)
-                .orElseThrow(() -> new RuntimeException("当前用户不存在"));
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         
         Permission permission = permissionService.findById(permissionId)
-                .orElseThrow(() -> new RuntimeException("权限不存在"));
+                .orElseThrow(() -> new BusinessException(ErrorCode.PERMISSION_NOT_FOUND));
         
         if (userPermissionRepository.existsByUserIdAndPermissionId(id, permissionId)) {
             return ApiResponse.error("用户已拥有该权限");
@@ -467,7 +469,7 @@ public class UserController {
         log.info("撤销用户权限: userId={}, permissionId={}", id, permissionId);
         
         UserPermission userPermission = userPermissionRepository.findByUserIdAndPermissionId(id, permissionId)
-                .orElseThrow(() -> new RuntimeException("用户权限关联不存在"));
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_PERMISSION_EXISTS));
         
         userPermissionRepository.delete(userPermission);
         log.info("权限撤销成功: userId={}, permissionId={}", id, permissionId);
@@ -493,7 +495,7 @@ public class UserController {
         
         String username = authentication.getName();
         User user = userService.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         
         List<String> roleCodes = userService.getUserRoleCodes(user.getId());
         List<String> permissionCodes = userService.getUserPermissionCodes(user.getId());

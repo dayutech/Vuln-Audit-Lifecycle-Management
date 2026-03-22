@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -45,7 +46,8 @@ public class EnvironmentController {
         
         return environmentService.findById(id)
                 .map(env -> ResponseEntity.ok(ApiResponse.success(env)))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "环境不存在")));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(404, "环境不存在")));
     }
 
     @GetMapping

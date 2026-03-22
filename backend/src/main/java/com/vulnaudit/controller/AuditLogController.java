@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -34,7 +35,8 @@ public class AuditLogController {
         
         AuditLog auditLog = auditLogService.findById(id);
         if (auditLog == null) {
-            return ResponseEntity.ok(ApiResponse.error(404, "审计日志不存在"));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error(404, "审计日志不存在"));
         }
         return ResponseEntity.ok(ApiResponse.success(auditLog));
     }

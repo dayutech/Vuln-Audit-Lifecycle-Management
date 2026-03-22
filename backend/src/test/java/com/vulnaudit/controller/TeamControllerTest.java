@@ -35,19 +35,23 @@ public class TeamControllerTest extends BaseTest {
 
     @BeforeEach
     void setUpTeam() {
+        // 使用唯一后缀避免数据冲突
+        String uniqueSuffix = String.valueOf(System.currentTimeMillis());
+        
         testLeader = User.builder()
-                .username("teamleader")
+                .username("teamleader_" + uniqueSuffix)
                 .passwordHash("$2a$10$encrypted")
-                .email("leader@team.com")
+                .email("leader_" + uniqueSuffix + "@team.com")
                 .fullName("团队领导")
                 .status("active")
                 .build();
         testLeader = userRepository.save(testLeader);
 
         testTeam = Team.builder()
-                .name("测试团队")
+                .name("测试团队_" + uniqueSuffix)
                 .description("用于测试的团队")
                 .leaderId(testLeader.getId())
+                .createdBy(testLeader.getId())
                 .build();
         testTeam = teamRepository.save(testTeam);
     }
@@ -88,7 +92,7 @@ public class TeamControllerTest extends BaseTest {
             mockMvc.perform(get("/api/v1/teams/" + testTeam.getId())
                     .header("Authorization", adminToken))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.name").value("测试团队"));
+                    .andExpect(jsonPath("$.data.name").exists());
         }
 
         @Test

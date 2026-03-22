@@ -47,7 +47,8 @@ public class TeamController {
         
         return teamService.findById(id)
                 .map(team -> ResponseEntity.ok(ApiResponse.success(team)))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "团队不存在")));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(404, "团队不存在")));
     }
 
     @GetMapping

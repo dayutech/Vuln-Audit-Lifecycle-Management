@@ -34,10 +34,13 @@ public class DocumentControllerTest extends BaseTest {
 
     @BeforeEach
     void setUpDocument() {
+        // 使用唯一后缀避免数据冲突
+        String uniqueSuffix = String.valueOf(System.currentTimeMillis());
+        
         testAuthor = User.builder()
-                .username("docauthor")
+                .username("docauthor_" + uniqueSuffix)
                 .passwordHash("$2a$10$encrypted")
-                .email("author@doc.com")
+                .email("author_" + uniqueSuffix + "@doc.com")
                 .fullName("文档作者")
                 .status("active")
                 .build();

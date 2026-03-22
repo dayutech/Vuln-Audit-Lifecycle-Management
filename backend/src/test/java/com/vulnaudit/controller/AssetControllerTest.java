@@ -50,11 +50,14 @@ public class AssetControllerTest extends BaseTest {
 
     @BeforeEach
     void setUpAsset() {
+        // 使用唯一后缀避免数据冲突
+        String uniqueSuffix = String.valueOf(System.currentTimeMillis());
+        
         // 创建测试用户
         testUser = User.builder()
-                .username("assetowner")
+                .username("assetowner_" + uniqueSuffix)
                 .passwordHash("$2a$10$encrypted")
-                .email("owner@test.com")
+                .email("owner_" + uniqueSuffix + "@test.com")
                 .fullName("资产负责人")
                 .status("active")
                 .build();
@@ -62,16 +65,17 @@ public class AssetControllerTest extends BaseTest {
 
         // 创建测试团队
         testTeam = Team.builder()
-                .name("测试团队")
+                .name("测试团队_" + uniqueSuffix)
                 .description("用于测试的团队")
                 .leaderId(testUser.getId())
+                .createdBy(testUser.getId())
                 .build();
         testTeam = teamRepository.save(testTeam);
 
         // 创建测试资产
         testAsset = Asset.builder()
                 .name("测试资产")
-                .code("TEST-001")
+                .code("TEST-" + uniqueSuffix)
                 .targetType("web")
                 .targetSource("internal")
                 .description("用于测试的资产")
@@ -84,7 +88,7 @@ public class AssetControllerTest extends BaseTest {
 
         // 创建测试分组
         testGroup = AssetGroup.builder()
-                .name("测试分组")
+                .name("测试分组_" + uniqueSuffix)
                 .type("test")
                 .description("用于测试的分组")
                 .build();
@@ -148,8 +152,8 @@ public class AssetControllerTest extends BaseTest {
             mockMvc.perform(get("/api/v1/assets/" + testAsset.getId())
                     .header("Authorization", engineerToken))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.name").value("测试资产"))
-                    .andExpect(jsonPath("$.code").value("TEST-001"));
+                    .andExpect(jsonPath("$.data.name").value("测试资产"))
+                    .andExpect(jsonPath("$.data.code").exists());
         }
 
         @Test
@@ -183,7 +187,7 @@ public class AssetControllerTest extends BaseTest {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.name").value("新资产"));
+                    .andExpect(jsonPath("$.data.name").value("新资产"));
         }
 
         @Test

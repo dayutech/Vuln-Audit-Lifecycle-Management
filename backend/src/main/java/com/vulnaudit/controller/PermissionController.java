@@ -47,7 +47,8 @@ public class PermissionController {
         
         return permissionService.findById(id)
                 .map(permission -> ResponseEntity.ok(ApiResponse.success(permission)))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "权限不存在")));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(404, "权限不存在")));
     }
 
     @GetMapping

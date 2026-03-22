@@ -43,8 +43,34 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {
         log.warn("业务异常: {}", e.getMessage());
+        
+        int code = e.getErrorCode().getCode();
+        HttpStatus status;
+        
+        if (code >= 1000 && code < 2000) {
+            if (code == 1003 || code == 1201 || code == 1301 || code == 1401 || 
+                code == 1501 || code == 1601 || code == 1701 || code == 1801 ||
+                code == 1901 || code == 2001 || code == 1205 || code == 1206 ||
+                code == 1101 || code == 1103) {
+                status = HttpStatus.NOT_FOUND;
+            } else if (code == 1004 || code == 1008 || code == 1006) {
+                status = HttpStatus.UNAUTHORIZED;
+            } else if (code == 1005) {
+                status = HttpStatus.FORBIDDEN;
+            } else if (code == 1001 || code == 1002 || code == 1102 || code == 1104 ||
+                       code == 1204 || code == 2002) {
+                status = HttpStatus.CONFLICT;
+            } else if (code == 1009 || code == 1010) {
+                status = HttpStatus.BAD_REQUEST;
+            } else {
+                status = HttpStatus.BAD_REQUEST;
+            }
+        } else {
+            status = HttpStatus.valueOf(Math.min(Math.max(code, 400), 599));
+        }
+        
         return ResponseEntity
-                .status(HttpStatus.valueOf(e.getCode()))
+                .status(status)
                 .body(ApiResponse.error(e.getMessage()));
     }
 

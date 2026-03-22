@@ -47,7 +47,8 @@ public class RoleController {
         
         return roleService.findById(id)
                 .map(role -> ResponseEntity.ok(ApiResponse.success(role)))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "角色不存在")));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(404, "角色不存在")));
     }
 
     @GetMapping

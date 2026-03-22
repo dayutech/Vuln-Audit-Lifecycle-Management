@@ -57,7 +57,8 @@ public class TaskController {
         
         return taskService.findById(id)
                 .map(task -> ResponseEntity.ok(ApiResponse.success(task)))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "任务不存在")));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(404, "任务不存在")));
     }
 
     @GetMapping

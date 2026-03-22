@@ -39,17 +39,20 @@ public class AssetGroupControllerTest extends BaseTest {
 
     @BeforeEach
     void setUpGroup() {
+        // 使用唯一后缀避免数据冲突
+        String uniqueSuffix = String.valueOf(System.currentTimeMillis());
+        
         User testUser = User.builder()
-                .username("groupowner")
+                .username("groupowner_" + uniqueSuffix)
                 .passwordHash("$2a$10$encrypted")
-                .email("owner@group.com")
+                .email("owner_" + uniqueSuffix + "@group.com")
                 .fullName("分组负责人")
                 .status("active")
                 .build();
         testUser = userRepository.save(testUser);
 
         testGroup = AssetGroup.builder()
-                .name("测试分组")
+                .name("测试分组_" + uniqueSuffix)
                 .type("customer")
                 .description("用于测试的分组")
                 .build();
@@ -57,7 +60,7 @@ public class AssetGroupControllerTest extends BaseTest {
 
         testAsset = Asset.builder()
                 .name("测试资产")
-                .code("GROUP-TEST-001")
+                .code("GROUP-TEST-" + uniqueSuffix)
                 .targetType("web")
                 .targetSource("internal")
                 .description("用于分组测试的资产")

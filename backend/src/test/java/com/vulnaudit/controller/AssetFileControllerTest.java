@@ -39,10 +39,13 @@ public class AssetFileControllerTest extends BaseTest {
 
     @BeforeEach
     void setUpFile() {
+        // 使用唯一后缀避免数据冲突
+        String uniqueSuffix = String.valueOf(System.currentTimeMillis());
+        
         testUser = User.builder()
-                .username("fileowner")
+                .username("fileowner_" + uniqueSuffix)
                 .passwordHash("$2a$10$encrypted")
-                .email("owner@file.com")
+                .email("owner_" + uniqueSuffix + "@file.com")
                 .fullName("文件负责人")
                 .status("active")
                 .build();
@@ -50,7 +53,7 @@ public class AssetFileControllerTest extends BaseTest {
 
         testAsset = Asset.builder()
                 .name("文件测试资产")
-                .code("FILE-TEST-001")
+                .code("FILE-TEST-" + uniqueSuffix)
                 .targetType("web")
                 .targetSource("internal")
                 .description("用于文件测试的资产")

@@ -40,10 +40,13 @@ public class AssetMetadataControllerTest extends BaseTest {
 
     @BeforeEach
     void setUpMetadata() {
+        // 使用唯一后缀避免数据冲突
+        String uniqueSuffix = String.valueOf(System.currentTimeMillis());
+        
         testUser = User.builder()
-                .username("metadataowner")
+                .username("metadataowner_" + uniqueSuffix)
                 .passwordHash("$2a$10$encrypted")
-                .email("owner@metadata.com")
+                .email("owner_" + uniqueSuffix + "@metadata.com")
                 .fullName("元数据负责人")
                 .status("active")
                 .build();
@@ -51,7 +54,7 @@ public class AssetMetadataControllerTest extends BaseTest {
 
         testAsset = Asset.builder()
                 .name("元数据测试资产")
-                .code("META-TEST-001")
+                .code("META-TEST-" + uniqueSuffix)
                 .targetType("web")
                 .targetSource("internal")
                 .description("用于元数据测试的资产")
@@ -90,9 +93,10 @@ public class AssetMetadataControllerTest extends BaseTest {
         @Test
         @DisplayName("获取资产元数据 - 元数据不存在")
         void getAssetMetadata_NotFound() throws Exception {
+            String uniqueSuffix = String.valueOf(System.currentTimeMillis());
             Asset newAsset = Asset.builder()
                     .name("无元数据资产")
-                    .code("NO-META-001")
+                    .code("NO-META-" + uniqueSuffix)
                     .targetType("web")
                     .targetSource("internal")
                     .description("无元数据资产")

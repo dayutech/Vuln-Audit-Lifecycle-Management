@@ -49,7 +49,8 @@ public class ToolController {
         
         return toolService.findById(id)
                 .map(tool -> ResponseEntity.ok(ApiResponse.success(tool)))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "工具不存在")));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(404, "工具不存在")));
     }
 
     @GetMapping

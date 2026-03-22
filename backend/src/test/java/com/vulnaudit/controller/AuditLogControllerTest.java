@@ -34,10 +34,13 @@ public class AuditLogControllerTest extends BaseTest {
 
     @BeforeEach
     void setUpAuditLog() {
+        // 使用唯一后缀避免数据冲突
+        String uniqueSuffix = String.valueOf(System.currentTimeMillis());
+        
         testUser = User.builder()
-                .username("audituser")
+                .username("audituser_" + uniqueSuffix)
                 .passwordHash("$2a$10$encrypted")
-                .email("audit@test.com")
+                .email("audit_" + uniqueSuffix + "@test.com")
                 .fullName("审计用户")
                 .status("active")
                 .build();

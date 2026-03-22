@@ -50,7 +50,8 @@ public class KnowledgeController {
         
         return knowledgeService.findById(id)
                 .map(article -> ResponseEntity.ok(ApiResponse.success(article)))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "知识文章不存在")));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(404, "知识文章不存在")));
     }
 
     @GetMapping
