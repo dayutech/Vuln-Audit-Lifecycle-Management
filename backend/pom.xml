@@ -104,6 +104,13 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- H2 Database: 内存数据库，用于单元测试 -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- SpringDoc OpenAPI: 提供Swagger UI和OpenAPI 3.0文档支持 -->
         <dependency>
             <groupId>org.springdoc</groupId>
