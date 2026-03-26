@@ -73,10 +73,11 @@ public class AssetController {
     @Operation(summary = "获取资产详情", description = "根据ID获取资产详细信息")
     public ResponseEntity<ApiResponse<Asset>> getAsset(@PathVariable UUID id) {
         log.info("获取资产详情: id={}", id);
-        
+
         return assetService.findById(id)
                 .map(asset -> ResponseEntity.ok(ApiResponse.success(asset)))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "资产不存在")));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(404, "资产不存在")));
     }
 
     @GetMapping

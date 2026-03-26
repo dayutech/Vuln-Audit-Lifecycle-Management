@@ -59,7 +59,8 @@ public class AssetGroupController {
         
         return assetGroupRepository.findById(id)
                 .map(group -> ResponseEntity.ok(ApiResponse.success(group)))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "分组不存在")));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(404, "分组不存在")));
     }
 
     @GetMapping
@@ -119,7 +120,8 @@ public class AssetGroupController {
                     AssetGroup updatedGroup = assetGroupRepository.save(existingGroup);
                     return ResponseEntity.ok(ApiResponse.success(updatedGroup));
                 })
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "分组不存在")));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(404, "分组不存在")));
     }
 
     @DeleteMapping("/{id}")
@@ -128,7 +130,8 @@ public class AssetGroupController {
         log.info("删除资产分组: id={}", id);
         
         if (!assetGroupRepository.existsById(id)) {
-            return ResponseEntity.ok(ApiResponse.error(404, "分组不存在"));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error(404, "分组不存在"));
         }
         
         // 先删除分组关联关系
@@ -150,7 +153,8 @@ public class AssetGroupController {
         log.info("添加资产到分组: groupId={}, assetId={}", id, assetId);
         
         if (!assetGroupRepository.existsById(id)) {
-            return ResponseEntity.ok(ApiResponse.error(404, "分组不存在"));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error(404, "分组不存在"));
         }
         
         // 检查是否已存在关联

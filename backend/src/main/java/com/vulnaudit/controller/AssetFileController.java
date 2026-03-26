@@ -65,7 +65,8 @@ public class AssetFileController {
         
         return assetFileRepository.findById(id)
                 .map(file -> ResponseEntity.ok(ApiResponse.success(file)))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "文件不存在")));
+                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiResponse.error(404, "文件不存在")));
     }
 
     @PostMapping("/assets/{assetId}/files")
@@ -154,7 +155,8 @@ public class AssetFileController {
         
         AssetFile file = assetFileRepository.findById(id).orElse(null);
         if (file == null) {
-            return ResponseEntity.ok(ApiResponse.error(404, "文件不存在"));
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error(404, "文件不存在"));
         }
         
         file.setStatus("archived");
