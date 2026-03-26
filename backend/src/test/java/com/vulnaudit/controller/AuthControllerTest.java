@@ -118,7 +118,7 @@ public class AuthControllerTest extends BaseTest {
             mockMvc.perform(post("/api/v1/auth/login")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isForbidden());
+                    .andExpect(status().isBadRequest());
         }
     }
 
