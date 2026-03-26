@@ -1,13 +1,11 @@
 package com.vulnaudit.controller;
 
 import com.vulnaudit.BaseTest;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.ResultActions;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -20,11 +18,6 @@ public class DashboardControllerTest extends BaseTest {
 
     @Autowired
     private MockMvc mockMvc;
-
-    @BeforeEach
-    void setUpDashboard() {
-        // Dashboard测试使用默认的setUp()创建的用户
-    }
 
     @Nested
     @DisplayName("仪表盘概览测试")

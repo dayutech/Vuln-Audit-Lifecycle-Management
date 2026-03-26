@@ -18,6 +18,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -28,7 +30,7 @@ import java.util.stream.Collectors;
 
 /**
  * 认证控制器
- * 
+ *
  * 功能说明：
  * - 处理用户登录请求
  * - 处理用户登出请求
@@ -52,27 +54,27 @@ public class AuthController {
     @PostMapping("/login")
     @Operation(summary = "用户登录", description = "使用用户名和密码登录，返回JWT令牌")
     @ApiResponses(value = {
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "登录成功", 
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "登录成功",
                     content = @Content(schema = @Schema(implementation = LoginResponse.class))),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "用户名或密码错误"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "用户账号已被禁用")
     })
     public ApiResponse<LoginResponse> login(
-            @Parameter(description = "登录请求", required = true) 
+            @Parameter(description = "登录请求", required = true)
             @Valid @RequestBody LoginRequest request) {
         log.info("用户登录请求: username={}", request.getUsername());
-        
+
         User user = userService.authenticate(request.getUsername(), request.getPassword());
         userService.updateLastLogin(user.getId());
-        
+
         List<String> roles = userService.getUserRoleCodes(user.getId());
         List<String> permissions = userService.getUserPermissionCodes(user.getId());
-        
-        String token = jwtUtils.generateToken(user.getUsername(), 
+
+        String token = jwtUtils.generateToken(user.getUsername(),
                 roles.stream()
                         .map(r -> new SimpleGrantedAuthority("ROLE_" + r))
                         .collect(Collectors.toList()));
-        
+
         LoginResponse response = LoginResponse.builder()
                 .token(token)
                 .tokenType(jwtProperties.getPrefix().trim())
@@ -82,7 +84,7 @@ public class AuthController {
                 .fullName(user.getFullName())
                 .email(user.getEmail())
                 .build();
-        
+
         log.info("用户登录成功: username={}", user.getUsername());
         return ApiResponse.success(response);
     }
@@ -115,19 +117,26 @@ public class AuthController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "获取成功"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "未授权")
     })
-    public ApiResponse<User> getCurrentUser() {
+    public ResponseEntity<ApiResponse<User>> getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null) {
+        if (authentication == null || !authentication.isAuthenticated() ||
+                "anonymousUser".equals(authentication.getPrincipal())) {
             log.warn("未找到认证信息");
-            return ApiResponse.error("未授权");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
         }
-        
+
         String username = authentication.getName();
         User user = userService.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
-        
+                .orElse(null);
+
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error(404, "用户不存在"));
+        }
+
         user.setPasswordHash(null);
-        return ApiResponse.success(user);
+        return ResponseEntity.ok(ApiResponse.success(user));
     }
 
     /**
@@ -141,27 +150,35 @@ public class AuthController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "旧密码错误"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "未授权")
     })
-    public ApiResponse<Void> changePassword(
+    public ResponseEntity<ApiResponse<Void>> changePassword(
             @Parameter(description = "修改密码请求", required = true)
             @Valid @RequestBody ChangePasswordRequest request) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null) {
+        if (authentication == null || !authentication.isAuthenticated() ||
+                "anonymousUser".equals(authentication.getPrincipal())) {
             log.warn("未找到认证信息");
-            return ApiResponse.error("未授权");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
         }
-        
+
         String username = authentication.getName();
         User user = userService.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
-        
+                .orElse(null);
+
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error(404, "用户不存在"));
+        }
+
         boolean success = userService.changePassword(user.getId(), request.getOldPassword(), request.getNewPassword());
-        
+
         if (success) {
             log.info("密码修改成功: username={}", username);
-            return ApiResponse.success(null);
+            return ResponseEntity.ok(ApiResponse.success(null));
         } else {
             log.warn("密码修改失败: username={}", username);
-            return ApiResponse.error("密码修改失败");
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error(400, "密码修改失败"));
         }
     }
 
@@ -175,24 +192,31 @@ public class AuthController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "刷新成功"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "未授权")
     })
-    public ApiResponse<LoginResponse> refreshToken() {
+    public ResponseEntity<ApiResponse<LoginResponse>> refreshToken() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null) {
+        if (authentication == null || !authentication.isAuthenticated() ||
+                "anonymousUser".equals(authentication.getPrincipal())) {
             log.warn("未找到认证信息");
-            return ApiResponse.error("未授权");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
         }
-        
+
         String username = authentication.getName();
         User user = userService.findByUsername(username)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
-        
+                .orElse(null);
+
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error(404, "用户不存在"));
+        }
+
         List<String> roles = userService.getUserRoleCodes(user.getId());
-        
-        String token = jwtUtils.generateToken(username, 
+
+        String token = jwtUtils.generateToken(username,
                 roles.stream()
                         .map(r -> new SimpleGrantedAuthority("ROLE_" + r))
                         .collect(Collectors.toList()));
-        
+
         LoginResponse response = LoginResponse.builder()
                 .token(token)
                 .tokenType(jwtProperties.getPrefix().trim())
@@ -202,9 +226,9 @@ public class AuthController {
                 .fullName(user.getFullName())
                 .email(user.getEmail())
                 .build();
-        
+
         log.info("令牌刷新成功: username={}", username);
-        return ApiResponse.success(response);
+        return ResponseEntity.ok(ApiResponse.success(response));
     }
 
 }
