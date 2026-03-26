@@ -37,11 +37,15 @@ public class AssetFileControllerTest extends BaseTest {
     private Asset testAsset;
     private User testUser;
 
+    @Override
     @BeforeEach
-    void setUpFile() {
+    public void setUp() {
+        // 调用父类的setUp()方法
+        super.setUp();
+
         // 使用唯一后缀避免数据冲突
         String uniqueSuffix = String.valueOf(System.currentTimeMillis());
-        
+
         testUser = User.builder()
                 .username("fileowner_" + uniqueSuffix)
                 .passwordHash("$2a$10$encrypted")
@@ -71,7 +75,7 @@ public class AssetFileControllerTest extends BaseTest {
                 .fileType("zip")
                 .version(1)
                 .status("active")
-                .uploadedBy(null)
+                .uploadedBy(testUser.getId())
                 .build();
         testFile = assetFileRepository.save(testFile);
     }
@@ -124,15 +128,23 @@ public class AssetFileControllerTest extends BaseTest {
     }
 
     @Nested
-    @DisplayName("删除文件测试")
+    @DisplayName("文件删除测试")
     class DeleteFileTests {
 
         @Test
         @DisplayName("删除文件 - 成功")
         void deleteFile_Success() throws Exception {
             mockMvc.perform(delete("/api/v1/asset-files/" + testFile.getId())
-                    .header("Authorization", adminToken))
+                    .header("Authorization", engineerToken))
                     .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("删除文件 - 文件不存在")
+        void deleteFile_NotFound() throws Exception {
+            mockMvc.perform(delete("/api/v1/asset-files/" + UUID.randomUUID())
+                    .header("Authorization", engineerToken))
+                    .andExpect(status().isNotFound());
         }
     }
 }
