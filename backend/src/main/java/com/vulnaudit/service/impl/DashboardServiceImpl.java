@@ -156,15 +156,15 @@ public class DashboardServiceImpl implements DashboardService {
         Map<String, Long> result = new HashMap<>();
         result.put("pending", taskRepository.count(
                 (root, query, cb) -> cb.and(
-                        cb.equal(root.get("assigneeId"), userId),
+                        cb.equal(root.get("assignedTo"), userId),
                         cb.equal(root.get("status"), "pending"))));
         result.put("in_progress", taskRepository.count(
                 (root, query, cb) -> cb.and(
-                        cb.equal(root.get("assigneeId"), userId),
+                        cb.equal(root.get("assignedTo"), userId),
                         cb.equal(root.get("status"), "in_progress"))));
         result.put("completed", taskRepository.count(
                 (root, query, cb) -> cb.and(
-                        cb.equal(root.get("assigneeId"), userId),
+                        cb.equal(root.get("assignedTo"), userId),
                         cb.equal(root.get("status"), "completed"))));
         return result;
     }
