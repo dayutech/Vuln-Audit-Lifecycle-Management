@@ -1,7 +1,10 @@
 package com.vulnaudit.security;
 
+import com.vulnaudit.entity.Role;
 import com.vulnaudit.entity.User;
+import com.vulnaudit.repository.RoleRepository;
 import com.vulnaudit.repository.UserRepository;
+import com.vulnaudit.repository.UserRoleRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -9,8 +12,11 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 用户详情服务实现
@@ -27,6 +33,8 @@ import java.util.Collections;
 public class UserDetailsServiceImpl implements UserDetailsService {
 
     private final UserRepository userRepository;
+    private final UserRoleRepository userRoleRepository;
+    private final RoleRepository roleRepository;
 
     /**
      * 根据用户名加载用户详情
@@ -36,6 +44,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
      * @throws UsernameNotFoundException 用户未找到异常
      */
     @Override
+    @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
         log.debug("加载用户详情: username={}", username);
         
@@ -57,8 +66,28 @@ public class UserDetailsServiceImpl implements UserDetailsService {
             throw new UsernameNotFoundException("用户账号已被停用: " + username);
         }
         
+        // 从数据库加载用户的实际角色
+        List<String> roles = userRoleRepository.findByUserId(user.getId()).stream()
+                .map(userRole -> {
+                    Role role = roleRepository.findById(userRole.getRoleId()).orElse(null);
+                    return role != null ? role.getCode() : null;
+                })
+                .filter(roleCode -> roleCode != null)
+                .collect(Collectors.toList());
+        
+        // 如果用户没有角色，默认添加ROLE_USER
+        if (roles.isEmpty()) {
+            roles.add("ROLE_USER");
+        }
+        
+        // 构建权限列表
+        List<SimpleGrantedAuthority> authorities = roles.stream()
+                .map(SimpleGrantedAuthority::new)
+                .collect(Collectors.toList());
+        
+        log.debug("用户 {} 加载了 {} 个角色: {}", username, authorities.size(), authorities);
+        
         // 构建Spring Security的UserDetails对象
-        // 注意：权限列表暂时为空，后续会从角色和权限表加载
         return new org.springframework.security.core.userdetails.User(
                 user.getUsername(),
                 user.getPasswordHash(),
@@ -66,7 +95,7 @@ public class UserDetailsServiceImpl implements UserDetailsService {
                 true,
                 true,
                 true,
-                Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"))
+                authorities
         );
     }
 

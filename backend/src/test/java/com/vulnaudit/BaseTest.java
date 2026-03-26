@@ -59,7 +59,7 @@ public abstract class BaseTest {
      * 生成测试用JWT Token
      */
     protected String generateTestToken(String username, String... roles) {
-        return "Bearer " + jwtUtils.generateToken(username, 
+        return "Bearer " + jwtUtils.generateToken(username,
             java.util.Arrays.stream(roles)
                 .map(r -> new org.springframework.security.core.authority.SimpleGrantedAuthority(r))
                 .toList()
