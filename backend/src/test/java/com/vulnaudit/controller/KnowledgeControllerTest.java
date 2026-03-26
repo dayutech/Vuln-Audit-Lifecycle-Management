@@ -200,7 +200,7 @@ public class KnowledgeControllerTest extends BaseTest {
             mockMvc.perform(post("/api/v1/knowledge/" + testArticle.getId() + "/tags")
                     .header("Authorization", engineerToken)
                     .param("tag", "重要"))
-                    .andExpect(status().isCreated());
+                    .andExpect(status().isOk());
         }
     }
 

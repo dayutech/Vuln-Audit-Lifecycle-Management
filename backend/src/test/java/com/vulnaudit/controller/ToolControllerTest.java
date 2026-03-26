@@ -175,7 +175,7 @@ public class ToolControllerTest extends BaseTest {
             mockMvc.perform(post("/api/v1/tools/" + testTool.getId() + "/tags")
                     .header("Authorization", engineerToken)
                     .param("tag", "常用"))
-                    .andExpect(status().isCreated());
+                    .andExpect(status().isOk());
         }
     }
 

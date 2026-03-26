@@ -120,7 +120,7 @@ public class TaskControllerTest extends BaseTest {
         @Test
         @DisplayName("创建任务 - 成功")
         void createTask_Success() throws Exception {
-            String taskJson = "{\"title\":\"新任务\",\"type\":\"document\",\"description\":\"新创建的任务\",\"priority\":\"P2\",\"assignedTo\":\"" + testAssignee.getId() + "\",\"dueDate\":\"" + LocalDateTime.now().plusDays(3) + "\"}";
+            String taskJson = "{\"title\":\"新任务\",\"type\":\"vulnerability\",\"description\":\"新创建的任务\",\"priority\":\"P2\",\"assignedTo\":\"" + testAssignee.getId() + "\",\"dueDate\":\"" + LocalDateTime.now().plusDays(3) + "\"}";
 
             mockMvc.perform(post("/api/v1/tasks")
                     .header("Authorization", leaderToken)

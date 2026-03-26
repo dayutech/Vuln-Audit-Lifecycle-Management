@@ -79,7 +79,7 @@ public class EnvironmentControllerTest extends BaseTest {
         void getEnvironment_NotFound() throws Exception {
             mockMvc.perform(get("/api/v1/environments/" + UUID.randomUUID())
                     .header("Authorization", engineerToken))
-                    .andExpect(status().isOk());
+                    .andExpect(status().isNotFound());
         }
     }
 
