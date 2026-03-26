@@ -267,7 +267,7 @@ public class AssetControllerTest extends BaseTest {
             mockMvc.perform(get("/api/v1/assets/" + testAsset.getId() + "/tags")
                     .header("Authorization", engineerToken))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$").isArray());
+                    .andExpect(jsonPath("$.data").isArray());
         }
 
         @Test
@@ -360,7 +360,7 @@ public class AssetControllerTest extends BaseTest {
             mockMvc.perform(get("/api/v1/assets/" + testAsset.getId() + "/history")
                     .header("Authorization", engineerToken))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$").isArray());
+                    .andExpect(jsonPath("$.data").isArray());
         }
     }
 
