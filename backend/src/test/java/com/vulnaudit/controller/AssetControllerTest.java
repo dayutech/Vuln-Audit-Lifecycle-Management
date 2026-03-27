@@ -223,7 +223,7 @@ public class AssetControllerTest extends BaseTest {
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request)))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.name").value("更新后的资产"));
+                    .andExpect(jsonPath("$.data.name").value("更新后的资产"));
         }
 
         @Test
