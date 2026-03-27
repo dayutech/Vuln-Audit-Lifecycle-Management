@@ -68,7 +68,6 @@ public class AuthController {
         userService.updateLastLogin(user.getId());
 
         List<String> roles = userService.getUserRoleCodes(user.getId());
-        List<String> permissions = userService.getUserPermissionCodes(user.getId());
 
         String token = jwtUtils.generateToken(user.getUsername(),
                 roles.stream()

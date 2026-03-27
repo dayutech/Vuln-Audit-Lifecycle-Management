@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -123,7 +125,7 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<List<?>>> getSettings() {
         log.info("获取通知设置");
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
         return ResponseEntity.ok(ApiResponse.success(notificationService.getSettings(userId)));
     }
 
@@ -132,10 +134,9 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<?>> updateSetting(
             @PathVariable String type,
             @RequestBody Map<String, Boolean> setting) {
-        
+
         log.info("更新通知设置: type={}", type);
-        
-        UUID userId = null;
+
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
@@ -225,5 +226,13 @@ public class NotificationController {
         UUID userId = null;
         List<UUID> assetIds = notificationService.getSubscribedAssetIds(userId);
         return ResponseEntity.ok(ApiResponse.success(assetIds));
+    }
+
+    private UUID getCurrentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || authentication.getName() == null) {
+            return null;
+        }
+        return null;
     }
 }

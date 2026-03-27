@@ -2,7 +2,6 @@ package com.vulnaudit.service.impl;
 
 import com.vulnaudit.entity.Asset;
 import com.vulnaudit.entity.DashboardConfig;
-import com.vulnaudit.entity.Vulnerability;
 import com.vulnaudit.repository.*;
 import com.vulnaudit.service.DashboardService;
 import lombok.RequiredArgsConstructor;
@@ -10,7 +9,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.*;
 
 /**

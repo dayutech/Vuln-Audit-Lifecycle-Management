@@ -1,7 +1,6 @@
 package com.vulnaudit.controller;
 
 import com.vulnaudit.dto.ApiResponse;
-import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.AssetFile;
 import com.vulnaudit.entity.AssetFileVersion;
 import com.vulnaudit.repository.AssetFileRepository;
@@ -14,10 +13,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -30,7 +25,6 @@ import java.net.MalformedURLException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 

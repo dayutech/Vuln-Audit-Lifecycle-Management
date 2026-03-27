@@ -209,10 +209,10 @@ public class ToolServiceImpl implements ToolService {
     @Transactional
     public ToolVersion uploadVersion(UUID toolId, String version, String changelog, MultipartFile file) {
         log.info("上传工具新版本: toolId={}, version={}", toolId, version);
-        
-        Tool tool = toolRepository.findById(toolId)
+
+        toolRepository.findById(toolId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TOOL_NOT_FOUND));
-        
+
         String filePath = "uploads/tools/" + toolId + "/" + version;
         
         ToolVersion toolVersion = ToolVersion.builder()

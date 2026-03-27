@@ -9,7 +9,6 @@ import com.vulnaudit.repository.UserRepository;
 import com.vulnaudit.repository.UserRoleRepository;
 import com.vulnaudit.security.JwtUtils;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.Query;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;

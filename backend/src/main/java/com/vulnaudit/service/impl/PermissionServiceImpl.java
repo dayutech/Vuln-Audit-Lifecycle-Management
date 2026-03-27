@@ -2,8 +2,6 @@ package com.vulnaudit.service.impl;
 
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.Permission;
-import com.vulnaudit.entity.RolePermission;
-import com.vulnaudit.entity.UserPermission;
 import com.vulnaudit.exception.BusinessException;
 import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.PermissionRepository;
@@ -28,7 +26,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * 权限服务实现类

@@ -10,7 +10,6 @@ import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.PermissionRepository;
 import com.vulnaudit.repository.RolePermissionRepository;
 import com.vulnaudit.repository.RoleRepository;
-import com.vulnaudit.repository.UserPermissionRepository;
 import com.vulnaudit.repository.UserRoleRepository;
 import com.vulnaudit.service.RoleService;
 import lombok.RequiredArgsConstructor;
@@ -25,12 +24,9 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * 角色服务实现类

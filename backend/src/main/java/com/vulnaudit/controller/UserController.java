@@ -4,7 +4,6 @@ import com.vulnaudit.dto.ApiResponse;
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.dto.UserCreateRequest;
 import com.vulnaudit.dto.UserUpdateRequest;
-import com.vulnaudit.entity.Permission;
 import com.vulnaudit.entity.Role;
 import com.vulnaudit.entity.User;
 import com.vulnaudit.entity.UserPermission;
@@ -18,8 +17,6 @@ import com.vulnaudit.service.RoleService;
 import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -360,9 +357,9 @@ public class UserController {
         User currentUser = userService.findByUsername(currentUsername)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         
-        Role role = roleService.findById(roleId)
+        roleService.findById(roleId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ROLE_NOT_FOUND));
-        
+
         if (userRoleRepository.existsByUserIdAndRoleId(id, roleId)) {
             return ApiResponse.error("用户已拥有该角色");
         }
@@ -432,9 +429,9 @@ public class UserController {
         User currentUser = userService.findByUsername(currentUsername)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         
-        Permission permission = permissionService.findById(permissionId)
+        permissionService.findById(permissionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PERMISSION_NOT_FOUND));
-        
+
         if (userPermissionRepository.existsByUserIdAndPermissionId(id, permissionId)) {
             return ApiResponse.error("用户已拥有该权限");
         }
