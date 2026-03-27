@@ -148,12 +148,18 @@ public class ToolServiceImpl implements ToolService {
     @Transactional
     public void recordDownload(UUID toolId, UUID userId) {
         log.info("记录工具下载: toolId={}, userId={}", toolId, userId);
-        
+
+        Tool tool = toolRepository.findById(toolId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.TOOL_NOT_FOUND));
+
         ToolDownload download = ToolDownload.builder()
                 .toolId(toolId)
                 .userId(userId)
                 .build();
         toolDownloadRepository.save(download);
+
+        tool.setDownloadCount(tool.getDownloadCount() + 1);
+        toolRepository.save(tool);
     }
 
     @Override

@@ -12,6 +12,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -148,9 +149,11 @@ public class NotificationControllerTest extends BaseTest {
         @Test
         @DisplayName("更新通知设置 - 成功")
         void updateSettings_Success() throws Exception {
+            String settingsJson = "{\"enabled\":true}";
             mockMvc.perform(put("/api/v1/notifications/settings/system")
                     .header("Authorization", engineerToken)
-                    .param("enabled", "true"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(settingsJson))
                     .andExpect(status().isOk());
         }
     }

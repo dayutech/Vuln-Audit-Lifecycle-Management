@@ -59,7 +59,7 @@ public class Asset {
      * 所属团队ID
      * 外键，关联 teams 表
      */
-    @Column(name = "team_id", nullable = false)
+    @Column(name = "team_id", nullable = true)
     private UUID teamId;
 
     /**

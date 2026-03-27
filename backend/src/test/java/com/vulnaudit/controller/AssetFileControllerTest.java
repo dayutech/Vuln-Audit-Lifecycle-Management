@@ -70,6 +70,7 @@ public class AssetFileControllerTest extends BaseTest {
                 .filePath("/uploads/test_file.zip")
                 .fileSize(1024L)
                 .fileType("zip")
+                .category("document")
                 .version(1)
                 .status("active")
                 .uploadedBy(testUser.getId())

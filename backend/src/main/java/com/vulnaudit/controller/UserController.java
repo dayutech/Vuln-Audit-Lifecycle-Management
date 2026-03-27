@@ -26,6 +26,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -72,7 +74,7 @@ public class UserController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "无权限"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "用户名或邮箱已存在")
     })
-    public ApiResponse<User> createUser(
+    public ResponseEntity<ApiResponse<User>> createUser(
             @Parameter(description = "用户创建请求", required = true)
             @Valid @RequestBody UserCreateRequest request) {
         log.info("创建用户请求: username={}", request.getUsername());
@@ -91,7 +93,7 @@ public class UserController {
         createdUser.setPasswordHash(null);
         
         log.info("用户创建成功: id={}", createdUser.getId());
-        return ApiResponse.success(createdUser);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(createdUser));
     }
 
     /**

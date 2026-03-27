@@ -146,19 +146,22 @@ public class AssetController {
     public ResponseEntity<ApiResponse<AssetAccess>> createAccessRequest(
             @PathVariable UUID id,
             @Valid @RequestBody AssetAccessRequest request) {
-        
+
         log.info("申请资产访问权限: assetId={}", id);
-        
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        UUID currentUserId = getCurrentUserId(authentication);
+
         AssetAccess access = AssetAccess.builder()
                 .assetId(id)
-                .userId(null) // 从当前用户获取
+                .userId(currentUserId)
                 .canViewDocuments(request.getCanViewDocuments())
                 .canViewEnvironments(request.getCanViewEnvironments())
                 .canViewFiles(request.getCanViewFiles())
                 .allowedFileTypes(request.getAllowedFileTypes())
                 .requestNote(request.getRequestNote())
                 .build();
-        
+
         AssetAccess createdAccess = assetAccessService.createAccessRequest(access);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(createdAccess));
@@ -198,15 +201,18 @@ public class AssetController {
     public ResponseEntity<ApiResponse<AssetClaim>> createClaim(
             @PathVariable UUID id,
             @Valid @RequestBody AssetClaimRequest request) {
-        
+
         log.info("认领资产: assetId={}", id);
-        
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        UUID currentUserId = getCurrentUserId(authentication);
+
         AssetClaim claim = AssetClaim.builder()
                 .assetId(id)
-                .userId(null) // 从当前用户获取
+                .userId(currentUserId)
                 .note(request.getNote())
                 .build();
-        
+
         AssetClaim createdClaim = assetClaimService.createClaim(claim);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(createdClaim));

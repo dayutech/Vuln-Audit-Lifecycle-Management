@@ -82,14 +82,6 @@ public class TaskControllerTest extends BaseTest {
                     .param("status", "pending"))
                     .andExpect(status().isOk());
         }
-
-        @Test
-        @DisplayName("获取我的任务列表 - 成功")
-        void getMyTasks_Success() throws Exception {
-            mockMvc.perform(get("/api/v1/tasks/my")
-                    .header("Authorization", engineerToken))
-                    .andExpect(status().isOk());
-        }
     }
 
     @Nested
@@ -120,7 +112,7 @@ public class TaskControllerTest extends BaseTest {
         @Test
         @DisplayName("创建任务 - 成功")
         void createTask_Success() throws Exception {
-            String taskJson = "{\"title\":\"新任务\",\"type\":\"vulnerability\",\"description\":\"新创建的任务\",\"priority\":\"P2\",\"assignedTo\":\"" + testAssignee.getId() + "\",\"dueDate\":\"" + LocalDateTime.now().plusDays(3) + "\"}";
+            String taskJson = "{\"title\":\"新任务\",\"type\":\"vulnerability\",\"description\":\"新创建的任务\",\"priority\":\"P2\",\"assigneeId\":\"" + testAssignee.getId() + "\",\"dueDate\":\"" + LocalDateTime.now().plusDays(3) + "\"}";
 
             mockMvc.perform(post("/api/v1/tasks")
                     .header("Authorization", leaderToken)

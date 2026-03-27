@@ -231,7 +231,7 @@ public class AssetControllerTest extends BaseTest {
         void updateAssetStatus_Success() throws Exception {
             mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/status")
                     .header("Authorization", adminToken)
-                    .param("status", "inactive"))
+                    .param("status", "suspended"))
                     .andExpect(status().isOk());
         }
     }
@@ -300,9 +300,11 @@ public class AssetControllerTest extends BaseTest {
         @Test
         @DisplayName("申请访问资产 - 成功")
         void requestAccess_Success() throws Exception {
+            String accessJson = "{\"requestNote\":\"需要访问此资产进行测试\"}";
             mockMvc.perform(post("/api/v1/assets/" + testAsset.getId() + "/access-requests")
                     .header("Authorization", engineerToken)
-                    .param("requestNote", "需要访问此资产进行测试"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(accessJson))
                     .andExpect(status().isCreated());
         }
 
@@ -335,9 +337,11 @@ public class AssetControllerTest extends BaseTest {
         @Test
         @DisplayName("认领资产 - 成功")
         void claimAsset_Success() throws Exception {
+            String claimJson = "{\"note\":\"认领此资产进行测试\"}";
             mockMvc.perform(post("/api/v1/assets/" + testAsset.getId() + "/claims")
                     .header("Authorization", engineerToken)
-                    .param("note", "认领此资产进行测试"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(claimJson))
                     .andExpect(status().isCreated());
         }
 

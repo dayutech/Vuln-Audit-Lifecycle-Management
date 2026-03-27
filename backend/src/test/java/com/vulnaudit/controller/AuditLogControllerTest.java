@@ -138,10 +138,8 @@ public class AuditLogControllerTest extends BaseTest {
         @Test
         @DisplayName("获取资源的审计日志 - 成功")
         void getResourceAuditLogs_Success() throws Exception {
-            mockMvc.perform(get("/api/v1/audit-logs/resource")
-                    .header("Authorization", adminToken)
-                    .param("resourceType", "vulnerability")
-                    .param("resourceId", testAuditLog.getResourceId().toString()))
+            mockMvc.perform(get("/api/v1/audit-logs/resources/" + "vulnerability" + "/" + testAuditLog.getResourceId())
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }
     }
@@ -153,7 +151,7 @@ public class AuditLogControllerTest extends BaseTest {
         @Test
         @DisplayName("获取用户的审计日志 - 成功")
         void getUserAuditLogs_Success() throws Exception {
-            mockMvc.perform(get("/api/v1/audit-logs/user/" + testUser.getId())
+            mockMvc.perform(get("/api/v1/audit-logs/users/" + testUser.getId())
                     .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }

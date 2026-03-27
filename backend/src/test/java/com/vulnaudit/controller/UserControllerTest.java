@@ -138,7 +138,7 @@ public class UserControllerTest extends BaseTest {
                     .header("Authorization", adminToken)
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(request)))
-                    .andExpect(status().isOk())
+                    .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.data.username").value("newuser"))
                     .andExpect(jsonPath("$.data.email").value("newuser@test.com"));
         }

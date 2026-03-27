@@ -57,6 +57,10 @@ public class Tool {
     @Builder.Default
     private Boolean isOfficial = false;
 
+    @Column(name = "download_count", nullable = false)
+    @Builder.Default
+    private Long downloadCount = 0L;
+
     @Column(name = "created_by", nullable = false)
     private UUID createdBy;
 

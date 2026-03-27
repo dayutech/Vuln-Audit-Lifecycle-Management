@@ -20,7 +20,6 @@ import java.util.UUID;
 public class AssetClaimRequest {
 
     @Schema(description = "资产ID")
-    @NotNull(message = "资产ID不能为空")
     private UUID assetId;
 
     @Schema(description = "认领备注")

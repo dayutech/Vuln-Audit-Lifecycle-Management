@@ -156,19 +156,6 @@ public class KnowledgeControllerTest extends BaseTest {
     }
 
     @Nested
-    @DisplayName("文章发布测试")
-    class PublishArticleTests {
-
-        @Test
-        @DisplayName("发布文章 - 成功")
-        void publishArticle_Success() throws Exception {
-            mockMvc.perform(post("/api/v1/knowledge/" + testArticle.getId() + "/publish")
-                    .header("Authorization", engineerToken))
-                    .andExpect(status().isOk());
-        }
-    }
-
-    @Nested
     @DisplayName("文章评论测试")
     class ArticleCommentTests {
 

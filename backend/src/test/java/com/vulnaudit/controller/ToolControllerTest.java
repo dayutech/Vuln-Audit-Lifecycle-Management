@@ -65,7 +65,7 @@ public class ToolControllerTest extends BaseTest {
         @Test
         @DisplayName("搜索工具 - 成功")
         void searchTools_Success() throws Exception {
-            mockMvc.perform(get("/api/v1/tools/search")
+            mockMvc.perform(get("/api/v1/tools")
                     .header("Authorization", engineerToken)
                     .param("keyword", "测试")
                     .param("page", "0")
