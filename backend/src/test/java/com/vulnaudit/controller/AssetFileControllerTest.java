@@ -37,13 +37,10 @@ public class AssetFileControllerTest extends BaseTest {
     private Asset testAsset;
     private User testUser;
 
-    @Override
     @BeforeEach
-    public void setUp() {
-        // 调用父类的setUp()方法
+    void setUpFileData() {
         super.setUp();
 
-        // 使用唯一后缀避免数据冲突
         String uniqueSuffix = String.valueOf(System.currentTimeMillis());
 
         testUser = User.builder()

@@ -66,53 +66,37 @@ public abstract class BaseTest {
     protected UUID leaderUserId;
     protected UUID engineerUserId;
 
+    private static String uniqueSuffix = "0";
+
     /**
      * 每个测试方法执行前的初始化
      * 创建测试用户和角色
      */
     @BeforeEach
     protected void setUp() {
+        uniqueSuffix = String.valueOf(System.currentTimeMillis());
+
+        // 创建角色 - 使用唯一的角色代码
+        Role adminRole = roleRepository.save(Role.builder()
+                .name("管理员_" + uniqueSuffix).code("ROLE_ADMIN_" + uniqueSuffix).description("管理员").isSystem(true).build());
+
+        Role leaderRole = roleRepository.save(Role.builder()
+                .name("组长_" + uniqueSuffix).code("ROLE_LEADER_" + uniqueSuffix).description("组长").isSystem(false).build());
+
+        Role engineerRole = roleRepository.save(Role.builder()
+                .name("工程师_" + uniqueSuffix).code("ROLE_ENGINEER_" + uniqueSuffix).description("工程师").isSystem(false).build());
+
         // 创建admin用户
         User adminUser = userRepository.save(User.builder()
-                .username("admin")
+                .username("admin_" + uniqueSuffix)
                 .passwordHash(passwordEncoder.encode("admin123"))
-                .email("admin@test.com")
+                .email("admin_" + uniqueSuffix + "@test.com")
                 .fullName("管理员")
                 .status("active")
                 .build());
         adminUserId = adminUser.getId();
 
-        // 创建leader1用户
-        User leaderUser = userRepository.save(User.builder()
-                .username("leader1")
-                .passwordHash(passwordEncoder.encode("leader123"))
-                .email("leader1@test.com")
-                .fullName("组长")
-                .status("active")
-                .build());
-        leaderUserId = leaderUser.getId();
-
-        // 创建engineer1用户
-        User engineerUser = userRepository.save(User.builder()
-                .username("engineer1")
-                .passwordHash(passwordEncoder.encode("engineer123"))
-                .email("engineer1@test.com")
-                .fullName("工程师")
-                .status("active")
-                .build());
-        engineerUserId = engineerUser.getId();
-
-        // 创建角色
-        Role adminRole = roleRepository.save(Role.builder()
-                .name("管理员").code("ROLE_ADMIN").description("管理员").isSystem(true).build());
-
-        Role leaderRole = roleRepository.save(Role.builder()
-                .name("组长").code("ROLE_LEADER").description("组长").isSystem(false).build());
-
-        Role engineerRole = roleRepository.save(Role.builder()
-                .name("工程师").code("ROLE_ENGINEER").description("工程师").isSystem(false).build());
-
-        // 关联用户和角色 - 设置assignedBy为系统用户(admin)
+        // 关联admin用户和角色
         userRoleRepository.save(UserRole.builder()
                 .userId(adminUserId)
                 .roleId(adminRole.getId())
@@ -120,6 +104,17 @@ public abstract class BaseTest {
                 .assignedAt(LocalDateTime.now())
                 .build());
 
+        // 创建leader1用户
+        User leaderUser = userRepository.save(User.builder()
+                .username("leader1_" + uniqueSuffix)
+                .passwordHash(passwordEncoder.encode("leader123"))
+                .email("leader1_" + uniqueSuffix + "@test.com")
+                .fullName("组长")
+                .status("active")
+                .build());
+        leaderUserId = leaderUser.getId();
+
+        // 关联leader用户和角色
         userRoleRepository.save(UserRole.builder()
                 .userId(leaderUserId)
                 .roleId(leaderRole.getId())
@@ -127,6 +122,17 @@ public abstract class BaseTest {
                 .assignedAt(LocalDateTime.now())
                 .build());
 
+        // 创建engineer1用户
+        User engineerUser = userRepository.save(User.builder()
+                .username("engineer1_" + uniqueSuffix)
+                .passwordHash(passwordEncoder.encode("engineer123"))
+                .email("engineer1_" + uniqueSuffix + "@test.com")
+                .fullName("工程师")
+                .status("active")
+                .build());
+        engineerUserId = engineerUser.getId();
+
+        // 关联engineer用户和角色
         userRoleRepository.save(UserRole.builder()
                 .userId(engineerUserId)
                 .roleId(engineerRole.getId())
@@ -134,10 +140,10 @@ public abstract class BaseTest {
                 .assignedAt(LocalDateTime.now())
                 .build());
 
-        // 生成测试用户Token
-        adminToken = generateTestToken("admin", "ROLE_ADMIN");
-        leaderToken = generateTestToken("leader1", "ROLE_LEADER");
-        engineerToken = generateTestToken("engineer1", "ROLE_ENGINEER");
+        // 生成测试用户Token - 使用唯一的角色代码
+        adminToken = generateTestToken("admin_" + uniqueSuffix, "ROLE_ADMIN_" + uniqueSuffix);
+        leaderToken = generateTestToken("leader1_" + uniqueSuffix, "ROLE_LEADER_" + uniqueSuffix);
+        engineerToken = generateTestToken("engineer1_" + uniqueSuffix, "ROLE_ENGINEER_" + uniqueSuffix);
     }
 
     /**
