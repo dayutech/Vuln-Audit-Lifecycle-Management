@@ -8,7 +8,6 @@ import com.vulnaudit.repository.RoleRepository;
 import com.vulnaudit.repository.UserRepository;
 import com.vulnaudit.repository.UserRoleRepository;
 import com.vulnaudit.security.JwtUtils;
-import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -59,9 +58,6 @@ public abstract class BaseTest {
     @Autowired
     protected PasswordEncoder passwordEncoder;
 
-    @Autowired
-    protected EntityManager entityManager;
-
     protected String adminToken;
     protected String leaderToken;
     protected String engineerToken;
@@ -74,22 +70,12 @@ public abstract class BaseTest {
 
     /**
      * 每个测试方法执行前的初始化
-     * 创建测试用户和角色
      */
     @BeforeEach
     protected void setUp() {
         testCounter++;
 
-        // 清理旧数据 - 按正确的顺序删除（先删子表，再删父表）
-        userRoleRepository.deleteAll();
-        entityManager.flush();
-        userRepository.deleteAll();
-        entityManager.flush();
-        roleRepository.deleteAll();
-        entityManager.flush();
-        entityManager.clear();
-
-        // 创建标准角色
+        // 创建角色
         Role adminRole = roleRepository.save(Role.builder()
                 .name("管理员").code("ROLE_ADMIN").description("管理员").isSystem(true).build());
 
@@ -98,8 +84,6 @@ public abstract class BaseTest {
 
         Role engineerRole = roleRepository.save(Role.builder()
                 .name("工程师").code("ROLE_ENGINEER").description("工程师").isSystem(false).build());
-
-        entityManager.flush();
 
         // 创建admin用户
         User adminUser = userRepository.save(User.builder()
@@ -131,8 +115,6 @@ public abstract class BaseTest {
                 .build());
         engineerUserId = engineerUser.getId();
 
-        entityManager.flush();
-
         // 关联用户和角色
         userRoleRepository.save(UserRole.builder()
                 .userId(adminUserId)
@@ -154,8 +136,6 @@ public abstract class BaseTest {
                 .assignedBy(adminUserId)
                 .assignedAt(LocalDateTime.now())
                 .build());
-
-        entityManager.flush();
 
         // 生成测试用户Token
         adminToken = generateTestToken("admin_" + testCounter, "ROLE_ADMIN");
