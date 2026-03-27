@@ -13,8 +13,6 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import java.util.UUID;
-
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -149,7 +147,7 @@ public class AssetMetadataControllerTest extends BaseTest {
         void updateAssetMetadata_Success() throws Exception {
             String metadataJson = "{\"systemArchitecture\":\"x86_64\",\"installPath\":\"/opt/updated\",\"programmingLanguage\":\"Java\",\"framework\":\"Spring Boot\",\"databaseType\":\"MySQL\",\"servicePorts\":\"8090,8443\"}";
 
-            mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata")
+            mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/" + testMetadata.getId())
                     .header("Authorization", engineerToken)
                     .contentType("application/json")
                     .content(metadataJson))
@@ -164,7 +162,7 @@ public class AssetMetadataControllerTest extends BaseTest {
         @Test
         @DisplayName("删除资产元数据 - 成功")
         void deleteMetadata_Success() throws Exception {
-            mockMvc.perform(delete("/api/v1/assets/" + testAsset.getId() + "/metadata")
+            mockMvc.perform(delete("/api/v1/assets/" + testAsset.getId() + "/metadata/" + testMetadata.getId())
                     .header("Authorization", engineerToken))
                     .andExpect(status().isOk());
         }
@@ -172,7 +170,7 @@ public class AssetMetadataControllerTest extends BaseTest {
         @Test
         @DisplayName("删除资产元数据 - 元数据不存在")
         void deleteMetadata_NotFound() throws Exception {
-            mockMvc.perform(delete("/api/v1/assets/" + testAsset.getId() + "/metadata")
+            mockMvc.perform(delete("/api/v1/assets/" + testAsset.getId() + "/metadata/" + testMetadata.getId())
                     .header("Authorization", engineerToken))
                     .andExpect(status().isOk());
         }
