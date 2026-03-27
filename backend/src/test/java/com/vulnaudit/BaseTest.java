@@ -8,6 +8,7 @@ import com.vulnaudit.repository.RoleRepository;
 import com.vulnaudit.repository.UserRepository;
 import com.vulnaudit.repository.UserRoleRepository;
 import com.vulnaudit.security.JwtUtils;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -58,6 +59,9 @@ public abstract class BaseTest {
     @Autowired
     protected PasswordEncoder passwordEncoder;
 
+    @Autowired
+    protected EntityManager entityManager;
+
     protected String adminToken;
     protected String leaderToken;
     protected String engineerToken;
@@ -66,7 +70,7 @@ public abstract class BaseTest {
     protected UUID leaderUserId;
     protected UUID engineerUserId;
 
-    private static String uniqueSuffix = "0";
+    private static long testCounter = 0;
 
     /**
      * 每个测试方法执行前的初始化
@@ -74,29 +78,62 @@ public abstract class BaseTest {
      */
     @BeforeEach
     protected void setUp() {
-        uniqueSuffix = String.valueOf(System.currentTimeMillis());
+        testCounter++;
 
-        // 创建角色 - 使用唯一的角色代码
+        // 清理旧数据 - 按正确的顺序删除（先删子表，再删父表）
+        userRoleRepository.deleteAll();
+        entityManager.flush();
+        userRepository.deleteAll();
+        entityManager.flush();
+        roleRepository.deleteAll();
+        entityManager.flush();
+        entityManager.clear();
+
+        // 创建标准角色
         Role adminRole = roleRepository.save(Role.builder()
-                .name("管理员_" + uniqueSuffix).code("ROLE_ADMIN_" + uniqueSuffix).description("管理员").isSystem(true).build());
+                .name("管理员").code("ROLE_ADMIN").description("管理员").isSystem(true).build());
 
         Role leaderRole = roleRepository.save(Role.builder()
-                .name("组长_" + uniqueSuffix).code("ROLE_LEADER_" + uniqueSuffix).description("组长").isSystem(false).build());
+                .name("组长").code("ROLE_LEADER").description("组长").isSystem(false).build());
 
         Role engineerRole = roleRepository.save(Role.builder()
-                .name("工程师_" + uniqueSuffix).code("ROLE_ENGINEER_" + uniqueSuffix).description("工程师").isSystem(false).build());
+                .name("工程师").code("ROLE_ENGINEER").description("工程师").isSystem(false).build());
+
+        entityManager.flush();
 
         // 创建admin用户
         User adminUser = userRepository.save(User.builder()
-                .username("admin_" + uniqueSuffix)
+                .username("admin_" + testCounter)
                 .passwordHash(passwordEncoder.encode("admin123"))
-                .email("admin_" + uniqueSuffix + "@test.com")
+                .email("admin_" + testCounter + "@test.com")
                 .fullName("管理员")
                 .status("active")
                 .build());
         adminUserId = adminUser.getId();
 
-        // 关联admin用户和角色
+        // 创建leader1用户
+        User leaderUser = userRepository.save(User.builder()
+                .username("leader1_" + testCounter)
+                .passwordHash(passwordEncoder.encode("leader123"))
+                .email("leader1_" + testCounter + "@test.com")
+                .fullName("组长")
+                .status("active")
+                .build());
+        leaderUserId = leaderUser.getId();
+
+        // 创建engineer1用户
+        User engineerUser = userRepository.save(User.builder()
+                .username("engineer1_" + testCounter)
+                .passwordHash(passwordEncoder.encode("engineer123"))
+                .email("engineer1_" + testCounter + "@test.com")
+                .fullName("工程师")
+                .status("active")
+                .build());
+        engineerUserId = engineerUser.getId();
+
+        entityManager.flush();
+
+        // 关联用户和角色
         userRoleRepository.save(UserRole.builder()
                 .userId(adminUserId)
                 .roleId(adminRole.getId())
@@ -104,17 +141,6 @@ public abstract class BaseTest {
                 .assignedAt(LocalDateTime.now())
                 .build());
 
-        // 创建leader1用户
-        User leaderUser = userRepository.save(User.builder()
-                .username("leader1_" + uniqueSuffix)
-                .passwordHash(passwordEncoder.encode("leader123"))
-                .email("leader1_" + uniqueSuffix + "@test.com")
-                .fullName("组长")
-                .status("active")
-                .build());
-        leaderUserId = leaderUser.getId();
-
-        // 关联leader用户和角色
         userRoleRepository.save(UserRole.builder()
                 .userId(leaderUserId)
                 .roleId(leaderRole.getId())
@@ -122,17 +148,6 @@ public abstract class BaseTest {
                 .assignedAt(LocalDateTime.now())
                 .build());
 
-        // 创建engineer1用户
-        User engineerUser = userRepository.save(User.builder()
-                .username("engineer1_" + uniqueSuffix)
-                .passwordHash(passwordEncoder.encode("engineer123"))
-                .email("engineer1_" + uniqueSuffix + "@test.com")
-                .fullName("工程师")
-                .status("active")
-                .build());
-        engineerUserId = engineerUser.getId();
-
-        // 关联engineer用户和角色
         userRoleRepository.save(UserRole.builder()
                 .userId(engineerUserId)
                 .roleId(engineerRole.getId())
@@ -140,10 +155,12 @@ public abstract class BaseTest {
                 .assignedAt(LocalDateTime.now())
                 .build());
 
-        // 生成测试用户Token - 使用唯一的角色代码
-        adminToken = generateTestToken("admin_" + uniqueSuffix, "ROLE_ADMIN_" + uniqueSuffix);
-        leaderToken = generateTestToken("leader1_" + uniqueSuffix, "ROLE_LEADER_" + uniqueSuffix);
-        engineerToken = generateTestToken("engineer1_" + uniqueSuffix, "ROLE_ENGINEER_" + uniqueSuffix);
+        entityManager.flush();
+
+        // 生成测试用户Token
+        adminToken = generateTestToken("admin_" + testCounter, "ROLE_ADMIN");
+        leaderToken = generateTestToken("leader1_" + testCounter, "ROLE_LEADER");
+        engineerToken = generateTestToken("engineer1_" + testCounter, "ROLE_ENGINEER");
     }
 
     /**
