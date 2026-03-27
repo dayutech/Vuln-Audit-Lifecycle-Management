@@ -8,6 +8,8 @@ import com.vulnaudit.repository.RoleRepository;
 import com.vulnaudit.repository.UserRepository;
 import com.vulnaudit.repository.UserRoleRepository;
 import com.vulnaudit.security.JwtUtils;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -58,6 +60,9 @@ public abstract class BaseTest {
     @Autowired
     protected PasswordEncoder passwordEncoder;
 
+    @Autowired
+    protected EntityManager entityManager;
+
     protected String adminToken;
     protected String leaderToken;
     protected String engineerToken;
@@ -75,7 +80,10 @@ public abstract class BaseTest {
     protected void setUp() {
         testCounter++;
 
-        // 创建角色
+        // 强制清理数据库 - 按正确的顺序删除所有数据
+        clearDatabase();
+
+        // 创建标准角色
         Role adminRole = roleRepository.save(Role.builder()
                 .name("管理员").code("ROLE_ADMIN").description("管理员").isSystem(true).build());
 
@@ -141,6 +149,20 @@ public abstract class BaseTest {
         adminToken = generateTestToken("admin_" + testCounter, "ROLE_ADMIN");
         leaderToken = generateTestToken("leader1_" + testCounter, "ROLE_LEADER");
         engineerToken = generateTestToken("engineer1_" + testCounter, "ROLE_ENGINEER");
+    }
+
+    /**
+     * 清理数据库中的所有数据
+     */
+    private void clearDatabase() {
+        // 使用原生SQL按正确顺序删除数据（先删子表，再删父表）
+        entityManager.createNativeQuery("DELETE FROM user_roles").executeUpdate();
+        entityManager.createNativeQuery("DELETE FROM users").executeUpdate();
+        entityManager.createNativeQuery("DELETE FROM roles").executeUpdate();
+        entityManager.createNativeQuery("DELETE FROM team_members").executeUpdate();
+        entityManager.createNativeQuery("DELETE FROM teams").executeUpdate();
+        entityManager.flush();
+        entityManager.clear();
     }
 
     /**
