@@ -1,6 +1,5 @@
 package com.vulnaudit.controller;
 
-import com.vulnaudit.BaseTest;
 import com.vulnaudit.dto.ChangePasswordRequest;
 import com.vulnaudit.dto.LoginRequest;
 import com.vulnaudit.entity.User;

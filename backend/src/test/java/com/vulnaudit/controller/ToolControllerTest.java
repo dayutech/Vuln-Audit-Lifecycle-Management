@@ -1,6 +1,5 @@
 package com.vulnaudit.controller;
 
-import com.vulnaudit.BaseTest;
 import com.vulnaudit.entity.Tool;
 import com.vulnaudit.repository.ToolRepository;
 import org.junit.jupiter.api.BeforeEach;

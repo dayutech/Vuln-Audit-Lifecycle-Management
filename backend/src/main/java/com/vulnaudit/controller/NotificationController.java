@@ -2,8 +2,10 @@ package com.vulnaudit.controller;
 
 import com.vulnaudit.dto.*;
 import com.vulnaudit.entity.Notification;
+import com.vulnaudit.entity.NotificationSetting;
 import com.vulnaudit.entity.SystemAnnouncement;
 import com.vulnaudit.service.NotificationService;
+import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -32,6 +34,7 @@ import java.util.UUID;
 public class NotificationController {
 
     private final NotificationService notificationService;
+    private final UserService userService;
 
     @GetMapping
     @Operation(summary = "获取通知列表", description = "分页获取用户的通知列表")
@@ -42,8 +45,11 @@ public class NotificationController {
         
         log.info("获取通知列表: page={}, size={}, isRead={}", page, size, isRead);
         
-        // TODO: 从当前用户获取userId
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         PageResponse<Notification> result = notificationService.findByRecipientId(userId, page, size, isRead);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
@@ -53,7 +59,11 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<Long>> getUnreadCount() {
         log.info("获取未读通知数量");
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         long count = notificationService.countUnread(userId);
         return ResponseEntity.ok(ApiResponse.success(count));
     }
@@ -63,7 +73,11 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<Void>> markAsRead(@PathVariable UUID id) {
         log.info("标记通知已读: id={}", id);
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         notificationService.markAsRead(id, userId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
@@ -73,7 +87,11 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<Void>> markAllAsRead() {
         log.info("标记所有通知已读");
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         notificationService.markAllAsRead(userId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
@@ -86,7 +104,11 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<Void>> deleteNotification(@PathVariable UUID id) {
         log.info("删除通知: id={}", id);
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         notificationService.deleteNotification(id, userId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
@@ -126,18 +148,36 @@ public class NotificationController {
         log.info("获取通知设置");
         
         UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         return ResponseEntity.ok(ApiResponse.success(notificationService.getSettings(userId)));
     }
 
     @PutMapping("/settings/{type}")
     @Operation(summary = "更新通知设置", description = "更新指定类型的通知设置")
-    public ResponseEntity<ApiResponse<?>> updateSetting(
+    public ResponseEntity<ApiResponse<NotificationSetting>> updateSetting(
             @PathVariable String type,
             @RequestBody Map<String, Boolean> setting) {
 
         log.info("更新通知设置: type={}", type);
 
-        return ResponseEntity.ok(ApiResponse.success(null));
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
+
+        NotificationSetting payload = NotificationSetting.builder()
+                .enabled(setting.get("enabled"))
+                .notifyEmail(setting.get("notify_email"))
+                .notifySms(setting.get("notify_sms"))
+                .notifyWebhook(setting.get("notify_webhook"))
+                .build();
+
+        NotificationSetting updated = notificationService.updateSetting(userId, type, payload);
+        return ResponseEntity.ok(ApiResponse.success(updated));
     }
 
     // ==================== 系统公告 ====================
@@ -203,7 +243,11 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<Void>> subscribeAsset(@PathVariable UUID assetId) {
         log.info("订阅资产: assetId={}", assetId);
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         notificationService.subscribeAsset(userId, assetId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
@@ -213,7 +257,11 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<Void>> unsubscribeAsset(@PathVariable UUID assetId) {
         log.info("取消订阅资产: assetId={}", assetId);
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         notificationService.unsubscribeAsset(userId, assetId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
@@ -223,16 +271,22 @@ public class NotificationController {
     public ResponseEntity<ApiResponse<List<UUID>>> getSubscriptions() {
         log.info("获取订阅的资产");
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         List<UUID> assetIds = notificationService.getSubscribedAssetIds(userId);
         return ResponseEntity.ok(ApiResponse.success(assetIds));
     }
 
     private UUID getCurrentUserId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || authentication.getName() == null) {
+        if (authentication == null || authentication.getName() == null || "anonymousUser".equals(authentication.getName())) {
             return null;
         }
-        return null;
+        return userService.findByUsername(authentication.getName())
+                .map(user -> user.getId())
+                .orElse(null);
     }
 }

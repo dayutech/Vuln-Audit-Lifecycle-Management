@@ -24,7 +24,6 @@ public class DashboardServiceImpl implements DashboardService {
     private final VulnerabilityRepository vulnerabilityRepository;
     private final TaskRepository taskRepository;
     private final AssetClaimRepository assetClaimRepository;
-    private final StatCacheRepository statCacheRepository;
 
     @Override
     public Map<String, Object> getAssetStats() {

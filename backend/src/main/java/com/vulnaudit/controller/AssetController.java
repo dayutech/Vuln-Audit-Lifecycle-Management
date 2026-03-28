@@ -417,11 +417,10 @@ public class AssetController {
      * 获取当前用户ID的辅助方法
      */
     private UUID getCurrentUserId(Authentication authentication) {
-        if (authentication == null) {
+        if (authentication == null || authentication.getName() == null || "anonymousUser".equals(authentication.getName())) {
             return null;
         }
-        String username = authentication.getName();
-        return userService.findByUsername(username)
+        return userService.findByUsername(authentication.getName())
                 .map(user -> user.getId())
                 .orElse(null);
     }

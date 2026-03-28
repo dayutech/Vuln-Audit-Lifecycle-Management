@@ -8,7 +8,7 @@ spring:
     name: vuln-audit-backend
   
   datasource:
-    url: jdbc:mariadb://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:vuln_audit}
+    url: jdbc:mariadb://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:vuln_audit}?createDatabaseIfNotExist=true
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:fC9qCCCATi56ZIb3MDdpeZQFoTfp2y2p}
     driver-class-name: org.mariadb.jdbc.Driver
@@ -29,6 +29,11 @@ spring:
         dialect: org.hibernate.dialect.MariaDBDialect
         format_sql: true
         use_sql_comments: true
+
+  sql:
+    init:
+      mode: always
+      data-locations: classpath:db/sample_data.sql
 
   data:
     redis:

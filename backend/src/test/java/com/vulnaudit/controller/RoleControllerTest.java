@@ -1,6 +1,5 @@
 package com.vulnaudit.controller;
 
-import com.vulnaudit.BaseTest;
 import com.vulnaudit.entity.Role;
 import com.vulnaudit.entity.Permission;
 import com.vulnaudit.repository.RoleRepository;

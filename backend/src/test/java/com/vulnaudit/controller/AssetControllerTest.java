@@ -1,6 +1,5 @@
 package com.vulnaudit.controller;
 
-import com.vulnaudit.BaseTest;
 import com.vulnaudit.dto.AssetCreateRequest;
 import com.vulnaudit.dto.AssetUpdateRequest;
 import com.vulnaudit.entity.Asset;

@@ -1,6 +1,5 @@
 package com.vulnaudit.controller;
 
-import com.vulnaudit.BaseTest;
 import com.vulnaudit.entity.Notification;
 import com.vulnaudit.entity.NotificationRecipient;
 import com.vulnaudit.entity.User;

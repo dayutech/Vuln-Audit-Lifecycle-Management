@@ -330,6 +330,10 @@ public class DocumentController {
         log.info("获取我的文档列表");
         
         UUID currentUserId = getCurrentUserId();
+        if (currentUserId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         List<Document> documents = documentService.findByCreatedBy(currentUserId);
         return ResponseEntity.ok(ApiResponse.success(documents));
     }
@@ -339,11 +343,10 @@ public class DocumentController {
      */
     private UUID getCurrentUserId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null) {
+        if (authentication == null || authentication.getName() == null || "anonymousUser".equals(authentication.getName())) {
             return null;
         }
-        String username = authentication.getName();
-        return userService.findByUsername(username)
+        return userService.findByUsername(authentication.getName())
                 .map(user -> user.getId())
                 .orElse(null);
     }

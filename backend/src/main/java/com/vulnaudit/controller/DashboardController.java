@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -41,6 +42,10 @@ public class DashboardController {
         log.info("获取我的仪表盘");
         
         UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         Map<String, Object> dashboard = dashboardService.getUserDashboard(userId);
         return ResponseEntity.ok(ApiResponse.success(dashboard));
     }
@@ -54,6 +59,10 @@ public class DashboardController {
         log.info("保存我的仪表盘配置");
         
         UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         DashboardConfig savedConfig = dashboardService.saveConfig(userId, config);
         return ResponseEntity.ok(ApiResponse.success(savedConfig));
     }
@@ -135,7 +144,11 @@ public class DashboardController {
     public ResponseEntity<ApiResponse<Map<String, Object>>> getWorkloadStats() {
         log.info("获取工作量统计");
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         Map<String, Object> stats = dashboardService.getWorkloadStats(userId);
         return ResponseEntity.ok(ApiResponse.success(stats));
     }
@@ -145,7 +158,11 @@ public class DashboardController {
     public ResponseEntity<ApiResponse<Map<String, Long>>> getTaskStats() {
         log.info("获取任务统计");
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         Map<String, Long> stats = dashboardService.getTaskCountByStatus(userId);
         return ResponseEntity.ok(ApiResponse.success(stats));
     }
@@ -155,7 +172,11 @@ public class DashboardController {
     public ResponseEntity<ApiResponse<Map<String, Long>>> getClaimStats() {
         log.info("获取认领统计");
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         Map<String, Long> stats = dashboardService.getClaimCountByStatus(userId);
         return ResponseEntity.ok(ApiResponse.success(stats));
     }
@@ -189,7 +210,11 @@ public class DashboardController {
         
         log.info("获取工作量趋势: days={}", days);
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         Map<String, Object> trend = dashboardService.getWorkloadTrend(userId, days);
         return ResponseEntity.ok(ApiResponse.success(trend));
     }
@@ -199,7 +224,11 @@ public class DashboardController {
     public ResponseEntity<ApiResponse<DashboardConfig>> getConfig() {
         log.info("获取仪表盘配置");
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         DashboardConfig config = dashboardService.getConfig(userId);
         return ResponseEntity.ok(ApiResponse.success(config));
     }
@@ -209,7 +238,11 @@ public class DashboardController {
     public ResponseEntity<ApiResponse<DashboardConfig>> saveConfig(@RequestBody DashboardConfig config) {
         log.info("保存仪表盘配置");
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         DashboardConfig savedConfig = dashboardService.saveConfig(userId, config);
         return ResponseEntity.ok(ApiResponse.success(savedConfig));
     }
@@ -219,7 +252,11 @@ public class DashboardController {
     public ResponseEntity<ApiResponse<Void>> deleteConfig() {
         log.info("删除仪表盘配置");
         
-        UUID userId = null;
+        UUID userId = getCurrentUserId();
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         dashboardService.deleteConfig(userId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
@@ -243,11 +280,10 @@ public class DashboardController {
      */
     private UUID getCurrentUserId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null) {
+        if (authentication == null || authentication.getName() == null || "anonymousUser".equals(authentication.getName())) {
             return null;
         }
-        String username = authentication.getName();
-        return userService.findByUsername(username)
+        return userService.findByUsername(authentication.getName())
                 .map(user -> user.getId())
                 .orElse(null);
     }

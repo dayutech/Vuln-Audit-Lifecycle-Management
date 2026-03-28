@@ -1,6 +1,5 @@
 package com.vulnaudit.controller;
 
-import com.vulnaudit.BaseTest;
 import com.vulnaudit.entity.Team;
 import com.vulnaudit.entity.User;
 import com.vulnaudit.repository.TeamRepository;
