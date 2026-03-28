@@ -21,16 +21,16 @@ Content-Type: application/json
 **响应 200**
 ```json
 {
-    "access_token": "string",
-    "refresh_token": "string",
-    "token_type": "bearer",
-    "expires_in": 3600,
-    "user": {
-        "id": "uuid",
+    "success": true,
+    "message": "操作成功",
+    "data": {
+        "token": "string",
+        "tokenType": "Bearer",
+        "expiresIn": 86400000,
+        "userId": "uuid",
         "username": "string",
-        "email": "string",
-        "full_name": "string",
-        "role": "string"
+        "fullName": "string",
+        "email": "string"
     }
 }
 ```
@@ -46,7 +46,9 @@ Authorization: Bearer <token>
 **响应 200**
 ```json
 {
-    "message": "登出成功"
+    "success": true,
+    "message": "操作成功",
+    "data": null
 }
 ```
 
@@ -55,22 +57,23 @@ Authorization: Bearer <token>
 **请求**
 ```
 POST /api/v1/auth/refresh
-Content-Type: application/json
-```
-
-**请求体**
-```json
-{
-    "refresh_token": "string"
-}
+Authorization: Bearer <token>
 ```
 
 **响应 200**
 ```json
 {
-    "access_token": "string",
-    "token_type": "bearer",
-    "expires_in": 3600
+    "success": true,
+    "message": "操作成功",
+    "data": {
+        "token": "string",
+        "tokenType": "Bearer",
+        "expiresIn": 86400000,
+        "userId": "uuid",
+        "username": "string",
+        "fullName": "string",
+        "email": "string"
+    }
 }
 ```
 
@@ -85,22 +88,18 @@ Authorization: Bearer <token>
 **响应 200**
 ```json
 {
-    "id": "uuid",
-    "username": "string",
-    "email": "string",
-    "phone": "string",
-    "full_name": "string",
-    "role": "string",
-    "avatar": "string",
-    "teams": [
-        {
-            "id": "uuid",
-            "name": "string",
-            "role": "string"
-        }
-    ],
-    "created_at": "datetime",
-    "last_login": "datetime"
+    "success": true,
+    "message": "操作成功",
+    "data": {
+        "id": "uuid",
+        "username": "string",
+        "email": "string",
+        "phone": "string",
+        "fullName": "string",
+        "status": "active",
+        "createdAt": "datetime",
+        "updatedAt": "datetime"
+    }
 }
 ```
 
@@ -1895,9 +1894,9 @@ DELETE /api/v1/documents/{id}
 Authorization: Bearer <token>
 ```
 
-> **说明**：删除自己创建的文档（草稿或已发布）
+> **说明**：删除文档
 
-**响应 204**
+**响应 200**
 
 ### 7.6 发布文档
 
@@ -1933,7 +1932,7 @@ Authorization: Bearer <token>
 
 **请求**
 ```
-POST /api/v1/documents/{id}/versions/{version_id}/rollback
+POST /api/v1/documents/{id}/versions/{version}/rollback
 Authorization: Bearer <token>
 ```
 
@@ -1943,7 +1942,7 @@ Authorization: Bearer <token>
 
 **请求**
 ```
-GET /api/v1/documents/{id}/versions/{version_id}
+GET /api/v1/documents/{id}/versions/{version}
 Authorization: Bearer <token>
 ```
 
@@ -1953,15 +1952,8 @@ Authorization: Bearer <token>
 
 **请求**
 ```
-GET /api/v1/my/documents
+GET /api/v1/documents/my/documents
 Authorization: Bearer <token>
-Query Parameters:
-- asset_id: uuid (optional)
-- category: string (optional)
-- status: string (optional)
-- search: string (optional)
-- page: int
-- page_size: int
 ```
 
 > **说明**：返回当前用户创建的文档，文档按用户ID目录结构隔离存储
@@ -1973,9 +1965,7 @@ Query Parameters:
 GET /api/v1/documents/search
 Authorization: Bearer <token>
 Query Parameters:
-- q: string (搜索关键词)
-- category: string (optional)
-- asset_id: uuid (optional)
+- keyword: string (搜索关键词)
 ```
 
 > **说明**：全文检索文档内容
@@ -1990,19 +1980,15 @@ Authorization: Bearer <token>
 
 **响应 200**
 ```json
-{
-    "items": [
-        {
-            "id": "uuid",
-            "tag": "重要",
-            "created_by": {
-                "id": "uuid",
-                "username": "string"
-            },
-            "created_at": "datetime"
-        }
-    ]
-}
+[
+    {
+        "id": "uuid",
+        "documentId": "uuid",
+        "tag": "string",
+        "createdBy": "uuid",
+        "createdAt": "datetime"
+    }
+]
 ```
 
 ### 7.14 添加标签到文档
@@ -2011,23 +1997,22 @@ Authorization: Bearer <token>
 ```
 POST /api/v1/documents/{id}/tags
 Authorization: Bearer <token>
-```
-
-**请求体**
-```json
-{
-    "tag": "重要"
-}
+Query Parameters:
+- tag: string
 ```
 
 **响应 201**
 ```json
 {
-    "id": "uuid",
-    "document_id": "uuid",
-    "tag": "重要",
-    "created_by": "uuid",
-    "created_at": "datetime"
+    "success": true,
+    "message": "操作成功",
+    "data": {
+        "id": "uuid",
+        "documentId": "uuid",
+        "tag": "string",
+        "createdBy": "uuid",
+        "createdAt": "datetime"
+    }
 }
 ```
 
@@ -2035,11 +2020,11 @@ Authorization: Bearer <token>
 
 **请求**
 ```
-DELETE /api/v1/documents/{document_id}/tags/{tag_id}
+DELETE /api/v1/documents/{documentId}/tags/{tagId}
 Authorization: Bearer <token>
 ```
 
-**响应 204**
+**响应 200**
 
 ---
 
@@ -2053,9 +2038,9 @@ GET /api/v1/tools
 Authorization: Bearer <token>
 Query Parameters:
 - category: string (optional)
-- tags: string (optional, comma-separated)
-- search: string (optional)
-- status: string (optional)
+- keyword: string (optional)
+- page: int (default: 0)
+- size: int (default: 10)
 ```
 
 ### 8.2 上传工具
@@ -2064,17 +2049,19 @@ Query Parameters:
 ```
 POST /api/v1/tools
 Authorization: Bearer <token>
-Content-Type: multipart/form-data
+Content-Type: application/json
 ```
 
-**请求表单**
-```
-file: binary
-name: string
-category: string
-tags: string
-description: string
-requirements: string
+**请求体**
+```json
+{
+    "name": "string",
+    "category": "string",
+    "description": "string",
+    "repositoryUrl": "string",
+    "documentationUrl": "string",
+    "tags": "string (comma-separated)"
+}
 ```
 
 ### 8.3 获取工具详情
@@ -2089,7 +2076,7 @@ Authorization: Bearer <token>
 
 **请求**
 ```
-GET /api/v1/tools/{id}/download
+POST /api/v1/tools/{id}/download
 Authorization: Bearer <token>
 ```
 
@@ -2128,19 +2115,7 @@ Authorization: Bearer <token>
 
 **响应 200**
 ```json
-{
-    "items": [
-        {
-            "id": "uuid",
-            "tag": "string",
-            "created_by": {
-                "id": "uuid",
-                "username": "string"
-            },
-            "created_at": "datetime"
-        }
-    ]
-}
+["tag1", "tag2"]
 ```
 
 ### 8.9 添加标签到工具
@@ -2149,35 +2124,21 @@ Authorization: Bearer <token>
 ```
 POST /api/v1/tools/{id}/tags
 Authorization: Bearer <token>
+Query Parameters:
+- tag: string
 ```
 
-**请求体**
-```json
-{
-    "tag": "string"
-}
-```
-
-**响应 201**
-```json
-{
-    "id": "uuid",
-    "tool_id": "uuid",
-    "tag": "string",
-    "created_by": "uuid",
-    "created_at": "datetime"
-}
-```
+**响应 200**
 
 ### 8.10 移除工具的标签
 
 **请求**
 ```
-DELETE /api/v1/tools/{tool_id}/tags/{tag_id}
+DELETE /api/v1/tools/{id}/tags?tag={tag}
 Authorization: Bearer <token>
 ```
 
-**响应 204**
+**响应 200**
 
 ---
 
@@ -2281,10 +2242,10 @@ Authorization: Bearer <token>
 GET /api/v1/knowledge
 Authorization: Bearer <token>
 Query Parameters:
+- page: int (default: 0)
+- size: int (default: 10)
+- keyword: string (optional)
 - category: string (optional)
-- tags: string (optional)
-- search: string (optional)
-- status: string (optional)
 ```
 
 ### 10.2 创建知识文章
@@ -2301,7 +2262,8 @@ Authorization: Bearer <token>
     "title": "string",
     "category": "string",
     "content": "string",
-    "tags": ["string"]
+    "tags": "string (comma-separated)",
+    "authorId": "uuid"
 }
 ```
 
@@ -2329,12 +2291,8 @@ POST /api/v1/knowledge/{id}/comments
 Authorization: Bearer <token>
 ```
 
-**请求体**
-```json
-{
-    "content": "string"
-}
-```
+**Query Parameters**
+- content: string
 
 ### 10.6 获取知识文章的标签列表
 
@@ -2346,19 +2304,7 @@ Authorization: Bearer <token>
 
 **响应 200**
 ```json
-{
-    "items": [
-        {
-            "id": "uuid",
-            "tag": "string",
-            "created_by": {
-                "id": "uuid",
-                "username": "string"
-            },
-            "created_at": "datetime"
-        }
-    ]
-}
+["tag1", "tag2"]
 ```
 
 ### 10.7 添加标签到知识文章
@@ -2367,35 +2313,31 @@ Authorization: Bearer <token>
 ```
 POST /api/v1/knowledge/{id}/tags
 Authorization: Bearer <token>
+Query Parameters:
+- tag: string
 ```
 
-**请求体**
-```json
-{
-    "tag": "string"
-}
-```
-
-**响应 201**
-```json
-{
-    "id": "uuid",
-    "article_id": "uuid",
-    "tag": "string",
-    "created_by": "uuid",
-    "created_at": "datetime"
-}
-```
+**响应 200**
 
 ### 10.8 移除知识文章的标签
 
 **请求**
 ```
-DELETE /api/v1/knowledge/{article_id}/tags/{tag_id}
+DELETE /api/v1/knowledge/{id}/tags?tag={tag}
 Authorization: Bearer <token>
 ```
 
-**响应 204**
+**响应 200**
+
+### 10.9 搜索知识文章
+
+**请求**
+```
+GET /api/v1/knowledge/search
+Authorization: Bearer <token>
+Query Parameters:
+- keyword: string
+```
 
 ---
 
@@ -3197,7 +3139,7 @@ Query Parameters:
 {
     "success": true,
     "data": {},
-    "message": "创建成功"
+    "message": "操作成功"
 }
 ```
 
@@ -3207,16 +3149,7 @@ Query Parameters:
 ```json
 {
     "success": false,
-    "error": {
-        "code": "VALIDATION_ERROR",
-        "message": "请求参数验证失败",
-        "details": [
-            {
-                "field": "email",
-                "message": "邮箱格式不正确"
-            }
-        ]
-    }
+    "message": "请求参数错误"
 }
 ```
 
@@ -3224,10 +3157,7 @@ Query Parameters:
 ```json
 {
     "success": false,
-    "error": {
-        "code": "UNAUTHORIZED",
-        "message": "未登录或登录已过期"
-    }
+    "message": "未授权"
 }
 ```
 
@@ -3235,10 +3165,7 @@ Query Parameters:
 ```json
 {
     "success": false,
-    "error": {
-        "code": "FORBIDDEN",
-        "message": "没有操作权限"
-    }
+    "message": "没有操作权限"
 }
 ```
 
@@ -3246,10 +3173,7 @@ Query Parameters:
 ```json
 {
     "success": false,
-    "error": {
-        "code": "NOT_FOUND",
-        "message": "资源不存在"
-    }
+    "message": "资源不存在"
 }
 ```
 
@@ -3257,10 +3181,7 @@ Query Parameters:
 ```json
 {
     "success": false,
-    "error": {
-        "code": "INTERNAL_ERROR",
-        "message": "服务器内部错误"
-    }
+    "message": "服务器内部错误"
 }
 ```
 
@@ -3271,12 +3192,13 @@ Query Parameters:
 ```json
 {
     "success": true,
-    "data": [],
-    "pagination": {
-        "total": 100,
-        "page": 1,
-        "page_size": 20,
-        "total_pages": 5
+    "message": "操作成功",
+    "data": {
+        "content": [],
+        "totalElements": 100,
+        "totalPages": 10,
+        "currentPage": 0,
+        "pageSize": 10
     }
 }
 ```
