@@ -1,6 +1,7 @@
 import request from '@/utils/request';
 import type { KnowledgeArticleVO, CreateKnowledgeRequest, UpdateKnowledgeRequest } from '@/types/knowledge';
 import type { PaginationParams } from '@/types/common';
+import { useUserStore } from '@/store/userStore';
 
 export interface KnowledgeQueryParams extends PaginationParams {
   category?: string;
@@ -26,7 +27,15 @@ export const getKnowledgeDetail = (id: string): Promise<KnowledgeArticleVO> => {
 };
 
 export const createKnowledge = (data: CreateKnowledgeRequest): Promise<KnowledgeArticleVO> => {
-  return request.post('/knowledge', data);
+  const currentUserId = useUserStore.getState().user?.id;
+  const tags = Array.isArray(data.tags) ? data.tags.join(',') : undefined;
+  return request.post('/knowledge', {
+    title: data.title,
+    category: data.category,
+    content: data.content,
+    tags,
+    authorId: currentUserId,
+  });
 };
 
 export const updateKnowledge = (id: string, data: UpdateKnowledgeRequest): Promise<KnowledgeArticleVO> => {

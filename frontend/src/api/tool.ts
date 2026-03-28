@@ -37,6 +37,6 @@ export const updateTool = (id: string, data: any): Promise<ToolVO> => {
   return request.put(`/tools/${id}`, data);
 };
 
-export const downloadTool = (id: string): Promise<Blob> => {
-  return request.get(`/tools/${id}/download`, { responseType: 'blob' });
+export const downloadTool = (id: string): Promise<any> => {
+  return request.post(`/tools/${id}/download`);
 };

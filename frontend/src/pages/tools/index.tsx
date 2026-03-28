@@ -48,15 +48,8 @@ const Tools: React.FC = () => {
 
   const handleDownload = async (record: ToolVO) => {
     try {
-      const blob = await downloadTool(record.id);
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', record.name);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      await downloadTool(record.id);
+      message.success(`已记录下载：${record.name}`);
     } catch (error) {
       message.error('下载失败');
     }

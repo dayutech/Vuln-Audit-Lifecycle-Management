@@ -4,6 +4,7 @@ import com.vulnaudit.dto.*;
 import com.vulnaudit.entity.Tool;
 import com.vulnaudit.entity.ToolVersion;
 import com.vulnaudit.service.ToolService;
+import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -13,6 +14,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -31,6 +34,7 @@ import java.util.UUID;
 public class ToolController {
 
     private final ToolService toolService;
+    private final UserService userService;
 
     @PostMapping
     @Operation(summary = "创建工具", description = "创建新工具")
@@ -112,8 +116,10 @@ public class ToolController {
     @Operation(summary = "记录下载", description = "记录工具下载")
     public ResponseEntity<ApiResponse<Void>> recordDownload(@PathVariable UUID id) {
         log.info("记录工具下载: toolId={}", id);
-        
-        toolService.recordDownload(id, null);
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        UUID currentUserId = getCurrentUserId(authentication);
+        toolService.recordDownload(id, currentUserId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
@@ -189,5 +195,14 @@ public class ToolController {
         ToolVersion toolVersion = toolService.uploadVersion(id, version, changelog, file);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(toolVersion));
+    }
+
+    private UUID getCurrentUserId(Authentication authentication) {
+        if (authentication == null || authentication.getName() == null || "anonymousUser".equals(authentication.getName())) {
+            return null;
+        }
+        return userService.findByUsername(authentication.getName())
+                .map(user -> user.getId())
+                .orElse(null);
     }
 }
