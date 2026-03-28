@@ -1,14 +1,17 @@
 server:
   port: 8080
   servlet:
-    context-path: /api
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
 
 spring:
   application:
     name: vuln-audit-backend
   
   datasource:
-    url: jdbc:mariadb://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:vuln_audit}?createDatabaseIfNotExist=true
+    url: jdbc:mariadb://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:vuln_audit}?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8
     username: ${DB_USERNAME:root}
     password: ${DB_PASSWORD:fC9qCCCATi56ZIb3MDdpeZQFoTfp2y2p}
     driver-class-name: org.mariadb.jdbc.Driver
@@ -33,7 +36,7 @@ spring:
   sql:
     init:
       mode: always
-      data-locations: classpath:db/sample_data.sql
+      data-locations: optional:classpath:db/sample_data.sql
 
   data:
     redis:

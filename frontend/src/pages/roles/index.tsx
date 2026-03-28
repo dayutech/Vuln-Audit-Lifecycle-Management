@@ -27,8 +27,10 @@ const Roles: React.FC = () => {
       ]);
       const rolePayload = roleRes.data || (roleRes as any);
       const permPayload = permRes.data || (permRes as any);
-      setData(rolePayload.content || rolePayload.items || []);
-      setPermissions(permPayload.content || permPayload.items || []);
+      const roleItems = Array.isArray(rolePayload) ? rolePayload : (rolePayload.content || rolePayload.items || []);
+      const permissionItems = Array.isArray(permPayload) ? permPayload : (permPayload.content || permPayload.items || []);
+      setData(roleItems);
+      setPermissions(permissionItems);
     } catch (error) {
       console.error(error);
     } finally {

@@ -3,6 +3,7 @@ import { Table, Button, Space, Card, Input, Modal, Form, Select, Upload, message
 import { SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { getToolList, uploadTool, downloadTool } from '@/api/tool';
 import type { ToolVO } from '@/types/tool';
+import { formatDateTime } from '@/utils/datetime';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -108,7 +109,13 @@ const Tools: React.FC = () => {
       render: (text: string) => <Tag color="blue">{text}</Tag>
     },
     { title: '描述', dataIndex: 'description', key: 'description' },
-    { title: '上传时间', dataIndex: 'created_at', key: 'created_at', render: (text: string) => new Date(text).toLocaleString() },
+    {
+      title: '上传时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (_: unknown, record: ToolVO & { createdAt?: string; created_at?: string }) =>
+        formatDateTime(record.created_at ?? record.createdAt)
+    },
     {
       title: '操作',
       key: 'action',

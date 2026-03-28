@@ -3,6 +3,7 @@ import { Table, Button, Space, Card, Input, Tag, Modal, Form, Select, message } 
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { getDocumentList, createDocument, updateDocument, deleteDocument, publishDocument, unpublishDocument } from '@/api/document';
 import type { DocumentVO, CreateDocumentRequest, UpdateDocumentRequest } from '@/types/document';
+import { formatDateTime } from '@/utils/datetime';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 
@@ -136,7 +137,13 @@ const Documents: React.FC = () => {
       render: (text: string) => <Tag color={statusColors[text] || 'default'}>{statusLabels[text] || text}</Tag>
     },
     { title: '版本', dataIndex: 'version', key: 'version', render: (v: number) => `v${v}` },
-    { title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', render: (text: string) => new Date(text).toLocaleString() },
+    {
+      title: '更新时间',
+      dataIndex: 'updated_at',
+      key: 'updated_at',
+      render: (_: unknown, record: DocumentVO & { updatedAt?: string; updated_at?: string }) =>
+        formatDateTime(record.updated_at ?? record.updatedAt)
+    },
     {
       title: '操作',
       key: 'action',

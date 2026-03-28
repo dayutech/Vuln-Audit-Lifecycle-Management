@@ -3,6 +3,7 @@ import { Card, List, Typography, Badge, Button, Tabs, message, Space } from 'ant
 import { CheckOutlined } from '@ant-design/icons';
 import { getNotificationList, markNotificationRead, markAllNotificationRead } from '@/api/notification';
 import type { NotificationVO } from '@/types/notification';
+import { formatDateTime } from '@/utils/datetime';
 
 const { Text } = Typography;
 const { TabPane } = Tabs;
@@ -98,7 +99,7 @@ const Notifications: React.FC = () => {
                   {!item.is_read && <Badge status="processing" />}
                   <Text strong={!item.is_read}>{item.notification?.title}</Text>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    {item.notification?.created_at ? new Date(item.notification.created_at).toLocaleString() : ''}
+                    {formatDateTime(item.notification?.created_at ?? item.notification?.createdAt, '')}
                   </Text>
                 </Space>
               }

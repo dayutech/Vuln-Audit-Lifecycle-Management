@@ -3,10 +3,60 @@ import { Table, Button, Space, Card, Input, Tag, Modal, Form, Select, message } 
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { getKnowledgeList, createKnowledge, deleteKnowledge } from '@/api/knowledge';
 import type { KnowledgeArticleVO, CreateKnowledgeRequest } from '@/types/knowledge';
+import { formatDateTime } from '@/utils/datetime';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 
 const { Option } = Select;
+
+type KnowledgeTagItem = { id: string; tag: string };
+
+const normalizeKnowledgeTags = (value: unknown): KnowledgeTagItem[] => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item, index) => {
+        if (typeof item === 'string') {
+          const text = item.trim();
+          if (!text) return null;
+          return { id: `${text}-${index}`, tag: text };
+        }
+        if (item && typeof item === 'object') {
+          const candidate = item as Record<string, unknown>;
+          const tagText = typeof candidate.tag === 'string'
+            ? candidate.tag.trim()
+            : typeof candidate.name === 'string'
+              ? candidate.name.trim()
+              : '';
+          if (!tagText) return null;
+          const tagId = typeof candidate.id === 'string' && candidate.id
+            ? candidate.id
+            : `${tagText}-${index}`;
+          return { id: tagId, tag: tagText };
+        }
+        return null;
+      })
+      .filter((item): item is KnowledgeTagItem => item !== null);
+  }
+
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text) return [];
+    return text
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .map((tag, index) => ({ id: `${tag}-${index}`, tag }));
+  }
+
+  if (value && typeof value === 'object') {
+    const candidate = value as Record<string, unknown>;
+    if (Array.isArray(candidate.items)) {
+      return normalizeKnowledgeTags(candidate.items);
+    }
+  }
+
+  return [];
+};
 
 const Knowledge: React.FC = () => {
   const [data, setData] = useState<KnowledgeArticleVO[]>([]);
@@ -25,8 +75,12 @@ const Knowledge: React.FC = () => {
       const res = await getKnowledgeList(params);
       const payload = res.data || (res as any);
       const items = payload.content || payload.items || [];
+      const normalizedItems = items.map((item: KnowledgeArticleVO) => ({
+        ...item,
+        tags: normalizeKnowledgeTags(item.tags),
+      }));
       const totalCount = payload.totalElements || payload.total || 0;
-      setData(items);
+      setData(normalizedItems);
       setTotal(totalCount);
     } catch (error) {
       console.error(error);
@@ -87,7 +141,7 @@ const Knowledge: React.FC = () => {
       key: 'tags',
       render: (_: any, record: KnowledgeArticleVO) => (
         <>
-          {record.tags?.map(t => <Tag key={t.id} color="cyan">{t.tag}</Tag>)}
+          {normalizeKnowledgeTags(record.tags).map(t => <Tag key={t.id} color="cyan">{t.tag}</Tag>)}
         </>
       )
     },
@@ -97,7 +151,13 @@ const Knowledge: React.FC = () => {
       render: (_: any, record: KnowledgeArticleVO) => record.author?.full_name || record.author?.username || '-'
     },
     { title: '浏览量', dataIndex: 'view_count', key: 'view_count' },
-    { title: '创建时间', dataIndex: 'created_at', key: 'created_at', render: (text: string) => new Date(text).toLocaleString() },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (_: unknown, record: KnowledgeArticleVO & { createdAt?: string; created_at?: string }) =>
+        formatDateTime(record.created_at ?? record.createdAt)
+    },
     {
       title: '操作',
       key: 'action',

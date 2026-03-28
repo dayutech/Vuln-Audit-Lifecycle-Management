@@ -10,11 +10,24 @@ export interface DocumentQueryParams extends PaginationParams {
 }
 
 export const getDocumentList = (params: DocumentQueryParams): Promise<any> => {
-  return request.get('/documents', { params });
+  return request.get('/documents', {
+    params: {
+      page: Math.max((params.page ?? 1) - 1, 0),
+      size: params.page_size,
+      keyword: params.search,
+      category: params.category,
+      assetId: params.asset_id,
+    },
+  });
 };
 
 export const getMyDocumentList = (params: DocumentQueryParams): Promise<DocumentListResponse> => {
-  return request.get('/my/documents', { params });
+  return request.get('/documents/my/documents', {
+    params: {
+      page: Math.max((params.page ?? 1) - 1, 0),
+      size: params.page_size,
+    },
+  });
 };
 
 export const getDocumentDetail = (id: string): Promise<DocumentVO> => {

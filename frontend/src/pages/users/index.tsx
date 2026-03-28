@@ -5,6 +5,7 @@ import { getUserList, createUser, updateUser, deleteUser } from '@/api/user';
 import { getRoleList } from '@/api/role';
 import type { UserVO, CreateUserRequest, UpdateUserRequest } from '@/types/user';
 import type { RoleVO } from '@/types/role';
+import { formatDateTime } from '@/utils/datetime';
 
 const { Option } = Select;
 
@@ -24,7 +25,9 @@ const Users: React.FC = () => {
   const fetchRoles = async () => {
     try {
       const res = await getRoleList();
-      setRoles(res.data?.items || (res as any).items || []);
+      const payload = res.data || (res as any);
+      const items = Array.isArray(payload) ? payload : (payload.content || payload.items || []);
+      setRoles(items);
     } catch (error) {
       console.error(error);
     }
@@ -131,7 +134,13 @@ const Users: React.FC = () => {
         </Tag>
       )
     },
-    { title: '创建时间', dataIndex: 'created_at', key: 'created_at', render: (text: string) => new Date(text).toLocaleString() },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      render: (_: unknown, record: UserVO & { createdAt?: string; created_at?: string }) =>
+        formatDateTime(record.created_at ?? record.createdAt)
+    },
     {
       title: '操作',
       key: 'action',

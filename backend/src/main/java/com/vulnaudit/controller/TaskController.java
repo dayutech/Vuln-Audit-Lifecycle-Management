@@ -3,6 +3,7 @@ package com.vulnaudit.controller;
 import com.vulnaudit.dto.*;
 import com.vulnaudit.entity.Task;
 import com.vulnaudit.service.TaskService;
+import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -12,6 +13,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -29,17 +32,24 @@ import java.util.UUID;
 public class TaskController {
 
     private final TaskService taskService;
+    private final UserService userService;
 
     @PostMapping
     @Operation(summary = "创建任务", description = "创建新任务")
     public ResponseEntity<ApiResponse<Task>> createTask(@Valid @RequestBody TaskCreateRequest request) {
         log.info("创建任务: title={}", request.getTitle());
+        UUID currentUserId = getCurrentUserId();
+        if (currentUserId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         
         Task task = Task.builder()
                 .title(request.getTitle())
                 .type(request.getType())
                 .referenceId(request.getReferenceId())
                 .assignedTo(request.getAssigneeId())
+                .assignedBy(currentUserId)
                 .priority(request.getPriority())
                 .dueDate(request.getDueDate())
                 .description(request.getDescription())
@@ -168,5 +178,15 @@ public class TaskController {
         
         taskService.addAttachment(id, fileName, filePath, null);
         return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    private UUID getCurrentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || authentication.getName() == null || "anonymousUser".equals(authentication.getName())) {
+            return null;
+        }
+        return userService.findByUsername(authentication.getName())
+                .map(user -> user.getId())
+                .orElse(null);
     }
 }

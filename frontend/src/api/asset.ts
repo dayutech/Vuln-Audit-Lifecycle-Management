@@ -11,7 +11,18 @@ export interface AssetQueryParams extends PaginationParams {
 }
 
 export const getAssetList = (params: AssetQueryParams): Promise<any> => {
-  return request.get('/assets', { params });
+  return request.get('/assets', {
+    params: {
+      page: Math.max((params.page ?? 1) - 1, 0),
+      size: params.page_size,
+      search: params.search,
+      teamId: params.team_id,
+      groupId: params.group_id,
+      targetType: params.target_type,
+      targetSource: params.target_source,
+      status: params.status,
+    },
+  });
 };
 
 export const getAssetDetail = (id: string): Promise<AssetVO> => {

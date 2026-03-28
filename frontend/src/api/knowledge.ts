@@ -9,7 +9,16 @@ export interface KnowledgeQueryParams extends PaginationParams {
 }
 
 export const getKnowledgeList = (params: KnowledgeQueryParams): Promise<any> => {
-  return request.get('/knowledge', { params });
+  return request.get('/knowledge', {
+    params: {
+      page: Math.max((params.page ?? 1) - 1, 0),
+      size: params.page_size,
+      keyword: params.search,
+      category: params.category,
+      tags: params.tags,
+      status: params.status,
+    },
+  });
 };
 
 export const getKnowledgeDetail = (id: string): Promise<KnowledgeArticleVO> => {

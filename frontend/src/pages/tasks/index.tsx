@@ -22,12 +22,18 @@ const statusLabels: Record<string, string> = {
 };
 
 const priorityColors: Record<string, string> = {
+  P1: 'red',
+  P2: 'orange',
+  P3: 'blue',
   high: 'red',
   medium: 'orange',
   low: 'blue'
 };
 
 const priorityLabels: Record<string, string> = {
+  P1: '高',
+  P2: '中',
+  P3: '低',
   high: '高',
   medium: '中',
   low: '低'

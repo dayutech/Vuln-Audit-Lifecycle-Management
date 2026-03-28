@@ -9,12 +9,34 @@ export interface TaskQueryParams extends PaginationParams {
   type?: string;
 }
 
+const taskPriorityMap: Record<string, string> = {
+  high: 'P1',
+  medium: 'P2',
+  low: 'P3',
+};
+
 export const getTaskList = (params: TaskQueryParams): Promise<any> => {
-  return request.get('/tasks', { params });
+  return request.get('/tasks', {
+    params: {
+      page: Math.max((params.page ?? 1) - 1, 0),
+      size: params.page_size,
+      keyword: params.search,
+      status: params.status,
+      assigneeId: params.assignee_id,
+    },
+  });
 };
 
 export const getMyTaskList = (params: TaskQueryParams): Promise<TaskListResponse> => {
-  return request.get('/my/tasks', { params });
+  return request.get('/tasks', {
+    params: {
+      page: Math.max((params.page ?? 1) - 1, 0),
+      size: params.page_size,
+      keyword: params.search,
+      status: params.status,
+      assigneeId: params.assignee_id,
+    },
+  });
 };
 
 export const getTaskDetail = (id: string): Promise<TaskVO> => {
@@ -22,13 +44,20 @@ export const getTaskDetail = (id: string): Promise<TaskVO> => {
 };
 
 export const createTask = (data: CreateTaskRequest): Promise<TaskVO> => {
-  return request.post('/tasks', data);
+  return request.post('/tasks', {
+    title: data.title,
+    type: data.type,
+    referenceId: data.reference_id,
+    assigneeId: data.assignee_id,
+    priority: taskPriorityMap[data.priority] || data.priority,
+    dueDate: data.due_date,
+  });
 };
 
 export const updateTaskStatus = (id: string, data: UpdateTaskStatusRequest): Promise<any> => {
-  return request.put(`/tasks/${id}/status`, data);
+  return request.put(`/tasks/${id}/status`, null, { params: { status: data.status } });
 };
 
 export const assignTask = (id: string, data: AssignTaskRequest): Promise<any> => {
-  return request.put(`/tasks/${id}/assign`, data);
+  return request.post(`/tasks/${id}/assign`, null, { params: { assigneeId: data.assignee_id } });
 };

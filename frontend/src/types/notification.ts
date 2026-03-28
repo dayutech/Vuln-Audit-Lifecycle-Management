@@ -8,6 +8,7 @@ export interface NotificationContentVO {
   related_type?: string;
   related_id?: string;
   created_at: string;
+  createdAt?: string;
 }
 
 export interface NotificationVO {

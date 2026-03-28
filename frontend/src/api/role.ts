@@ -18,5 +18,11 @@ export const deleteRole = (id: string): Promise<any> => {
 };
 
 export const getPermissionList = (params?: { page?: number; page_size?: number; search?: string }): Promise<any> => {
-  return request.get('/permissions', { params });
+  return request.get('/permissions', {
+    params: {
+      page: params?.page !== undefined ? Math.max((params.page ?? 1) - 1, 0) : 0,
+      size: params?.page_size,
+      keyword: params?.search,
+    },
+  });
 };

@@ -45,6 +45,11 @@ public class DocumentController {
     @Operation(summary = "创建文档", description = "创建新文档")
     public ResponseEntity<ApiResponse<Document>> createDocument(@Valid @RequestBody DocumentCreateRequest request) {
         log.info("创建文档: title={}", request.getTitle());
+        UUID currentUserId = getCurrentUserId();
+        if (currentUserId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
         
         Document document = Document.builder()
                 .title(request.getTitle())
@@ -52,6 +57,8 @@ public class DocumentController {
                 .summary(request.getSummary())
                 .content(request.getContent())
                 .assetId(request.getAssetId())
+                .authorId(currentUserId)
+                .createdBy(currentUserId)
                 .build();
         
         Document createdDocument = documentService.createDocument(document);

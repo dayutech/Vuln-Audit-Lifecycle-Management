@@ -9,7 +9,16 @@ export interface ToolQueryParams extends PaginationParams {
 }
 
 export const getToolList = (params: ToolQueryParams): Promise<any> => {
-  return request.get('/tools', { params });
+  return request.get('/tools', {
+    params: {
+      page: Math.max((params.page ?? 1) - 1, 0),
+      size: params.page_size,
+      keyword: params.search,
+      category: params.category,
+      tags: params.tags,
+      status: params.status,
+    },
+  });
 };
 
 export const getToolDetail = (id: string): Promise<ToolVO> => {
