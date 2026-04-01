@@ -1,8 +1,40 @@
-import React, { useEffect, useState } from 'react';
-import { Table, Button, Space, Input, Tag, Card, Modal, Form, Select, message } from 'antd';
-import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
-import { getAssetList, createAsset, updateAsset, deleteAsset } from '@/api/asset';
-import type { AssetVO, CreateAssetRequest, UpdateAssetRequest } from '@/types/asset';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Table,
+  Button,
+  Space,
+  Input,
+  Tag,
+  Card,
+  Modal,
+  Form,
+  Select,
+  message,
+  Tabs,
+  Upload,
+  Row,
+  Col,
+} from 'antd';
+import { PlusOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
+import {
+  getAssetList,
+  createAsset,
+  updateAsset,
+  deleteAsset,
+  getAssetMetadata,
+  createAssetMetadata,
+  updateAssetMetadata,
+  getAssetFiles,
+  uploadAssetFile,
+} from '@/api/asset';
+import type {
+  AssetVO,
+  CreateAssetRequest,
+  UpdateAssetRequest,
+  AssetMetadataVO,
+  UpsertAssetMetadataRequest,
+  AssetFileVO,
+} from '@/types/asset';
 
 const { Option } = Select;
 const { TextArea } = Input;
@@ -12,20 +44,51 @@ const Assets: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [params, setParams] = useState({ page: 1, page_size: 10, search: '' });
-
-  // Modal states
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [currentAsset, setCurrentAsset] = useState<AssetVO | null>(null);
   const [form] = Form.useForm();
+  const [detailVisible, setDetailVisible] = useState(false);
+  const [detailAsset, setDetailAsset] = useState<AssetVO | null>(null);
+  const [metadataForm] = Form.useForm();
+  const [uploadForm] = Form.useForm();
+  const [metadataExists, setMetadataExists] = useState(false);
+  const [metadataLoading, setMetadataLoading] = useState(false);
+  const [fileLoading, setFileLoading] = useState(false);
+  const [metadataSubmitting, setMetadataSubmitting] = useState(false);
+  const [fileUploading, setFileUploading] = useState(false);
+  const [files, setFiles] = useState<AssetFileVO[]>([]);
+  const [uploadFileList, setUploadFileList] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState('metadata');
+
+  const unwrapPayload = (res: any) => (res?.data ? res.data : res);
+
+  const metadataInitialValues = useMemo(
+    () => ({
+      systemArchitecture: '',
+      installPath: '',
+      startupScriptPath: '',
+      configFilePath: '',
+      startupCommand: '',
+      programmingLanguage: '',
+      framework: '',
+      databaseType: '',
+      databaseConnection: '',
+      adminUsername: '',
+      adminPasswordEncrypted: '',
+      servicePorts: '',
+      apiEndpoints: '',
+      specialNotes: '',
+      changeReason: '',
+    }),
+    []
+  );
 
   const fetchData = async () => {
     setLoading(true);
     try {
       const res = await getAssetList(params);
-      // The backend returns an ApiResponse where the payload is in the 'data' field.
-      // The data itself might be a PageResponse with 'content' and 'totalElements'.
-      const payload = res.data || (res as any);
+      const payload = unwrapPayload(res);
       const items = payload.content || payload.items || [];
       const totalCount = payload.totalElements || payload.total || 0;
       setData(items);
@@ -79,6 +142,127 @@ const Assets: React.FC = () => {
     });
   };
 
+  const openDetail = async (record: AssetVO) => {
+    setDetailAsset(record);
+    setDetailVisible(true);
+    setActiveTab('metadata');
+    metadataForm.setFieldsValue(metadataInitialValues);
+    uploadForm.resetFields();
+    setUploadFileList([]);
+    await Promise.all([loadMetadata(record.id), loadFiles(record.id)]);
+  };
+
+  const loadMetadata = async (assetId: string) => {
+    setMetadataLoading(true);
+    try {
+      const res = await getAssetMetadata(assetId);
+      const payload = unwrapPayload(res);
+      if (payload?.success === false) {
+        setMetadataExists(false);
+        metadataForm.setFieldsValue(metadataInitialValues);
+        return;
+      }
+      const metadata: AssetMetadataVO = payload?.data || payload;
+      setMetadataExists(Boolean(metadata?.id));
+      metadataForm.setFieldsValue({
+        systemArchitecture: metadata.systemArchitecture || '',
+        installPath: metadata.installPath || '',
+        startupScriptPath: metadata.startupScriptPath || '',
+        configFilePath: metadata.configFilePath || '',
+        startupCommand: metadata.startupCommand || '',
+        programmingLanguage: metadata.programmingLanguage || '',
+        framework: metadata.framework || '',
+        databaseType: metadata.databaseType || '',
+        databaseConnection: metadata.databaseConnection || '',
+        adminUsername: metadata.adminUsername || '',
+        adminPasswordEncrypted: '',
+        servicePorts: metadata.servicePorts || '',
+        apiEndpoints: metadata.apiEndpoints || '',
+        specialNotes: metadata.specialNotes || '',
+        changeReason: '',
+      });
+    } catch (error) {
+      setMetadataExists(false);
+      metadataForm.setFieldsValue(metadataInitialValues);
+    } finally {
+      setMetadataLoading(false);
+    }
+  };
+
+  const loadFiles = async (assetId: string) => {
+    setFileLoading(true);
+    try {
+      const res = await getAssetFiles(assetId);
+      const payload = unwrapPayload(res);
+      const list = payload?.data || payload || [];
+      setFiles(Array.isArray(list) ? list : []);
+    } catch (error) {
+      setFiles([]);
+    } finally {
+      setFileLoading(false);
+    }
+  };
+
+  const handleSubmitMetadata = async () => {
+    if (!detailAsset) return;
+    try {
+      const values = await metadataForm.validateFields();
+      setMetadataSubmitting(true);
+      const requestBody: UpsertAssetMetadataRequest = {
+        systemArchitecture: values.systemArchitecture || undefined,
+        installPath: values.installPath || undefined,
+        startupScriptPath: values.startupScriptPath || undefined,
+        configFilePath: values.configFilePath || undefined,
+        startupCommand: values.startupCommand || undefined,
+        programmingLanguage: values.programmingLanguage || undefined,
+        framework: values.framework || undefined,
+        databaseType: values.databaseType || undefined,
+        databaseConnection: values.databaseConnection || undefined,
+        adminUsername: values.adminUsername || undefined,
+        adminPasswordEncrypted: values.adminPasswordEncrypted || undefined,
+        servicePorts: values.servicePorts || undefined,
+        apiEndpoints: values.apiEndpoints || undefined,
+        specialNotes: values.specialNotes || undefined,
+      };
+      if (metadataExists) {
+        await updateAssetMetadata(detailAsset.id, requestBody, values.changeReason || undefined);
+        message.success('资产扩展信息已更新');
+      } else {
+        await createAssetMetadata(detailAsset.id, requestBody);
+        message.success('资产扩展信息已创建');
+      }
+      await loadMetadata(detailAsset.id);
+    } catch (error) {
+      return;
+    } finally {
+      setMetadataSubmitting(false);
+    }
+  };
+
+  const handleUploadAssetFile = async () => {
+    if (!detailAsset) return;
+    try {
+      const values = await uploadForm.validateFields();
+      if (uploadFileList.length === 0) {
+        message.error('请选择文件');
+        return;
+      }
+      setFileUploading(true);
+      const formData = new FormData();
+      formData.append('file', uploadFileList[0].originFileObj);
+      formData.append('category', values.category);
+      if (values.fileType) formData.append('fileType', values.fileType);
+      if (values.description) formData.append('description', values.description);
+      await uploadAssetFile(detailAsset.id, formData);
+      message.success('文件上传成功');
+      uploadForm.resetFields();
+      setUploadFileList([]);
+      await loadFiles(detailAsset.id);
+    } finally {
+      setFileUploading(false);
+    }
+  };
+
   const handleModalOk = async () => {
     try {
       const values = await form.validateFields();
@@ -127,11 +311,32 @@ const Assets: React.FC = () => {
       key: 'action',
       render: (_: any, record: AssetVO) => (
         <Space size="middle">
+          <a onClick={() => openDetail(record)}>扩展信息</a>
           <a onClick={() => handleEdit(record)}>编辑</a>
           <a style={{ color: 'red' }} onClick={() => handleDelete(record.id)}>删除</a>
         </Space>
       ),
     },
+  ];
+
+  const fileColumns = [
+    { title: '文件名', dataIndex: 'name', key: 'name' },
+    { title: '分类', dataIndex: 'category', key: 'category' },
+    { title: '类型', dataIndex: 'fileType', key: 'fileType' },
+    {
+      title: '大小',
+      dataIndex: 'fileSize',
+      key: 'fileSize',
+      render: (size?: number) => {
+        if (!size) return '-';
+        if (size >= 1024 * 1024 * 1024) return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+        if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+        if (size >= 1024) return `${(size / 1024).toFixed(2)} KB`;
+        return `${size} B`;
+      },
+    },
+    { title: '版本', dataIndex: 'version', key: 'version' },
+    { title: '校验值', dataIndex: 'checksum', key: 'checksum', ellipsis: true },
   ];
 
   return (
@@ -207,6 +412,168 @@ const Assets: React.FC = () => {
             <TextArea rows={4} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title={detailAsset ? `资产扩展信息：${detailAsset.name}` : '资产扩展信息'}
+        open={detailVisible}
+        onCancel={() => setDetailVisible(false)}
+        footer={null}
+        width={1100}
+        destroyOnClose
+      >
+        <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
+          items={[
+            {
+              key: 'metadata',
+              label: '环境与产品信息',
+              children: (
+                <Form form={metadataForm} layout="vertical">
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item name="systemArchitecture" label="系统架构">
+                        <Input placeholder="x86_64 / arm64" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="installPath" label="安装路径">
+                        <Input placeholder="/opt/app" />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item name="startupScriptPath" label="启动脚本路径">
+                        <Input />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="configFilePath" label="配置文件路径">
+                        <Input />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item name="startupCommand" label="启动命令">
+                        <Input />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="programmingLanguage" label="编程语言">
+                        <Input placeholder="Java / Go / Python" />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item name="framework" label="框架">
+                        <Input placeholder="Spring Boot / Gin / Django" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="databaseType" label="数据库类型">
+                        <Input placeholder="MySQL / PostgreSQL / Redis" />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <Form.Item name="databaseConnection" label="数据库连接信息">
+                    <Input />
+                  </Form.Item>
+                  <Row gutter={16}>
+                    <Col span={12}>
+                      <Form.Item name="adminUsername" label="管理员用户名">
+                        <Input />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item name="adminPasswordEncrypted" label="管理员密码">
+                        <Input.Password placeholder={metadataExists ? '留空表示不修改' : ''} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <Form.Item name="servicePorts" label="服务端口">
+                    <Input placeholder="8080,3306,6379" />
+                  </Form.Item>
+                  <Form.Item name="apiEndpoints" label="API端点">
+                    <TextArea rows={2} placeholder="/api/v1/users,/api/v1/products" />
+                  </Form.Item>
+                  <Form.Item name="specialNotes" label="特殊说明">
+                    <TextArea rows={3} />
+                  </Form.Item>
+                  <Form.Item name="changeReason" label="修改理由">
+                    <Input placeholder="更新原因（更新时建议填写）" />
+                  </Form.Item>
+                  <Space>
+                    <Button type="primary" loading={metadataSubmitting || metadataLoading} onClick={handleSubmitMetadata}>
+                      {metadataExists ? '更新扩展信息' : '创建扩展信息'}
+                    </Button>
+                  </Space>
+                </Form>
+              ),
+            },
+            {
+              key: 'files',
+              label: '安装包与镜像',
+              children: (
+                <>
+                  <Form form={uploadForm} layout="vertical">
+                    <Row gutter={16}>
+                      <Col span={8}>
+                        <Form.Item name="category" label="文件分类" rules={[{ required: true, message: '请选择文件分类' }]}>
+                          <Select>
+                            <Option value="系统镜像">系统镜像</Option>
+                            <Option value="磁盘文件">磁盘文件</Option>
+                            <Option value="安装包">安装包</Option>
+                            <Option value="提取程序">提取程序</Option>
+                            <Option value="配置文件">配置文件</Option>
+                            <Option value="其他">其他</Option>
+                          </Select>
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item name="fileType" label="文件类型">
+                          <Input placeholder="iso/vmdk/zip/exe" />
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item name="description" label="描述">
+                          <Input />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                    <Form.Item label="文件">
+                      <Upload
+                        beforeUpload={(file) => {
+                          setUploadFileList([file]);
+                          return false;
+                        }}
+                        onRemove={() => setUploadFileList([])}
+                        fileList={uploadFileList}
+                        maxCount={1}
+                      >
+                        <Button icon={<UploadOutlined />}>选择文件</Button>
+                      </Upload>
+                    </Form.Item>
+                    <Button type="primary" loading={fileUploading} onClick={handleUploadAssetFile}>
+                      上传文件
+                    </Button>
+                  </Form>
+                  <Table
+                    style={{ marginTop: 16 }}
+                    columns={fileColumns}
+                    dataSource={files}
+                    rowKey="id"
+                    loading={fileLoading}
+                    pagination={false}
+                  />
+                </>
+              ),
+            },
+          ]}
+        />
       </Modal>
     </Card>
   );

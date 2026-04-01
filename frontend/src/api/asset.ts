@@ -1,5 +1,12 @@
 import request from '@/utils/request';
-import type { AssetVO, CreateAssetRequest, UpdateAssetRequest } from '@/types/asset';
+import type {
+  AssetVO,
+  CreateAssetRequest,
+  UpdateAssetRequest,
+  AssetMetadataVO,
+  UpsertAssetMetadataRequest,
+  AssetFileVO,
+} from '@/types/asset';
 import type { PaginationParams } from '@/types/common';
 
 export interface AssetQueryParams extends PaginationParams {
@@ -53,4 +60,36 @@ export const updateAsset = (id: string, data: UpdateAssetRequest): Promise<Asset
 
 export const deleteAsset = (id: string): Promise<any> => {
   return request.delete(`/assets/${id}`);
+};
+
+export const getAssetMetadata = (assetId: string): Promise<AssetMetadataVO> => {
+  return request.get(`/assets/${assetId}/metadata`);
+};
+
+export const createAssetMetadata = (assetId: string, data: UpsertAssetMetadataRequest): Promise<AssetMetadataVO> => {
+  return request.post(`/assets/${assetId}/metadata`, data);
+};
+
+export const updateAssetMetadata = (
+  assetId: string,
+  data: UpsertAssetMetadataRequest,
+  changeReason?: string
+): Promise<AssetMetadataVO> => {
+  return request.put(`/assets/${assetId}/metadata`, data, {
+    params: {
+      changeReason,
+    },
+  });
+};
+
+export const getAssetFiles = (assetId: string): Promise<AssetFileVO[]> => {
+  return request.get(`/assets/${assetId}/files`);
+};
+
+export const uploadAssetFile = (assetId: string, formData: FormData): Promise<AssetFileVO> => {
+  return request.post(`/assets/${assetId}/files`, formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
 };

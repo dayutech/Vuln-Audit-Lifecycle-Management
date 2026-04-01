@@ -23,6 +23,60 @@ export interface AssetVO {
   updated_at?: string;
 }
 
+export interface AssetMetadataVO {
+  id: string;
+  assetId: string;
+  claimedBy?: string;
+  version?: number;
+  systemArchitecture?: string;
+  installPath?: string;
+  startupScriptPath?: string;
+  configFilePath?: string;
+  startupCommand?: string;
+  programmingLanguage?: string;
+  framework?: string;
+  databaseType?: string;
+  databaseConnection?: string;
+  adminUsername?: string;
+  adminPasswordEncrypted?: string;
+  servicePorts?: string;
+  apiEndpoints?: string;
+  specialNotes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface UpsertAssetMetadataRequest {
+  systemArchitecture?: string;
+  installPath?: string;
+  startupScriptPath?: string;
+  configFilePath?: string;
+  startupCommand?: string;
+  programmingLanguage?: string;
+  framework?: string;
+  databaseType?: string;
+  databaseConnection?: string;
+  adminUsername?: string;
+  adminPasswordEncrypted?: string;
+  servicePorts?: string;
+  apiEndpoints?: string;
+  specialNotes?: string;
+}
+
+export interface AssetFileVO {
+  id: string;
+  assetId: string;
+  name: string;
+  fileType: string;
+  category: string;
+  description?: string;
+  fileSize?: number;
+  checksum?: string;
+  version?: number;
+  status?: string;
+  createdAt?: string;
+}
+
 export type AssetListResponse = PaginatedResponse<AssetVO>;
 
 export interface CreateAssetRequest {

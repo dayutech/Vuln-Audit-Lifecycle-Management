@@ -5,6 +5,7 @@ import com.vulnaudit.entity.AssetFile;
 import com.vulnaudit.entity.AssetFileVersion;
 import com.vulnaudit.repository.AssetFileRepository;
 import com.vulnaudit.repository.AssetFileVersionRepository;
+import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -17,14 +18,19 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.InputStream;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.UUID;
 
@@ -41,6 +47,7 @@ public class AssetFileController {
 
     private final AssetFileRepository assetFileRepository;
     private final AssetFileVersionRepository assetFileVersionRepository;
+    private final UserService userService;
     
     private static final String UPLOAD_DIR = "./uploads/assets/";
 
@@ -69,7 +76,7 @@ public class AssetFileController {
     public ResponseEntity<ApiResponse<AssetFile>> uploadFile(
             @PathVariable UUID assetId,
             @Parameter(description = "文件") @RequestParam("file") MultipartFile file,
-            @Parameter(description = "文件类型") @RequestParam String fileType,
+            @Parameter(description = "文件类型") @RequestParam(required = false) String fileType,
             @Parameter(description = "文件分类") @RequestParam String category,
             @Parameter(description = "描述") @RequestParam(required = false) String description) throws IOException {
         
@@ -92,18 +99,24 @@ public class AssetFileController {
         // 计算文件大小
         long fileSize = file.getSize();
         
-        // 创建文件实体
+        UUID currentUserId = getCurrentUserId();
+        String resolvedFileType = (fileType == null || fileType.isBlank())
+                ? resolveFileType(originalFilename)
+                : fileType;
+        String checksum = calculateSha256(filePath);
+
         AssetFile assetFile = AssetFile.builder()
                 .assetId(assetId)
                 .name(originalFilename)
-                .fileType(fileType)
+                .fileType(resolvedFileType)
                 .category(category)
                 .description(description)
                 .fileSize(fileSize)
                 .filePath(filePath.toString())
+                .checksum(checksum)
                 .version(1)
                 .status("active")
-                .uploadedBy(null) // 从当前用户获取
+                .uploadedBy(currentUserId)
                 .build();
         
         AssetFile savedFile = assetFileRepository.save(assetFile);
@@ -192,8 +205,9 @@ public class AssetFileController {
                 .version(existingFile.getVersion())
                 .filePath(existingFile.getFilePath())
                 .fileSize(existingFile.getFileSize())
+                .checksum(existingFile.getChecksum())
                 .changelog(changelog)
-                .uploadedBy(null)
+                .uploadedBy(getCurrentUserId())
                 .build();
         assetFileVersionRepository.save(version);
         
@@ -206,6 +220,7 @@ public class AssetFileController {
         existingFile.setName(file.getOriginalFilename());
         existingFile.setFilePath(filePath.toString());
         existingFile.setFileSize(file.getSize());
+        existingFile.setChecksum(calculateSha256(filePath));
         existingFile.setVersion(existingFile.getVersion() + 1);
         
         AssetFile updatedFile = assetFileRepository.save(existingFile);
@@ -245,6 +260,44 @@ public class AssetFileController {
         } catch (MalformedURLException e) {
             log.error("文件路径错误: {}", e.getMessage());
             return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    private UUID getCurrentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || authentication.getName() == null || "anonymousUser".equals(authentication.getName())) {
+            return null;
+        }
+        return userService.findByUsername(authentication.getName())
+                .map(user -> user.getId())
+                .orElse(null);
+    }
+
+    private String resolveFileType(String filename) {
+        if (filename == null || !filename.contains(".")) {
+            return "other";
+        }
+        int idx = filename.lastIndexOf('.');
+        return filename.substring(idx + 1).toLowerCase();
+    }
+
+    private String calculateSha256(Path path) {
+        try (InputStream inputStream = Files.newInputStream(path)) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = inputStream.read(buffer)) > 0) {
+                digest.update(buffer, 0, read);
+            }
+            byte[] hashBytes = digest.digest();
+            StringBuilder builder = new StringBuilder(hashBytes.length * 2);
+            for (byte b : hashBytes) {
+                builder.append(String.format("%02x", b));
+            }
+            return "sha256:" + builder;
+        } catch (IOException | NoSuchAlgorithmException e) {
+            log.warn("计算文件校验值失败: path={}, reason={}", path, e.getMessage());
+            return null;
         }
     }
 }
