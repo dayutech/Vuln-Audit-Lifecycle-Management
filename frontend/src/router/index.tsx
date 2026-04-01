@@ -4,6 +4,7 @@ import BasicLayout from '@/layouts/BasicLayout';
 import Login from '@/pages/Login';
 import Dashboard from '@/pages/Dashboard';
 import Assets from '@/pages/assets/index';
+import AssetDetail from '@/pages/assets/Detail';
 import Vulnerabilities from '@/pages/vulnerabilities/index';
 import Teams from '@/pages/teams/index';
 import Roles from '@/pages/roles/index';
@@ -43,6 +44,10 @@ const router = createBrowserRouter([
       {
         path: '/assets',
         element: <Assets />,
+      },
+      {
+        path: '/assets/:id',
+        element: <AssetDetail />,
       },
       {
         path: '/vulnerabilities',

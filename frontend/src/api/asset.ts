@@ -101,12 +101,13 @@ export const uploadAssetFile = (assetId: string, formData: FormData): Promise<As
   });
 };
 
-export const getEnvironmentList = (params: PaginationParams & { search?: string }): Promise<any> => {
+export const getEnvironmentList = (params: PaginationParams & { search?: string; assetId?: string }): Promise<any> => {
   return request.get('/environments', {
     params: {
       page: Math.max((params.page ?? 1) - 1, 0),
       size: params.page_size,
       keyword: params.search,
+      assetId: params.assetId,
     },
   });
 };

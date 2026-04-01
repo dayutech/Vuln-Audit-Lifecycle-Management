@@ -41,17 +41,38 @@ const BasicLayout: React.FC = () => {
   };
 
   const menuItems = [
-    { key: '/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
-    { key: '/assets', icon: <AppstoreOutlined />, label: '资产管理' },
-    { key: '/vulnerabilities', icon: <SafetyCertificateOutlined />, label: '漏洞管理' },
-    { key: '/tasks', icon: <CheckSquareOutlined />, label: '任务管理' },
-    { key: '/documents', icon: <FileTextOutlined />, label: '文档中心' },
-    { key: '/tools', icon: <ToolOutlined />, label: '工具资源库' },
-    { key: '/knowledge', icon: <ReadOutlined />, label: '知识库' },
-    { key: '/notifications', icon: <BellOutlined />, label: '消息通知' },
-    { key: '/teams', icon: <TeamOutlined />, label: '团队管理' },
-    { key: '/users', icon: <UserOutlined />, label: '用户管理' },
-    { key: '/roles', icon: <SettingOutlined />, label: '角色权限' },
+    {
+      label: '核心业务',
+      key: 'core',
+      type: 'group' as const,
+      children: [
+        { key: '/dashboard', icon: <DashboardOutlined />, label: '安全态势大盘' },
+        { key: '/assets', icon: <AppstoreOutlined />, label: '产品与资产中心' },
+        { key: '/vulnerabilities', icon: <SafetyCertificateOutlined />, label: '全局漏洞视图' },
+        { key: '/tasks', icon: <CheckSquareOutlined />, label: '安全审计任务' },
+      ],
+    },
+    {
+      label: '知识与资源',
+      key: 'knowledge',
+      type: 'group' as const,
+      children: [
+        { key: '/knowledge', icon: <ReadOutlined />, label: '安全知识库' },
+        { key: '/documents', icon: <FileTextOutlined />, label: '规范与文档' },
+        { key: '/tools', icon: <ToolOutlined />, label: '工具与组件库' },
+      ],
+    },
+    {
+      label: '系统与管理',
+      key: 'system',
+      type: 'group' as const,
+      children: [
+        { key: '/teams', icon: <TeamOutlined />, label: '团队架构' },
+        { key: '/users', icon: <UserOutlined />, label: '账号管理' },
+        { key: '/roles', icon: <SettingOutlined />, label: '角色与权限' },
+        { key: '/notifications', icon: <BellOutlined />, label: '系统消息' },
+      ],
+    },
   ];
 
   const userMenu = {

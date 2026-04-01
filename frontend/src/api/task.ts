@@ -7,6 +7,7 @@ export interface TaskQueryParams extends PaginationParams {
   priority?: string;
   assignee_id?: string;
   type?: string;
+  reference_id?: string;
 }
 
 const taskPriorityMap: Record<string, string> = {
@@ -23,6 +24,7 @@ export const getTaskList = (params: TaskQueryParams): Promise<any> => {
       keyword: params.search,
       status: params.status,
       assigneeId: params.assignee_id,
+      referenceId: params.reference_id,
     },
   });
 };
