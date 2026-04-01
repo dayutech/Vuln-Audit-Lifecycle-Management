@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { Tabs, Card, Button, Descriptions, Tag, Spin, Result, Form, Input, Select, Row, Col, Space, Upload, Table, message, Modal } from 'antd';
 import { AppstoreOutlined, BuildOutlined, FileZipOutlined, BugOutlined, SafetyCertificateOutlined, UploadOutlined, PlusOutlined } from '@ant-design/icons';
 import { 
-  getAssetList, 
+  getAssetDetail, 
   getAssetMetadata, 
   createAssetMetadata, 
   updateAssetMetadata, 
@@ -138,11 +138,9 @@ const AssetDetail: React.FC = () => {
     const fetchAsset = async () => {
       try {
         setLoading(true);
-        const res = await getAssetList({ search: id });
-        const payload = res?.data ? res.data : res;
-        const items = payload.content || payload.items || [];
-        const found = items.find((item: AssetVO) => item.id === id);
-        if (found) {
+        const res: any = await getAssetDetail(id as string);
+        const found = res?.data ? res.data : res;
+        if (found && found.id) {
           setAsset(found);
           loadMetadata(found.id);
           loadFiles(found.id);
