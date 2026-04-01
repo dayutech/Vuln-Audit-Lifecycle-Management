@@ -11,11 +11,11 @@ import {
   uploadAssetFile,
   getEnvironmentList,
   createEnvironment,
-  deleteEnvironment
+  deleteEnvironment,
+  getEnvironmentTemplateList
 } from '@/api/asset';
 import { getVulnerabilityList, createVulnerability, updateVulnerability, deleteVulnerability } from '@/api/vulnerability';
 import { getTaskList, createTask, updateTask, deleteTask } from '@/api/task';
-import { getEnvironmentTemplateList } from '@/api/environment';
 import type { AssetVO, AssetFileVO, UpsertAssetMetadataRequest, EnvironmentVO } from '@/types/asset';
 
 const { TabPane } = Tabs;
