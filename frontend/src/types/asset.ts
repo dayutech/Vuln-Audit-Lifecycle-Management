@@ -77,6 +77,34 @@ export interface AssetFileVO {
   createdAt?: string;
 }
 
+export interface EnvironmentVO {
+  id: string;
+  name: string;
+  assetId: string;
+  templateId: string;
+  config: string;
+  status: string;
+  version?: number;
+  containerId?: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateEnvironmentRequest {
+  name: string;
+  asset_id: string;
+  template_id: string;
+  config: string;
+}
+
+export interface UpdateEnvironmentRequest {
+  name?: string;
+  template_id?: string;
+  config?: string;
+  status?: string;
+}
+
 export type AssetListResponse = PaginatedResponse<AssetVO>;
 
 export interface CreateAssetRequest {
@@ -95,4 +123,8 @@ export interface UpdateAssetRequest {
   description?: string;
   priority?: string;
   status?: string;
+  target_type?: string;
+  target_source?: string;
+  team_id?: string;
+  owner_id?: string;
 }
