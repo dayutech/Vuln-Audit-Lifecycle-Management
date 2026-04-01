@@ -107,5 +107,5 @@ ON DUPLICATE KEY UPDATE name = VALUES(name);
 -- 插入默认管理员用户 (密码: Admin@123)
 -- 注意：实际部署时应该修改密码
 INSERT INTO users (id, username, email, password_hash, full_name, status) VALUES
-    (UUID(), 'admin', 'admin@vulnaudit.com', '$2a$10$N.zmdr9k7uOCQb376NoUnuTJ8iAt6Z5EHsM8lE9lBOsl7iAt6Z5EH', '系统管理员', 'active')
+    (UUID(), 'admin', 'admin@vulnaudit.com', '$2a$10$y4gTlQLF9rlGK1T8vEdoQuvzyVMqdxP31haV9oxrg8kLbJ4yy7uGC', '系统管理员', 'active')
 ON DUPLICATE KEY UPDATE username = VALUES(username);

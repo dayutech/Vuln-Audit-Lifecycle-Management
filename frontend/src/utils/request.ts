@@ -33,26 +33,27 @@ request.interceptors.response.use(
   (error: AxiosError) => {
     if (error.response) {
       const { status, data } = error.response as any;
+      const errorMsg = data?.message || data?.error?.message;
       switch (status) {
         case 401:
-          message.error('登录已过期，请重新登录');
+          message.error(errorMsg || '登录已过期，请重新登录');
           localStorage.removeItem('access_token');
           window.location.href = '/login';
           break;
         case 403:
-          message.error('没有操作权限');
+          message.error(errorMsg || '没有操作权限');
           break;
         case 400:
-          message.error(data?.error?.message || '请求参数错误');
+          message.error(errorMsg || '请求参数错误');
           break;
         case 404:
-          message.error(data?.error?.message || '资源不存在');
+          message.error(errorMsg || '资源不存在');
           break;
         case 500:
-          message.error(data?.error?.message || '服务器内部错误');
+          message.error(errorMsg || '服务器内部错误');
           break;
         default:
-          message.error(data?.error?.message || '网络错误');
+          message.error(errorMsg || '网络错误');
       }
     } else {
       message.error('网络请求失败');
