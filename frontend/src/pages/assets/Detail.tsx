@@ -11,8 +11,7 @@ import {
   uploadAssetFile,
   getEnvironmentList,
   createEnvironment,
-  deleteEnvironment,
-  getEnvironmentTemplateList
+  deleteEnvironment
 } from '@/api/asset';
 import { getVulnerabilityList, createVulnerability, updateVulnerability, deleteVulnerability } from '@/api/vulnerability';
 import { getTaskList, createTask, updateTask, deleteTask } from '@/api/task';
@@ -463,12 +462,12 @@ const AssetDetail: React.FC = () => {
         style={{ marginBottom: 24 }}
       >
         <Descriptions column={3}>
-          <Descriptions.Item label="资产类型">{asset.targetType || asset.target_type}</Descriptions.Item>
-          <Descriptions.Item label="来源">{asset.targetSource || asset.target_source}</Descriptions.Item>
-          <Descriptions.Item label="优先级">{asset.priority}</Descriptions.Item>
-          <Descriptions.Item label="负责人">{asset.owner?.username || '-'}</Descriptions.Item>
-          <Descriptions.Item label="所属团队">{asset.team?.name || '-'}</Descriptions.Item>
-          <Descriptions.Item label="创建时间">{new Date(asset.createdAt || asset.created_at).toLocaleString()}</Descriptions.Item>
+          <Descriptions.Item label="目标类型">{asset?.target_type}</Descriptions.Item>
+          <Descriptions.Item label="资产来源">{asset?.target_source}</Descriptions.Item>
+          <Descriptions.Item label="所属团队">{asset?.team?.name || '-'}</Descriptions.Item>
+          <Descriptions.Item label="责任人">{asset?.owner?.username || '-'}</Descriptions.Item>
+          <Descriptions.Item label="描述">{asset?.description}</Descriptions.Item>
+          <Descriptions.Item label="创建时间">{asset?.created_at ? new Date(asset.created_at).toLocaleString() : '-'}</Descriptions.Item>
         </Descriptions>
       </Card>
 
