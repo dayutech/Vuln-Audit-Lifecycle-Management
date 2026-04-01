@@ -16,7 +16,7 @@ public interface TaskService {
 
     Optional<Task> findById(UUID id);
 
-    PageResponse<Task> findAll(int page, int size, String keyword, String status, UUID assigneeId);
+    PageResponse<Task> findAll(int page, int size, String keyword, String status, UUID assigneeId, UUID referenceId);
 
     List<Task> findByAssigneeId(UUID assigneeId);
 

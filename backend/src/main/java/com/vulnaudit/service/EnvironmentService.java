@@ -24,9 +24,9 @@ public interface EnvironmentService {
     Optional<Environment> findById(UUID id);
 
     /**
-     * 分页查询环境列表（空实现）
+     * 分页查询环境列表
      */
-    PageResponse<Environment> findAll(int page, int size, String keyword);
+    PageResponse<Environment> findAll(int page, int size, String keyword, UUID assetId);
 
     /**
      * 更新环境（空实现）
@@ -52,4 +52,19 @@ public interface EnvironmentService {
      * 创建快照（空实现）
      */
     void createSnapshot(UUID id, String name);
+
+    /**
+     * 部署环境
+     */
+    void deployEnvironment(UUID id);
+
+    /**
+     * 获取快照列表
+     */
+    java.util.List<com.vulnaudit.entity.EnvironmentSnapshot> getSnapshots(UUID id);
+
+    /**
+     * 回滚快照
+     */
+    void rollbackSnapshot(UUID id, UUID snapshotId);
 }

@@ -142,7 +142,9 @@ public class AssetMetadataController {
 
     @GetMapping("/history")
     @Operation(summary = "获取资产元数据历史", description = "按资产ID获取元数据历史")
-    public ResponseEntity<ApiResponse<List<AssetAppMetadataHistory>>> getMetadataHistoryByAsset(@PathVariable UUID assetId) {
+    public ResponseEntity<ApiResponse<List<AssetAppMetadataHistory>>> getMetadataHistoryByAsset(
+            @Parameter(description = "资产ID", required = true)
+            @PathVariable UUID assetId) {
         return metadataRepository.findByAssetId(assetId)
                 .map(metadata -> ResponseEntity.ok(ApiResponse.success(
                         historyRepository.findByMetadataIdOrderByVersionDesc(metadata.getId())
@@ -159,11 +161,11 @@ public class AssetMetadataController {
                 .map(metadata -> {
                     AssetAppMetadataHistory history = historyRepository.findByMetadataIdAndVersion(metadata.getId(), version);
                     if (history == null) {
-                        return ResponseEntity.ok(ApiResponse.error(404, "历史版本不存在"));
+                        return ResponseEntity.ok(ApiResponse.<AssetAppMetadataHistory>error(404, "历史版本不存在"));
                     }
                     return ResponseEntity.ok(ApiResponse.success(history));
                 })
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "元数据不存在")));
+                .orElse(ResponseEntity.ok(ApiResponse.<AssetAppMetadataHistory>error(404, "元数据不存在")));
     }
 
     @GetMapping("/{id}/history/{version}")
@@ -171,7 +173,7 @@ public class AssetMetadataController {
     public ResponseEntity<ApiResponse<AssetAppMetadataHistory>> getMetadataVersion(
             @PathVariable UUID assetId,
             @PathVariable UUID id,
-            @PathVariable UUID version) {
+            @Parameter(description = "历史版本ID") @PathVariable("version") UUID version) {
         
         log.info("获取元数据历史版本: assetId={}, metadataId={}, version={}", assetId, id, version);
         

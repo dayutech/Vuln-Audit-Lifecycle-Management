@@ -78,11 +78,12 @@ public class TaskController {
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size,
             @Parameter(description = "搜索关键词") @RequestParam(required = false) String keyword,
             @Parameter(description = "状态") @RequestParam(required = false) String status,
-            @Parameter(description = "指派人ID") @RequestParam(required = false) UUID assigneeId) {
+            @Parameter(description = "指派人ID") @RequestParam(required = false) UUID assigneeId,
+            @Parameter(description = "关联资源ID") @RequestParam(required = false) UUID referenceId) {
         
-        log.info("分页查询任务: page={}, size={}, keyword={}, status={}", page, size, keyword, status);
+        log.info("分页查询任务: page={}, size={}, keyword={}, status={}, assigneeId={}, referenceId={}", page, size, keyword, status, assigneeId, referenceId);
         
-        PageResponse<Task> result = taskService.findAll(page, size, keyword, status, assigneeId);
+        PageResponse<Task> result = taskService.findAll(page, size, keyword, status, assigneeId, referenceId);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

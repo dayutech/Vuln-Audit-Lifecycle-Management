@@ -60,6 +60,14 @@ export const updateTaskStatus = (id: string, data: UpdateTaskStatusRequest): Pro
   return request.put(`/tasks/${id}/status`, null, { params: { status: data.status } });
 };
 
+export const updateTask = (id: string, data: Partial<CreateTaskRequest>): Promise<TaskVO> => {
+  return request.put(`/tasks/${id}`, data);
+};
+
+export const deleteTask = (id: string): Promise<any> => {
+  return request.delete(`/tasks/${id}`);
+};
+
 export const assignTask = (id: string, data: AssignTaskRequest): Promise<any> => {
   return request.post(`/tasks/${id}/assign`, null, { params: { assigneeId: data.assignee_id } });
 };

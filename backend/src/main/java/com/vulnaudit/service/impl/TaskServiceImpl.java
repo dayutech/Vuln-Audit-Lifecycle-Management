@@ -51,7 +51,7 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
-    public PageResponse<Task> findAll(int page, int size, String keyword, String status, UUID assigneeId) {
+    public PageResponse<Task> findAll(int page, int size, String keyword, String status, UUID assigneeId, UUID referenceId) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         
         Specification<Task> spec = (root, query, cb) -> {
@@ -67,6 +67,10 @@ public class TaskServiceImpl implements TaskService {
             
             if (assigneeId != null) {
                 predicates.add(cb.equal(root.get("assignedTo"), assigneeId));
+            }
+            
+            if (referenceId != null) {
+                predicates.add(cb.equal(root.get("referenceId"), referenceId));
             }
             
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));

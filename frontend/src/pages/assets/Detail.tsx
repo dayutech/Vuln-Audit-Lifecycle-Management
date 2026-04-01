@@ -13,8 +13,9 @@ import {
   createEnvironment,
   deleteEnvironment
 } from '@/api/asset';
-import { getVulnerabilityList } from '@/api/vulnerability';
-import { getTaskList } from '@/api/task';
+import { getVulnerabilityList, createVulnerability, updateVulnerability, deleteVulnerability } from '@/api/vulnerability';
+import { getTaskList, createTask, updateTask, deleteTask } from '@/api/task';
+import { getEnvironmentTemplateList } from '@/api/environment';
 import type { AssetVO, AssetFileVO, UpsertAssetMetadataRequest, EnvironmentVO } from '@/types/asset';
 
 const { TabPane } = Tabs;
@@ -50,10 +51,20 @@ const AssetDetail: React.FC = () => {
   // Vulnerability states
   const [vulnerabilities, setVulnerabilities] = useState<any[]>([]);
   const [vulnLoading, setVulnLoading] = useState(false);
+  const [vulnModalVisible, setVulnModalVisible] = useState(false);
+  const [vulnSubmitting, setVulnSubmitting] = useState(false);
+  const [vulnForm] = Form.useForm();
+  const [vulnMode, setVulnMode] = useState<'create' | 'edit'>('create');
+  const [currentVulnId, setCurrentVulnId] = useState<string>('');
 
   // Task states
   const [tasks, setTasks] = useState<any[]>([]);
   const [taskLoading, setTaskLoading] = useState(false);
+  const [taskModalVisible, setTaskModalVisible] = useState(false);
+  const [taskSubmitting, setTaskSubmitting] = useState(false);
+  const [taskForm] = Form.useForm();
+  const [taskMode, setTaskMode] = useState<'create' | 'edit'>('create');
+  const [currentTaskId, setCurrentTaskId] = useState<string>('');
 
   const metadataInitialValues = useMemo(() => ({
     systemArchitecture: '', installPath: '', startupScriptPath: '', configFilePath: '',
@@ -113,7 +124,7 @@ const AssetDetail: React.FC = () => {
       setVulnLoading(true);
       const res: any = await getVulnerabilityList({ page: 1, page_size: 100, asset_id: assetId });
       const data = res?.data ? res.data : res;
-      setVulnerabilities(Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []);
+      setVulnerabilities(Array.isArray(data?.items) ? data.items : Array.isArray(data?.content) ? data.content : Array.isArray(data) ? data : []);
     } catch (error) {
       console.error(error);
     } finally {
@@ -126,11 +137,120 @@ const AssetDetail: React.FC = () => {
       setTaskLoading(true);
       const res: any = await getTaskList({ page: 1, page_size: 100, reference_id: assetId });
       const data = res?.data ? res.data : res;
-      setTasks(Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []);
+      setTasks(Array.isArray(data?.items) ? data.items : Array.isArray(data?.content) ? data.content : Array.isArray(data) ? data : []);
     } catch (error) {
       console.error(error);
     } finally {
       setTaskLoading(false);
+    }
+  };
+
+  const handleCreateVuln = () => {
+    setVulnMode('create');
+    vulnForm.resetFields();
+    setVulnModalVisible(true);
+  };
+
+  const handleEditVuln = (record: any) => {
+    setVulnMode('edit');
+    setCurrentVulnId(record.id);
+    vulnForm.setFieldsValue({
+      title: record.title,
+      type: record.type,
+      severity: record.severity,
+      description: record.description,
+      remediation: record.remediation,
+    });
+    setVulnModalVisible(true);
+  };
+
+  const handleDeleteVuln = async (id: string) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: '您确定要删除此漏洞吗？',
+      onOk: async () => {
+        try {
+          await deleteVulnerability(id);
+          message.success('删除成功');
+          if (asset?.id) loadVulnerabilities(asset.id);
+        } catch (error) {
+          console.error(error);
+        }
+      }
+    });
+  };
+
+  const handleSubmitVuln = async () => {
+    try {
+      const values = await vulnForm.validateFields();
+      setVulnSubmitting(true);
+      if (vulnMode === 'create') {
+        await createVulnerability({ ...values, asset_id: asset?.id });
+        message.success('漏洞创建成功');
+      } else {
+        await updateVulnerability(currentVulnId, values);
+        message.success('漏洞更新成功');
+      }
+      setVulnModalVisible(false);
+      if (asset?.id) loadVulnerabilities(asset.id);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setVulnSubmitting(false);
+    }
+  };
+
+  const handleCreateTask = () => {
+    setTaskMode('create');
+    taskForm.resetFields();
+    setTaskModalVisible(true);
+  };
+
+  const handleEditTask = (record: any) => {
+    setTaskMode('edit');
+    setCurrentTaskId(record.id);
+    taskForm.setFieldsValue({
+      title: record.title,
+      type: record.type,
+      priority: record.priority,
+      description: record.description,
+    });
+    setTaskModalVisible(true);
+  };
+
+  const handleDeleteTask = async (id: string) => {
+    Modal.confirm({
+      title: '确认删除',
+      content: '您确定要删除此任务吗？',
+      onOk: async () => {
+        try {
+          await deleteTask(id);
+          message.success('删除成功');
+          if (asset?.id) loadTasks(asset.id);
+        } catch (error) {
+          console.error(error);
+        }
+      }
+    });
+  };
+
+  const handleSubmitTask = async () => {
+    try {
+      const values = await taskForm.validateFields();
+      setTaskSubmitting(true);
+      if (taskMode === 'create') {
+        await createTask({ ...values, reference_id: asset?.id });
+        message.success('任务创建成功');
+      } else {
+        await updateTask(currentTaskId, values);
+        message.success('任务更新成功');
+      }
+      setTaskModalVisible(false);
+      if (asset?.id) loadTasks(asset.id);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setTaskSubmitting(false);
     }
   };
 
@@ -283,6 +403,16 @@ const AssetDetail: React.FC = () => {
     } },
     { title: '状态', dataIndex: 'status', key: 'status' },
     { title: '发现时间', dataIndex: 'createdAt', key: 'createdAt', render: (text: string) => text ? new Date(text).toLocaleString() : '-' },
+    { 
+      title: '操作', 
+      key: 'action',
+      render: (_: any, record: any) => (
+        <Space>
+          <a onClick={() => handleEditVuln(record)}>编辑</a>
+          <a onClick={() => handleDeleteVuln(record.id)} style={{ color: 'red' }}>删除</a>
+        </Space>
+      )
+    }
   ];
 
   const taskColumns = [
@@ -292,6 +422,16 @@ const AssetDetail: React.FC = () => {
     { title: '状态', dataIndex: 'status', key: 'status' },
     { title: '负责人', dataIndex: ['assignee', 'username'], key: 'assignee', render: (text: string) => text || '-' },
     { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', render: (text: string) => text ? new Date(text).toLocaleString() : '-' },
+    { 
+      title: '操作', 
+      key: 'action',
+      render: (_: any, record: any) => (
+        <Space>
+          <a onClick={() => handleEditTask(record)}>编辑</a>
+          <a onClick={() => handleDeleteTask(record.id)} style={{ color: 'red' }}>删除</a>
+        </Space>
+      )
+    }
   ];
 
   if (loading) {
@@ -323,12 +463,12 @@ const AssetDetail: React.FC = () => {
         style={{ marginBottom: 24 }}
       >
         <Descriptions column={3}>
-          <Descriptions.Item label="资产类型">{asset.target_type}</Descriptions.Item>
-          <Descriptions.Item label="来源">{asset.target_source}</Descriptions.Item>
+          <Descriptions.Item label="资产类型">{asset.targetType || asset.target_type}</Descriptions.Item>
+          <Descriptions.Item label="来源">{asset.targetSource || asset.target_source}</Descriptions.Item>
           <Descriptions.Item label="优先级">{asset.priority}</Descriptions.Item>
           <Descriptions.Item label="负责人">{asset.owner?.username || '-'}</Descriptions.Item>
           <Descriptions.Item label="所属团队">{asset.team?.name || '-'}</Descriptions.Item>
-          <Descriptions.Item label="创建时间">{new Date(asset.created_at).toLocaleString()}</Descriptions.Item>
+          <Descriptions.Item label="创建时间">{new Date(asset.createdAt || asset.created_at).toLocaleString()}</Descriptions.Item>
         </Descriptions>
       </Card>
 
@@ -455,7 +595,10 @@ const AssetDetail: React.FC = () => {
                   <h3>关联漏洞</h3>
                   <p style={{ color: '#8c8c8c' }}>展示只针对此产品的安全漏洞。</p>
                 </div>
-                <Button onClick={() => navigate('/vulnerabilities')}>查看全部</Button>
+                <Space>
+                  <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateVuln}>新建漏洞</Button>
+                  <Button onClick={() => navigate('/vulnerabilities')}>查看全部</Button>
+                </Space>
               </div>
               <Table
                 columns={vulnColumns}
@@ -473,7 +616,10 @@ const AssetDetail: React.FC = () => {
                   <h3>审计记录</h3>
                   <p style={{ color: '#8c8c8c' }}>展示针对此产品的历史审计任务、安全测试报告等。</p>
                 </div>
-                <Button onClick={() => navigate('/tasks')}>查看全部</Button>
+                <Space>
+                  <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateTask}>新建任务</Button>
+                  <Button onClick={() => navigate('/tasks')}>查看全部</Button>
+                </Space>
               </div>
               <Table
                 columns={taskColumns}
@@ -506,6 +652,80 @@ const AssetDetail: React.FC = () => {
           </Form.Item>
           <Form.Item name="config" label="环境配置 (JSON)">
             <TextArea rows={4} placeholder='{"replicas": 3, "memory": "2Gi"}' />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 漏洞表单弹窗 */}
+      <Modal
+        title={vulnMode === 'create' ? '新建漏洞' : '编辑漏洞'}
+        open={vulnModalVisible}
+        onCancel={() => setVulnModalVisible(false)}
+        onOk={handleSubmitVuln}
+        confirmLoading={vulnSubmitting}
+      >
+        <Form form={vulnForm} layout="vertical">
+          <Form.Item name="title" label="漏洞名称" rules={[{ required: true, message: '请输入漏洞名称' }]}>
+            <Input placeholder="请输入漏洞名称" />
+          </Form.Item>
+          <Form.Item name="type" label="漏洞类型" rules={[{ required: true, message: '请选择漏洞类型' }]}>
+            <Select placeholder="请选择漏洞类型">
+              <Option value="SQL_INJECTION">SQL注入</Option>
+              <Option value="XSS">跨站脚本 (XSS)</Option>
+              <Option value="CSRF">跨站请求伪造 (CSRF)</Option>
+              <Option value="RCE">远程代码执行</Option>
+              <Option value="OTHER">其他</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="severity" label="严重程度" rules={[{ required: true, message: '请选择严重程度' }]}>
+            <Select placeholder="请选择严重程度">
+              <Option value="CRITICAL">严重</Option>
+              <Option value="HIGH">高危</Option>
+              <Option value="MEDIUM">中危</Option>
+              <Option value="LOW">低危</Option>
+              <Option value="INFO">信息</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="description" label="漏洞描述" rules={[{ required: true, message: '请输入漏洞描述' }]}>
+            <Input.TextArea rows={4} placeholder="请输入漏洞描述" />
+          </Form.Item>
+          <Form.Item name="remediation" label="修复建议">
+            <Input.TextArea rows={3} placeholder="请输入修复建议" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 任务表单弹窗 */}
+      <Modal
+        title={taskMode === 'create' ? '新建任务' : '编辑任务'}
+        open={taskModalVisible}
+        onCancel={() => setTaskModalVisible(false)}
+        onOk={handleSubmitTask}
+        confirmLoading={taskSubmitting}
+      >
+        <Form form={taskForm} layout="vertical">
+          <Form.Item name="title" label="任务名称" rules={[{ required: true, message: '请输入任务名称' }]}>
+            <Input placeholder="请输入任务名称" />
+          </Form.Item>
+          <Form.Item name="type" label="任务类型" rules={[{ required: true, message: '请选择任务类型' }]}>
+            <Select placeholder="请选择任务类型">
+              <Option value="AUDIT">安全审计</Option>
+              <Option value="TEST">渗透测试</Option>
+              <Option value="REMEDIATION">漏洞修复</Option>
+              <Option value="REVIEW">代码审查</Option>
+              <Option value="OTHER">其他</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="priority" label="优先级" rules={[{ required: true, message: '请选择优先级' }]}>
+            <Select placeholder="请选择优先级">
+              <Option value="P0">P0 - 紧急</Option>
+              <Option value="P1">P1 - 高</Option>
+              <Option value="P2">P2 - 中</Option>
+              <Option value="P3">P3 - 低</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="description" label="任务描述">
+            <Input.TextArea rows={4} placeholder="请输入任务描述" />
           </Form.Item>
         </Form>
       </Modal>
