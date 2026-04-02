@@ -25,6 +25,8 @@ public interface AssetAppMetadataRepository extends JpaRepository<AssetAppMetada
      */
     Optional<AssetAppMetadata> findByAssetId(UUID assetId);
 
+    Optional<AssetAppMetadata> findByAssetIdAndAssetVersionId(UUID assetId, UUID assetVersionId);
+
     /**
      * 根据认领人ID查询元数据列表
      * 
@@ -40,5 +42,7 @@ public interface AssetAppMetadataRepository extends JpaRepository<AssetAppMetada
      * @return 如果存在返回true
      */
     boolean existsByAssetId(UUID assetId);
+
+    boolean existsByAssetIdAndAssetVersionId(UUID assetId, UUID assetVersionId);
 
 }

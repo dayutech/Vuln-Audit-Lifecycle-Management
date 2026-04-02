@@ -2,9 +2,11 @@ package com.vulnaudit.service.impl;
 
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.Environment;
+import com.vulnaudit.entity.AssetVersion;
 import com.vulnaudit.exception.BusinessException;
 import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.entity.EnvironmentSnapshot;
+import com.vulnaudit.repository.AssetVersionRepository;
 import com.vulnaudit.repository.EnvironmentRepository;
 import com.vulnaudit.repository.EnvironmentSnapshotRepository;
 import com.vulnaudit.service.EnvironmentService;
@@ -31,12 +33,15 @@ public class EnvironmentServiceImpl implements EnvironmentService {
 
     private final EnvironmentRepository environmentRepository;
     private final EnvironmentSnapshotRepository environmentSnapshotRepository;
+    private final AssetVersionRepository assetVersionRepository;
 
     @Override
     @Transactional
     public Environment createEnvironment(Environment environment) {
-        log.info("创建环境: name={}", environment.getName());
-        return environmentRepository.save(environment);
+        Environment requiredEnvironment = Objects.requireNonNull(environment, "environment must not be null");
+        log.info("创建环境: name={}", requiredEnvironment.getName());
+        requiredEnvironment.setAssetVersionId(resolveAssetVersionId(requiredEnvironment.getAssetId(), requiredEnvironment.getAssetVersionId()));
+        return environmentRepository.save(requiredEnvironment);
     }
 
     @Override
@@ -47,13 +52,20 @@ public class EnvironmentServiceImpl implements EnvironmentService {
     }
 
     @Override
-    public PageResponse<Environment> findAll(int page, int size, String keyword, UUID assetId) {
-        log.debug("分页查询环境: page={}, size={}, keyword={}, assetId={}", page, size, keyword, assetId);
+    public PageResponse<Environment> findAll(int page, int size, String keyword, UUID assetId, UUID assetVersionId) {
+        log.debug("分页查询环境: page={}, size={}, keyword={}, assetId={}, assetVersionId={}", page, size, keyword, assetId, assetVersionId);
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         Page<Environment> environmentPage;
         
         if (assetId != null) {
-            environmentPage = environmentRepository.findByAssetId(assetId, pageable);
+            if (assetVersionId != null) {
+                environmentPage = environmentRepository.findByAssetIdAndAssetVersionId(assetId, assetVersionId, pageable);
+                if (environmentPage.isEmpty()) {
+                    environmentPage = environmentRepository.findByAssetIdAndAssetVersionId(assetId, null, pageable);
+                }
+            } else {
+                environmentPage = environmentRepository.findByAssetIdAndAssetVersionId(assetId, null, pageable);
+            }
         } else {
             environmentPage = environmentRepository.findAll(pageable);
         }
@@ -86,8 +98,34 @@ public class EnvironmentServiceImpl implements EnvironmentService {
         if (requiredEnvironment.getStatus() != null) {
             existingEnvironment.setStatus(requiredEnvironment.getStatus());
         }
+        if (requiredEnvironment.getAssetId() != null) {
+            existingEnvironment.setAssetId(requiredEnvironment.getAssetId());
+        }
+        if (requiredEnvironment.getTemplateId() != null) {
+            existingEnvironment.setTemplateId(requiredEnvironment.getTemplateId());
+        }
+        if (requiredEnvironment.getAssetVersionId() != null || requiredEnvironment.getAssetId() != null) {
+            UUID targetAssetId = existingEnvironment.getAssetId();
+            existingEnvironment.setAssetVersionId(resolveAssetVersionId(targetAssetId, requiredEnvironment.getAssetVersionId()));
+        }
 
         return environmentRepository.save(Objects.requireNonNull(existingEnvironment));
+    }
+
+    private UUID resolveAssetVersionId(UUID assetId, UUID assetVersionId) {
+        if (assetId == null) {
+            return null;
+        }
+        if (assetVersionId != null) {
+            boolean exists = assetVersionRepository.findByIdAndAssetId(assetVersionId, assetId).isPresent();
+            if (!exists) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "资产版本不存在或不属于当前资产");
+            }
+            return assetVersionId;
+        }
+        return assetVersionRepository.findByAssetIdAndIsDefaultTrue(assetId)
+                .map(AssetVersion::getId)
+                .orElse(null);
     }
 
     @Override

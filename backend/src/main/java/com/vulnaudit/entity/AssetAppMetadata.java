@@ -41,6 +41,9 @@ public class AssetAppMetadata {
     @Column(name = "asset_id", nullable = false)
     private UUID assetId;
 
+    @Column(name = "asset_version_id")
+    private UUID assetVersionId;
+
     /**
      * 认领人ID
      * 外键，关联 users 表

@@ -5,6 +5,7 @@ import com.vulnaudit.entity.AssetFile;
 import com.vulnaudit.entity.AssetFileVersion;
 import com.vulnaudit.repository.AssetFileRepository;
 import com.vulnaudit.repository.AssetFileVersionRepository;
+import com.vulnaudit.repository.AssetVersionRepository;
 import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -48,16 +49,20 @@ public class AssetFileController {
 
     private final AssetFileRepository assetFileRepository;
     private final AssetFileVersionRepository assetFileVersionRepository;
+    private final AssetVersionRepository assetVersionRepository;
     private final UserService userService;
     
     private static final String UPLOAD_DIR = "./uploads/assets/";
 
     @GetMapping("/assets/{assetId}/files")
     @Operation(summary = "获取资产文件列表", description = "获取指定资产的所有文件")
-    public ResponseEntity<ApiResponse<List<AssetFile>>> listAssetFiles(@PathVariable UUID assetId) {
-        log.info("获取资产文件列表: assetId={}", assetId);
-        
-        List<AssetFile> files = assetFileRepository.findByAssetIdOrderByCreatedAtDesc(assetId);
+    public ResponseEntity<ApiResponse<List<AssetFile>>> listAssetFiles(
+            @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId) {
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        log.info("获取资产文件列表: assetId={}, assetVersionId={}", assetId, resolvedVersionId);
+
+        List<AssetFile> files = findFilesByAssetAndVersion(assetId, resolvedVersionId);
         return ResponseEntity.ok(ApiResponse.success(files));
     }
 
@@ -76,12 +81,13 @@ public class AssetFileController {
     @Operation(summary = "上传资产文件", description = "上传文件到指定资产")
     public ResponseEntity<ApiResponse<AssetFile>> uploadFile(
             @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId,
             @Parameter(description = "文件") @RequestParam("file") MultipartFile file,
             @Parameter(description = "文件类型") @RequestParam(required = false) String fileType,
             @Parameter(description = "文件分类") @RequestParam String category,
             @Parameter(description = "描述") @RequestParam(required = false) String description) throws IOException {
-        
-        log.info("上传资产文件: assetId={}, fileName={}", assetId, file.getOriginalFilename());
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        log.info("上传资产文件: assetId={}, assetVersionId={}, fileName={}", assetId, resolvedVersionId, file.getOriginalFilename());
         
         // 创建上传目录
         Path uploadPath = Paths.get(UPLOAD_DIR + assetId);
@@ -108,6 +114,7 @@ public class AssetFileController {
 
         AssetFile assetFile = AssetFile.builder()
                 .assetId(assetId)
+                .assetVersionId(resolvedVersionId)
                 .name(originalFilename)
                 .fileType(resolvedFileType)
                 .category(category)
@@ -300,5 +307,24 @@ public class AssetFileController {
             log.warn("计算文件校验值失败: path={}, reason={}", path, e.getMessage());
             return null;
         }
+    }
+
+    private UUID resolveAssetVersionId(UUID assetId, UUID assetVersionId) {
+        if (assetVersionId != null) {
+            return assetVersionId;
+        }
+        return assetVersionRepository.findByAssetIdAndIsDefaultTrue(assetId)
+                .map(version -> version.getId())
+                .orElse(null);
+    }
+
+    private List<AssetFile> findFilesByAssetAndVersion(UUID assetId, UUID assetVersionId) {
+        if (assetVersionId != null) {
+            List<AssetFile> versionedFiles = assetFileRepository.findByAssetIdAndAssetVersionIdOrderByCreatedAtDesc(assetId, assetVersionId);
+            if (!versionedFiles.isEmpty()) {
+                return versionedFiles;
+            }
+        }
+        return assetFileRepository.findByAssetIdAndAssetVersionIdOrderByCreatedAtDesc(assetId, null);
     }
 }

@@ -1,5 +1,6 @@
 package com.vulnaudit.service;
 
+import com.vulnaudit.dto.AssetResponse;
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.Asset;
 
@@ -38,6 +39,14 @@ public interface AssetService {
     Optional<Asset> findById(@Nullable UUID id);
 
     /**
+     * 根据ID查询资产详情（包含团队和负责人信息）
+     *
+     * @param id 资产ID
+     * @return 资产响应DTO
+     */
+    Optional<AssetResponse> findByIdWithDetails(@Nullable UUID id);
+
+    /**
      * 根据资产编号查询资产
      *
      * @param code 资产编号
@@ -58,6 +67,20 @@ public interface AssetService {
      */
     @Nonnull
     PageResponse<Asset> findAll(int page, int size, @Nullable String keyword, @Nullable String status, @Nullable UUID teamId, @Nullable String priority);
+
+    /**
+     * 分页查询资产列表（包含团队和负责人信息）
+     *
+     * @param page 页码（从0开始）
+     * @param size 每页大小
+     * @param keyword 搜索关键词（可选）
+     * @param status 资产状态（可选）
+     * @param teamId 团队ID（可选）
+     * @param priority 优先级（可选）
+     * @return 分页资产响应列表
+     */
+    @Nonnull
+    PageResponse<AssetResponse> findAllWithDetails(int page, int size, @Nullable String keyword, @Nullable String status, @Nullable UUID teamId, @Nullable String priority);
 
     /**
      * 根据团队ID查询资产列表

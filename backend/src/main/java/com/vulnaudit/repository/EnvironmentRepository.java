@@ -14,6 +14,7 @@ public interface EnvironmentRepository extends JpaRepository<Environment, UUID> 
 
     List<Environment> findByAssetId(UUID assetId);
     Page<Environment> findByAssetId(UUID assetId, Pageable pageable);
+    Page<Environment> findByAssetIdAndAssetVersionId(UUID assetId, UUID assetVersionId, Pageable pageable);
     List<Environment> findByCreatedBy(UUID createdBy);
     List<Environment> findByStatus(String status);
 

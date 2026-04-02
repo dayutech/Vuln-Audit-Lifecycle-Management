@@ -71,10 +71,10 @@ public class AssetController {
 
     @GetMapping("/{id}")
     @Operation(summary = "获取资产详情", description = "根据ID获取资产详细信息")
-    public ResponseEntity<ApiResponse<Asset>> getAsset(@PathVariable UUID id) {
+    public ResponseEntity<ApiResponse<AssetResponse>> getAsset(@PathVariable UUID id) {
         log.info("获取资产详情: id={}", id);
 
-        return assetService.findById(id)
+        return assetService.findByIdWithDetails(id)
                 .map(asset -> ResponseEntity.ok(ApiResponse.success(asset)))
                 .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(ApiResponse.error(404, "资产不存在")));
@@ -82,7 +82,7 @@ public class AssetController {
 
     @GetMapping
     @Operation(summary = "分页查询资产列表", description = "支持按关键词、状态、团队、优先级筛选")
-    public ResponseEntity<ApiResponse<PageResponse<Asset>>> listAssets(
+    public ResponseEntity<ApiResponse<PageResponse<AssetResponse>>> listAssets(
             @Parameter(description = "页码") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size,
             @Parameter(description = "搜索关键词") @RequestParam(required = false) String keyword,
@@ -92,7 +92,7 @@ public class AssetController {
         
         log.info("分页查询资产: page={}, size={}, keyword={}, status={}", page, size, keyword, status);
         
-        PageResponse<Asset> result = assetService.findAll(page, size, keyword, status, teamId, priority);
+        PageResponse<AssetResponse> result = assetService.findAllWithDetails(page, size, keyword, status, teamId, priority);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

@@ -4,6 +4,7 @@ import { Tabs, Card, Button, Descriptions, Tag, Spin, Result, Form, Input, Selec
 import { AppstoreOutlined, BuildOutlined, FileZipOutlined, BugOutlined, SafetyCertificateOutlined, UploadOutlined, PlusOutlined } from '@ant-design/icons';
 import { 
   getAssetDetail, 
+  getAssetVersions,
   getAssetMetadata, 
   createAssetMetadata, 
   updateAssetMetadata, 
@@ -15,7 +16,7 @@ import {
 } from '@/api/asset';
 import { getVulnerabilityList, createVulnerability, updateVulnerability, deleteVulnerability } from '@/api/vulnerability';
 import { getTaskList, createTask, updateTask, deleteTask } from '@/api/task';
-import type { AssetVO, AssetFileVO, UpsertAssetMetadataRequest, EnvironmentVO } from '@/types/asset';
+import type { AssetVO, AssetFileVO, UpsertAssetMetadataRequest, EnvironmentVO, AssetVersionVO } from '@/types/asset';
 
 const { TabPane } = Tabs;
 const { Option } = Select;
@@ -26,6 +27,9 @@ const AssetDetail: React.FC = () => {
   const navigate = useNavigate();
   const [asset, setAsset] = useState<AssetVO | null>(null);
   const [loading, setLoading] = useState(true);
+  const [assetVersions, setAssetVersions] = useState<AssetVersionVO[]>([]);
+  const [selectedVersionId, setSelectedVersionId] = useState<string>();
+  const [versionLoading, setVersionLoading] = useState(false);
 
   // Metadata states
   const [metadataForm] = Form.useForm();
@@ -71,11 +75,58 @@ const AssetDetail: React.FC = () => {
     databaseConnection: '', adminUsername: '', adminPasswordEncrypted: '',
     servicePorts: '', apiEndpoints: '', specialNotes: '', changeReason: '',
   }), []);
+  const normalizeAsset = (item: AssetVO): AssetVO => ({
+    ...item,
+    team_id: item.team_id ?? item.teamId,
+    team_name: item.team_name ?? item.teamName,
+    owner_id: item.owner_id ?? item.ownerId,
+    owner_name: item.owner_name ?? item.ownerName,
+    target_type: item.target_type ?? item.targetType ?? '',
+    target_source: item.target_source ?? item.targetSource ?? '',
+    created_at: item.created_at ?? item.createdAt ?? '',
+    updated_at: item.updated_at ?? item.updatedAt,
+  });
 
-  const loadMetadata = async (assetId: string) => {
+  const normalizeAssetVersion = (item: any): AssetVersionVO => ({
+    id: String(item?.id ?? ''),
+    assetId: item?.assetId ?? item?.asset_id ?? '',
+    versionNo: Number(item?.versionNo ?? item?.version_no ?? 0),
+    name: item?.name ?? '',
+    description: item?.description,
+    isDefault: Boolean(item?.isDefault ?? item?.is_default),
+    status: item?.status ?? 'active',
+    createdBy: item?.createdBy ?? item?.created_by,
+    createdAt: item?.createdAt ?? item?.created_at,
+    updatedAt: item?.updatedAt ?? item?.updated_at,
+  });
+
+  const loadVersions = async (assetId: string) => {
+    try {
+      setVersionLoading(true);
+      const res: any = await getAssetVersions(assetId);
+      const payload = res?.data?.data ?? res?.data ?? res;
+      const sourceList = Array.isArray(payload) ? payload : Array.isArray(payload?.items) ? payload.items : [];
+      const versionList = sourceList.map(normalizeAssetVersion).filter((item: AssetVersionVO) => !!item.id);
+      setAssetVersions(versionList);
+      setSelectedVersionId((prev) => {
+        if (prev && versionList.some((item: AssetVersionVO) => item.id === prev)) {
+          return prev;
+        }
+        const defaultVersion = versionList.find((item: AssetVersionVO) => item.isDefault) || versionList[0];
+        return defaultVersion?.id;
+      });
+    } catch (error) {
+      setAssetVersions([]);
+      setSelectedVersionId(undefined);
+    } finally {
+      setVersionLoading(false);
+    }
+  };
+
+  const loadMetadata = async (assetId: string, assetVersionId?: string) => {
     try {
       setMetadataLoading(true);
-      const res: any = await getAssetMetadata(assetId);
+      const res: any = await getAssetMetadata(assetId, assetVersionId);
       const data = res?.data ? res.data : res;
       if (data && data.id) {
         setMetadataExists(true);
@@ -92,10 +143,10 @@ const AssetDetail: React.FC = () => {
     }
   };
 
-  const loadFiles = async (assetId: string) => {
+  const loadFiles = async (assetId: string, assetVersionId?: string) => {
     try {
       setFileLoading(true);
-      const res: any = await getAssetFiles(assetId);
+      const res: any = await getAssetFiles(assetId, assetVersionId);
       const data = res?.data ? res.data : res;
       setFiles(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -105,10 +156,10 @@ const AssetDetail: React.FC = () => {
     }
   };
 
-  const loadEnvironments = async (assetId: string) => {
+  const loadEnvironments = async (assetId: string, assetVersionId?: string) => {
     try {
       setEnvLoading(true);
-      const res: any = await getEnvironmentList({ page: 1, page_size: 100, assetId });
+      const res: any = await getEnvironmentList({ page: 1, page_size: 100, assetId, assetVersionId });
       const data = res?.data ? res.data : res;
       setEnvironments(Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []);
     } catch (error) {
@@ -260,10 +311,9 @@ const AssetDetail: React.FC = () => {
         const res: any = await getAssetDetail(id as string);
         const found = res?.data ? res.data : res;
         if (found && found.id) {
-          setAsset(found);
-          loadMetadata(found.id);
-          loadFiles(found.id);
-          loadEnvironments(found.id);
+          const normalizedAsset = normalizeAsset(found);
+          setAsset(normalizedAsset);
+          loadVersions(found.id);
           loadVulnerabilities(found.id);
           loadTasks(found.id);
         }
@@ -276,16 +326,23 @@ const AssetDetail: React.FC = () => {
     if (id) fetchAsset();
   }, [id]);
 
+  useEffect(() => {
+    if (!asset?.id) return;
+    loadMetadata(asset.id, selectedVersionId);
+    loadFiles(asset.id, selectedVersionId);
+    loadEnvironments(asset.id, selectedVersionId);
+  }, [asset?.id, selectedVersionId]);
+
   const handleSubmitMetadata = async () => {
     if (!asset) return;
     try {
       const values = await metadataForm.validateFields();
       setMetadataSubmitting(true);
       if (metadataExists) {
-        await updateAssetMetadata(asset.id, values as UpsertAssetMetadataRequest);
+        await updateAssetMetadata(asset.id, values as UpsertAssetMetadataRequest, selectedVersionId);
         message.success('扩展信息更新成功');
       } else {
-        await createAssetMetadata(asset.id, values as UpsertAssetMetadataRequest);
+        await createAssetMetadata(asset.id, values as UpsertAssetMetadataRequest, selectedVersionId);
         message.success('扩展信息创建成功');
         setMetadataExists(true);
       }
@@ -310,11 +367,11 @@ const AssetDetail: React.FC = () => {
       formData.append('category', values.category);
       if (values.fileType) formData.append('fileType', values.fileType);
       if (values.description) formData.append('description', values.description);
-      await uploadAssetFile(asset.id, formData);
+      await uploadAssetFile(asset.id, formData, selectedVersionId);
       message.success('文件上传成功');
       uploadForm.resetFields();
       setUploadFileList([]);
-      await loadFiles(asset.id);
+      await loadFiles(asset.id, selectedVersionId);
     } finally {
       setFileUploading(false);
     }
@@ -328,13 +385,14 @@ const AssetDetail: React.FC = () => {
       await createEnvironment({
         name: values.name,
         asset_id: asset.id,
+        asset_version_id: selectedVersionId,
         template_id: values.template_id || '',
         config: values.config || '{}',
       });
       message.success('环境创建成功');
       setEnvModalVisible(false);
       envForm.resetFields();
-      loadEnvironments(asset.id);
+      loadEnvironments(asset.id, selectedVersionId);
     } catch (error) {
       console.error(error);
     } finally {
@@ -350,7 +408,7 @@ const AssetDetail: React.FC = () => {
         try {
           await deleteEnvironment(envId);
           message.success('环境已删除');
-          if (asset) loadEnvironments(asset.id);
+          if (asset) loadEnvironments(asset.id, selectedVersionId);
         } catch (error) {
           console.error(error);
         }
@@ -458,14 +516,29 @@ const AssetDetail: React.FC = () => {
             <Tag color={asset.status === 'ACTIVE' ? 'success' : 'default'}>{asset.status}</Tag>
           </div>
         }
-        extra={<Button onClick={() => navigate('/assets')}>返回列表</Button>}
+        extra={
+          <Space>
+            <Select
+              style={{ width: 220 }}
+              value={selectedVersionId}
+              loading={versionLoading}
+              placeholder="选择资产版本"
+              onChange={(value) => setSelectedVersionId(value)}
+              options={assetVersions.map((item) => ({
+                label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}`,
+                value: item.id,
+              }))}
+            />
+            <Button onClick={() => navigate('/assets')}>返回列表</Button>
+          </Space>
+        }
         style={{ marginBottom: 24 }}
       >
         <Descriptions column={3}>
           <Descriptions.Item label="目标类型">{asset?.target_type}</Descriptions.Item>
           <Descriptions.Item label="资产来源">{asset?.target_source}</Descriptions.Item>
-          <Descriptions.Item label="所属团队">{asset?.team?.name || '-'}</Descriptions.Item>
-          <Descriptions.Item label="责任人">{asset?.owner?.username || '-'}</Descriptions.Item>
+          <Descriptions.Item label="所属团队">{asset?.team_name || asset?.team?.name || '-'}</Descriptions.Item>
+          <Descriptions.Item label="责任人">{asset?.owner_name || asset?.owner?.username || '-'}</Descriptions.Item>
           <Descriptions.Item label="描述">{asset?.description}</Descriptions.Item>
           <Descriptions.Item label="创建时间">{asset?.created_at ? new Date(asset.created_at).toLocaleString() : '-'}</Descriptions.Item>
         </Descriptions>

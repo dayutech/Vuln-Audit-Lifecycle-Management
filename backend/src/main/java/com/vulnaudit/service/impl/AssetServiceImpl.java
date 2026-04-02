@@ -1,12 +1,17 @@
 package com.vulnaudit.service.impl;
 
+import com.vulnaudit.dto.AssetResponse;
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.Asset;
 import com.vulnaudit.entity.AssetAccess;
+import com.vulnaudit.entity.Team;
+import com.vulnaudit.entity.User;
 import com.vulnaudit.exception.BusinessException;
 import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.AssetAccessRepository;
 import com.vulnaudit.repository.AssetRepository;
+import com.vulnaudit.repository.TeamRepository;
+import com.vulnaudit.repository.UserRepository;
 import com.vulnaudit.service.AssetService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,8 +26,10 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -44,6 +51,8 @@ public class AssetServiceImpl implements AssetService {
 
     private final AssetRepository assetRepository;
     private final AssetAccessRepository assetAccessRepository;
+    private final TeamRepository teamRepository;
+    private final UserRepository userRepository;
 
     /**
      * 创建资产
@@ -82,6 +91,28 @@ public class AssetServiceImpl implements AssetService {
     public Optional<Asset> findById(@Nullable UUID id) {
         log.debug("查询资产: id={}", id);
         return id != null ? assetRepository.findById(id) : Optional.empty();
+    }
+
+    /**
+     * 根据ID查询资产详情（包含团队和负责人信息）
+     */
+    @Override
+    public Optional<AssetResponse> findByIdWithDetails(@Nullable UUID id) {
+        log.debug("查询资产详情: id={}", id);
+        if (id == null) {
+            return Optional.empty();
+        }
+        
+        Optional<Asset> assetOpt = assetRepository.findById(id);
+        if (assetOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        
+        Asset asset = assetOpt.get();
+        String teamName = resolveTeamName(asset.getTeamId());
+        String ownerName = resolveOwnerName(asset.getOwnerId());
+        
+        return Optional.of(AssetResponse.fromAsset(asset, teamName, ownerName));
     }
 
     /**
@@ -132,6 +163,65 @@ public class AssetServiceImpl implements AssetService {
         
         return PageResponse.<Asset>builder()
                 .content(assetPage.getContent())
+                .totalElements(assetPage.getTotalElements())
+                .totalPages(assetPage.getTotalPages())
+                .currentPage(assetPage.getNumber())
+                .pageSize(assetPage.getSize())
+                .build();
+    }
+
+    /**
+     * 分页查询资产列表（包含团队和负责人信息）
+     */
+    @Override
+    public PageResponse<AssetResponse> findAllWithDetails(int page, int size, @Nullable String keyword, @Nullable String status, @Nullable UUID teamId, @Nullable String priority) {
+        log.debug("分页查询资产详情: page={}, size={}, keyword={}, status={}, teamId={}, priority={}",
+                page, size, keyword, status, teamId, priority);
+        
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        
+        Specification<Asset> spec = (root, query, cb) -> {
+            List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
+            
+            if (StringUtils.hasText(keyword)) {
+                jakarta.persistence.criteria.Predicate nameLike = cb.like(root.get("name"), "%" + keyword + "%");
+                jakarta.persistence.criteria.Predicate codeLike = cb.like(root.get("code"), "%" + keyword + "%");
+                jakarta.persistence.criteria.Predicate descLike = cb.like(root.get("description"), "%" + keyword + "%");
+                predicates.add(cb.or(nameLike, codeLike, descLike));
+            }
+            
+            if (StringUtils.hasText(status)) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            
+            if (teamId != null) {
+                predicates.add(cb.equal(root.get("teamId"), teamId));
+            }
+            
+            if (StringUtils.hasText(priority)) {
+                predicates.add(cb.equal(root.get("priority"), priority));
+            }
+            
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+        
+        Page<Asset> assetPage = assetRepository.findAll(spec, pageable);
+        
+        List<Asset> assets = assetPage.getContent();
+        
+        Map<UUID, String> teamNameMap = resolveTeamNames(assets);
+        Map<UUID, String> ownerNameMap = resolveOwnerNames(assets);
+        
+        List<AssetResponse> responses = assets.stream()
+                .map(asset -> AssetResponse.fromAsset(
+                        asset,
+                        teamNameMap.get(asset.getTeamId()),
+                        ownerNameMap.get(asset.getOwnerId())
+                ))
+                .collect(Collectors.toList());
+        
+        return PageResponse.<AssetResponse>builder()
+                .content(responses)
                 .totalElements(assetPage.getTotalElements())
                 .totalPages(assetPage.getTotalPages())
                 .currentPage(assetPage.getNumber())
@@ -352,5 +442,65 @@ public class AssetServiceImpl implements AssetService {
                 .collect(Collectors.toList());
 
         return authorizedAssets;
+    }
+
+    /**
+     * 解析单个团队名称
+     */
+    private String resolveTeamName(UUID teamId) {
+        if (teamId == null) {
+            return null;
+        }
+        return teamRepository.findById(teamId)
+                .map(Team::getName)
+                .orElse(null);
+    }
+
+    /**
+     * 解析单个负责人名称
+     */
+    private String resolveOwnerName(UUID ownerId) {
+        if (ownerId == null) {
+            return null;
+        }
+        return userRepository.findById(ownerId)
+                .map(User::getUsername)
+                .orElse(null);
+    }
+
+    /**
+     * 批量解析团队名称
+     */
+    private Map<UUID, String> resolveTeamNames(List<Asset> assets) {
+        Set<UUID> teamIds = assets.stream()
+                .map(Asset::getTeamId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        
+        if (teamIds.isEmpty()) {
+            return Map.of();
+        }
+        
+        List<Team> teams = teamRepository.findAllById(teamIds);
+        return teams.stream()
+                .collect(Collectors.toMap(Team::getId, Team::getName));
+    }
+
+    /**
+     * 批量解析负责人名称
+     */
+    private Map<UUID, String> resolveOwnerNames(List<Asset> assets) {
+        Set<UUID> ownerIds = assets.stream()
+                .map(Asset::getOwnerId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        
+        if (ownerIds.isEmpty()) {
+            return Map.of();
+        }
+        
+        List<User> users = userRepository.findAllById(ownerIds);
+        return users.stream()
+                .collect(Collectors.toMap(User::getId, User::getUsername));
     }
 }

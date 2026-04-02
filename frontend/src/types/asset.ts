@@ -10,22 +10,35 @@ export interface AssetVO {
   id: string;
   name: string;
   code: string;
+  team_id?: string;
+  teamId?: string;
+  team_name?: string;
+  teamName?: string;
   target_type: string;
+  targetType?: string;
   target_source: string;
+  targetSource?: string;
   description?: string;
   priority: string;
   status: string;
+  owner_id?: string;
+  ownerId?: string;
+  owner_name?: string;
+  ownerName?: string;
   groups?: AssetGroup[];
   owner?: UserVO;
   team?: any;
   vulnerability_count?: number;
   created_at: string;
+  createdAt?: string;
   updated_at?: string;
+  updatedAt?: string;
 }
 
 export interface AssetMetadataVO {
   id: string;
   assetId: string;
+  assetVersionId?: string;
   claimedBy?: string;
   version?: number;
   systemArchitecture?: string;
@@ -66,6 +79,7 @@ export interface UpsertAssetMetadataRequest {
 export interface AssetFileVO {
   id: string;
   assetId: string;
+  assetVersionId?: string;
   name: string;
   fileType: string;
   category: string;
@@ -81,6 +95,7 @@ export interface EnvironmentVO {
   id: string;
   name: string;
   assetId: string;
+  assetVersionId?: string;
   templateId: string;
   config: string;
   status: string;
@@ -94,15 +109,30 @@ export interface EnvironmentVO {
 export interface CreateEnvironmentRequest {
   name: string;
   asset_id: string;
+  asset_version_id?: string;
   template_id: string;
   config: string;
 }
 
 export interface UpdateEnvironmentRequest {
   name?: string;
+  asset_version_id?: string;
   template_id?: string;
   config?: string;
   status?: string;
+}
+
+export interface AssetVersionVO {
+  id: string;
+  assetId: string;
+  versionNo: number;
+  name: string;
+  description?: string;
+  isDefault: boolean;
+  status: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export type AssetListResponse = PaginatedResponse<AssetVO>;

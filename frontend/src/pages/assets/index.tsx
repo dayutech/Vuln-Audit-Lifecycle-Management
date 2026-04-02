@@ -40,6 +40,17 @@ const Assets: React.FC = () => {
   const [form] = Form.useForm();
 
   const unwrapPayload = (res: any) => (res?.data ? res.data : res);
+  const normalizeAsset = (item: AssetVO): AssetVO => ({
+    ...item,
+    team_id: item.team_id ?? item.teamId,
+    team_name: item.team_name ?? item.teamName,
+    owner_id: item.owner_id ?? item.ownerId,
+    owner_name: item.owner_name ?? item.ownerName,
+    target_type: item.target_type ?? item.targetType ?? '',
+    target_source: item.target_source ?? item.targetSource ?? '',
+    created_at: item.created_at ?? item.createdAt ?? '',
+    updated_at: item.updated_at ?? item.updatedAt,
+  });
 
   const fetchData = async () => {
     setLoading(true);
@@ -48,7 +59,7 @@ const Assets: React.FC = () => {
       const payload = unwrapPayload(res);
       const items = payload.content || payload.items || [];
       const totalCount = payload.totalElements || payload.total || 0;
-      setData(items);
+      setData(items.map((item: AssetVO) => normalizeAsset(item)));
       setTotal(totalCount);
     } catch (error) {
       console.error(error);
@@ -128,6 +139,18 @@ const Assets: React.FC = () => {
       )
     },
     { title: '资产编码', dataIndex: 'code', key: 'code' },
+    { 
+      title: '所属团队', 
+      dataIndex: 'team_name', 
+      key: 'team_name',
+      render: (text: string) => text || '-'
+    },
+    { 
+      title: '负责人', 
+      dataIndex: 'owner_name', 
+      key: 'owner_name',
+      render: (text: string) => text || '-'
+    },
     { title: '类型', dataIndex: 'target_type', key: 'target_type' },
     { title: '来源', dataIndex: 'target_source', key: 'target_source' },
     { 

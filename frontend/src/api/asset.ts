@@ -6,6 +6,7 @@ import type {
   AssetMetadataVO,
   UpsertAssetMetadataRequest,
   AssetFileVO,
+  AssetVersionVO,
   EnvironmentVO,
   CreateEnvironmentRequest,
   UpdateEnvironmentRequest,
@@ -69,45 +70,63 @@ export const deleteAsset = (id: string): Promise<any> => {
   return request.delete(`/assets/${id}`);
 };
 
-export const getAssetMetadata = (assetId: string): Promise<AssetMetadataVO> => {
-  return request.get(`/assets/${assetId}/metadata`);
+export const getAssetMetadata = (assetId: string, assetVersionId?: string): Promise<AssetMetadataVO> => {
+  return request.get(`/assets/${assetId}/metadata`, {
+    params: {
+      assetVersionId,
+    },
+  });
 };
 
-export const createAssetMetadata = (assetId: string, data: UpsertAssetMetadataRequest): Promise<AssetMetadataVO> => {
-  return request.post(`/assets/${assetId}/metadata`, data);
+export const createAssetMetadata = (assetId: string, data: UpsertAssetMetadataRequest, assetVersionId?: string): Promise<AssetMetadataVO> => {
+  return request.post(`/assets/${assetId}/metadata`, data, {
+    params: {
+      assetVersionId,
+    },
+  });
 };
 
 export const updateAssetMetadata = (
   assetId: string,
   data: UpsertAssetMetadataRequest,
+  assetVersionId?: string,
   changeReason?: string
 ): Promise<AssetMetadataVO> => {
   return request.put(`/assets/${assetId}/metadata`, data, {
     params: {
+      assetVersionId,
       changeReason,
     },
   });
 };
 
-export const getAssetFiles = (assetId: string): Promise<AssetFileVO[]> => {
-  return request.get(`/assets/${assetId}/files`);
+export const getAssetFiles = (assetId: string, assetVersionId?: string): Promise<AssetFileVO[]> => {
+  return request.get(`/assets/${assetId}/files`, {
+    params: {
+      assetVersionId,
+    },
+  });
 };
 
-export const uploadAssetFile = (assetId: string, formData: FormData): Promise<AssetFileVO> => {
+export const uploadAssetFile = (assetId: string, formData: FormData, assetVersionId?: string): Promise<AssetFileVO> => {
   return request.post(`/assets/${assetId}/files`, formData, {
+    params: {
+      assetVersionId,
+    },
     headers: {
       'Content-Type': 'multipart/form-data',
     },
   });
 };
 
-export const getEnvironmentList = (params: PaginationParams & { search?: string; assetId?: string }): Promise<any> => {
+export const getEnvironmentList = (params: PaginationParams & { search?: string; assetId?: string; assetVersionId?: string }): Promise<any> => {
   return request.get('/environments', {
     params: {
       page: Math.max((params.page ?? 1) - 1, 0),
       size: params.page_size,
       keyword: params.search,
       assetId: params.assetId,
+      assetVersionId: params.assetVersionId,
     },
   });
 };
@@ -120,6 +139,7 @@ export const createEnvironment = (data: CreateEnvironmentRequest): Promise<Envir
   return request.post('/environments', {
     name: data.name,
     assetId: data.asset_id,
+    assetVersionId: data.asset_version_id,
     templateId: data.template_id,
     config: data.config,
   });
@@ -128,10 +148,15 @@ export const createEnvironment = (data: CreateEnvironmentRequest): Promise<Envir
 export const updateEnvironment = (id: string, data: UpdateEnvironmentRequest): Promise<EnvironmentVO> => {
   return request.put(`/environments/${id}`, {
     name: data.name,
+    assetVersionId: data.asset_version_id,
     templateId: data.template_id,
     config: data.config,
     status: data.status,
   });
+};
+
+export const getAssetVersions = (assetId: string): Promise<AssetVersionVO[]> => {
+  return request.get(`/assets/${assetId}/versions`);
 };
 
 export const deleteEnvironment = (id: string): Promise<any> => {

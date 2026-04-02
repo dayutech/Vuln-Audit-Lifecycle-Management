@@ -32,6 +32,9 @@ public class Environment {
     @Column(name = "asset_id", nullable = false)
     private UUID assetId;
 
+    @Column(name = "asset_version_id")
+    private UUID assetVersionId;
+
     @Column(name = "template_id", nullable = false)
     private UUID templateId;
 

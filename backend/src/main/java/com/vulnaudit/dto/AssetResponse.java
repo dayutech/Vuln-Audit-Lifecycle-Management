@@ -1,5 +1,6 @@
 package com.vulnaudit.dto;
 
+import com.vulnaudit.entity.Asset;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -11,6 +12,11 @@ import java.util.UUID;
 
 /**
  * 资产响应DTO
+ * 
+ * 功能说明：
+ * - 封装资产信息返回给前端
+ * - 包含关联的团队名称和负责人名称
+ * - 用于资产列表和详情展示
  */
 @Data
 @Builder
@@ -31,6 +37,9 @@ public class AssetResponse {
     @Schema(description = "所属团队ID")
     private UUID teamId;
 
+    @Schema(description = "所属团队名称")
+    private String teamName;
+
     @Schema(description = "目标类型")
     private String targetType;
 
@@ -49,9 +58,42 @@ public class AssetResponse {
     @Schema(description = "负责人ID")
     private UUID ownerId;
 
+    @Schema(description = "负责人用户名")
+    private String ownerName;
+
     @Schema(description = "创建时间")
     private LocalDateTime createdAt;
 
     @Schema(description = "更新时间")
     private LocalDateTime updatedAt;
+
+    /**
+     * 从Asset实体创建AssetResponse
+     * 
+     * @param asset 资产实体
+     * @param teamName 团队名称（可为null）
+     * @param ownerName 负责人用户名（可为null）
+     * @return AssetResponse对象
+     */
+    public static AssetResponse fromAsset(Asset asset, String teamName, String ownerName) {
+        if (asset == null) {
+            return null;
+        }
+        return AssetResponse.builder()
+                .id(asset.getId())
+                .name(asset.getName())
+                .code(asset.getCode())
+                .teamId(asset.getTeamId())
+                .teamName(teamName)
+                .targetType(asset.getTargetType())
+                .targetSource(asset.getTargetSource())
+                .description(asset.getDescription())
+                .priority(asset.getPriority())
+                .status(asset.getStatus())
+                .ownerId(asset.getOwnerId())
+                .ownerName(ownerName)
+                .createdAt(asset.getCreatedAt())
+                .updatedAt(asset.getUpdatedAt())
+                .build();
+    }
 }

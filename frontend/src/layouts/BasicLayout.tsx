@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Layout, Menu, Dropdown, Avatar } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, SettingOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined } from '@ant-design/icons';
@@ -85,6 +85,29 @@ const BasicLayout: React.FC = () => {
       },
     ],
   };
+  const selectedMenuKey = useMemo(() => {
+    const menuKeys = [
+      '/dashboard',
+      '/assets',
+      '/vulnerabilities',
+      '/tasks',
+      '/knowledge',
+      '/documents',
+      '/tools',
+      '/teams',
+      '/users',
+      '/roles',
+      '/notifications',
+    ];
+    const exactMatchedKey = menuKeys.find((key) => key === location.pathname);
+    if (exactMatchedKey) {
+      return exactMatchedKey;
+    }
+    const partialMatchedKey = menuKeys
+      .sort((a, b) => b.length - a.length)
+      .find((key) => location.pathname.startsWith(`${key}/`));
+    return partialMatchedKey || '/dashboard';
+  }, [location.pathname]);
 
   return (
     <Layout style={{ minHeight: '100vh' }}>
@@ -92,7 +115,7 @@ const BasicLayout: React.FC = () => {
         <div style={{ height: 32, margin: 16, background: 'rgba(255, 255, 255, 0.2)', borderRadius: 6 }} />
         <Menu
           theme="dark"
-          selectedKeys={[location.pathname]}
+          selectedKeys={[selectedMenuKey]}
           mode="inline"
           items={menuItems}
           onClick={({ key }) => navigate(key)}

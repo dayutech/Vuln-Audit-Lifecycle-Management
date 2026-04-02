@@ -5,6 +5,7 @@ import com.vulnaudit.entity.AssetAppMetadata;
 import com.vulnaudit.entity.AssetAppMetadataHistory;
 import com.vulnaudit.repository.AssetAppMetadataRepository;
 import com.vulnaudit.repository.AssetAppMetadataHistoryRepository;
+import com.vulnaudit.repository.AssetVersionRepository;
 import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -36,15 +38,19 @@ public class AssetMetadataController {
 
     private final AssetAppMetadataRepository metadataRepository;
     private final AssetAppMetadataHistoryRepository historyRepository;
+    private final AssetVersionRepository assetVersionRepository;
     private final UserService userService;
     private final PasswordEncoder passwordEncoder;
 
     @GetMapping
     @Operation(summary = "获取资产元数据", description = "获取指定资产的应用元数据")
-    public ResponseEntity<ApiResponse<AssetAppMetadata>> listMetadata(@PathVariable UUID assetId) {
-        log.info("获取资产元数据: assetId={}", assetId);
-        
-        return metadataRepository.findByAssetId(assetId)
+    public ResponseEntity<ApiResponse<AssetAppMetadata>> listMetadata(
+            @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId) {
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        log.info("获取资产元数据: assetId={}, assetVersionId={}", assetId, resolvedVersionId);
+
+        return findMetadataByAssetAndVersion(assetId, resolvedVersionId)
                 .map(metadata -> ResponseEntity.ok(ApiResponse.success(metadata)))
                 .orElse(ResponseEntity.ok(ApiResponse.error(404, "元数据不存在")));
     }
@@ -66,16 +72,18 @@ public class AssetMetadataController {
     @Operation(summary = "创建元数据", description = "创建新的应用元数据")
     public ResponseEntity<ApiResponse<AssetAppMetadata>> createMetadata(
             @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId,
             @RequestBody AssetAppMetadata metadata) {
-        
-        log.info("创建元数据: assetId={}", assetId);
-        if (metadataRepository.existsByAssetId(assetId)) {
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        log.info("创建元数据: assetId={}, assetVersionId={}", assetId, resolvedVersionId);
+        if (metadataRepository.existsByAssetIdAndAssetVersionId(assetId, resolvedVersionId)) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(ApiResponse.error(400, "该资产已存在元数据，请使用更新接口"));
         }
 
         UUID currentUserId = getCurrentUserId();
         metadata.setAssetId(assetId);
+        metadata.setAssetVersionId(resolvedVersionId);
         metadata.setClaimedBy(currentUserId);
         metadata.setVersion(1);
         if (metadata.getAdminPasswordEncrypted() != null && !metadata.getAdminPasswordEncrypted().isBlank()) {
@@ -92,8 +100,10 @@ public class AssetMetadataController {
     public ResponseEntity<ApiResponse<AssetAppMetadata>> updateMetadataByAsset(
             @PathVariable UUID assetId,
             @RequestBody AssetAppMetadata metadata,
+            @RequestParam(required = false) UUID assetVersionId,
             @Parameter(description = "变更原因") @RequestParam(required = false) String changeReason) {
-        return metadataRepository.findByAssetId(assetId)
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        return findMetadataByAssetAndVersion(assetId, resolvedVersionId)
                 .map(existing -> updateMetadataInternal(existing, metadata, changeReason))
                 .orElse(ResponseEntity.ok(ApiResponse.error(404, "元数据不存在")));
     }
@@ -146,8 +156,10 @@ public class AssetMetadataController {
     @Operation(summary = "获取资产元数据历史", description = "按资产ID获取元数据历史")
     public ResponseEntity<ApiResponse<List<AssetAppMetadataHistory>>> getMetadataHistoryByAsset(
             @Parameter(description = "资产ID", required = true)
-            @PathVariable UUID assetId) {
-        return metadataRepository.findByAssetId(assetId)
+            @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId) {
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        return findMetadataByAssetAndVersion(assetId, resolvedVersionId)
                 .map(metadata -> ResponseEntity.ok(ApiResponse.success(
                         historyRepository.findByMetadataIdOrderByVersionDesc(metadata.getId())
                 )))
@@ -158,8 +170,10 @@ public class AssetMetadataController {
     @Operation(summary = "获取历史版本", description = "按资产ID与版本号获取元数据历史版本")
     public ResponseEntity<ApiResponse<AssetAppMetadataHistory>> getMetadataVersionByAsset(
             @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId,
             @PathVariable Integer version) {
-        return metadataRepository.findByAssetId(assetId)
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        return findMetadataByAssetAndVersion(assetId, resolvedVersionId)
                 .map(metadata -> {
                     AssetAppMetadataHistory history = historyRepository.findByMetadataIdAndVersion(metadata.getId(), version);
                     if (history == null) {
@@ -258,6 +272,25 @@ public class AssetMetadataController {
         existing.setVersion(existing.getVersion() + 1);
         AssetAppMetadata updated = metadataRepository.save(existing);
         return ResponseEntity.ok(ApiResponse.success(updated));
+    }
+
+    private Optional<AssetAppMetadata> findMetadataByAssetAndVersion(UUID assetId, UUID assetVersionId) {
+        if (assetVersionId != null) {
+            Optional<AssetAppMetadata> versioned = metadataRepository.findByAssetIdAndAssetVersionId(assetId, assetVersionId);
+            if (versioned.isPresent()) {
+                return versioned;
+            }
+        }
+        return metadataRepository.findByAssetIdAndAssetVersionId(assetId, null);
+    }
+
+    private UUID resolveAssetVersionId(UUID assetId, UUID assetVersionId) {
+        if (assetVersionId != null) {
+            return assetVersionId;
+        }
+        return assetVersionRepository.findByAssetIdAndIsDefaultTrue(assetId)
+                .map(version -> version.getId())
+                .orElse(null);
     }
 
     private UUID getCurrentUserId() {

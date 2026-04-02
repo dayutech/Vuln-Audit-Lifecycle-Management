@@ -1,6 +1,8 @@
 package com.vulnaudit.controller;
 
 import com.vulnaudit.entity.Environment;
+import com.vulnaudit.entity.AssetVersion;
+import com.vulnaudit.repository.AssetVersionRepository;
 import com.vulnaudit.repository.EnvironmentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -23,9 +25,12 @@ public class EnvironmentControllerTest extends BaseTest {
 
     @Autowired
     private EnvironmentRepository environmentRepository;
+    @Autowired
+    private AssetVersionRepository assetVersionRepository;
 
     private Environment testEnvironment;
     private UUID testAssetId;
+    private UUID testAssetVersionId;
     private UUID testTemplateId;
     private UUID testUserId;
 
@@ -34,10 +39,20 @@ public class EnvironmentControllerTest extends BaseTest {
         testAssetId = UUID.randomUUID();
         testTemplateId = UUID.randomUUID();
         testUserId = UUID.randomUUID();
+        AssetVersion assetVersion = assetVersionRepository.save(Objects.requireNonNull(AssetVersion.builder()
+                .assetId(testAssetId)
+                .versionNo(1)
+                .name("v1")
+                .isDefault(true)
+                .status("active")
+                .createdBy(testUserId)
+                .build()));
+        testAssetVersionId = assetVersion.getId();
 
         testEnvironment = Environment.builder()
                 .name("测试环境")
                 .assetId(testAssetId)
+                .assetVersionId(testAssetVersionId)
                 .templateId(testTemplateId)
                 .config("{\"key\":\"value\"}")
                 .status("created")
@@ -98,6 +113,19 @@ public class EnvironmentControllerTest extends BaseTest {
                     .content(envJson))
                     .andExpect(status().isOk());
         }
+
+        @Test
+        @DisplayName("创建环境 - 未传版本时使用默认版本")
+        void createEnvironment_UseDefaultAssetVersionWhenMissing() throws Exception {
+            String envJson = "{\"name\":\"默认版本环境\",\"assetId\":\"" + testAssetId + "\",\"templateId\":\"" + testTemplateId + "\",\"config\":\"{}\",\"createdBy\":\"" + testUserId + "\"}";
+
+            mockMvc.perform(post("/api/v1/environments")
+                            .header("Authorization", engineerToken)
+                            .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                            .content(envJson))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.assetVersionId").value(testAssetVersionId.toString()));
+        }
     }
 
     @Nested
@@ -114,6 +142,18 @@ public class EnvironmentControllerTest extends BaseTest {
                     .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(envJson))
                     .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("更新环境 - 版本不属于资产时返回404")
+        void updateEnvironment_InvalidAssetVersion_ReturnsNotFound() throws Exception {
+            String envJson = "{\"assetVersionId\":\"" + UUID.randomUUID() + "\"}";
+
+            mockMvc.perform(put("/api/v1/environments/" + testEnvironment.getId())
+                            .header("Authorization", engineerToken)
+                            .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                            .content(envJson))
+                    .andExpect(status().isNotFound());
         }
     }
 

@@ -23,7 +23,7 @@ public interface EnvironmentService {
     Optional<Environment> findById(@Nullable UUID id);
 
     @Nonnull
-    PageResponse<Environment> findAll(int page, int size, @Nullable String keyword, @Nullable UUID assetId);
+    PageResponse<Environment> findAll(int page, int size, @Nullable String keyword, @Nullable UUID assetId, @Nullable UUID assetVersionId);
 
     @Nonnull
     Environment updateEnvironment(@Nullable UUID id, @Nonnull Environment environment);

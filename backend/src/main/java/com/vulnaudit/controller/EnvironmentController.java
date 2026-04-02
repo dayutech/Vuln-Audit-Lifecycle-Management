@@ -58,11 +58,12 @@ public class EnvironmentController {
             @Parameter(description = "页码") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size,
             @Parameter(description = "搜索关键词") @RequestParam(required = false) String keyword,
-            @Parameter(description = "资产ID") @RequestParam(required = false) UUID assetId) {
+            @Parameter(description = "资产ID") @RequestParam(required = false) UUID assetId,
+            @Parameter(description = "资产版本ID") @RequestParam(required = false) UUID assetVersionId) {
         
-        log.info("分页查询环境: page={}, size={}, keyword={}, assetId={}", page, size, keyword, assetId);
+        log.info("分页查询环境: page={}, size={}, keyword={}, assetId={}, assetVersionId={}", page, size, keyword, assetId, assetVersionId);
         
-        PageResponse<Environment> response = environmentService.findAll(page, size, keyword, assetId);
+        PageResponse<Environment> response = environmentService.findAll(page, size, keyword, assetId, assetVersionId);
         return ResponseEntity.ok(ApiResponse.success(response));
     }
 
