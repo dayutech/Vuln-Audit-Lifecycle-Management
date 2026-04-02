@@ -1,6 +1,7 @@
 package com.vulnaudit.repository;
 
 import com.vulnaudit.entity.DashboardConfig;
+import jakarta.annotation.Nullable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -16,15 +17,15 @@ public interface DashboardConfigRepository extends JpaRepository<DashboardConfig
     /**
      * 按用户ID查询配置
      */
-    Optional<DashboardConfig> findByUserId(UUID userId);
+    Optional<DashboardConfig> findByUserId(@Nullable UUID userId);
 
     /**
      * 删除用户配置
      */
-    void deleteByUserId(UUID userId);
+    void deleteByUserId(@Nullable UUID userId);
 
     /**
      * 检查用户是否有配置
      */
-    boolean existsByUserId(UUID userId);
+    boolean existsByUserId(@Nullable UUID userId);
 }

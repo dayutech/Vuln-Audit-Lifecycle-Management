@@ -21,9 +21,12 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
+
+import jakarta.annotation.Nullable;
 
 /**
  * 资产服务实现类
@@ -76,26 +79,26 @@ public class AssetServiceImpl implements AssetService {
      * 根据ID查询资产
      */
     @Override
-    public Optional<Asset> findById(UUID id) {
+    public Optional<Asset> findById(@Nullable UUID id) {
         log.debug("查询资产: id={}", id);
-        return assetRepository.findById(id);
+        return id != null ? assetRepository.findById(id) : Optional.empty();
     }
 
     /**
      * 根据资产编号查询资产
      */
     @Override
-    public Optional<Asset> findByCode(String code) {
+    public Optional<Asset> findByCode(@Nullable String code) {
         log.debug("查询资产: code={}", code);
-        return assetRepository.findByCode(code);
+        return code != null ? assetRepository.findByCode(code) : Optional.empty();
     }
 
     /**
      * 分页查询资产列表
      */
     @Override
-    public PageResponse<Asset> findAll(int page, int size, String keyword, String status, UUID teamId, String priority) {
-        log.debug("分页查询资产: page={}, size={}, keyword={}, status={}, teamId={}, priority={}", 
+    public PageResponse<Asset> findAll(int page, int size, @Nullable String keyword, @Nullable String status, @Nullable UUID teamId, @Nullable String priority) {
+        log.debug("分页查询资产: page={}, size={}, keyword={}, status={}, teamId={}, priority={}",
                 page, size, keyword, status, teamId, priority);
         
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
@@ -140,18 +143,18 @@ public class AssetServiceImpl implements AssetService {
      * 根据团队ID查询资产列表
      */
     @Override
-    public List<Asset> findByTeamId(UUID teamId) {
+    public List<Asset> findByTeamId(@Nullable UUID teamId) {
         log.debug("查询团队资产: teamId={}", teamId);
-        return assetRepository.findByTeamId(teamId);
+        return teamId != null ? assetRepository.findByTeamId(teamId) : List.of();
     }
 
     /**
      * 根据负责人ID查询资产列表
      */
     @Override
-    public List<Asset> findByOwnerId(UUID ownerId) {
+    public List<Asset> findByOwnerId(@Nullable UUID ownerId) {
         log.debug("查询负责人资产: ownerId={}", ownerId);
-        return assetRepository.findByOwnerId(ownerId);
+        return ownerId != null ? assetRepository.findByOwnerId(ownerId) : List.of();
     }
 
     /**
@@ -159,15 +162,19 @@ public class AssetServiceImpl implements AssetService {
      */
     @Override
     @Transactional
-    public Asset updateAsset(UUID id, Asset asset) {
+    public Asset updateAsset(@Nullable UUID id, Asset asset) {
         log.info("更新资产: id={}", id);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.ASSET_NOT_FOUND);
+        }
+
         Asset existingAsset = assetRepository.findById(id)
                 .orElseThrow(() -> {
                     log.warn("资产不存在: id={}", id);
                     return new BusinessException(ErrorCode.ASSET_NOT_FOUND);
                 });
-        
+
         // 更新可修改的字段
         if (asset.getName() != null) {
             existingAsset.setName(asset.getName());
@@ -190,10 +197,10 @@ public class AssetServiceImpl implements AssetService {
         if (asset.getOwnerId() != null) {
             existingAsset.setOwnerId(asset.getOwnerId());
         }
-        
-        Asset updatedAsset = assetRepository.save(existingAsset);
+
+        Asset updatedAsset = assetRepository.save(Objects.requireNonNull(existingAsset));
         log.info("资产更新成功: id={}", updatedAsset.getId());
-        
+
         return updatedAsset;
     }
 
@@ -202,26 +209,30 @@ public class AssetServiceImpl implements AssetService {
      */
     @Override
     @Transactional
-    public Asset updateStatus(UUID id, String status, UUID operatorId) {
+    public Asset updateStatus(@Nullable UUID id, @Nullable String status, @Nullable UUID operatorId) {
         log.info("更新资产状态: id={}, status={}, operatorId={}", id, status, operatorId);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.ASSET_NOT_FOUND);
+        }
+
         Asset asset = assetRepository.findById(id)
                 .orElseThrow(() -> {
                     log.warn("资产不存在: id={}", id);
                     return new BusinessException(ErrorCode.ASSET_NOT_FOUND);
                 });
-        
+
         // 验证状态值
         List<String> validStatuses = List.of("active", "under_test", "suspended", "archived");
         if (!validStatuses.contains(status)) {
             log.warn("无效的资产状态: {}", status);
             throw new BusinessException(ErrorCode.INVALID_STATUS);
         }
-        
+
         asset.setStatus(status);
         Asset updatedAsset = assetRepository.save(asset);
         log.info("资产状态更新成功: id={}, status={}", updatedAsset.getId(), status);
-        
+
         return updatedAsset;
     }
 
@@ -230,9 +241,13 @@ public class AssetServiceImpl implements AssetService {
      */
     @Override
     @Transactional
-    public void deleteAsset(UUID id, UUID operatorId) {
+    public void deleteAsset(@Nullable UUID id, @Nullable UUID operatorId) {
         log.info("删除资产: id={}, operatorId={}", id, operatorId);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.ASSET_NOT_FOUND);
+        }
+
         Asset asset = assetRepository.findById(id)
                 .orElseThrow(() -> {
                     log.warn("资产不存在: id={}", id);
@@ -274,13 +289,14 @@ public class AssetServiceImpl implements AssetService {
      */
     @Override
     public boolean hasAccess(UUID assetId, UUID userId) {
-        // 资产负责人有权限
+        if (assetId == null || userId == null) {
+            return false;
+        }
         Optional<Asset> assetOpt = assetRepository.findById(assetId);
-        if (assetOpt.isPresent() && assetOpt.get().getOwnerId().equals(userId)) {
+        if (assetOpt.isPresent() && userId.equals(assetOpt.get().getOwnerId())) {
             return true;
         }
-        
-        // 检查是否有已批准的访问申请
+
         return assetAccessRepository.existsByAssetIdAndUserIdAndStatus(assetId, userId, "approved");
     }
 
@@ -290,26 +306,30 @@ public class AssetServiceImpl implements AssetService {
     @Override
     public List<Asset> findAccessibleAssets(UUID userId) {
         log.debug("获取用户可访问的资产: userId={}", userId);
-        
+
         // 获取用户拥有的资产
         List<Asset> ownedAssets = assetRepository.findByOwnerId(userId);
-        
+
         // 获取用户有访问权限的资产
         List<AssetAccess> accesses = assetAccessRepository.findByUserIdAndStatus(userId, "approved");
         List<Asset> accessibleAssets = accesses.stream()
-                .map(access -> assetRepository.findById(access.getAssetId()))
+                .map(AssetAccess::getAssetId)
+                .filter(java.util.Objects::nonNull)
+                .map(assetRepository::findById)
                 .filter(Optional::isPresent)
-                .map(Optional::get)
+                .map(opt -> opt.orElse(null))
+                .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toList());
-        
+
         // 合并并去重
         List<Asset> result = new ArrayList<>(ownedAssets);
         for (Asset asset : accessibleAssets) {
-            if (result.stream().noneMatch(a -> a.getId().equals(asset.getId()))) {
+            UUID assetId = asset.getId();
+            if (assetId != null && result.stream().noneMatch(a -> a.getId() != null && a.getId().equals(assetId))) {
                 result.add(asset);
             }
         }
-        
+
         return result;
     }
 
@@ -319,15 +339,18 @@ public class AssetServiceImpl implements AssetService {
     @Override
     public List<Asset> findAuthorizedAssetsByUser(UUID userId) {
         log.debug("获取用户已获授权的资产: userId={}", userId);
-        
+
         // 获取用户有已批准访问权限的资产
         List<AssetAccess> accesses = assetAccessRepository.findByUserIdAndStatus(userId, "approved");
         List<Asset> authorizedAssets = accesses.stream()
-                .map(access -> assetRepository.findById(access.getAssetId()))
+                .map(AssetAccess::getAssetId)
+                .filter(java.util.Objects::nonNull)
+                .map(assetRepository::findById)
                 .filter(Optional::isPresent)
-                .map(Optional::get)
+                .map(opt -> opt.orElse(null))
+                .filter(java.util.Objects::nonNull)
                 .collect(Collectors.toList());
-        
+
         return authorizedAssets;
     }
 }

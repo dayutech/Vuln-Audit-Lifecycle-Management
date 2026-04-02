@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -48,7 +49,7 @@ public class NotificationControllerTest extends BaseTest {
                 .fullName("通知测试用户")
                 .status("active")
                 .build();
-        testUser = userRepository.save(testUser);
+        testUser = userRepository.save(Objects.requireNonNull(testUser));
 
         testNotification = Notification.builder()
                 .type("system")
@@ -56,14 +57,14 @@ public class NotificationControllerTest extends BaseTest {
                 .content("这是一条测试通知内容")
                 .createdAt(LocalDateTime.now())
                 .build();
-        testNotification = notificationRepository.save(testNotification);
+        testNotification = notificationRepository.save(Objects.requireNonNull(testNotification));
 
         NotificationRecipient recipient = NotificationRecipient.builder()
                 .notificationId(testNotification.getId())
                 .userId(testUser.getId())
                 .isRead(false)
                 .build();
-        recipientRepository.save(recipient);
+        recipientRepository.save(Objects.requireNonNull(recipient));
     }
 
     @Nested
@@ -150,7 +151,7 @@ public class NotificationControllerTest extends BaseTest {
             String settingsJson = "{\"enabled\":true}";
             mockMvc.perform(put("/api/v1/notifications/settings/system")
                     .header("Authorization", engineerToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(settingsJson))
                     .andExpect(status().isOk());
         }

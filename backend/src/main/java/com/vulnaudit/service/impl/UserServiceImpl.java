@@ -21,6 +21,7 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -86,6 +87,9 @@ public class UserServiceImpl implements UserService {
     @Override
     public Optional<User> findById(UUID id) {
         log.debug("查询用户: id={}", id);
+        if (id == null) {
+            return Optional.empty();
+        }
         return userRepository.findById(id);
     }
 
@@ -164,6 +168,9 @@ public class UserServiceImpl implements UserService {
     public User updateUser(UUID id, User user) {
         log.info("更新用户: id={}", id);
         
+        if (id == null) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
         User existingUser = userRepository.findById(id)
                 .orElseThrow(() -> {
                     log.warn("用户不存在: id={}", id);
@@ -191,7 +198,7 @@ public class UserServiceImpl implements UserService {
             existingUser.setPosition(user.getPosition());
         }
         
-        User updatedUser = userRepository.save(existingUser);
+        User updatedUser = userRepository.save(Objects.requireNonNull(existingUser));
         log.info("用户更新成功: id={}", updatedUser.getId());
         
         return updatedUser;
@@ -205,6 +212,9 @@ public class UserServiceImpl implements UserService {
     public User updateStatus(UUID id, String status, UUID operatorId) {
         log.info("更新用户状态: id={}, status={}, operatorId={}", id, status, operatorId);
         
+        if (id == null) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
         User user = userRepository.findById(id)
                 .orElseThrow(() -> {
                     log.warn("用户不存在: id={}", id);
@@ -232,6 +242,9 @@ public class UserServiceImpl implements UserService {
     public void deleteUser(UUID id, UUID operatorId) {
         log.info("删除用户: id={}, operatorId={}", id, operatorId);
         
+        if (id == null) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
         User user = userRepository.findById(id)
                 .orElseThrow(() -> {
                     log.warn("用户不存在: id={}", id);
@@ -281,6 +294,9 @@ public class UserServiceImpl implements UserService {
     public boolean changePassword(UUID id, String oldPassword, String newPassword) {
         log.info("修改密码: userId={}", id);
         
+        if (id == null) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
         User user = userRepository.findById(id)
                 .orElseThrow(() -> {
                     log.warn("用户不存在: id={}", id);
@@ -309,6 +325,9 @@ public class UserServiceImpl implements UserService {
     public void resetPassword(UUID id, String newPassword, UUID operatorId) {
         log.info("重置密码: userId={}, operatorId={}", id, operatorId);
         
+        if (id == null) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
         User user = userRepository.findById(id)
                 .orElseThrow(() -> {
                     log.warn("用户不存在: id={}", id);
@@ -329,9 +348,9 @@ public class UserServiceImpl implements UserService {
     public void updateLastLogin(UUID id) {
         log.debug("更新最后登录时间: userId={}", id);
         
-        userRepository.findById(id).ifPresent(user -> {
+        userRepository.findById(Objects.requireNonNull(id)).ifPresent(user -> {
             user.setLastLogin(LocalDateTime.now());
-            userRepository.save(user);
+            userRepository.save(Objects.requireNonNull(user));
         });
     }
 

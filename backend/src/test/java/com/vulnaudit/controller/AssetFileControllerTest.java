@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -49,7 +50,7 @@ public class AssetFileControllerTest extends BaseTest {
                 .fullName("文件负责人")
                 .status("active")
                 .build();
-        testUser = userRepository.save(testUser);
+        testUser = userRepository.save(Objects.requireNonNull(testUser));
 
         testAsset = Asset.builder()
                 .name("文件测试资产")
@@ -61,7 +62,7 @@ public class AssetFileControllerTest extends BaseTest {
                 .status("active")
                 .ownerId(testUser.getId())
                 .build();
-        testAsset = assetRepository.save(testAsset);
+        testAsset = assetRepository.save(Objects.requireNonNull(testAsset));
 
         testFile = AssetFile.builder()
                 .assetId(testAsset.getId())
@@ -74,7 +75,7 @@ public class AssetFileControllerTest extends BaseTest {
                 .status("active")
                 .uploadedBy(testUser.getId())
                 .build();
-        testFile = assetFileRepository.save(testFile);
+        testFile = assetFileRepository.save(Objects.requireNonNull(testFile));
     }
 
     @Nested

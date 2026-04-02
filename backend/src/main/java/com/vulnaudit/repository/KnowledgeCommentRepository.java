@@ -1,6 +1,7 @@
 package com.vulnaudit.repository;
 
 import com.vulnaudit.entity.KnowledgeComment;
+import jakarta.annotation.Nullable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -16,15 +17,15 @@ public interface KnowledgeCommentRepository extends JpaRepository<KnowledgeComme
     /**
      * 按文章ID查询评论列表
      */
-    List<KnowledgeComment> findByArticleIdOrderByCreatedAtDesc(UUID articleId);
+    List<KnowledgeComment> findByArticleIdOrderByCreatedAtDesc(@Nullable UUID articleId);
 
     /**
      * 按用户ID查询评论列表
      */
-    List<KnowledgeComment> findByUserIdOrderByCreatedAtDesc(UUID userId);
+    List<KnowledgeComment> findByUserIdOrderByCreatedAtDesc(@Nullable UUID userId);
 
     /**
      * 统计文章评论数量
      */
-    long countByArticleId(UUID articleId);
+    long countByArticleId(@Nullable UUID articleId);
 }

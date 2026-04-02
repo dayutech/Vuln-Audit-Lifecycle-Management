@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -59,7 +60,7 @@ public class AssetControllerTest extends BaseTest {
                 .fullName("资产负责人")
                 .status("active")
                 .build();
-        testUser = userRepository.save(testUser);
+        testUser = userRepository.save(Objects.requireNonNull(testUser));
 
         // 创建测试团队
         testTeam = Team.builder()
@@ -68,7 +69,7 @@ public class AssetControllerTest extends BaseTest {
                 .leaderId(testUser.getId())
                 .createdBy(testUser.getId())
                 .build();
-        testTeam = teamRepository.save(testTeam);
+        testTeam = teamRepository.save(Objects.requireNonNull(testTeam));
 
         // 创建测试资产
         testAsset = Asset.builder()
@@ -82,7 +83,7 @@ public class AssetControllerTest extends BaseTest {
                 .ownerId(testUser.getId())
                 .teamId(testTeam.getId())
                 .build();
-        testAsset = assetRepository.save(testAsset);
+        testAsset = assetRepository.save(Objects.requireNonNull(testAsset));
 
         // 创建测试分组
         testGroup = AssetGroup.builder()
@@ -90,7 +91,7 @@ public class AssetControllerTest extends BaseTest {
                 .type("test")
                 .description("用于测试的分组")
                 .build();
-        testGroup = assetGroupRepository.save(testGroup);
+        testGroup = assetGroupRepository.save(Objects.requireNonNull(testGroup));
     }
 
     @Nested
@@ -182,8 +183,8 @@ public class AssetControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/assets")
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.data.name").value("新资产"));
         }
@@ -198,8 +199,8 @@ public class AssetControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/assets")
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isBadRequest());
         }
     }
@@ -218,8 +219,8 @@ public class AssetControllerTest extends BaseTest {
 
             mockMvc.perform(put("/api/v1/assets/" + testAsset.getId())
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.name").value("更新后的资产"));
         }
@@ -301,7 +302,7 @@ public class AssetControllerTest extends BaseTest {
             String accessJson = "{\"requestNote\":\"需要访问此资产进行测试\"}";
             mockMvc.perform(post("/api/v1/assets/" + testAsset.getId() + "/access-requests")
                     .header("Authorization", engineerToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(accessJson))
                     .andExpect(status().isCreated());
         }
@@ -338,7 +339,7 @@ public class AssetControllerTest extends BaseTest {
             String claimJson = "{\"note\":\"认领此资产进行测试\"}";
             mockMvc.perform(post("/api/v1/assets/" + testAsset.getId() + "/claims")
                     .header("Authorization", engineerToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(claimJson))
                     .andExpect(status().isCreated());
         }

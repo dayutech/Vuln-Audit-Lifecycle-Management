@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.util.Objects;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -33,7 +35,7 @@ public class ToolControllerTest extends BaseTest {
                 .isOfficial(false)
                 .createdBy(engineerUserId)
                 .build();
-        testTool = toolRepository.save(testTool);
+        testTool = toolRepository.save(Objects.requireNonNull(testTool));
     }
 
     @Nested
@@ -93,7 +95,7 @@ public class ToolControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/tools")
                     .header("Authorization", engineerToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(toolJson))
                     .andExpect(status().isCreated());
         }

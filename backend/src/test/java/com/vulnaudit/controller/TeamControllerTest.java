@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -43,7 +44,7 @@ public class TeamControllerTest extends BaseTest {
                 .fullName("团队领导")
                 .status("active")
                 .build();
-        testLeader = userRepository.save(testLeader);
+        testLeader = userRepository.save(Objects.requireNonNull(testLeader));
 
         testTeam = Team.builder()
                 .name("测试团队_" + uniqueSuffix)
@@ -51,7 +52,7 @@ public class TeamControllerTest extends BaseTest {
                 .leaderId(testLeader.getId())
                 .createdBy(testLeader.getId())
                 .build();
-        testTeam = teamRepository.save(testTeam);
+        testTeam = teamRepository.save(Objects.requireNonNull(testTeam));
     }
 
     @Nested
@@ -113,7 +114,7 @@ public class TeamControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/teams")
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(teamJson))
                     .andExpect(status().isCreated());
         }
@@ -130,7 +131,7 @@ public class TeamControllerTest extends BaseTest {
 
             mockMvc.perform(put("/api/v1/teams/" + testTeam.getId())
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(teamJson))
                     .andExpect(status().isOk());
         }
@@ -171,7 +172,7 @@ public class TeamControllerTest extends BaseTest {
                     .fullName("新成员")
                     .status("active")
                     .build();
-            newUser = userRepository.save(newUser);
+            newUser = userRepository.save(Objects.requireNonNull(newUser));
 
             mockMvc.perform(post("/api/v1/teams/" + testTeam.getId() + "/members")
                     .header("Authorization", adminToken)

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -43,7 +44,7 @@ public class KnowledgeControllerTest extends BaseTest {
                 .fullName("知识库作者")
                 .status("active")
                 .build();
-        testAuthor = userRepository.save(testAuthor);
+        testAuthor = userRepository.save(Objects.requireNonNull(testAuthor));
 
         testArticle = KnowledgeArticle.builder()
                 .title("测试文章")
@@ -54,7 +55,7 @@ public class KnowledgeControllerTest extends BaseTest {
                 .status("published")
                 .viewCount(0)
                 .build();
-        testArticle = articleRepository.save(testArticle);
+        testArticle = articleRepository.save(Objects.requireNonNull(testArticle));
     }
 
     @Nested
@@ -131,7 +132,7 @@ public class KnowledgeControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/knowledge")
                     .header("Authorization", engineerToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(articleJson))
                     .andExpect(status().isCreated());
         }
@@ -148,7 +149,7 @@ public class KnowledgeControllerTest extends BaseTest {
 
             mockMvc.perform(put("/api/v1/knowledge/" + testArticle.getId())
                     .header("Authorization", engineerToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(articleJson))
                     .andExpect(status().isOk());
         }

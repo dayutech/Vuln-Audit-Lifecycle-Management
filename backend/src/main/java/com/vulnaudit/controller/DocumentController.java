@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -303,7 +304,7 @@ public class DocumentController {
                 .createdAt(LocalDateTime.now())
                 .build();
         
-        DocumentTag savedTag = documentTagRepository.save(documentTag);
+        DocumentTag savedTag = documentTagRepository.save(Objects.requireNonNull(documentTag, "documentTag must not be null"));
         log.info("文档标签添加成功: documentId={}, tag={}", id, tag);
         
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -320,7 +321,7 @@ public class DocumentController {
             @PathVariable UUID tagId) {
         log.info("移除文档标签: documentId={}, tagId={}", documentId, tagId);
         
-        documentTagRepository.deleteById(tagId);
+        documentTagRepository.deleteById(Objects.requireNonNull(tagId, "tagId must not be null"));
         log.info("文档标签移除成功: documentId={}, tagId={}", documentId, tagId);
         
         return ResponseEntity.ok(ApiResponse.success(null));

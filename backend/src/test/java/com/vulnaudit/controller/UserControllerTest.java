@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.util.Objects;
+
 import static org.hamcrest.Matchers.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -46,7 +48,7 @@ public class UserControllerTest extends BaseTest {
                 .fullName("测试工程师")
                 .status("active")
                 .build();
-        testUser = userRepository.save(testUser);
+        testUser = userRepository.save(Objects.requireNonNull(testUser));
 
         // 创建测试角色
         testRole = Role.builder()
@@ -55,7 +57,7 @@ public class UserControllerTest extends BaseTest {
                 .description("用于测试的角色")
                 .isSystem(false)
                 .build();
-        testRole = roleRepository.save(testRole);
+        testRole = roleRepository.save(Objects.requireNonNull(testRole));
     }
 
     @Nested
@@ -72,7 +74,7 @@ public class UserControllerTest extends BaseTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
                     .andExpect(jsonPath("$.data.content").isArray())
-                    .andExpect(jsonPath("$.data.totalElements").value(greaterThanOrEqualTo(1)));
+                    .andExpect(jsonPath("$.data.totalElements").value(Objects.requireNonNull(greaterThanOrEqualTo(1))));
         }
 
         @Test
@@ -83,7 +85,7 @@ public class UserControllerTest extends BaseTest {
                     .param("keyword", "testengineer"))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
-                    .andExpect(jsonPath("$.data.content", hasSize(greaterThanOrEqualTo(1))));
+                    .andExpect(jsonPath("$.data.content", Objects.requireNonNull(hasSize(greaterThanOrEqualTo(1)))));
         }
 
         @Test
@@ -135,8 +137,8 @@ public class UserControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/users")
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.data.username").value("newuser"))
                     .andExpect(jsonPath("$.data.email").value("newuser@test.com"));
@@ -155,8 +157,8 @@ public class UserControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/users")
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isCreated());
         }
 
@@ -173,8 +175,8 @@ public class UserControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/users")
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isCreated());
         }
 
@@ -189,8 +191,8 @@ public class UserControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/users")
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isBadRequest());
         }
     }
@@ -208,8 +210,8 @@ public class UserControllerTest extends BaseTest {
 
             mockMvc.perform(put("/api/v1/users/" + testUser.getId())
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.fullName").value("更新后的名字"));
         }
@@ -222,8 +224,8 @@ public class UserControllerTest extends BaseTest {
 
             mockMvc.perform(put("/api/v1/users/00000000-0000-0000-0000-000000000999")
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isNotFound());
         }
     }

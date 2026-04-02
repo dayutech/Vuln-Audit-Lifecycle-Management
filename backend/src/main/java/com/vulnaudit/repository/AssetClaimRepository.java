@@ -1,6 +1,7 @@
 package com.vulnaudit.repository;
 
 import com.vulnaudit.entity.AssetClaim;
+import jakarta.annotation.Nullable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
@@ -14,7 +15,7 @@ import java.util.UUID;
 
 /**
  * 资产认领数据访问层接口
- * 
+ *
  * 功能说明：
  * - 提供资产认领实体的CRUD操作
  * - 提供认领查询相关的自定义方法
@@ -24,54 +25,54 @@ public interface AssetClaimRepository extends JpaRepository<AssetClaim, UUID>, J
 
     /**
      * 根据资产ID查询所有认领记录
-     * 
+     *
      * @param assetId 资产ID
      * @return 认领记录列表
      */
-    List<AssetClaim> findByAssetId(UUID assetId);
+    List<AssetClaim> findByAssetId(@Nullable UUID assetId);
 
     /**
      * 根据用户ID查询所有认领记录
-     * 
+     *
      * @param userId 用户ID
      * @return 认领记录列表
      */
-    List<AssetClaim> findByUserId(UUID userId);
+    List<AssetClaim> findByUserId(@Nullable UUID userId);
 
     /**
      * 根据资产ID和用户ID查询认领记录
-     * 
+     *
      * @param assetId 资产ID
      * @param userId 用户ID
      * @return 认领记录（如果存在）
      */
-    Optional<AssetClaim> findByAssetIdAndUserId(UUID assetId, UUID userId);
+    Optional<AssetClaim> findByAssetIdAndUserId(@Nullable UUID assetId, @Nullable UUID userId);
 
     /**
      * 根据资产ID和状态查询认领记录
-     * 
+     *
      * @param assetId 资产ID
      * @param status 状态
      * @return 认领记录列表
      */
-    List<AssetClaim> findByAssetIdAndStatus(UUID assetId, String status);
+    List<AssetClaim> findByAssetIdAndStatus(@Nullable UUID assetId, @Nullable String status);
 
     /**
      * 根据用户ID和状态查询认领记录
-     * 
+     *
      * @param userId 用户ID
      * @param status 状态
      * @return 认领记录列表
      */
-    List<AssetClaim> findByUserIdAndStatus(UUID userId, String status);
+    List<AssetClaim> findByUserIdAndStatus(@Nullable UUID userId, @Nullable String status);
 
     /**
      * 检查资产是否有待审核的认领申请
-     * 
+     *
      * @param assetId 资产ID
      * @return 如果存在返回true
      */
-    boolean existsByAssetIdAndStatus(UUID assetId, String status);
+    boolean existsByAssetIdAndStatus(@Nullable UUID assetId, @Nullable String status);
 
     /**
      * 检查用户是否有资产的活跃认领（approved状态）

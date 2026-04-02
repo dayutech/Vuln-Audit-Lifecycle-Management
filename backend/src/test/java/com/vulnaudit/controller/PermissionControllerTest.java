@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -37,7 +38,7 @@ public class PermissionControllerTest extends BaseTest {
                 .httpMethod("GET")
                 .description("用于测试的权限")
                 .build();
-        testPermission = permissionRepository.save(testPermission);
+        testPermission = permissionRepository.save(Objects.requireNonNull(testPermission));
     }
 
     @Nested
@@ -95,7 +96,7 @@ public class PermissionControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/permissions")
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(permissionJson))
                     .andExpect(status().isCreated());
         }
@@ -112,7 +113,7 @@ public class PermissionControllerTest extends BaseTest {
 
             mockMvc.perform(put("/api/v1/permissions/" + testPermission.getId())
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(permissionJson))
                     .andExpect(status().isOk());
         }

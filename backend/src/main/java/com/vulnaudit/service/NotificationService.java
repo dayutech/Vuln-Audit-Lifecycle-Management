@@ -5,6 +5,8 @@ import com.vulnaudit.entity.Notification;
 import com.vulnaudit.entity.NotificationSetting;
 import com.vulnaudit.entity.SystemAnnouncement;
 
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -15,75 +17,86 @@ import java.util.UUID;
 public interface NotificationService {
 
     // 通知管理
-    Notification createNotification(Notification notification);
+    @Nonnull
+    Notification createNotification(@Nonnull Notification notification);
 
-    Optional<Notification> findById(UUID id);
+    Optional<Notification> findById(@Nullable UUID id);
 
-    PageResponse<Notification> findByRecipientId(UUID userId, int page, int size, Boolean isRead);
+    @Nonnull
+    PageResponse<Notification> findByRecipientId(@Nullable UUID userId, int page, int size, @Nullable Boolean isRead);
 
-    void markAsRead(UUID notificationId, UUID userId);
+    void markAsRead(@Nullable UUID notificationId, @Nullable UUID userId);
 
-    void markAllAsRead(UUID userId);
+    void markAllAsRead(@Nullable UUID userId);
 
-    long countUnread(UUID userId);
+    long countUnread(@Nullable UUID userId);
 
-    void sendNotification(UUID userId, String type, String title, String content);
+    void sendNotification(@Nullable UUID userId, @Nullable String type, @Nullable String title, @Nullable String content);
 
-    void sendBulkNotification(List<UUID> userIds, String type, String title, String content);
+    void sendBulkNotification(@Nullable List<UUID> userIds, @Nullable String type, @Nullable String title, @Nullable String content);
 
     /**
      * 删除通知
-     * 
+     *
      * @param notificationId 通知ID
      * @param userId 用户ID
      */
-    void deleteNotification(UUID notificationId, UUID userId);
+    void deleteNotification(@Nullable UUID notificationId, @Nullable UUID userId);
 
     /**
      * 发送漏洞通知
-     * 
+     *
      * @param vulnerabilityId 漏洞ID
      * @param type 通知类型
      * @param recipientIds 接收者ID列表（可选）
      */
-    void sendVulnerabilityNotification(UUID vulnerabilityId, String type, List<UUID> recipientIds);
+    void sendVulnerabilityNotification(@Nullable UUID vulnerabilityId, @Nullable String type, @Nullable List<UUID> recipientIds);
 
     /**
      * 获取通知发送记录
-     * 
+     *
      * @param notificationId 通知ID
      * @return 接收者列表
      */
-    List<?> getNotificationRecipients(UUID notificationId);
+    @Nonnull
+    List<?> getNotificationRecipients(@Nullable UUID notificationId);
 
     // 通知设置
-    NotificationSetting getSetting(UUID userId, String type);
+    @Nonnull
+    NotificationSetting getSetting(@Nullable UUID userId, @Nullable String type);
 
-    NotificationSetting updateSetting(UUID userId, String type, NotificationSetting setting);
+    @Nonnull
+    NotificationSetting updateSetting(@Nullable UUID userId, @Nullable String type, @Nonnull NotificationSetting setting);
 
-    List<NotificationSetting> getSettings(UUID userId);
+    @Nonnull
+    List<NotificationSetting> getSettings(@Nullable UUID userId);
 
     // 系统公告
-    SystemAnnouncement createAnnouncement(SystemAnnouncement announcement);
+    @Nonnull
+    SystemAnnouncement createAnnouncement(@Nonnull SystemAnnouncement announcement);
 
-    Optional<SystemAnnouncement> findAnnouncementById(UUID id);
+    Optional<SystemAnnouncement> findAnnouncementById(@Nullable UUID id);
 
+    @Nonnull
     List<SystemAnnouncement> findActiveAnnouncements();
 
+    @Nonnull
     PageResponse<SystemAnnouncement> findAllAnnouncements(int page, int size);
 
-    SystemAnnouncement updateAnnouncement(UUID id, SystemAnnouncement announcement);
+    @Nonnull
+    SystemAnnouncement updateAnnouncement(@Nullable UUID id, @Nonnull SystemAnnouncement announcement);
 
-    void deleteAnnouncement(UUID id);
+    void deleteAnnouncement(@Nullable UUID id);
 
     // 资产订阅
-    void subscribeAsset(UUID userId, UUID assetId);
+    void subscribeAsset(@Nullable UUID userId, @Nullable UUID assetId);
 
-    void unsubscribeAsset(UUID userId, UUID assetId);
+    void unsubscribeAsset(@Nullable UUID userId, @Nullable UUID assetId);
 
-    boolean isSubscribed(UUID userId, UUID assetId);
+    boolean isSubscribed(@Nullable UUID userId, @Nullable UUID assetId);
 
-    List<UUID> getSubscribedAssetIds(UUID userId);
+    @Nonnull
+    List<UUID> getSubscribedAssetIds(@Nullable UUID userId);
 
-    void notifySubscribers(UUID assetId, String type, String title, String content);
+    void notifySubscribers(@Nullable UUID assetId, @Nullable String type, @Nullable String title, @Nullable String content);
 }

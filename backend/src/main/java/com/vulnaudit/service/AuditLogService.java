@@ -3,6 +3,8 @@ package com.vulnaudit.service;
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.AuditLog;
 
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
 import java.util.UUID;
 
 /**
@@ -10,38 +12,21 @@ import java.util.UUID;
  */
 public interface AuditLogService {
 
-    /**
-     * 记录审计日志
-     */
-    void log(UUID userId, String action, String resourceType, UUID resourceId, String detail);
+    void log(@Nullable UUID userId, @Nullable String action, @Nullable String resourceType, @Nullable UUID resourceId, @Nullable String detail);
 
-    /**
-     * 记录审计日志（带IP地址）
-     */
-    void log(UUID userId, String action, String resourceType, UUID resourceId, String detail, String ipAddress);
+    void log(@Nullable UUID userId, @Nullable String action, @Nullable String resourceType, @Nullable UUID resourceId, @Nullable String detail, @Nullable String ipAddress);
 
-    /**
-     * 根据ID查询审计日志
-     */
-    AuditLog findById(UUID id);
+    @Nonnull
+    AuditLog findById(@Nullable UUID id);
 
-    /**
-     * 分页查询审计日志
-     */
-    PageResponse<AuditLog> findAll(int page, int size, UUID userId, String action, String resourceType);
+    @Nonnull
+    PageResponse<AuditLog> findAll(int page, int size, @Nullable UUID userId, @Nullable String action, @Nullable String resourceType);
 
-    /**
-     * 根据用户ID查询审计日志
-     */
-    PageResponse<AuditLog> findByUserId(UUID userId, int page, int size);
+    @Nonnull
+    PageResponse<AuditLog> findByUserId(@Nullable UUID userId, int page, int size);
 
-    /**
-     * 根据资源类型和ID查询审计日志
-     */
-    PageResponse<AuditLog> findByResource(String resourceType, UUID resourceId, int page, int size);
+    @Nonnull
+    PageResponse<AuditLog> findByResource(@Nullable String resourceType, @Nullable UUID resourceId, int page, int size);
 
-    /**
-     * 清理过期日志
-     */
     void cleanOldLogs(int daysToKeep);
 }

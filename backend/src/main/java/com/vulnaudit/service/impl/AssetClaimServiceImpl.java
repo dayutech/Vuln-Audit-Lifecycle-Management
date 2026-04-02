@@ -8,6 +8,8 @@ import com.vulnaudit.repository.AssetClaimRepository;
 import com.vulnaudit.repository.AssetRepository;
 import com.vulnaudit.repository.UserRepository;
 import com.vulnaudit.service.AssetClaimService;
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -21,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -46,30 +49,33 @@ public class AssetClaimServiceImpl implements AssetClaimService {
      */
     @Override
     @Transactional
-    public AssetClaim createClaim(AssetClaim assetClaim) {
-        log.info("创建认领申请: assetId={}, userId={}", assetClaim.getAssetId(), assetClaim.getUserId());
-        
+    public AssetClaim createClaim(@Nonnull AssetClaim assetClaim) {
+        Objects.requireNonNull(assetClaim, "assetClaim must not be null");
+        UUID assetId = Objects.requireNonNull(assetClaim.getAssetId(), "assetClaim.assetId must not be null");
+        UUID userId = Objects.requireNonNull(assetClaim.getUserId(), "assetClaim.userId must not be null");
+        log.info("创建认领申请: assetId={}, userId={}", assetId, userId);
+
         // 检查资产是否存在
-        if (!assetRepository.existsById(assetClaim.getAssetId())) {
-            log.warn("资产不存在: assetId={}", assetClaim.getAssetId());
+        if (!assetRepository.existsById(assetId)) {
+            log.warn("资产不存在: assetId={}", assetId);
             throw new BusinessException(ErrorCode.ASSET_NOT_FOUND);
         }
-        
+
         // 检查用户是否存在
-        if (!userRepository.existsById(assetClaim.getUserId())) {
-            log.warn("用户不存在: userId={}", assetClaim.getUserId());
+        if (!userRepository.existsById(userId)) {
+            log.warn("用户不存在: userId={}", userId);
             throw new BusinessException(ErrorCode.USER_NOT_FOUND);
         }
-        
+
         // 检查资产是否已被认领
-        if (hasActiveClaim(assetClaim.getAssetId())) {
-            log.warn("资产已被认领: assetId={}", assetClaim.getAssetId());
+        if (hasActiveClaim(assetId)) {
+            log.warn("资产已被认领: assetId={}", assetId);
             throw new BusinessException(ErrorCode.ASSET_ALREADY_CLAIMED);
         }
-        
+
         // 检查用户是否已有待审核的认领申请
-        if (assetClaimRepository.existsByAssetIdAndStatus(assetClaim.getAssetId(), "pending")) {
-            log.warn("资产已有待审核的认领申请: assetId={}", assetClaim.getAssetId());
+        if (assetClaimRepository.existsByAssetIdAndStatus(assetId, "pending")) {
+            log.warn("资产已有待审核的认领申请: assetId={}", assetId);
             throw new BusinessException(ErrorCode.CONFLICT);
         }
         
@@ -86,17 +92,17 @@ public class AssetClaimServiceImpl implements AssetClaimService {
      * 根据ID查询认领申请
      */
     @Override
-    public Optional<AssetClaim> findById(UUID id) {
+    public Optional<AssetClaim> findById(@Nullable UUID id) {
         log.debug("查询认领申请: id={}", id);
-        return assetClaimRepository.findById(id);
+        return id != null ? assetClaimRepository.findById(id) : Optional.empty();
     }
 
     /**
      * 分页查询认领申请列表
      */
     @Override
-    public PageResponse<AssetClaim> findAll(int page, int size, UUID assetId, UUID userId, String status) {
-        log.debug("分页查询认领申请: page={}, size={}, assetId={}, userId={}, status={}", 
+    public PageResponse<AssetClaim> findAll(int page, int size, @Nullable UUID assetId, @Nullable UUID userId, @Nullable String status) {
+        log.debug("分页查询认领申请: page={}, size={}, assetId={}, userId={}, status={}",
                 page, size, assetId, userId, status);
         
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
@@ -153,35 +159,39 @@ public class AssetClaimServiceImpl implements AssetClaimService {
      */
     @Override
     @Transactional
-    public AssetClaim reviewClaim(UUID id, boolean approved, String reviewNote, UUID reviewerId) {
+    public AssetClaim reviewClaim(@Nullable UUID id, boolean approved, @Nullable String reviewNote, @Nullable UUID reviewerId) {
         log.info("审批认领申请: id={}, approved={}, reviewerId={}", id, approved, reviewerId);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.ASSET_CLAIM_NOT_FOUND);
+        }
+
         AssetClaim claim = assetClaimRepository.findById(id)
                 .orElseThrow(() -> {
                     log.warn("认领申请不存在: id={}", id);
                     return new BusinessException(ErrorCode.ASSET_CLAIM_NOT_FOUND);
                 });
-        
+
         // 检查是否为待审核状态
         if (!"pending".equals(claim.getStatus())) {
             log.warn("认领申请已处理: id={}, status={}", id, claim.getStatus());
             throw new BusinessException(ErrorCode.INVALID_STATUS);
         }
-        
+
         // 更新审批信息
         claim.setStatus(approved ? "approved" : "rejected");
         claim.setReviewedBy(reviewerId);
         claim.setReviewedAt(LocalDateTime.now());
         claim.setReviewNote(reviewNote);
-        
+
         // 如果批准，设置认领时间
         if (approved) {
             claim.setClaimedAt(LocalDateTime.now());
         }
-        
+
         AssetClaim updatedClaim = assetClaimRepository.save(claim);
         log.info("认领申请审批完成: id={}, status={}", updatedClaim.getId(), updatedClaim.getStatus());
-        
+
         return updatedClaim;
     }
 
@@ -190,31 +200,35 @@ public class AssetClaimServiceImpl implements AssetClaimService {
      */
     @Override
     @Transactional
-    public void completeClaim(UUID id, UUID userId) {
+    public void completeClaim(@Nullable UUID id, @Nullable UUID userId) {
         log.info("完成认领: id={}, userId={}", id, userId);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.ASSET_CLAIM_NOT_FOUND);
+        }
+
         AssetClaim claim = assetClaimRepository.findById(id)
                 .orElseThrow(() -> {
                     log.warn("认领申请不存在: id={}", id);
                     return new BusinessException(ErrorCode.ASSET_CLAIM_NOT_FOUND);
                 });
-        
+
         // 检查是否为认领人
         if (!claim.getUserId().equals(userId)) {
             log.warn("非认领人无法完成: id={}, userId={}", id, userId);
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
-        
+
         // 检查是否为已批准状态
         if (!"approved".equals(claim.getStatus())) {
             log.warn("认领申请未批准: id={}, status={}", id, claim.getStatus());
             throw new BusinessException(ErrorCode.INVALID_STATUS);
         }
-        
+
         claim.setStatus("completed");
         claim.setCompletedAt(LocalDateTime.now());
         assetClaimRepository.save(claim);
-        
+
         log.info("认领已完成: id={}", id);
     }
 
@@ -223,31 +237,35 @@ public class AssetClaimServiceImpl implements AssetClaimService {
      */
     @Override
     @Transactional
-    public void abandonClaim(UUID id, UUID userId, String note) {
+    public void abandonClaim(@Nullable UUID id, @Nullable UUID userId, @Nullable String note) {
         log.info("放弃认领: id={}, userId={}", id, userId);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.ASSET_CLAIM_NOT_FOUND);
+        }
+
         AssetClaim claim = assetClaimRepository.findById(id)
                 .orElseThrow(() -> {
                     log.warn("认领申请不存在: id={}", id);
                     return new BusinessException(ErrorCode.ASSET_CLAIM_NOT_FOUND);
                 });
-        
+
         // 检查是否为认领人
         if (!claim.getUserId().equals(userId)) {
             log.warn("非认领人无法放弃: id={}, userId={}", id, userId);
             throw new BusinessException(ErrorCode.FORBIDDEN);
         }
-        
+
         // 检查是否为已批准状态
         if (!"approved".equals(claim.getStatus())) {
             log.warn("认领申请未批准: id={}, status={}", id, claim.getStatus());
             throw new BusinessException(ErrorCode.INVALID_STATUS);
         }
-        
+
         claim.setStatus("abandoned");
         claim.setReviewNote(note);
         assetClaimRepository.save(claim);
-        
+
         log.info("认领已放弃: id={}", id);
     }
 
@@ -256,9 +274,13 @@ public class AssetClaimServiceImpl implements AssetClaimService {
      */
     @Override
     @Transactional
-    public void revokeClaim(UUID id, UUID userId) {
+    public void revokeClaim(@Nullable UUID id, @Nullable UUID userId) {
         log.info("撤销认领申请: id={}, userId={}", id, userId);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.ASSET_CLAIM_NOT_FOUND);
+        }
+
         AssetClaim claim = assetClaimRepository.findById(id)
                 .orElseThrow(() -> {
                     log.warn("认领申请不存在: id={}", id);

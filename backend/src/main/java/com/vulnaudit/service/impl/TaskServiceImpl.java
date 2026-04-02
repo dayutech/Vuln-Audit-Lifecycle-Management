@@ -23,8 +23,11 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+
+import jakarta.annotation.Nullable;
 
 /**
  * 任务服务实现类
@@ -46,12 +49,12 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
-    public Optional<Task> findById(UUID id) {
-        return taskRepository.findById(id);
+    public Optional<Task> findById(@Nullable UUID id) {
+        return id != null ? taskRepository.findById(id) : Optional.empty();
     }
 
     @Override
-    public PageResponse<Task> findAll(int page, int size, String keyword, String status, UUID assigneeId, UUID referenceId) {
+    public PageResponse<Task> findAll(int page, int size, @Nullable String keyword, @Nullable String status, @Nullable UUID assigneeId, @Nullable UUID referenceId) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         
         Specification<Task> spec = (root, query, cb) -> {
@@ -88,23 +91,27 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
-    public List<Task> findByAssigneeId(UUID assigneeId) {
-        return taskRepository.findByAssignedTo(assigneeId);
+    public List<Task> findByAssigneeId(@Nullable UUID assigneeId) {
+        return assigneeId != null ? taskRepository.findByAssignedTo(assigneeId) : List.of();
     }
 
     @Override
-    public List<Task> findByReferenceId(UUID referenceId) {
-        return taskRepository.findByReferenceId(referenceId);
+    public List<Task> findByReferenceId(@Nullable UUID referenceId) {
+        return referenceId != null ? taskRepository.findByReferenceId(referenceId) : List.of();
     }
 
     @Override
     @Transactional
-    public Task updateTask(UUID id, Task task) {
+    public Task updateTask(@Nullable UUID id, Task task) {
         log.info("更新任务: id={}", id);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.TASK_NOT_FOUND);
+        }
+
         Task existingTask = taskRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
-        
+
         if (task.getTitle() != null) {
             existingTask.setTitle(task.getTitle());
         }
@@ -117,37 +124,47 @@ public class TaskServiceImpl implements TaskService {
         if (task.getDueDate() != null) {
             existingTask.setDueDate(task.getDueDate());
         }
-        
-        return taskRepository.save(existingTask);
+
+        return taskRepository.save(Objects.requireNonNull(existingTask));
     }
 
     @Override
     @Transactional
-    public Task updateStatus(UUID id, String status, UUID operatorId) {
+    public Task updateStatus(@Nullable UUID id, @Nullable String status, @Nullable UUID operatorId) {
         log.info("更新任务状态: id={}, status={}", id, status);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.TASK_NOT_FOUND);
+        }
+
         Task task = taskRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
-        
+
         task.setStatus(status);
         return taskRepository.save(task);
     }
 
     @Override
     @Transactional
-    public void deleteTask(UUID id) {
+    public void deleteTask(@Nullable UUID id) {
         log.info("删除任务: id={}", id);
-        taskRepository.deleteById(id);
+        if (id != null) {
+            taskRepository.deleteById(id);
+        }
     }
 
     @Override
     @Transactional
-    public void assignTask(UUID id, UUID assigneeId, UUID operatorId) {
+    public void assignTask(@Nullable UUID id, @Nullable UUID assigneeId, @Nullable UUID operatorId) {
         log.info("分配任务: id={}, assigneeId={}", id, assigneeId);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.TASK_NOT_FOUND);
+        }
+
         Task task = taskRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
-        
+
         task.setAssignedTo(assigneeId);
         task.setStatus("assigned");
         taskRepository.save(task);
@@ -155,28 +172,36 @@ public class TaskServiceImpl implements TaskService {
 
     @Override
     @Transactional
-    public void addComment(UUID taskId, UUID userId, String content) {
+    public void addComment(@Nullable UUID taskId, @Nullable UUID userId, @Nullable String content) {
         log.info("添加任务评论: taskId={}, userId={}", taskId, userId);
-        
+
+        if (taskId == null || userId == null) {
+            return;
+        }
+
         TaskComment comment = TaskComment.builder()
                 .taskId(taskId)
                 .userId(userId)
                 .content(content)
                 .build();
-        taskCommentRepository.save(comment);
+        taskCommentRepository.save(Objects.requireNonNull(comment));
     }
 
     @Override
     @Transactional
-    public void addAttachment(UUID taskId, String fileName, String filePath, UUID uploadedBy) {
+    public void addAttachment(@Nullable UUID taskId, @Nullable String fileName, @Nullable String filePath, @Nullable UUID uploadedBy) {
         log.info("添加任务附件: taskId={}, fileName={}", taskId, fileName);
-        
+
+        if (taskId == null) {
+            return;
+        }
+
         TaskAttachment attachment = TaskAttachment.builder()
                 .taskId(taskId)
                 .fileName(fileName)
                 .filePath(filePath)
                 .uploadedBy(uploadedBy)
                 .build();
-        taskAttachmentRepository.save(attachment);
+        taskAttachmentRepository.save(Objects.requireNonNull(attachment));
     }
 }

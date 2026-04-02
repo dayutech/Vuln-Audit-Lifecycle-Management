@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -303,7 +304,7 @@ public class AssetController {
                 .createdAt(LocalDateTime.now())
                 .build();
         
-        AssetTag savedTag = assetTagRepository.save(assetTag);
+        AssetTag savedTag = assetTagRepository.save(Objects.requireNonNull(assetTag));
         log.info("资产标签添加成功: assetId={}, tag={}", id, tag);
         
         return ResponseEntity.status(HttpStatus.CREATED)
@@ -320,7 +321,7 @@ public class AssetController {
             @PathVariable UUID tagId) {
         log.info("移除资产标签: assetId={}, tagId={}", assetId, tagId);
         
-        assetTagRepository.deleteById(tagId);
+        assetTagRepository.deleteById(Objects.requireNonNull(tagId, "tagId must not be null"));
         log.info("资产标签移除成功: assetId={}, tagId={}", assetId, tagId);
         
         return ResponseEntity.ok(ApiResponse.success(null));

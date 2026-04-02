@@ -21,8 +21,11 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+
+import jakarta.annotation.Nullable;
 
 /**
  * 文档服务实现类
@@ -43,12 +46,12 @@ public class DocumentServiceImpl implements DocumentService {
     }
 
     @Override
-    public Optional<Document> findById(UUID id) {
-        return documentRepository.findById(id);
+    public Optional<Document> findById(@Nullable UUID id) {
+        return id != null ? documentRepository.findById(id) : Optional.empty();
     }
 
     @Override
-    public PageResponse<Document> findAll(int page, int size, String keyword, String category, UUID assetId) {
+    public PageResponse<Document> findAll(int page, int size, @Nullable String keyword, @Nullable String category, @Nullable UUID assetId) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         
         Specification<Document> spec = (root, query, cb) -> {
@@ -83,23 +86,27 @@ public class DocumentServiceImpl implements DocumentService {
     }
 
     @Override
-    public List<Document> findByAssetId(UUID assetId) {
-        return documentRepository.findByAssetId(assetId);
+    public List<Document> findByAssetId(@Nullable UUID assetId) {
+        return assetId != null ? documentRepository.findByAssetId(assetId) : List.of();
     }
 
     @Override
-    public List<Document> findByCategory(String category) {
-        return documentRepository.findByCategory(category);
+    public List<Document> findByCategory(@Nullable String category) {
+        return category != null ? documentRepository.findByCategory(category) : List.of();
     }
 
     @Override
     @Transactional
-    public Document updateDocument(UUID id, Document document) {
+    public Document updateDocument(@Nullable UUID id, Document document) {
         log.info("更新文档: id={}", id);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.DOCUMENT_NOT_FOUND);
+        }
+
         Document existingDocument = documentRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DOCUMENT_NOT_FOUND));
-        
+
         if (document.getTitle() != null) {
             existingDocument.setTitle(document.getTitle());
         }
@@ -112,54 +119,66 @@ public class DocumentServiceImpl implements DocumentService {
         if (document.getCategory() != null) {
             existingDocument.setCategory(document.getCategory());
         }
-        
-        return documentRepository.save(existingDocument);
+
+        return documentRepository.save(Objects.requireNonNull(existingDocument));
     }
 
     @Override
     @Transactional
-    public void deleteDocument(UUID id) {
+    public void deleteDocument(@Nullable UUID id) {
         log.info("删除文档: id={}", id);
+        if (id == null) {
+            throw new BusinessException(ErrorCode.DOCUMENT_NOT_FOUND);
+        }
         documentRepository.deleteById(id);
     }
 
     @Override
-    public boolean existsByTitle(String title) {
-        return documentRepository.existsByTitle(title);
+    public boolean existsByTitle(@Nullable String title) {
+        return title != null && documentRepository.existsByTitle(title);
     }
 
     @Override
-    public List<Document> search(String keyword) {
-        return documentRepository.search(keyword);
+    public List<Document> search(@Nullable String keyword) {
+        return keyword != null ? documentRepository.search(keyword) : List.of();
     }
 
     @Override
     @Transactional
-    public void grantAccess(UUID documentId, UUID userId, String accessType) {
+    public void grantAccess(@Nullable UUID documentId, @Nullable UUID userId, @Nullable String accessType) {
         log.info("授予文档访问权限: documentId={}, userId={}, accessType={}", documentId, userId, accessType);
-        
+
+        if (documentId == null || userId == null) {
+            throw new BusinessException(ErrorCode.DOCUMENT_NOT_FOUND);
+        }
+
         DocumentAccess access = DocumentAccess.builder()
                 .documentId(documentId)
                 .userId(userId)
                 .accessType(accessType)
                 .build();
-        documentAccessRepository.save(access);
+        documentAccessRepository.save(Objects.requireNonNull(access));
     }
 
     @Override
     @Transactional
-    public void revokeAccess(UUID documentId, UUID userId) {
+    public void revokeAccess(@Nullable UUID documentId, @Nullable UUID userId) {
         log.info("撤销文档访问权限: documentId={}, userId={}", documentId, userId);
-        documentAccessRepository.deleteByDocumentIdAndUserId(documentId, userId);
+        if (documentId != null && userId != null) {
+            documentAccessRepository.deleteByDocumentIdAndUserId(documentId, userId);
+        }
     }
 
     @Override
-    public boolean hasAccess(UUID documentId, UUID userId, String accessType) {
+    public boolean hasAccess(@Nullable UUID documentId, @Nullable UUID userId, @Nullable String accessType) {
+        if (documentId == null || userId == null) {
+            return false;
+        }
         return documentAccessRepository.existsByDocumentIdAndUserIdAndAccessType(documentId, userId, accessType);
     }
 
     @Override
-    public List<Document> findByCreatedBy(UUID createdBy) {
-        return documentRepository.findByCreatedBy(createdBy);
+    public List<Document> findByCreatedBy(@Nullable UUID createdBy) {
+        return createdBy != null ? documentRepository.findByCreatedBy(createdBy) : List.of();
     }
 }

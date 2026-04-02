@@ -24,6 +24,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import jakarta.annotation.Nullable;
+
 /**
  * 资产访问服务实现类
  * 
@@ -48,29 +50,34 @@ public class AssetAccessServiceImpl implements AssetAccessService {
     @Transactional
     public AssetAccess createAccessRequest(AssetAccess assetAccess) {
         log.info("创建访问申请: assetId={}, userId={}", assetAccess.getAssetId(), assetAccess.getUserId());
-        
-        // 检查资产是否存在
-        if (!assetRepository.existsById(assetAccess.getAssetId())) {
-            log.warn("资产不存在: assetId={}", assetAccess.getAssetId());
+
+        UUID assetId = assetAccess.getAssetId();
+        UUID userId = assetAccess.getUserId();
+        if (assetId == null || userId == null) {
             throw new BusinessException(ErrorCode.ASSET_NOT_FOUND);
         }
-        
+        // 检查资产是否存在
+        if (!assetRepository.existsById(assetId)) {
+            log.warn("资产不存在: assetId={}", assetId);
+            throw new BusinessException(ErrorCode.ASSET_NOT_FOUND);
+        }
+
         // 检查用户是否存在
-        if (!userRepository.existsById(assetAccess.getUserId())) {
-            log.warn("用户不存在: userId={}", assetAccess.getUserId());
+        if (!userRepository.existsById(userId)) {
+            log.warn("用户不存在: userId={}", userId);
             throw new BusinessException(ErrorCode.USER_NOT_FOUND);
         }
         
         // 检查是否已有申请
-        Optional<AssetAccess> existingAccess = assetAccessRepository.findByAssetIdAndUserId(
-                assetAccess.getAssetId(), assetAccess.getUserId());
-        if (existingAccess.isPresent()) {
-            if ("approved".equals(existingAccess.get().getStatus())) {
-                log.warn("用户已有该资产的访问权限: assetId={}, userId={}", assetAccess.getAssetId(), assetAccess.getUserId());
+        Optional<AssetAccess> optExisting = assetAccessRepository.findByAssetIdAndUserId(assetId, userId);
+        if (optExisting.isPresent()) {
+            AssetAccess existingAccess = optExisting.get();
+            if ("approved".equals(existingAccess.getStatus())) {
+                log.warn("用户已有该资产的访问权限: assetId={}, userId={}", assetId, userId);
                 throw new BusinessException(ErrorCode.ASSET_ACCESS_DENIED);
             }
-            if ("pending".equals(existingAccess.get().getStatus())) {
-                log.warn("用户已有待审核的申请: assetId={}, userId={}", assetAccess.getAssetId(), assetAccess.getUserId());
+            if ("pending".equals(existingAccess.getStatus())) {
+                log.warn("用户已有待审核的申请: assetId={}, userId={}", assetId, userId);
                 throw new BusinessException(ErrorCode.CONFLICT);
             }
         }
@@ -88,17 +95,17 @@ public class AssetAccessServiceImpl implements AssetAccessService {
      * 根据ID查询访问申请
      */
     @Override
-    public Optional<AssetAccess> findById(UUID id) {
+    public Optional<AssetAccess> findById(@Nullable UUID id) {
         log.debug("查询访问申请: id={}", id);
-        return assetAccessRepository.findById(id);
+        return id != null ? assetAccessRepository.findById(id) : Optional.empty();
     }
 
     /**
      * 分页查询访问申请列表
      */
     @Override
-    public PageResponse<AssetAccess> findAll(int page, int size, UUID assetId, UUID userId, String status) {
-        log.debug("分页查询访问申请: page={}, size={}, assetId={}, userId={}, status={}", 
+    public PageResponse<AssetAccess> findAll(int page, int size, @Nullable UUID assetId, @Nullable UUID userId, @Nullable String status) {
+        log.debug("分页查询访问申请: page={}, size={}, assetId={}, userId={}, status={}",
                 page, size, assetId, userId, status);
         
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
@@ -155,30 +162,34 @@ public class AssetAccessServiceImpl implements AssetAccessService {
      */
     @Override
     @Transactional
-    public AssetAccess reviewAccessRequest(UUID id, boolean approved, String reviewNote, UUID reviewerId) {
+    public AssetAccess reviewAccessRequest(@Nullable UUID id, boolean approved, @Nullable String reviewNote, @Nullable UUID reviewerId) {
         log.info("审批访问申请: id={}, approved={}, reviewerId={}", id, approved, reviewerId);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.ASSET_ACCESS_NOT_FOUND);
+        }
+
         AssetAccess access = assetAccessRepository.findById(id)
                 .orElseThrow(() -> {
                     log.warn("访问申请不存在: id={}", id);
                     return new BusinessException(ErrorCode.ASSET_ACCESS_NOT_FOUND);
                 });
-        
+
         // 检查是否为待审核状态
         if (!"pending".equals(access.getStatus())) {
             log.warn("访问申请已处理: id={}, status={}", id, access.getStatus());
             throw new BusinessException(ErrorCode.INVALID_STATUS);
         }
-        
+
         // 更新审批信息
         access.setStatus(approved ? "approved" : "rejected");
         access.setReviewedBy(reviewerId);
         access.setReviewedAt(LocalDateTime.now());
         access.setReviewNote(reviewNote);
-        
+
         AssetAccess updatedAccess = assetAccessRepository.save(access);
         log.info("访问申请审批完成: id={}, status={}", updatedAccess.getId(), updatedAccess.getStatus());
-        
+
         return updatedAccess;
     }
 
@@ -187,9 +198,13 @@ public class AssetAccessServiceImpl implements AssetAccessService {
      */
     @Override
     @Transactional
-    public void revokeAccessRequest(UUID id, UUID userId) {
+    public void revokeAccessRequest(@Nullable UUID id, @Nullable UUID userId) {
         log.info("撤销访问申请: id={}, userId={}", id, userId);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.ASSET_ACCESS_NOT_FOUND);
+        }
+
         AssetAccess access = assetAccessRepository.findById(id)
                 .orElseThrow(() -> {
                     log.warn("访问申请不存在: id={}", id);

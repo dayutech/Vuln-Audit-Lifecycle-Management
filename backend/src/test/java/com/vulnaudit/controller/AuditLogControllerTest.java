@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -43,7 +44,7 @@ public class AuditLogControllerTest extends BaseTest {
                 .fullName("审计用户")
                 .status("active")
                 .build();
-        testUser = userRepository.save(testUser);
+        testUser = userRepository.save(Objects.requireNonNull(testUser));
 
         testAuditLog = AuditLog.builder()
                 .userId(testUser.getId())
@@ -54,7 +55,7 @@ public class AuditLogControllerTest extends BaseTest {
                 .ipAddress("192.168.1.100")
                 .createdAt(LocalDateTime.now())
                 .build();
-        testAuditLog = auditLogRepository.save(testAuditLog);
+        testAuditLog = auditLogRepository.save(Objects.requireNonNull(testAuditLog));
     }
 
     @Nested

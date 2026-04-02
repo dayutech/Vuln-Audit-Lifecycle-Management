@@ -1,6 +1,7 @@
 package com.vulnaudit.repository;
 
 import com.vulnaudit.entity.AuditLog;
+import jakarta.annotation.Nullable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -17,13 +18,13 @@ import java.util.UUID;
 @Repository
 public interface AuditLogRepository extends JpaRepository<AuditLog, UUID>, JpaSpecificationExecutor<AuditLog> {
 
-    List<AuditLog> findByUserId(UUID userId);
-    Page<AuditLog> findByUserId(UUID userId, Pageable pageable);
-    List<AuditLog> findByAction(String action);
-    List<AuditLog> findByResourceType(String resourceType);
-    List<AuditLog> findByResourceId(UUID resourceId);
-    Page<AuditLog> findByResourceTypeAndResourceId(String resourceType, UUID resourceId, Pageable pageable);
-    
+    List<AuditLog> findByUserId(@Nullable UUID userId);
+    Page<AuditLog> findByUserId(@Nullable UUID userId, Pageable pageable);
+    List<AuditLog> findByAction(@Nullable String action);
+    List<AuditLog> findByResourceType(@Nullable String resourceType);
+    List<AuditLog> findByResourceId(@Nullable UUID resourceId);
+    Page<AuditLog> findByResourceTypeAndResourceId(@Nullable String resourceType, @Nullable UUID resourceId, Pageable pageable);
+
     @Query("SELECT al FROM AuditLog al WHERE al.createdAt BETWEEN :startTime AND :endTime ORDER BY al.createdAt DESC")
     List<AuditLog> findByTimeRange(@Param("startTime") LocalDateTime startTime, @Param("endTime") LocalDateTime endTime);
 

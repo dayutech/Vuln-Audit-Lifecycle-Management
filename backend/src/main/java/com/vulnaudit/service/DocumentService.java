@@ -3,6 +3,8 @@ package com.vulnaudit.service;
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.Document;
 
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -12,29 +14,36 @@ import java.util.UUID;
  */
 public interface DocumentService {
 
-    Document createDocument(Document document);
+    @Nonnull
+    Document createDocument(@Nonnull Document document);
 
-    Optional<Document> findById(UUID id);
+    Optional<Document> findById(@Nullable UUID id);
 
-    PageResponse<Document> findAll(int page, int size, String keyword, String category, UUID assetId);
+    @Nonnull
+    PageResponse<Document> findAll(int page, int size, @Nullable String keyword, @Nullable String category, @Nullable UUID assetId);
 
-    List<Document> findByAssetId(UUID assetId);
+    @Nonnull
+    List<Document> findByAssetId(@Nullable UUID assetId);
 
-    List<Document> findByCategory(String category);
+    @Nonnull
+    List<Document> findByCategory(@Nullable String category);
 
-    Document updateDocument(UUID id, Document document);
+    @Nonnull
+    Document updateDocument(@Nullable UUID id, @Nonnull Document document);
 
-    void deleteDocument(UUID id);
+    void deleteDocument(@Nullable UUID id);
 
-    boolean existsByTitle(String title);
+    boolean existsByTitle(@Nullable String title);
 
-    List<Document> search(String keyword);
+    @Nonnull
+    List<Document> search(@Nullable String keyword);
 
-    void grantAccess(UUID documentId, UUID userId, String accessType);
+    void grantAccess(@Nullable UUID documentId, @Nullable UUID userId, @Nullable String accessType);
 
-    void revokeAccess(UUID documentId, UUID userId);
+    void revokeAccess(@Nullable UUID documentId, @Nullable UUID userId);
 
-    boolean hasAccess(UUID documentId, UUID userId, String accessType);
+    boolean hasAccess(@Nullable UUID documentId, @Nullable UUID userId, @Nullable String accessType);
 
-    List<Document> findByCreatedBy(UUID createdBy);
+    @Nonnull
+    List<Document> findByCreatedBy(@Nullable UUID createdBy);
 }

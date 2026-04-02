@@ -1,6 +1,7 @@
 package com.vulnaudit.repository;
 
 import com.vulnaudit.entity.KnowledgeTag;
+import jakarta.annotation.Nullable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -13,9 +14,9 @@ import java.util.UUID;
 @Repository
 public interface KnowledgeTagRepository extends JpaRepository<KnowledgeTag, UUID> {
 
-    List<KnowledgeTag> findByArticleId(UUID articleId);
-    List<KnowledgeTag> findByTag(String tag);
-    void deleteByArticleId(UUID articleId);
-    void deleteByArticleIdAndTag(UUID articleId, String tag);
+    List<KnowledgeTag> findByArticleId(@Nullable UUID articleId);
+    List<KnowledgeTag> findByTag(@Nullable String tag);
+    void deleteByArticleId(@Nullable UUID articleId);
+    void deleteByArticleIdAndTag(@Nullable UUID articleId, @Nullable String tag);
 
 }

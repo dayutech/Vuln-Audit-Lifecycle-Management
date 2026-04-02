@@ -3,6 +3,8 @@ package com.vulnaudit.service;
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.Task;
 
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -12,25 +14,31 @@ import java.util.UUID;
  */
 public interface TaskService {
 
-    Task createTask(Task task);
+    @Nonnull
+    Task createTask(@Nonnull Task task);
 
-    Optional<Task> findById(UUID id);
+    Optional<Task> findById(@Nullable UUID id);
 
-    PageResponse<Task> findAll(int page, int size, String keyword, String status, UUID assigneeId, UUID referenceId);
+    @Nonnull
+    PageResponse<Task> findAll(int page, int size, @Nullable String keyword, @Nullable String status, @Nullable UUID assigneeId, @Nullable UUID referenceId);
 
-    List<Task> findByAssigneeId(UUID assigneeId);
+    @Nonnull
+    List<Task> findByAssigneeId(@Nullable UUID assigneeId);
 
-    List<Task> findByReferenceId(UUID referenceId);
+    @Nonnull
+    List<Task> findByReferenceId(@Nullable UUID referenceId);
 
-    Task updateTask(UUID id, Task task);
+    @Nonnull
+    Task updateTask(@Nullable UUID id, @Nonnull Task task);
 
-    Task updateStatus(UUID id, String status, UUID operatorId);
+    @Nonnull
+    Task updateStatus(@Nullable UUID id, @Nullable String status, @Nullable UUID operatorId);
 
-    void deleteTask(UUID id);
+    void deleteTask(@Nullable UUID id);
 
-    void assignTask(UUID id, UUID assigneeId, UUID operatorId);
+    void assignTask(@Nullable UUID id, @Nullable UUID assigneeId, @Nullable UUID operatorId);
 
-    void addComment(UUID taskId, UUID userId, String content);
+    void addComment(@Nullable UUID taskId, @Nullable UUID userId, @Nullable String content);
 
-    void addAttachment(UUID taskId, String fileName, String filePath, UUID uploadedBy);
+    void addAttachment(@Nullable UUID taskId, @Nullable String fileName, @Nullable String filePath, @Nullable UUID uploadedBy);
 }

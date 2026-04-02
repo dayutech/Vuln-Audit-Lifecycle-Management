@@ -17,6 +17,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -40,8 +41,9 @@ public class EnvironmentServiceImpl implements EnvironmentService {
 
     @Override
     public Optional<Environment> findById(UUID id) {
-        log.debug("查询环境: id={}", id);
-        return environmentRepository.findById(id);
+        UUID requiredId = Objects.requireNonNull(id, "id must not be null");
+        log.debug("查询环境: id={}", requiredId);
+        return environmentRepository.findById(requiredId);
     }
 
     @Override
@@ -68,71 +70,78 @@ public class EnvironmentServiceImpl implements EnvironmentService {
     @Override
     @Transactional
     public Environment updateEnvironment(UUID id, Environment environment) {
-        log.info("更新环境: id={}", id);
+        UUID requiredId = Objects.requireNonNull(id, "id must not be null");
+        Environment requiredEnvironment = Objects.requireNonNull(environment, "environment must not be null");
+        log.info("更新环境: id={}", requiredId);
 
-        Environment existingEnvironment = environmentRepository.findById(id)
+        Environment existingEnvironment = environmentRepository.findById(requiredId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
 
-        if (environment.getName() != null) {
-            existingEnvironment.setName(environment.getName());
+        if (requiredEnvironment.getName() != null) {
+            existingEnvironment.setName(requiredEnvironment.getName());
         }
-        if (environment.getConfig() != null) {
-            existingEnvironment.setConfig(environment.getConfig());
+        if (requiredEnvironment.getConfig() != null) {
+            existingEnvironment.setConfig(requiredEnvironment.getConfig());
         }
-        if (environment.getStatus() != null) {
-            existingEnvironment.setStatus(environment.getStatus());
+        if (requiredEnvironment.getStatus() != null) {
+            existingEnvironment.setStatus(requiredEnvironment.getStatus());
         }
 
-        return environmentRepository.save(existingEnvironment);
+        return environmentRepository.save(Objects.requireNonNull(existingEnvironment));
     }
 
     @Override
     @Transactional
     public void deleteEnvironment(UUID id) {
-        log.info("删除环境: id={}", id);
-        environmentRepository.deleteById(id);
+        UUID requiredId = Objects.requireNonNull(id, "id must not be null");
+        log.info("删除环境: id={}", requiredId);
+        environmentRepository.deleteById(requiredId);
     }
 
     @Override
     @Transactional
     public void startEnvironment(UUID id) {
-        log.info("启动环境: id={}", id);
+        UUID requiredId = Objects.requireNonNull(id, "id must not be null");
+        log.info("启动环境: id={}", requiredId);
 
-        Environment environment = environmentRepository.findById(id)
+        Environment environment = environmentRepository.findById(requiredId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
 
         environment.setStatus("running");
-        environment.setContainerId("container-" + id.toString().substring(0, 8));
-        environmentRepository.save(environment);
+        environment.setContainerId("container-" + requiredId.toString().substring(0, 8));
+        environmentRepository.save(Objects.requireNonNull(environment));
     }
 
     @Override
     @Transactional
     public void stopEnvironment(UUID id) {
-        log.info("停止环境: id={}", id);
+        UUID requiredId = Objects.requireNonNull(id, "id must not be null");
+        log.info("停止环境: id={}", requiredId);
 
-        Environment environment = environmentRepository.findById(id)
+        Environment environment = environmentRepository.findById(requiredId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
 
         environment.setStatus("stopped");
-        environmentRepository.save(environment);
+        environmentRepository.save(Objects.requireNonNull(environment));
     }
 
     @Override
     @Transactional
     public void createSnapshot(UUID id, String name) {
-        log.info("创建快照: id={}, name={}", id, name);
+        UUID requiredId = Objects.requireNonNull(id, "id must not be null");
+        String requiredName = Objects.requireNonNull(name, "name must not be null");
+        log.info("创建快照: id={}, name={}", requiredId, requiredName);
 
-        Environment environment = environmentRepository.findById(id)
+        Environment environment = environmentRepository.findById(requiredId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
 
         environment.setVersion(environment.getVersion() + 1);
-        environmentRepository.save(environment);
+        environmentRepository.save(Objects.requireNonNull(environment));
         
         EnvironmentSnapshot snapshot = new EnvironmentSnapshot();
-        snapshot.setEnvironmentId(id);
+        snapshot.setEnvironmentId(requiredId);
         snapshot.setVersion(environment.getVersion());
-        snapshot.setDescription(name);
+        snapshot.setDescription(requiredName);
         snapshot.setConfigSnapshot(environment.getConfig() != null ? environment.getConfig() : "{}");
         // Using a dummy user id for now as context is empty
         snapshot.setCreatedBy(UUID.randomUUID());
@@ -142,14 +151,15 @@ public class EnvironmentServiceImpl implements EnvironmentService {
     @Override
     @Transactional
     public void deployEnvironment(UUID id) {
-        log.info("部署环境: id={}", id);
-        Environment environment = environmentRepository.findById(id)
+        UUID requiredId = Objects.requireNonNull(id, "id must not be null");
+        log.info("部署环境: id={}", requiredId);
+        Environment environment = environmentRepository.findById(requiredId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
         
         try {
             // Update status to deploying
             environment.setStatus("deploying");
-            environmentRepository.saveAndFlush(environment);
+            environmentRepository.saveAndFlush(Objects.requireNonNull(environment));
             
             // Validate configuration before deployment
             if (environment.getConfig() == null || environment.getConfig().trim().isEmpty()) {
@@ -157,7 +167,7 @@ public class EnvironmentServiceImpl implements EnvironmentService {
             }
             
             // Simulate deployment process logic
-            log.info("开始部署环境过程, 环境ID: {}", id);
+            log.info("开始部署环境过程, 环境ID: {}", requiredId);
             
             // Assign container id if not present
             if (environment.getContainerId() == null || environment.getContainerId().isEmpty()) {
@@ -166,42 +176,45 @@ public class EnvironmentServiceImpl implements EnvironmentService {
             
             // Update status to running upon successful deployment
             environment.setStatus("running");
-            environmentRepository.save(environment);
-            log.info("环境部署成功: id={}", id);
+            environmentRepository.save(Objects.requireNonNull(environment));
+            log.info("环境部署成功: id={}", requiredId);
         } catch (Exception e) {
-            log.error("环境部署失败: id={}, error={}", id, e.getMessage());
+            log.error("环境部署失败: id={}, error={}", requiredId, e.getMessage());
             // Update status to failed on error
             environment.setStatus("failed");
-            environmentRepository.save(environment);
+            environmentRepository.save(Objects.requireNonNull(environment));
             
             if (e instanceof BusinessException) {
                 throw e;
             }
-            throw new BusinessException(ErrorCode.INTERNAL_SERVER_ERROR, "环境部署失败: " + e.getMessage());
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "环境部署失败: " + e.getMessage());
         }
     }
 
     @Override
     public java.util.List<EnvironmentSnapshot> getSnapshots(UUID id) {
-        log.debug("获取环境快照列表: id={}", id);
-        return environmentSnapshotRepository.findByEnvironmentIdOrderByVersionDesc(id);
+        UUID requiredId = Objects.requireNonNull(id, "id must not be null");
+        log.debug("获取环境快照列表: id={}", requiredId);
+        return environmentSnapshotRepository.findByEnvironmentIdOrderByVersionDesc(requiredId);
     }
 
     @Override
     @Transactional
     public void rollbackSnapshot(UUID id, UUID snapshotId) {
-        log.info("回滚快照: environmentId={}, snapshotId={}", id, snapshotId);
-        Environment environment = environmentRepository.findById(id)
+        UUID requiredId = Objects.requireNonNull(id, "id must not be null");
+        UUID requiredSnapshotId = Objects.requireNonNull(snapshotId, "snapshotId must not be null");
+        log.info("回滚快照: environmentId={}, snapshotId={}", requiredId, requiredSnapshotId);
+        Environment environment = environmentRepository.findById(requiredId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
-        EnvironmentSnapshot snapshot = environmentSnapshotRepository.findById(snapshotId)
+        EnvironmentSnapshot snapshot = environmentSnapshotRepository.findById(requiredSnapshotId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
         
-        if (!snapshot.getEnvironmentId().equals(id)) {
+        if (!snapshot.getEnvironmentId().equals(requiredId)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "快照不属于该环境");
         }
         
         environment.setConfig(snapshot.getConfigSnapshot());
         environment.setVersion(environment.getVersion() + 1);
-        environmentRepository.save(environment);
+        environmentRepository.save(Objects.requireNonNull(environment));
     }
 }

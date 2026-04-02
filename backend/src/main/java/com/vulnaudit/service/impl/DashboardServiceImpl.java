@@ -10,6 +10,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
+import java.util.Objects;
+
+import jakarta.annotation.Nullable;
 
 /**
  * 仪表盘服务实现类
@@ -138,19 +141,22 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     @Override
-    public Map<String, Object> getWorkloadStats(UUID userId) {
+    public Map<String, Object> getWorkloadStats(@Nullable UUID userId) {
         log.debug("获取工作量统计: userId={}", userId);
-        
+
         Map<String, Object> stats = new HashMap<>();
         stats.put("tasks", getTaskCountByStatus(userId));
         stats.put("claims", getClaimCountByStatus(userId));
-        
+
         return stats;
     }
 
     @Override
-    public Map<String, Long> getTaskCountByStatus(UUID userId) {
+    public Map<String, Long> getTaskCountByStatus(@Nullable UUID userId) {
         Map<String, Long> result = new HashMap<>();
+        if (userId == null) {
+            return result;
+        }
         result.put("pending", taskRepository.count(
                 (root, query, cb) -> cb.and(
                         cb.equal(root.get("assignedTo"), userId),
@@ -167,8 +173,11 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     @Override
-    public Map<String, Long> getClaimCountByStatus(UUID userId) {
+    public Map<String, Long> getClaimCountByStatus(@Nullable UUID userId) {
         Map<String, Long> result = new HashMap<>();
+        if (userId == null) {
+            return result;
+        }
         result.put("pending", assetClaimRepository.countByUserIdAndStatus(userId, "pending"));
         result.put("approved", assetClaimRepository.countByUserIdAndStatus(userId, "approved"));
         result.put("completed", assetClaimRepository.countByUserIdAndStatus(userId, "completed"));
@@ -224,7 +233,7 @@ public class DashboardServiceImpl implements DashboardService {
             existingConfig.setCards(config.getCards());
         }
         
-        return dashboardConfigRepository.save(existingConfig);
+        return dashboardConfigRepository.save(Objects.requireNonNull(existingConfig));
     }
 
     @Override

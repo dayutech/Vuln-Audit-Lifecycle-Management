@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -43,7 +44,7 @@ public class EnvironmentControllerTest extends BaseTest {
                 .version(1)
                 .createdBy(testUserId)
                 .build();
-        testEnvironment = environmentRepository.save(testEnvironment);
+        testEnvironment = environmentRepository.save(Objects.requireNonNull(testEnvironment));
     }
 
     @Nested
@@ -93,7 +94,7 @@ public class EnvironmentControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/environments")
                     .header("Authorization", engineerToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(envJson))
                     .andExpect(status().isOk());
         }
@@ -110,7 +111,7 @@ public class EnvironmentControllerTest extends BaseTest {
 
             mockMvc.perform(put("/api/v1/environments/" + testEnvironment.getId())
                     .header("Authorization", engineerToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(envJson))
                     .andExpect(status().isOk());
         }

@@ -32,6 +32,7 @@ import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -65,7 +66,7 @@ public class AssetFileController {
     public ResponseEntity<ApiResponse<AssetFile>> getFile(@PathVariable UUID id) {
         log.info("获取文件详情: id={}", id);
         
-        return assetFileRepository.findById(id)
+        return assetFileRepository.findById(Objects.requireNonNull(id, "id must not be null"))
                 .map(file -> ResponseEntity.ok(ApiResponse.success(file)))
                 .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(ApiResponse.error(404, "文件不存在")));
@@ -119,7 +120,7 @@ public class AssetFileController {
                 .uploadedBy(currentUserId)
                 .build();
         
-        AssetFile savedFile = assetFileRepository.save(assetFile);
+        AssetFile savedFile = assetFileRepository.save(Objects.requireNonNull(assetFile, "assetFile must not be null"));
         
         return ResponseEntity.status(201)
                 .body(ApiResponse.success(savedFile));
@@ -130,7 +131,7 @@ public class AssetFileController {
     public ResponseEntity<Resource> downloadFile(@PathVariable UUID id) {
         log.info("下载文件: id={}", id);
         
-        AssetFile assetFile = assetFileRepository.findById(id)
+        AssetFile assetFile = assetFileRepository.findById(Objects.requireNonNull(id, "id must not be null"))
                 .orElse(null);
         
         if (assetFile == null) {
@@ -139,11 +140,11 @@ public class AssetFileController {
         
         try {
             Path filePath = Paths.get(assetFile.getFilePath());
-            Resource resource = new UrlResource(filePath.toUri());
+            Resource resource = new UrlResource(Objects.requireNonNull(filePath.toUri(), "uri must not be null"));
             
             if (resource.exists()) {
                 return ResponseEntity.ok()
-                        .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                        .contentType(Objects.requireNonNull(MediaType.APPLICATION_OCTET_STREAM, "mediaType must not be null"))
                         .header(HttpHeaders.CONTENT_DISPOSITION, 
                                 "attachment; filename=\"" + assetFile.getName() + "\"")
                         .body(resource);
@@ -161,7 +162,7 @@ public class AssetFileController {
     public ResponseEntity<ApiResponse<Void>> deleteFile(@PathVariable UUID id) {
         log.info("删除文件: id={}", id);
         
-        AssetFile file = assetFileRepository.findById(id).orElse(null);
+        AssetFile file = assetFileRepository.findById(Objects.requireNonNull(id, "id must not be null")).orElse(null);
         if (file == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(ApiResponse.error(404, "文件不存在"));
@@ -192,7 +193,7 @@ public class AssetFileController {
         
         log.info("上传文件新版本: fileId={}", id);
         
-        AssetFile existingFile = assetFileRepository.findById(id)
+        AssetFile existingFile = assetFileRepository.findById(Objects.requireNonNull(id, "id must not be null"))
                 .orElse(null);
         
         if (existingFile == null) {
@@ -209,7 +210,7 @@ public class AssetFileController {
                 .changelog(changelog)
                 .uploadedBy(getCurrentUserId())
                 .build();
-        assetFileVersionRepository.save(version);
+        assetFileVersionRepository.save(Objects.requireNonNull(version, "version must not be null"));
         
         // 更新文件
         Path uploadPath = Paths.get(UPLOAD_DIR + existingFile.getAssetId());
@@ -246,11 +247,11 @@ public class AssetFileController {
         
         try {
             Path filePath = Paths.get(fileVersion.getFilePath());
-            Resource resource = new UrlResource(filePath.toUri());
+            Resource resource = new UrlResource(Objects.requireNonNull(filePath.toUri(), "uri must not be null"));
             
             if (resource.exists()) {
                 return ResponseEntity.ok()
-                        .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                        .contentType(Objects.requireNonNull(MediaType.APPLICATION_OCTET_STREAM, "mediaType must not be null"))
                         .header(HttpHeaders.CONTENT_DISPOSITION, 
                                 "attachment; filename=\"v" + version + "\"")
                         .body(resource);

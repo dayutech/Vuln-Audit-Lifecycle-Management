@@ -2,6 +2,8 @@ package com.vulnaudit.service;
 
 import com.vulnaudit.entity.DashboardConfig;
 
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
 import java.util.Map;
 import java.util.UUID;
 
@@ -10,58 +12,65 @@ import java.util.UUID;
  */
 public interface DashboardService {
 
-    // 资产统计
+    @Nonnull
     Map<String, Object> getAssetStats();
 
+    @Nonnull
     Map<String, Long> getAssetCountByStatus();
 
+    @Nonnull
     Map<String, Long> getAssetCountByType();
 
+    @Nonnull
     Map<String, Long> getAssetCountByPriority();
 
-    // 漏洞统计
+    @Nonnull
     Map<String, Object> getVulnerabilityStats();
 
+    @Nonnull
     Map<String, Long> getVulnerabilityCountByWorkflowStatus();
 
+    @Nonnull
     Map<String, Long> getVulnerabilityCountByCustomerStatus();
 
+    @Nonnull
     Map<String, Long> getVulnerabilityCountByDisclosureStatus();
 
+    @Nonnull
     Map<String, Long> getVulnerabilityCountBySeverity();
 
-    // 工作量统计
-    Map<String, Object> getWorkloadStats(UUID userId);
+    @Nonnull
+    Map<String, Object> getWorkloadStats(@Nullable UUID userId);
 
-    Map<String, Long> getTaskCountByStatus(UUID userId);
+    @Nonnull
+    Map<String, Long> getTaskCountByStatus(@Nullable UUID userId);
 
-    Map<String, Long> getClaimCountByStatus(UUID userId);
+    @Nonnull
+    Map<String, Long> getClaimCountByStatus(@Nullable UUID userId);
 
-    // 趋势分析
+    @Nonnull
     Map<String, Object> getAssetTrend(int days);
 
+    @Nonnull
     Map<String, Object> getVulnerabilityTrend(int days);
 
-    Map<String, Object> getWorkloadTrend(UUID userId, int days);
+    @Nonnull
+    Map<String, Object> getWorkloadTrend(@Nullable UUID userId, int days);
 
-    // 仪表盘配置
-    DashboardConfig getConfig(UUID userId);
+    @Nonnull
+    DashboardConfig getConfig(@Nullable UUID userId);
 
-    DashboardConfig saveConfig(UUID userId, DashboardConfig config);
+    @Nonnull
+    DashboardConfig saveConfig(@Nullable UUID userId, @Nonnull DashboardConfig config);
 
-    void deleteConfig(UUID userId);
+    void deleteConfig(@Nullable UUID userId);
 
-    // 综合统计
+    @Nonnull
     Map<String, Object> getDashboardOverview();
 
-    /**
-     * 获取用户个性化仪表盘数据
-     * 
-     * @param userId 用户ID
-     * @return 仪表盘数据
-     */
-    Map<String, Object> getUserDashboard(UUID userId);
+    @Nonnull
+    Map<String, Object> getUserDashboard(@Nullable UUID userId);
 
-    // 导出
-    byte[] exportStats(String type, String format);
+    @Nonnull
+    byte[] exportStats(@Nullable String type, @Nullable String format);
 }

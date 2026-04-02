@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -42,7 +43,7 @@ public class RoleControllerTest extends BaseTest {
                 .description("用于测试的角色")
                 .isSystem(false)
                 .build();
-        testRole = roleRepository.save(testRole);
+        testRole = roleRepository.save(Objects.requireNonNull(testRole));
 
         testPermission = Permission.builder()
                 .name("测试权限_" + uniqueSuffix)
@@ -51,7 +52,7 @@ public class RoleControllerTest extends BaseTest {
                 .httpMethod("GET")
                 .description("测试用权限")
                 .build();
-        testPermission = permissionRepository.save(testPermission);
+        testPermission = permissionRepository.save(Objects.requireNonNull(testPermission));
     }
 
     @Nested
@@ -100,7 +101,7 @@ public class RoleControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/roles")
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(roleJson))
                     .andExpect(status().isCreated());
         }
@@ -117,7 +118,7 @@ public class RoleControllerTest extends BaseTest {
 
             mockMvc.perform(put("/api/v1/roles/" + testRole.getId())
                     .header("Authorization", adminToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(roleJson))
                     .andExpect(status().isOk());
         }

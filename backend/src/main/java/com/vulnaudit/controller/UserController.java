@@ -33,8 +33,11 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
+
+import jakarta.annotation.Nullable;
 
 /**
  * 用户控制器
@@ -367,13 +370,13 @@ public class UserController {
         UserRole userRole = UserRole.builder()
                 .userId(id)
                 .roleId(roleId)
-                .assignedBy(currentUser.getId())
+                .assignedBy(Objects.requireNonNull(currentUser.getId()))
                 .assignedAt(LocalDateTime.now())
                 .build();
         
-        UserRole savedUserRole = userRoleRepository.save(userRole);
+        UserRole savedUserRole = userRoleRepository.save(Objects.requireNonNull(userRole));
         log.info("角色分配成功: userId={}, roleId={}", id, roleId);
-        
+
         return ApiResponse.success(savedUserRole);
     }
 
@@ -390,14 +393,18 @@ public class UserController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "用户角色关联不存在")
     })
     public ApiResponse<Void> revokeUserRole(
-            @Parameter(description = "用户ID", required = true) @PathVariable UUID id,
-            @Parameter(description = "角色ID", required = true) @PathVariable UUID roleId) {
+            @Parameter(description = "用户ID", required = true) @PathVariable @Nullable UUID id,
+            @Parameter(description = "角色ID", required = true) @PathVariable @Nullable UUID roleId) {
         log.info("撤销用户角色: userId={}, roleId={}", id, roleId);
+
+        if (id == null || roleId == null) {
+            return ApiResponse.error("用户ID和角色ID不能为空");
+        }
         
         UserRole userRole = userRoleRepository.findByUserIdAndRoleId(id, roleId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_ROLE_EXISTS));
         
-        userRoleRepository.delete(userRole);
+        userRoleRepository.delete(Objects.requireNonNull(userRole));
         log.info("角色撤销成功: userId={}, roleId={}", id, roleId);
         
         return ApiResponse.success(null);
@@ -439,14 +446,14 @@ public class UserController {
         UserPermission userPermission = UserPermission.builder()
                 .userId(id)
                 .permissionId(permissionId)
-                .grantedBy(currentUser.getId())
+                .grantedBy(Objects.requireNonNull(currentUser.getId()))
                 .grantedAt(LocalDateTime.now())
                 .expiresAt(expiresAt)
                 .build();
         
-        UserPermission savedUserPermission = userPermissionRepository.save(userPermission);
+        UserPermission savedUserPermission = userPermissionRepository.save(Objects.requireNonNull(userPermission));
         log.info("权限分配成功: userId={}, permissionId={}", id, permissionId);
-        
+
         return ApiResponse.success(savedUserPermission);
     }
 
@@ -463,14 +470,18 @@ public class UserController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "用户权限关联不存在")
     })
     public ApiResponse<Void> revokeUserPermission(
-            @Parameter(description = "用户ID", required = true) @PathVariable UUID id,
-            @Parameter(description = "权限ID", required = true) @PathVariable UUID permissionId) {
+            @Parameter(description = "用户ID", required = true) @PathVariable @Nullable UUID id,
+            @Parameter(description = "权限ID", required = true) @PathVariable @Nullable UUID permissionId) {
         log.info("撤销用户权限: userId={}, permissionId={}", id, permissionId);
+
+        if (id == null || permissionId == null) {
+            return ApiResponse.error("用户ID和权限ID不能为空");
+        }
         
         UserPermission userPermission = userPermissionRepository.findByUserIdAndPermissionId(id, permissionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_PERMISSION_EXISTS));
         
-        userPermissionRepository.delete(userPermission);
+        userPermissionRepository.delete(Objects.requireNonNull(userPermission));
         log.info("权限撤销成功: userId={}, permissionId={}", id, permissionId);
         
         return ApiResponse.success(null);

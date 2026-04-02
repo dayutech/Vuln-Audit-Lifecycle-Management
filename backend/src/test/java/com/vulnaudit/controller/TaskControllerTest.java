@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -44,7 +45,7 @@ public class TaskControllerTest extends BaseTest {
                 .fullName("任务执行人")
                 .status("active")
                 .build();
-        testAssignee = userRepository.save(testAssignee);
+        testAssignee = userRepository.save(Objects.requireNonNull(testAssignee));
 
         testTask = Task.builder()
                 .title("测试任务")
@@ -56,7 +57,7 @@ public class TaskControllerTest extends BaseTest {
                 .assignedBy(testAssignee.getId())
                 .dueDate(LocalDateTime.now().plusDays(7))
                 .build();
-        testTask = taskRepository.save(testTask);
+        testTask = taskRepository.save(Objects.requireNonNull(testTask));
     }
 
     @Nested
@@ -115,7 +116,7 @@ public class TaskControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/tasks")
                     .header("Authorization", leaderToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(taskJson))
                     .andExpect(status().isCreated());
         }

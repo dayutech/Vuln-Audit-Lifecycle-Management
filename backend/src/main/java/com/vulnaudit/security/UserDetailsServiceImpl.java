@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -68,7 +69,11 @@ public class UserDetailsServiceImpl implements UserDetailsService {
         // 从数据库加载用户的实际角色
         List<String> roles = userRoleRepository.findByUserId(user.getId()).stream()
                 .map(userRole -> {
-                    Role role = roleRepository.findById(userRole.getRoleId()).orElse(null);
+                    UUID roleId = userRole.getRoleId();
+                    if (roleId == null) {
+                        return null;
+                    }
+                    Role role = roleRepository.findById(roleId).orElse(null);
                     return role != null ? role.getCode() : null;
                 })
                 .filter(roleCode -> roleCode != null)

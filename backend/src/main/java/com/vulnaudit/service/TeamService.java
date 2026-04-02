@@ -3,6 +3,8 @@ package com.vulnaudit.service;
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.Team;
 
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -12,37 +14,46 @@ import java.util.UUID;
  */
 public interface TeamService {
 
-    Team createTeam(Team team);
+    @Nonnull
+    Team createTeam(@Nonnull Team team);
 
-    Optional<Team> findById(UUID id);
+    Optional<Team> findById(@Nullable UUID id);
 
-    Optional<Team> findByName(String name);
+    Optional<Team> findByName(@Nullable String name);
 
-    PageResponse<Team> findAll(int page, int size, String keyword);
+    @Nonnull
+    PageResponse<Team> findAll(int page, int size, @Nullable String keyword);
 
+    @Nonnull
     List<Team> findAll();
 
-    Team updateTeam(UUID id, Team team);
+    @Nonnull
+    Team updateTeam(@Nullable UUID id, @Nonnull Team team);
 
-    void deleteTeam(UUID id);
+    void deleteTeam(@Nullable UUID id);
 
-    boolean existsByName(String name);
+    boolean existsByName(@Nullable String name);
 
-    List<Team> findByParentId(UUID parentId);
+    @Nonnull
+    List<Team> findByParentId(@Nullable UUID parentId);
 
+    @Nonnull
     List<Team> findRootTeams();
 
-    List<Team> findTeamTree(UUID teamId);
+    @Nonnull
+    List<Team> findTeamTree(@Nullable UUID teamId);
 
-    void addMember(UUID teamId, UUID userId, String role);
+    void addMember(@Nullable UUID teamId, @Nullable UUID userId, @Nullable String role);
 
-    void removeMember(UUID teamId, UUID userId);
+    void removeMember(@Nullable UUID teamId, @Nullable UUID userId);
 
-    List<UUID> getMemberIds(UUID teamId);
+    @Nonnull
+    List<UUID> getMemberIds(@Nullable UUID teamId);
 
-    List<UUID> getTeamUserIds(UUID teamId);
+    @Nonnull
+    List<UUID> getTeamUserIds(@Nullable UUID teamId);
 
-    boolean isMember(UUID teamId, UUID userId);
+    boolean isMember(@Nullable UUID teamId, @Nullable UUID userId);
 
-    boolean isLeader(UUID teamId, UUID userId);
+    boolean isLeader(@Nullable UUID teamId, @Nullable UUID userId);
 }

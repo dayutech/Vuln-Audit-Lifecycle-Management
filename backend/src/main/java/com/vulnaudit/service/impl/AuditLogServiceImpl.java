@@ -18,7 +18,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
+
+import jakarta.annotation.Nullable;
 
 /**
  * 审计日志服务实现类
@@ -53,16 +57,20 @@ public class AuditLogServiceImpl implements AuditLogService {
                 .ipAddress(ipAddress)
                 .build();
         
-        auditLogRepository.save(auditLog);
+        auditLogRepository.save(Objects.requireNonNull(auditLog));
     }
 
     @Override
-    public AuditLog findById(UUID id) {
-        return auditLogRepository.findById(id).orElse(null);
+    public AuditLog findById(@Nullable UUID id) {
+        if (id == null) {
+            return null;
+        }
+        Optional<AuditLog> auditLog = auditLogRepository.findById(id);
+        return auditLog.map(Objects::requireNonNull).orElse(null);
     }
 
     @Override
-    public PageResponse<AuditLog> findAll(int page, int size, UUID userId, String action, String resourceType) {
+    public PageResponse<AuditLog> findAll(int page, int size, @Nullable UUID userId, @Nullable String action, @Nullable String resourceType) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         
         Specification<AuditLog> spec = (root, query, cb) -> {

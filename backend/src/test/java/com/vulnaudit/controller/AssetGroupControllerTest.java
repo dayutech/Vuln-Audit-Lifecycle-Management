@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -48,14 +49,14 @@ public class AssetGroupControllerTest extends BaseTest {
                 .fullName("分组负责人")
                 .status("active")
                 .build();
-        testUser = userRepository.save(testUser);
+        testUser = userRepository.save(Objects.requireNonNull(testUser));
 
         testGroup = AssetGroup.builder()
                 .name("测试分组_" + uniqueSuffix)
                 .type("customer")
                 .description("用于测试的分组")
                 .build();
-        testGroup = assetGroupRepository.save(testGroup);
+        testGroup = assetGroupRepository.save(Objects.requireNonNull(testGroup));
 
         testAsset = Asset.builder()
                 .name("测试资产")
@@ -67,7 +68,7 @@ public class AssetGroupControllerTest extends BaseTest {
                 .status("active")
                 .ownerId(testUser.getId())
                 .build();
-        testAsset = assetRepository.save(testAsset);
+        testAsset = assetRepository.save(Objects.requireNonNull(testAsset));
     }
 
     @Nested
@@ -126,7 +127,7 @@ public class AssetGroupControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/asset-groups")
                     .header("Authorization", engineerToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(groupJson))
                     .andExpect(status().isCreated());
         }
@@ -143,7 +144,7 @@ public class AssetGroupControllerTest extends BaseTest {
 
             mockMvc.perform(put("/api/v1/asset-groups/" + testGroup.getId())
                     .header("Authorization", engineerToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(groupJson))
                     .andExpect(status().isOk());
         }

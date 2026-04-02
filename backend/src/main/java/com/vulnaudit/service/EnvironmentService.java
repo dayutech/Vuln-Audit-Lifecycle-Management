@@ -2,69 +2,44 @@ package com.vulnaudit.service;
 
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.Environment;
+import com.vulnaudit.entity.EnvironmentSnapshot;
 
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
  * 环境服务接口
- * 
+ *
  * 注意：此模块为空实现，待后续需求明确后再实现
  */
 public interface EnvironmentService {
 
-    /**
-     * 创建环境（空实现）
-     */
-    Environment createEnvironment(Environment environment);
+    @Nonnull
+    Environment createEnvironment(@Nonnull Environment environment);
 
-    /**
-     * 根据ID查询环境（空实现）
-     */
-    Optional<Environment> findById(UUID id);
+    Optional<Environment> findById(@Nullable UUID id);
 
-    /**
-     * 分页查询环境列表
-     */
-    PageResponse<Environment> findAll(int page, int size, String keyword, UUID assetId);
+    @Nonnull
+    PageResponse<Environment> findAll(int page, int size, @Nullable String keyword, @Nullable UUID assetId);
 
-    /**
-     * 更新环境（空实现）
-     */
-    Environment updateEnvironment(UUID id, Environment environment);
+    @Nonnull
+    Environment updateEnvironment(@Nullable UUID id, @Nonnull Environment environment);
 
-    /**
-     * 删除环境（空实现）
-     */
-    void deleteEnvironment(UUID id);
+    void deleteEnvironment(@Nullable UUID id);
 
-    /**
-     * 启动环境（空实现）
-     */
-    void startEnvironment(UUID id);
+    void startEnvironment(@Nullable UUID id);
 
-    /**
-     * 停止环境（空实现）
-     */
-    void stopEnvironment(UUID id);
+    void stopEnvironment(@Nullable UUID id);
 
-    /**
-     * 创建快照（空实现）
-     */
-    void createSnapshot(UUID id, String name);
+    void createSnapshot(@Nullable UUID id, @Nullable String name);
 
-    /**
-     * 部署环境
-     */
-    void deployEnvironment(UUID id);
+    void deployEnvironment(@Nullable UUID id);
 
-    /**
-     * 获取快照列表
-     */
-    java.util.List<com.vulnaudit.entity.EnvironmentSnapshot> getSnapshots(UUID id);
+    @Nonnull
+    List<EnvironmentSnapshot> getSnapshots(@Nullable UUID id);
 
-    /**
-     * 回滚快照
-     */
-    void rollbackSnapshot(UUID id, UUID snapshotId);
+    void rollbackSnapshot(@Nullable UUID id, @Nullable UUID snapshotId);
 }

@@ -3,6 +3,8 @@ package com.vulnaudit.service;
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.KnowledgeArticle;
 
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -12,31 +14,39 @@ import java.util.UUID;
  */
 public interface KnowledgeService {
 
-    KnowledgeArticle createArticle(KnowledgeArticle article);
+    @Nonnull
+    KnowledgeArticle createArticle(@Nonnull KnowledgeArticle article);
 
-    Optional<KnowledgeArticle> findById(UUID id);
+    Optional<KnowledgeArticle> findById(@Nullable UUID id);
 
-    PageResponse<KnowledgeArticle> findAll(int page, int size, String keyword, String category);
+    @Nonnull
+    PageResponse<KnowledgeArticle> findAll(int page, int size, @Nullable String keyword, @Nullable String category);
 
-    List<KnowledgeArticle> findByAuthorId(UUID authorId);
+    @Nonnull
+    List<KnowledgeArticle> findByAuthorId(@Nullable UUID authorId);
 
-    List<KnowledgeArticle> findByCategory(String category);
+    @Nonnull
+    List<KnowledgeArticle> findByCategory(@Nullable String category);
 
+    @Nonnull
     List<KnowledgeArticle> findPopular(int limit);
 
-    KnowledgeArticle updateArticle(UUID id, KnowledgeArticle article);
+    @Nonnull
+    KnowledgeArticle updateArticle(@Nullable UUID id, @Nonnull KnowledgeArticle article);
 
-    void deleteArticle(UUID id);
+    void deleteArticle(@Nullable UUID id);
 
-    void incrementViewCount(UUID id);
+    void incrementViewCount(@Nullable UUID id);
 
-    void addComment(UUID articleId, UUID userId, String content);
+    void addComment(@Nullable UUID articleId, @Nullable UUID userId, @Nullable String content);
 
-    void addTag(UUID articleId, String tag);
+    void addTag(@Nullable UUID articleId, @Nullable String tag);
 
-    void removeTag(UUID articleId, String tag);
+    void removeTag(@Nullable UUID articleId, @Nullable String tag);
 
-    List<String> getTags(UUID articleId);
+    @Nonnull
+    List<String> getTags(@Nullable UUID articleId);
 
-    List<KnowledgeArticle> search(String keyword);
+    @Nonnull
+    List<KnowledgeArticle> search(@Nullable String keyword);
 }

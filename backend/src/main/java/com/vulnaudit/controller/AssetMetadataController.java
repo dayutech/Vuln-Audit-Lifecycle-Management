@@ -20,6 +20,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -56,7 +57,7 @@ public class AssetMetadataController {
         
         log.info("获取元数据详情: assetId={}, id={}", assetId, id);
         
-        return metadataRepository.findById(id)
+        return metadataRepository.findById(Objects.requireNonNull(id, "id must not be null"))
                 .map(metadata -> ResponseEntity.ok(ApiResponse.success(metadata)))
                 .orElse(ResponseEntity.ok(ApiResponse.error(404, "元数据不存在")));
     }
@@ -107,7 +108,7 @@ public class AssetMetadataController {
         
         log.info("更新元数据: assetId={}, id={}", assetId, id);
         
-        return metadataRepository.findById(id)
+        return metadataRepository.findById(Objects.requireNonNull(id, "id must not be null"))
                 .map(existing -> updateMetadataInternal(existing, metadata, changeReason))
                 .orElse(ResponseEntity.ok(ApiResponse.error(404, "元数据不存在")));
     }
@@ -120,11 +121,12 @@ public class AssetMetadataController {
         
         log.info("删除元数据: assetId={}, id={}", assetId, id);
         
-        if (!metadataRepository.existsById(id)) {
+        UUID metadataId = Objects.requireNonNull(id, "id must not be null");
+        if (!metadataRepository.existsById(metadataId)) {
             return ResponseEntity.ok(ApiResponse.error(404, "元数据不存在"));
         }
         
-        metadataRepository.deleteById(id);
+        metadataRepository.deleteById(metadataId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
@@ -177,7 +179,7 @@ public class AssetMetadataController {
         
         log.info("获取元数据历史版本: assetId={}, metadataId={}, version={}", assetId, id, version);
         
-        return historyRepository.findById(version)
+        return historyRepository.findById(Objects.requireNonNull(version, "version must not be null"))
                 .map(history -> ResponseEntity.ok(ApiResponse.success(history)))
                 .orElse(ResponseEntity.ok(ApiResponse.error(404, "历史版本不存在")));
     }
@@ -188,7 +190,7 @@ public class AssetMetadataController {
             String changeReason) {
         UUID currentUserId = getCurrentUserId();
         String finalReason = (changeReason == null || changeReason.isBlank()) ? "更新元数据" : changeReason;
-        AssetAppMetadataHistory history = AssetAppMetadataHistory.builder()
+        AssetAppMetadataHistory history = Objects.requireNonNull(AssetAppMetadataHistory.builder()
                 .metadataId(existing.getId())
                 .version(existing.getVersion())
                 .systemArchitecture(existing.getSystemArchitecture())
@@ -207,7 +209,7 @@ public class AssetMetadataController {
                 .specialNotes(existing.getSpecialNotes())
                 .changeReason(finalReason)
                 .changedBy(currentUserId)
-                .build();
+                .build(), "history must not be null");
         historyRepository.save(history);
 
         if (metadata.getSystemArchitecture() != null) {

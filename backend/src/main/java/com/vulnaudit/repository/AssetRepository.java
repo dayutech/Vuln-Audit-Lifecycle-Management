@@ -1,6 +1,7 @@
 package com.vulnaudit.repository;
 
 import com.vulnaudit.entity.Asset;
+import jakarta.annotation.Nullable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
@@ -11,7 +12,7 @@ import java.util.UUID;
 
 /**
  * 资产数据访问层接口
- * 
+ *
  * 功能说明：
  * - 提供资产实体的CRUD操作
  * - 提供资产查询相关的自定义方法
@@ -22,60 +23,60 @@ public interface AssetRepository extends JpaRepository<Asset, UUID>, JpaSpecific
 
     /**
      * 根据资产编号查询资产
-     * 
+     *
      * @param code 资产编号
      * @return 资产实体（如果存在）
      */
-    Optional<Asset> findByCode(String code);
+    Optional<Asset> findByCode(@Nullable String code);
 
     /**
      * 根据团队ID查询资产列表
-     * 
+     *
      * @param teamId 团队ID
      * @return 资产列表
      */
-    List<Asset> findByTeamId(UUID teamId);
+    List<Asset> findByTeamId(@Nullable UUID teamId);
 
     /**
      * 根据负责人ID查询资产列表
-     * 
+     *
      * @param ownerId 负责人ID
      * @return 资产列表
      */
-    List<Asset> findByOwnerId(UUID ownerId);
+    List<Asset> findByOwnerId(@Nullable UUID ownerId);
 
     /**
      * 根据状态查询资产列表
-     * 
+     *
      * @param status 状态
      * @return 资产列表
      */
-    List<Asset> findByStatus(String status);
+    List<Asset> findByStatus(@Nullable String status);
 
     /**
      * 根据优先级查询资产列表
-     * 
+     *
      * @param priority 优先级
      * @return 资产列表
      */
-    List<Asset> findByPriority(String priority);
+    List<Asset> findByPriority(@Nullable String priority);
 
     /**
      * 根据团队ID和状态查询资产列表
-     * 
+     *
      * @param teamId 团队ID
      * @param status 状态
      * @return 资产列表
      */
-    List<Asset> findByTeamIdAndStatus(UUID teamId, String status);
+    List<Asset> findByTeamIdAndStatus(@Nullable UUID teamId, @Nullable String status);
 
     /**
      * 检查资产编号是否已存在
-     * 
+     *
      * @param code 资产编号
      * @return 如果已存在返回true
      */
-    boolean existsByCode(String code);
+    boolean existsByCode(@Nullable String code);
 
     /**
      * 统计团队下的资产数量

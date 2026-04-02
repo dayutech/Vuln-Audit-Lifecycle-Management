@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.util.Objects;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -45,7 +47,7 @@ public class AssetMetadataControllerTest extends BaseTest {
                 .fullName("元数据负责人")
                 .status("active")
                 .build();
-        testUser = userRepository.save(testUser);
+        testUser = userRepository.save(Objects.requireNonNull(testUser));
 
         testAsset = Asset.builder()
                 .name("元数据测试资产")
@@ -57,7 +59,7 @@ public class AssetMetadataControllerTest extends BaseTest {
                 .status("active")
                 .ownerId(testUser.getId())
                 .build();
-        testAsset = assetRepository.save(testAsset);
+        testAsset = assetRepository.save(Objects.requireNonNull(testAsset));
 
         testMetadata = AssetAppMetadata.builder()
                 .assetId(testAsset.getId())
@@ -70,7 +72,7 @@ public class AssetMetadataControllerTest extends BaseTest {
                 .databaseType("MySQL")
                 .servicePorts("8080,8443")
                 .build();
-        testMetadata = metadataRepository.save(testMetadata);
+        testMetadata = metadataRepository.save(Objects.requireNonNull(testMetadata));
     }
 
     @Nested
@@ -99,7 +101,7 @@ public class AssetMetadataControllerTest extends BaseTest {
                     .status("active")
                     .ownerId(testUser.getId())
                     .build();
-            newAsset = assetRepository.save(newAsset);
+            newAsset = assetRepository.save(Objects.requireNonNull(newAsset));
 
             mockMvc.perform(get("/api/v1/assets/" + newAsset.getId() + "/metadata")
                     .header("Authorization", engineerToken))
@@ -125,7 +127,7 @@ public class AssetMetadataControllerTest extends BaseTest {
                     .status("active")
                     .ownerId(testUser.getId())
                     .build();
-            newAsset = assetRepository.save(newAsset);
+            newAsset = assetRepository.save(Objects.requireNonNull(newAsset));
 
             String metadataJson = "{\"systemArchitecture\":\"x86_64\",\"installPath\":\"/opt/newapp\",\"programmingLanguage\":\"Python\",\"framework\":\"Django\",\"databaseType\":\"PostgreSQL\",\"servicePorts\":\"8000,8001\"}";
 

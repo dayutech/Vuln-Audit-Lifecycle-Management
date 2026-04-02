@@ -6,6 +6,8 @@ import com.vulnaudit.entity.NotificationRecipient;
 import com.vulnaudit.entity.NotificationSetting;
 import com.vulnaudit.entity.SystemAnnouncement;
 import com.vulnaudit.entity.AssetSubscription;
+import com.vulnaudit.exception.BusinessException;
+import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.NotificationRecipientRepository;
 import com.vulnaudit.repository.NotificationRepository;
 import com.vulnaudit.repository.NotificationSettingRepository;
@@ -24,8 +26,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+
+import jakarta.annotation.Nonnull;
+import jakarta.annotation.Nullable;
 
 /**
  * 通知服务实现类
@@ -43,18 +49,30 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     @Transactional
-    public Notification createNotification(Notification notification) {
+    @Nonnull
+    public Notification createNotification(@Nonnull Notification notification) {
         log.info("创建通知: type={}, title={}", notification.getType(), notification.getTitle());
         return notificationRepository.save(notification);
     }
 
     @Override
-    public Optional<Notification> findById(UUID id) {
-        return notificationRepository.findById(id);
+    public Optional<Notification> findById(@Nullable UUID id) {
+        return id != null ? notificationRepository.findById(id) : Optional.empty();
     }
 
     @Override
-    public PageResponse<Notification> findByRecipientId(UUID userId, int page, int size, Boolean isRead) {
+    @Nonnull
+    public PageResponse<Notification> findByRecipientId(@Nullable UUID userId, int page, int size, @Nullable Boolean isRead) {
+        if (userId == null) {
+            return PageResponse.<Notification>builder()
+                    .content(List.of())
+                    .totalElements(0L)
+                    .totalPages(0)
+                    .currentPage(page)
+                    .pageSize(size)
+                    .build();
+        }
+
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         
         Page<NotificationRecipient> recipientPage;
@@ -66,8 +84,11 @@ public class NotificationServiceImpl implements NotificationService {
         
         List<Notification> notifications = new ArrayList<>();
         for (NotificationRecipient recipient : recipientPage.getContent()) {
-            notificationRepository.findById(recipient.getNotificationId())
-                    .ifPresent(notifications::add);
+            UUID notificationId = recipient.getNotificationId();
+            if (notificationId != null) {
+                notificationRepository.findById(notificationId)
+                        .ifPresent(notifications::add);
+            }
         }
         
         return PageResponse.<Notification>builder()
@@ -81,9 +102,13 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     @Transactional
-    public void markAsRead(UUID notificationId, UUID userId) {
+    public void markAsRead(@Nullable UUID notificationId, @Nullable UUID userId) {
         log.info("标记通知已读: notificationId={}, userId={}", notificationId, userId);
-        
+
+        if (notificationId == null || userId == null) {
+            return;
+        }
+
         notificationRecipientRepository.findByNotificationIdAndUserId(notificationId, userId)
                 .ifPresent(recipient -> {
                     recipient.setIsRead(true);
@@ -94,64 +119,80 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     @Transactional
-    public void markAllAsRead(UUID userId) {
+    public void markAllAsRead(@Nullable UUID userId) {
         log.info("标记所有通知已读: userId={}", userId);
-        
+
+        if (userId == null) {
+            return;
+        }
+
         List<NotificationRecipient> recipients = notificationRecipientRepository.findByUserIdAndIsRead(userId, false);
         LocalDateTime now = LocalDateTime.now();
         for (NotificationRecipient recipient : recipients) {
             recipient.setIsRead(true);
             recipient.setReadAt(now);
         }
-        notificationRecipientRepository.saveAll(recipients);
+        notificationRecipientRepository.saveAll(Objects.requireNonNull(recipients));
     }
 
     @Override
-    public long countUnread(UUID userId) {
+    public long countUnread(@Nullable UUID userId) {
+        if (userId == null) {
+            return 0;
+        }
         return notificationRecipientRepository.countByUserIdAndIsRead(userId, false);
     }
 
     @Override
     @Transactional
-    public void sendNotification(UUID userId, String type, String title, String content) {
+    public void sendNotification(@Nullable UUID userId, @Nullable String type, @Nullable String title, @Nullable String content) {
         log.info("发送通知: userId={}, type={}, title={}", userId, type, title);
-        
+
+        if (userId == null) {
+            return;
+        }
+
         Notification notification = Notification.builder()
                 .type(type)
                 .title(title)
                 .content(content)
                 .build();
-        Notification savedNotification = notificationRepository.save(notification);
-        
+        Notification savedNotification = notificationRepository.save(Objects.requireNonNull(notification));
+
         NotificationRecipient recipient = NotificationRecipient.builder()
-                .notificationId(savedNotification.getId())
+                .notificationId(Objects.requireNonNull(savedNotification.getId()))
                 .userId(userId)
                 .isRead(false)
                 .build();
-        notificationRecipientRepository.save(recipient);
+        notificationRecipientRepository.save(Objects.requireNonNull(recipient));
     }
 
     @Override
     @Transactional
-    public void sendBulkNotification(List<UUID> userIds, String type, String title, String content) {
-        log.info("批量发送通知: userCount={}, type={}, title={}", userIds.size(), type, title);
-        
+    public void sendBulkNotification(@Nullable List<UUID> userIds, @Nullable String type, @Nullable String title, @Nullable String content) {
+        log.info("批量发送通知: userCount={}, type={}, title={}", userIds != null ? userIds.size() : 0, type, title);
+
+        if (userIds == null || userIds.isEmpty()) {
+            return;
+        }
+
         Notification notification = Notification.builder()
                 .type(type)
                 .title(title)
                 .content(content)
                 .build();
-        Notification savedNotification = notificationRepository.save(notification);
+        Notification savedNotification = notificationRepository.save(Objects.requireNonNull(notification));
         
+        UUID savedNotificationId = Objects.requireNonNull(savedNotification.getId());
         List<NotificationRecipient> recipients = new ArrayList<>();
         for (UUID userId : userIds) {
             recipients.add(NotificationRecipient.builder()
-                    .notificationId(savedNotification.getId())
+                    .notificationId(savedNotificationId)
                     .userId(userId)
                     .isRead(false)
                     .build());
         }
-        notificationRecipientRepository.saveAll(recipients);
+        notificationRecipientRepository.saveAll(Objects.requireNonNull(recipients));
     }
 
     /**
@@ -186,28 +227,35 @@ public class NotificationServiceImpl implements NotificationService {
      * 获取通知发送记录
      */
     @Override
-    public List<?> getNotificationRecipients(UUID notificationId) {
+    public List<?> getNotificationRecipients(@Nullable UUID notificationId) {
         log.debug("获取通知发送记录: notificationId={}", notificationId);
-        return notificationRecipientRepository.findByNotificationId(notificationId);
+        return notificationId != null ? notificationRecipientRepository.findByNotificationId(notificationId) : List.of();
     }
 
     @Override
-    public NotificationSetting getSetting(UUID userId, String type) {
+    public NotificationSetting getSetting(@Nullable UUID userId, @Nullable String type) {
+        if (userId == null || type == null) {
+            return null;
+        }
         return notificationSettingRepository.findByUserIdAndType(userId, type).orElse(null);
     }
 
     @Override
     @Transactional
-    public NotificationSetting updateSetting(UUID userId, String type, NotificationSetting setting) {
+    public NotificationSetting updateSetting(@Nullable UUID userId, @Nullable String type, NotificationSetting setting) {
         log.info("更新通知设置: userId={}, type={}", userId, type);
-        
+
+        if (userId == null || type == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST);
+        }
+
         NotificationSetting existingSetting = notificationSettingRepository
                 .findByUserIdAndType(userId, type)
                 .orElse(NotificationSetting.builder()
                         .userId(userId)
                         .type(type)
                         .build());
-        
+
         if (setting.getEnabled() != null) {
             existingSetting.setEnabled(setting.getEnabled());
         }
@@ -220,13 +268,13 @@ public class NotificationServiceImpl implements NotificationService {
         if (setting.getNotifyWebhook() != null) {
             existingSetting.setNotifyWebhook(setting.getNotifyWebhook());
         }
-        
-        return notificationSettingRepository.save(existingSetting);
+
+        return notificationSettingRepository.save(Objects.requireNonNull(existingSetting));
     }
 
     @Override
-    public List<NotificationSetting> getSettings(UUID userId) {
-        return notificationSettingRepository.findByUserId(userId);
+    public List<NotificationSetting> getSettings(@Nullable UUID userId) {
+        return userId != null ? notificationSettingRepository.findByUserId(userId) : List.of();
     }
 
     @Override
@@ -237,8 +285,8 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
-    public Optional<SystemAnnouncement> findAnnouncementById(UUID id) {
-        return systemAnnouncementRepository.findById(id);
+    public Optional<SystemAnnouncement> findAnnouncementById(@Nullable UUID id) {
+        return id != null ? systemAnnouncementRepository.findById(id) : Optional.empty();
     }
 
     @Override
@@ -250,7 +298,7 @@ public class NotificationServiceImpl implements NotificationService {
     public PageResponse<SystemAnnouncement> findAllAnnouncements(int page, int size) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("publishedAt").descending());
         Page<SystemAnnouncement> announcementPage = systemAnnouncementRepository.findAll(pageable);
-        
+
         return PageResponse.<SystemAnnouncement>builder()
                 .content(announcementPage.getContent())
                 .totalElements(announcementPage.getTotalElements())
@@ -262,12 +310,16 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     @Transactional
-    public SystemAnnouncement updateAnnouncement(UUID id, SystemAnnouncement announcement) {
+    public SystemAnnouncement updateAnnouncement(@Nullable UUID id, SystemAnnouncement announcement) {
         log.info("更新系统公告: id={}", id);
-        
+
+        if (id == null) {
+            throw new RuntimeException("公告不存在");
+        }
+
         SystemAnnouncement existingAnnouncement = systemAnnouncementRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("公告不存在"));
-        
+
         if (announcement.getTitle() != null) {
             existingAnnouncement.setTitle(announcement.getTitle());
         }
@@ -277,15 +329,17 @@ public class NotificationServiceImpl implements NotificationService {
         if (announcement.getPriority() != null) {
             existingAnnouncement.setPriority(announcement.getPriority());
         }
-        
-        return systemAnnouncementRepository.save(existingAnnouncement);
+
+        return systemAnnouncementRepository.save(Objects.requireNonNull(existingAnnouncement));
     }
 
     @Override
     @Transactional
-    public void deleteAnnouncement(UUID id) {
+    public void deleteAnnouncement(@Nullable UUID id) {
         log.info("删除系统公告: id={}", id);
-        systemAnnouncementRepository.deleteById(id);
+        if (id != null) {
+            systemAnnouncementRepository.deleteById(id);
+        }
     }
 
     @Override
@@ -298,7 +352,7 @@ public class NotificationServiceImpl implements NotificationService {
                     .userId(userId)
                     .assetId(assetId)
                     .build();
-            assetSubscriptionRepository.save(subscription);
+            assetSubscriptionRepository.save(Objects.requireNonNull(subscription));
         }
     }
 

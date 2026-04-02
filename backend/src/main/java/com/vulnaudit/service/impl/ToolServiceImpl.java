@@ -26,7 +26,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -58,6 +60,9 @@ public class ToolServiceImpl implements ToolService {
 
     @Override
     public Optional<Tool> findById(UUID id) {
+        if (id == null) {
+            return Optional.empty();
+        }
         return toolRepository.findById(id);
     }
 
@@ -112,7 +117,10 @@ public class ToolServiceImpl implements ToolService {
     @Transactional
     public Tool updateTool(UUID id, Tool tool) {
         log.info("更新工具: id={}", id);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.TOOL_NOT_FOUND);
+        }
         Tool existingTool = toolRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TOOL_NOT_FOUND));
         
@@ -129,14 +137,16 @@ public class ToolServiceImpl implements ToolService {
             existingTool.setRepositoryUrl(tool.getRepositoryUrl());
         }
         
-        return toolRepository.save(existingTool);
+        return toolRepository.save(Objects.requireNonNull(existingTool));
     }
 
     @Override
     @Transactional
     public void deleteTool(UUID id) {
         log.info("删除工具: id={}", id);
-        toolRepository.deleteById(id);
+        if (id != null) {
+            toolRepository.deleteById(id);
+        }
     }
 
     @Override
@@ -149,6 +159,9 @@ public class ToolServiceImpl implements ToolService {
     public void recordDownload(UUID toolId, UUID userId) {
         log.info("记录工具下载: toolId={}, userId={}", toolId, userId);
 
+        if (toolId == null) {
+            throw new BusinessException(ErrorCode.TOOL_NOT_FOUND);
+        }
         Tool tool = toolRepository.findById(toolId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TOOL_NOT_FOUND));
 
@@ -156,7 +169,7 @@ public class ToolServiceImpl implements ToolService {
                 .toolId(toolId)
                 .userId(userId)
                 .build();
-        toolDownloadRepository.save(download);
+        toolDownloadRepository.save(Objects.requireNonNull(download));
 
         tool.setDownloadCount(tool.getDownloadCount() + 1);
         toolRepository.save(tool);
@@ -169,6 +182,9 @@ public class ToolServiceImpl implements ToolService {
 
     @Override
     public List<String> getTags(UUID toolId) {
+        if (toolId == null) {
+            return Collections.emptyList();
+        }
         return toolTagRepository.findByToolId(toolId).stream()
                 .map(ToolTag::getTag)
                 .collect(Collectors.toList());
@@ -178,19 +194,23 @@ public class ToolServiceImpl implements ToolService {
     @Transactional
     public void addTag(UUID toolId, String tag) {
         log.info("添加工具标签: toolId={}, tag={}", toolId, tag);
-        
+        if (toolId == null) {
+            return;
+        }
         ToolTag toolTag = ToolTag.builder()
                 .toolId(toolId)
                 .tag(tag)
                 .build();
-        toolTagRepository.save(toolTag);
+        toolTagRepository.save(Objects.requireNonNull(toolTag));
     }
 
     @Override
     @Transactional
     public void removeTag(UUID toolId, String tag) {
         log.info("移除工具标签: toolId={}, tag={}", toolId, tag);
-        toolTagRepository.deleteByToolIdAndTag(toolId, tag);
+        if (toolId != null) {
+            toolTagRepository.deleteByToolIdAndTag(toolId, tag);
+        }
     }
 
     /**
@@ -199,17 +219,20 @@ public class ToolServiceImpl implements ToolService {
     @Override
     public List<ToolVersion> getToolVersions(UUID toolId) {
         log.debug("获取工具版本列表: toolId={}", toolId);
+        if (toolId == null) {
+            return Collections.emptyList();
+        }
         return toolVersionRepository.findByToolIdOrderByCreatedAtDesc(toolId);
     }
 
-    /**
-     * 上传新版本
-     */
     @Override
     @Transactional
     public ToolVersion uploadVersion(UUID toolId, String version, String changelog, MultipartFile file) {
         log.info("上传工具新版本: toolId={}, version={}", toolId, version);
 
+        if (toolId == null) {
+            throw new BusinessException(ErrorCode.TOOL_NOT_FOUND);
+        }
         toolRepository.findById(toolId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TOOL_NOT_FOUND));
 
@@ -224,6 +247,6 @@ public class ToolServiceImpl implements ToolService {
                 .createdAt(LocalDateTime.now())
                 .build();
         
-        return toolVersionRepository.save(toolVersion);
+        return toolVersionRepository.save(Objects.requireNonNull(toolVersion));
     }
 }

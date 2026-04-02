@@ -11,6 +11,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.Objects;
+
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -42,7 +44,7 @@ public class AuthControllerTest extends BaseTest {
                     .fullName("测试用户")
                     .status("active")
                     .build();
-            userRepository.save(user);
+            userRepository.save(Objects.requireNonNull(user));
 
             LoginRequest request = new LoginRequest();
             request.setUsername("testuser");
@@ -50,8 +52,8 @@ public class AuthControllerTest extends BaseTest {
 
             // 执行登录请求
             mockMvc.perform(post("/api/v1/auth/login")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
                     .andExpect(jsonPath("$.data.token").exists())
@@ -67,8 +69,8 @@ public class AuthControllerTest extends BaseTest {
             request.setPassword("password123");
 
             mockMvc.perform(post("/api/v1/auth/login")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isUnauthorized());
         }
 
@@ -83,15 +85,15 @@ public class AuthControllerTest extends BaseTest {
                     .fullName("测试用户2")
                     .status("active")
                     .build();
-            userRepository.save(user);
+            userRepository.save(Objects.requireNonNull(user));
 
             LoginRequest request = new LoginRequest();
             request.setUsername("testuser2");
             request.setPassword("wrongpassword");
 
             mockMvc.perform(post("/api/v1/auth/login")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isUnauthorized());
         }
 
@@ -106,15 +108,15 @@ public class AuthControllerTest extends BaseTest {
                     .fullName("已禁用用户")
                     .status("inactive")
                     .build();
-            userRepository.save(user);
+            userRepository.save(Objects.requireNonNull(user));
 
             LoginRequest request = new LoginRequest();
             request.setUsername("disableduser");
             request.setPassword("password123");
 
             mockMvc.perform(post("/api/v1/auth/login")
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isBadRequest());
         }
     }
@@ -145,8 +147,8 @@ public class AuthControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/auth/change-password")
                     .header("Authorization", engineerToken)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isOk());
         }
 
@@ -159,8 +161,8 @@ public class AuthControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/auth/change-password")
                     .header("Authorization", engineerToken)
-                    .contentType(MediaType.APPLICATION_JSON)
-                    .content(objectMapper.writeValueAsString(request)))
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isBadRequest());
         }
     }

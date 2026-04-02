@@ -21,6 +21,7 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -51,6 +52,9 @@ public class TeamServiceImpl implements TeamService {
 
     @Override
     public Optional<Team> findById(UUID id) {
+        if (id == null) {
+            return Optional.empty();
+        }
         return teamRepository.findById(id);
     }
 
@@ -91,7 +95,10 @@ public class TeamServiceImpl implements TeamService {
     @Transactional
     public Team updateTeam(UUID id, Team team) {
         log.info("更新团队: id={}", id);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND);
+        }
         Team existingTeam = teamRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
         
@@ -105,14 +112,16 @@ public class TeamServiceImpl implements TeamService {
             existingTeam.setParentId(team.getParentId());
         }
         
-        return teamRepository.save(existingTeam);
+        return teamRepository.save(Objects.requireNonNull(existingTeam));
     }
 
     @Override
     @Transactional
     public void deleteTeam(UUID id) {
         log.info("删除团队: id={}", id);
-        teamRepository.deleteById(id);
+        if (id != null) {
+            teamRepository.deleteById(id);
+        }
     }
 
     @Override
@@ -122,6 +131,9 @@ public class TeamServiceImpl implements TeamService {
 
     @Override
     public List<Team> findByParentId(UUID parentId) {
+        if (parentId == null) {
+            return findRootTeams();
+        }
         return teamRepository.findByParentId(parentId);
     }
 
@@ -133,10 +145,13 @@ public class TeamServiceImpl implements TeamService {
     @Override
     public List<Team> findTeamTree(UUID teamId) {
         List<Team> result = new ArrayList<>();
-        Team team = teamRepository.findById(teamId).orElse(null);
+        Team team = teamRepository.findById(Objects.requireNonNull(teamId)).orElse(null);
         if (team != null) {
-            result.add(team);
-            addChildTeams(team.getId(), result);
+            UUID teamIdValue = team.getId();
+            if (teamIdValue != null) {
+                result.add(team);
+                addChildTeams(Objects.requireNonNull(teamIdValue), result);
+            }
         }
         return result;
     }
@@ -145,7 +160,10 @@ public class TeamServiceImpl implements TeamService {
         List<Team> children = teamRepository.findByParentId(parentId);
         for (Team child : children) {
             result.add(child);
-            addChildTeams(child.getId(), result);
+            UUID childId = child.getId();
+            if (childId != null) {
+                addChildTeams(Objects.requireNonNull(childId), result);
+            }
         }
     }
 
@@ -154,10 +172,10 @@ public class TeamServiceImpl implements TeamService {
     public void addMember(UUID teamId, UUID userId, String role) {
         log.info("添加团队成员: teamId={}, userId={}, role={}", teamId, userId, role);
         
-        if (!teamRepository.existsById(teamId)) {
+        if (!teamRepository.existsById(Objects.requireNonNull(teamId))) {
             throw new BusinessException(ErrorCode.NOT_FOUND);
         }
-        if (!userRepository.existsById(userId)) {
+        if (!userRepository.existsById(Objects.requireNonNull(userId))) {
             throw new BusinessException(ErrorCode.USER_NOT_FOUND);
         }
         
@@ -170,7 +188,7 @@ public class TeamServiceImpl implements TeamService {
                 .userId(userId)
                 .isLeader("leader".equals(role))
                 .build();
-        teamMemberRepository.save(member);
+        teamMemberRepository.save(Objects.requireNonNull(member));
     }
 
     @Override

@@ -23,9 +23,12 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
+
+import jakarta.annotation.Nullable;
 
 /**
  * 知识库服务实现类
@@ -47,12 +50,12 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     @Override
-    public Optional<KnowledgeArticle> findById(UUID id) {
-        return articleRepository.findById(id);
+    public Optional<KnowledgeArticle> findById(@Nullable UUID id) {
+        return id != null ? articleRepository.findById(id) : Optional.empty();
     }
 
     @Override
-    public PageResponse<KnowledgeArticle> findAll(int page, int size, String keyword, String category) {
+    public PageResponse<KnowledgeArticle> findAll(int page, int size, @Nullable String keyword, @Nullable String category) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         
         Specification<KnowledgeArticle> spec = (root, query, cb) -> {
@@ -83,13 +86,13 @@ public class KnowledgeServiceImpl implements KnowledgeService {
     }
 
     @Override
-    public List<KnowledgeArticle> findByAuthorId(UUID authorId) {
-        return articleRepository.findByAuthorId(authorId);
+    public List<KnowledgeArticle> findByAuthorId(@Nullable UUID authorId) {
+        return authorId != null ? articleRepository.findByAuthorId(authorId) : List.of();
     }
 
     @Override
-    public List<KnowledgeArticle> findByCategory(String category) {
-        return articleRepository.findByCategory(category);
+    public List<KnowledgeArticle> findByCategory(@Nullable String category) {
+        return category != null ? articleRepository.findByCategory(category) : List.of();
     }
 
     @Override
@@ -100,12 +103,16 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Override
     @Transactional
-    public KnowledgeArticle updateArticle(UUID id, KnowledgeArticle article) {
+    public KnowledgeArticle updateArticle(@Nullable UUID id, KnowledgeArticle article) {
         log.info("更新知识文章: id={}", id);
-        
+
+        if (id == null) {
+            throw new BusinessException(ErrorCode.KNOWLEDGE_NOT_FOUND);
+        }
+
         KnowledgeArticle existingArticle = articleRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.KNOWLEDGE_NOT_FOUND));
-        
+
         if (article.getTitle() != null) {
             existingArticle.setTitle(article.getTitle());
         }
@@ -118,67 +125,84 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         if (article.getCategory() != null) {
             existingArticle.setCategory(article.getCategory());
         }
-        
-        return articleRepository.save(existingArticle);
+
+        return articleRepository.save(Objects.requireNonNull(existingArticle));
     }
 
     @Override
     @Transactional
-    public void deleteArticle(UUID id) {
+    public void deleteArticle(@Nullable UUID id) {
         log.info("删除知识文章: id={}", id);
-        articleRepository.deleteById(id);
+        if (id != null) {
+            articleRepository.deleteById(id);
+        }
     }
 
     @Override
     @Transactional
-    public void incrementViewCount(UUID id) {
-        articleRepository.findById(id).ifPresent(article -> {
-            article.setViewCount(article.getViewCount() + 1);
-            articleRepository.save(article);
-        });
+    public void incrementViewCount(@Nullable UUID id) {
+        if (id != null) {
+            articleRepository.findById(id).ifPresent(article -> {
+                article.setViewCount(article.getViewCount() + 1);
+                articleRepository.save(article);
+            });
+        }
     }
 
     @Override
     @Transactional
-    public void addComment(UUID articleId, UUID userId, String content) {
+    public void addComment(@Nullable UUID articleId, @Nullable UUID userId, @Nullable String content) {
         log.info("添加知识评论: articleId={}, userId={}", articleId, userId);
-        
+
+        if (articleId == null || userId == null) {
+            throw new BusinessException(ErrorCode.KNOWLEDGE_NOT_FOUND);
+        }
+
         KnowledgeComment comment = KnowledgeComment.builder()
                 .articleId(articleId)
                 .userId(userId)
                 .content(content)
                 .build();
-        commentRepository.save(comment);
+        commentRepository.save(Objects.requireNonNull(comment));
     }
 
     @Override
     @Transactional
-    public void addTag(UUID articleId, String tag) {
+    public void addTag(@Nullable UUID articleId, @Nullable String tag) {
         log.info("添加知识标签: articleId={}, tag={}", articleId, tag);
-        
+
+        if (articleId == null || tag == null) {
+            return;
+        }
+
         KnowledgeTag knowledgeTag = KnowledgeTag.builder()
                 .articleId(articleId)
                 .tag(tag)
                 .build();
-        tagRepository.save(knowledgeTag);
+        tagRepository.save(Objects.requireNonNull(knowledgeTag));
     }
 
     @Override
     @Transactional
-    public void removeTag(UUID articleId, String tag) {
+    public void removeTag(@Nullable UUID articleId, @Nullable String tag) {
         log.info("移除知识标签: articleId={}, tag={}", articleId, tag);
-        tagRepository.deleteByArticleIdAndTag(articleId, tag);
+        if (articleId != null && tag != null) {
+            tagRepository.deleteByArticleIdAndTag(articleId, tag);
+        }
     }
 
     @Override
-    public List<String> getTags(UUID articleId) {
+    public List<String> getTags(@Nullable UUID articleId) {
+        if (articleId == null) {
+            return List.of();
+        }
         return tagRepository.findByArticleId(articleId).stream()
                 .map(KnowledgeTag::getTag)
                 .collect(Collectors.toList());
     }
 
     @Override
-    public List<KnowledgeArticle> search(String keyword) {
-        return articleRepository.search(keyword);
+    public List<KnowledgeArticle> search(@Nullable String keyword) {
+        return keyword != null ? articleRepository.search(keyword) : List.of();
     }
 }

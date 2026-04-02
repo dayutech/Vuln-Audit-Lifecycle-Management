@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.util.Objects;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -43,7 +44,7 @@ public class DocumentControllerTest extends BaseTest {
                 .fullName("文档作者")
                 .status("active")
                 .build();
-        testAuthor = userRepository.save(testAuthor);
+        testAuthor = userRepository.save(Objects.requireNonNull(testAuthor));
 
         testDocument = Document.builder()
                 .title("测试文档")
@@ -56,7 +57,7 @@ public class DocumentControllerTest extends BaseTest {
                 .wordCount(100)
                 .createdBy(testAuthor.getId())
                 .build();
-        testDocument = documentRepository.save(testDocument);
+        testDocument = documentRepository.save(Objects.requireNonNull(testDocument));
     }
 
     @Nested
@@ -124,7 +125,7 @@ public class DocumentControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/documents")
                     .header("Authorization", engineerToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(docJson))
                     .andExpect(status().isCreated());
         }
@@ -141,7 +142,7 @@ public class DocumentControllerTest extends BaseTest {
 
             mockMvc.perform(put("/api/v1/documents/" + testDocument.getId())
                     .header("Authorization", engineerToken)
-                    .contentType(MediaType.APPLICATION_JSON)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(docJson))
                     .andExpect(status().isOk());
         }
