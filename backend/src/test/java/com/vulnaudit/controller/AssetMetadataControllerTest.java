@@ -1,11 +1,13 @@
 package com.vulnaudit.controller;
 
 import com.vulnaudit.entity.Asset;
-import com.vulnaudit.entity.AssetAppMetadata;
+import com.vulnaudit.entity.AssetVersion;
 import com.vulnaudit.entity.User;
-import com.vulnaudit.repository.AssetAppMetadataRepository;
+import com.vulnaudit.entity.metadata.AssetMetadataBase;
 import com.vulnaudit.repository.AssetRepository;
+import com.vulnaudit.repository.AssetVersionRepository;
 import com.vulnaudit.repository.UserRepository;
+import com.vulnaudit.repository.metadata.AssetMetadataBaseRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -24,17 +26,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 public class AssetMetadataControllerTest extends BaseTest {
 
     @Autowired
-    private AssetAppMetadataRepository metadataRepository;
+    private AssetMetadataBaseRepository baseRepository;
 
     @Autowired
     private AssetRepository assetRepository;
 
     @Autowired
+    private AssetVersionRepository assetVersionRepository;
+
+    @Autowired
     private UserRepository userRepository;
 
-    private AssetAppMetadata testMetadata;
     private Asset testAsset;
     private User testUser;
+    private AssetMetadataBase testMetadataBase;
 
     @BeforeEach
     void setUpMetadataData() {
@@ -61,119 +66,182 @@ public class AssetMetadataControllerTest extends BaseTest {
                 .build();
         testAsset = assetRepository.save(Objects.requireNonNull(testAsset));
 
-        testMetadata = AssetAppMetadata.builder()
-                .assetId(testAsset.getId())
-                .claimedBy(testUser.getId())
-                .version(1)
-                .systemArchitecture("x86_64")
-                .installPath("/opt/app")
-                .programmingLanguage("Java")
-                .framework("Spring Boot")
-                .databaseType("MySQL")
-                .servicePorts("8080,8443")
-                .build();
-        testMetadata = metadataRepository.save(Objects.requireNonNull(testMetadata));
+        testMetadataBase = new AssetMetadataBase();
+        testMetadataBase.setAssetId(testAsset.getId());
+        testMetadataBase.setClaimedBy(testUser.getId());
+        testMetadataBase.setVersion(1);
+        testMetadataBase.setSystemArchitecture("x86_64");
+        testMetadataBase.setProgrammingLanguage("Java");
+        testMetadataBase.setFramework("Spring Boot");
+        testMetadataBase = baseRepository.save(Objects.requireNonNull(testMetadataBase));
     }
 
     @Nested
-    @DisplayName("元数据查询测试")
-    class GetMetadataTests {
+    @DisplayName("基础元数据测试")
+    class BaseMetadataTests {
 
         @Test
-        @DisplayName("获取资产元数据 - 成功")
-        void getAssetMetadata_Success() throws Exception {
-            mockMvc.perform(get("/api/v1/assets/" + testAsset.getId() + "/metadata")
+        @DisplayName("获取基础元数据 - 成功")
+        void getBaseMetadata_Success() throws Exception {
+            mockMvc.perform(get("/api/v1/assets/" + testAsset.getId() + "/metadata/base")
                     .header("Authorization", engineerToken))
-                    .andExpect(status().isOk());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.systemArchitecture").value("x86_64"));
         }
 
         @Test
-        @DisplayName("获取资产元数据 - 元数据不存在")
-        void getAssetMetadata_NotFound() throws Exception {
-            String uniqueSuffix = String.valueOf(System.currentTimeMillis());
-            Asset newAsset = Asset.builder()
-                    .name("无元数据资产")
-                    .code("NO-META-" + uniqueSuffix)
-                    .targetType("web")
-                    .targetSource("internal")
-                    .description("无元数据资产")
-                    .priority("P2")
-                    .status("active")
-                    .ownerId(testUser.getId())
-                    .build();
-            newAsset = assetRepository.save(Objects.requireNonNull(newAsset));
+        @DisplayName("更新基础元数据 - 成功")
+        void updateBaseMetadata_Success() throws Exception {
+            String metadataJson = "{\"systemArchitecture\":\"arm64\",\"runtimePlatform\":\"Docker\",\"deploymentMethod\":\"k8s\"}";
 
-            mockMvc.perform(get("/api/v1/assets/" + newAsset.getId() + "/metadata")
-                    .header("Authorization", engineerToken))
-                    .andExpect(status().isOk());
-        }
-    }
-
-    @Nested
-    @DisplayName("元数据创建测试")
-    class CreateMetadataTests {
-
-        @Test
-        @DisplayName("创建资产元数据 - 成功")
-        void createAssetMetadata_Success() throws Exception {
-            String uniqueSuffix = String.valueOf(System.currentTimeMillis());
-            Asset newAsset = Asset.builder()
-                    .name("新元数据资产")
-                    .code("NEW-META-" + uniqueSuffix)
-                    .targetType("web")
-                    .targetSource("internal")
-                    .description("新元数据资产")
-                    .priority("P2")
-                    .status("active")
-                    .ownerId(testUser.getId())
-                    .build();
-            newAsset = assetRepository.save(Objects.requireNonNull(newAsset));
-
-            String metadataJson = "{\"systemArchitecture\":\"x86_64\",\"installPath\":\"/opt/newapp\",\"programmingLanguage\":\"Python\",\"framework\":\"Django\",\"databaseType\":\"PostgreSQL\",\"servicePorts\":\"8000,8001\"}";
-
-            mockMvc.perform(post("/api/v1/assets/" + newAsset.getId() + "/metadata")
+            mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/base")
                     .header("Authorization", engineerToken)
                     .contentType("application/json")
                     .content(metadataJson))
-                    .andExpect(status().isCreated());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.systemArchitecture").value("arm64"))
+                    .andExpect(jsonPath("$.data.runtimePlatform").value("Docker"));
         }
     }
 
     @Nested
-    @DisplayName("元数据更新测试")
-    class UpdateMetadataTests {
+    @DisplayName("网络元数据测试")
+    class NetworkMetadataTests {
 
         @Test
-        @DisplayName("更新资产元数据 - 成功")
-        void updateAssetMetadata_Success() throws Exception {
-            String metadataJson = "{\"systemArchitecture\":\"x86_64\",\"installPath\":\"/opt/updated\",\"programmingLanguage\":\"Java\",\"framework\":\"Spring Boot\",\"databaseType\":\"MySQL\",\"servicePorts\":\"8090,8443\"}";
+        @DisplayName("获取网络元数据 - 不存在时返回null")
+        void getNetworkMetadata_NotFound() throws Exception {
+            mockMvc.perform(get("/api/v1/assets/" + testAsset.getId() + "/metadata/network")
+                    .header("Authorization", engineerToken))
+                    .andExpect(status().isOk());
+        }
 
-            mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/" + testMetadata.getId())
+        @Test
+        @DisplayName("更新网络元数据 - 成功")
+        void updateNetworkMetadata_Success() throws Exception {
+            String metadataJson = "{\"servicePorts\":\"8080,8443\",\"apiEndpoints\":\"/api/v1/test\"}";
+
+            mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/network")
                     .header("Authorization", engineerToken)
                     .contentType("application/json")
                     .content(metadataJson))
-                    .andExpect(status().isOk());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.servicePorts").value("8080,8443"))
+                    .andExpect(jsonPath("$.data.apiEndpoints").value("/api/v1/test"));
         }
     }
 
     @Nested
-    @DisplayName("元数据删除测试")
-    class DeleteMetadataTests {
+    @DisplayName("账号元数据测试")
+    class AccountMetadataTests {
 
         @Test
-        @DisplayName("删除资产元数据 - 成功")
-        void deleteMetadata_Success() throws Exception {
-            mockMvc.perform(delete("/api/v1/assets/" + testAsset.getId() + "/metadata/" + testMetadata.getId())
-                    .header("Authorization", engineerToken))
-                    .andExpect(status().isOk());
+        @DisplayName("更新账号元数据 - 多账号格式化")
+        void updateAccountMetadata_WithMultipleAccounts() throws Exception {
+            String metadataJson = "{\"accountCredentialsJson\":\"[{\\\"usageNote\\\":\\\"SSH登录\\\",\\\"username\\\":\\\"root\\\",\\\"password\\\":\\\"root123\\\"},{\\\"usageNote\\\":\\\"Web管理员\\\",\\\"username\\\":\\\"admin\\\",\\\"password\\\":\\\"admin123\\\"}]\"}";
+
+            mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/account")
+                    .header("Authorization", engineerToken)
+                    .contentType("application/json")
+                    .content(metadataJson))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.accountCredentialsJson").exists());
+        }
+    }
+
+    @Nested
+    @DisplayName("环境与附加元数据测试")
+    class EnvAndExtraMetadataTests {
+
+        @Test
+        @DisplayName("更新环境元数据 - 成功")
+        void updateEnvMetadata_Success() throws Exception {
+            String metadataJson = "{\"installPath\":\"/opt/app\",\"startupScriptPath\":\"[\\\"/opt/app/start.sh\\\"]\",\"configFilePath\":\"[\\\"/etc/app/config.yml\\\"]\",\"startupCommand\":\"./start.sh\",\"databaseType\":\"MySQL\",\"databaseConnection\":\"jdbc:mysql://localhost:3306/demo\"}";
+
+            mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/env")
+                    .header("Authorization", engineerToken)
+                    .contentType("application/json")
+                    .content(metadataJson))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.installPath").value("/opt/app"))
+                    .andExpect(jsonPath("$.data.databaseType").value("MySQL"));
         }
 
         @Test
-        @DisplayName("删除资产元数据 - 元数据不存在")
-        void deleteMetadata_NotFound() throws Exception {
-            mockMvc.perform(delete("/api/v1/assets/" + testAsset.getId() + "/metadata/" + testMetadata.getId())
-                    .header("Authorization", engineerToken))
-                    .andExpect(status().isOk());
+        @DisplayName("更新附加元数据 - 成功")
+        void updateExtraMetadata_Success() throws Exception {
+            String metadataJson = "{\"specialNotes\":\"该资产依赖内网DNS与白名单策略\"}";
+
+            mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/extra")
+                    .header("Authorization", engineerToken)
+                    .contentType("application/json")
+                    .content(metadataJson))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.specialNotes").value("该资产依赖内网DNS与白名单策略"));
+        }
+    }
+
+    @Nested
+    @DisplayName("版本元数据测试")
+    class VersionedMetadataTests {
+
+        @Test
+        @DisplayName("按版本更新基础元数据 - 成功")
+        void updateBaseMetadata_WithAssetVersionId_Success() throws Exception {
+            AssetVersion version = assetVersionRepository.save(Objects.requireNonNull(AssetVersion.builder()
+                    .assetId(testAsset.getId())
+                    .versionNo(1)
+                    .name("v1.0.0")
+                    .description("首个版本")
+                    .isDefault(true)
+                    .status("active")
+                    .createdBy(testUser.getId())
+                    .build()));
+
+            String metadataJson = "{\"systemArchitecture\":\"arm64\",\"runtimePlatform\":\"Linux\"}";
+
+            mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/base")
+                    .header("Authorization", engineerToken)
+                    .param("assetVersionId", version.getId().toString())
+                    .contentType("application/json")
+                    .content(metadataJson))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.assetVersionId").value(version.getId().toString()))
+                    .andExpect(jsonPath("$.data.runtimePlatform").value("Linux"));
+        }
+
+        @Test
+        @DisplayName("按版本更新基础元数据 - 版本不属于资产时返回404")
+        void updateBaseMetadata_WithInvalidAssetVersionId_ReturnsNotFound() throws Exception {
+            Asset anotherAsset = assetRepository.save(Objects.requireNonNull(Asset.builder()
+                    .name("其他资产")
+                    .code("META-OTHER-" + System.nanoTime())
+                    .targetType("web")
+                    .targetSource("internal")
+                    .description("其他资产")
+                    .priority("P2")
+                    .status("active")
+                    .ownerId(testUser.getId())
+                    .build()));
+
+            AssetVersion version = assetVersionRepository.save(Objects.requireNonNull(AssetVersion.builder()
+                    .assetId(anotherAsset.getId())
+                    .versionNo(1)
+                    .name("v1.0.0")
+                    .description("其他资产版本")
+                    .isDefault(true)
+                    .status("active")
+                    .createdBy(testUser.getId())
+                    .build()));
+
+            String metadataJson = "{\"systemArchitecture\":\"arm64\",\"runtimePlatform\":\"Linux\"}";
+
+            mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/base")
+                    .header("Authorization", engineerToken)
+                    .param("assetVersionId", version.getId().toString())
+                    .contentType("application/json")
+                    .content(metadataJson))
+                    .andExpect(status().isNotFound());
         }
     }
 }

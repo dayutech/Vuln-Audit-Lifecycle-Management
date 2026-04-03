@@ -11,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.mock.web.MockMultipartFile;
 
 import java.util.Objects;
 import java.util.UUID;
@@ -76,6 +77,18 @@ public class AssetFileControllerTest extends BaseTest {
                 .uploadedBy(testUser.getId())
                 .build();
         testFile = assetFileRepository.save(Objects.requireNonNull(testFile));
+
+        assetFileRepository.save(Objects.requireNonNull(AssetFile.builder()
+                .assetId(testAsset.getId())
+                .name("archived_file.zip")
+                .filePath("/uploads/archived_file.zip")
+                .fileSize(512L)
+                .fileType("zip")
+                .category("document")
+                .version(1)
+                .status("archived")
+                .uploadedBy(testUser.getId())
+                .build()));
     }
 
     @Nested
@@ -87,7 +100,9 @@ public class AssetFileControllerTest extends BaseTest {
         void getFileList_Success() throws Exception {
             mockMvc.perform(get("/api/v1/assets/" + testAsset.getId() + "/files")
                     .header("Authorization", engineerToken))
-                    .andExpect(status().isOk());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.length()").value(1))
+                    .andExpect(jsonPath("$.data[0].name").value("test_file.zip"));
         }
     }
 
@@ -122,6 +137,30 @@ public class AssetFileControllerTest extends BaseTest {
             mockMvc.perform(get("/api/v1/asset-files/" + testFile.getId() + "/versions")
                     .header("Authorization", engineerToken))
                     .andExpect(status().isOk());
+        }
+    }
+
+    @Nested
+    @DisplayName("文件上传测试")
+    class UploadFileTests {
+
+        @Test
+        @DisplayName("上传资产文件 - 空文件")
+        void uploadFile_EmptyFile() throws Exception {
+            MockMultipartFile emptyFile = new MockMultipartFile(
+                    "file",
+                    "empty.txt",
+                    "text/plain",
+                    new byte[0]
+            );
+
+            mockMvc.perform(multipart("/api/v1/assets/" + testAsset.getId() + "/files")
+                            .file(emptyFile)
+                            .param("category", "其他")
+                            .header("Authorization", engineerToken))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.success").value(false))
+                    .andExpect(jsonPath("$.message").value("上传文件不能为空"));
         }
     }
 

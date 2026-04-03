@@ -1,291 +1,66 @@
 package com.vulnaudit.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.vulnaudit.dto.ApiResponse;
-import com.vulnaudit.entity.AssetAppMetadata;
-import com.vulnaudit.entity.AssetAppMetadataHistory;
-import com.vulnaudit.repository.AssetAppMetadataRepository;
-import com.vulnaudit.repository.AssetAppMetadataHistoryRepository;
+import com.vulnaudit.dto.metadata.*;
+import com.vulnaudit.entity.metadata.*;
+import com.vulnaudit.exception.BusinessException;
+import com.vulnaudit.exception.ErrorCode;
+import com.vulnaudit.repository.metadata.*;
 import com.vulnaudit.repository.AssetVersionRepository;
 import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
-/**
- * 资产应用元数据控制器
- */
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/assets/{assetId}/metadata")
 @RequiredArgsConstructor
-@Tag(name = "资产元数据管理", description = "资产应用元数据CRUD接口")
+@Tag(name = "资产元数据管理", description = "资产应用元数据CRUD接口 (按模块拆分)")
 @SecurityRequirement(name = "bearerAuth")
 public class AssetMetadataController {
 
-    private final AssetAppMetadataRepository metadataRepository;
-    private final AssetAppMetadataHistoryRepository historyRepository;
+    private final AssetMetadataBaseRepository baseRepository;
+    private final AssetMetadataNetworkRepository networkRepository;
+    private final AssetMetadataEnvRepository envRepository;
+    private final AssetMetadataAccountRepository accountRepository;
+    private final AssetMetadataExtraRepository extraRepository;
     private final AssetVersionRepository assetVersionRepository;
     private final UserService userService;
     private final PasswordEncoder passwordEncoder;
+    private final ObjectMapper objectMapper;
 
-    @GetMapping
-    @Operation(summary = "获取资产元数据", description = "获取指定资产的应用元数据")
-    public ResponseEntity<ApiResponse<AssetAppMetadata>> listMetadata(
-            @PathVariable UUID assetId,
-            @RequestParam(required = false) UUID assetVersionId) {
-        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
-        log.info("获取资产元数据: assetId={}, assetVersionId={}", assetId, resolvedVersionId);
-
-        return findMetadataByAssetAndVersion(assetId, resolvedVersionId)
-                .map(metadata -> ResponseEntity.ok(ApiResponse.success(metadata)))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "元数据不存在")));
-    }
-
-    @GetMapping("/detail/{id}")
-    @Operation(summary = "获取元数据详情", description = "根据ID获取元数据详细信息")
-    public ResponseEntity<ApiResponse<AssetAppMetadata>> getMetadata(
-            @PathVariable UUID assetId,
-            @PathVariable UUID id) {
-        
-        log.info("获取元数据详情: assetId={}, id={}", assetId, id);
-        
-        return metadataRepository.findById(Objects.requireNonNull(id, "id must not be null"))
-                .map(metadata -> ResponseEntity.ok(ApiResponse.success(metadata)))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "元数据不存在")));
-    }
-
-    @PostMapping
-    @Operation(summary = "创建元数据", description = "创建新的应用元数据")
-    public ResponseEntity<ApiResponse<AssetAppMetadata>> createMetadata(
-            @PathVariable UUID assetId,
-            @RequestParam(required = false) UUID assetVersionId,
-            @RequestBody AssetAppMetadata metadata) {
-        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
-        log.info("创建元数据: assetId={}, assetVersionId={}", assetId, resolvedVersionId);
-        if (metadataRepository.existsByAssetIdAndAssetVersionId(assetId, resolvedVersionId)) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiResponse.error(400, "该资产已存在元数据，请使用更新接口"));
+    private UUID getCurrentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "用户未登录");
         }
-
-        UUID currentUserId = getCurrentUserId();
-        metadata.setAssetId(assetId);
-        metadata.setAssetVersionId(resolvedVersionId);
-        metadata.setClaimedBy(currentUserId);
-        metadata.setVersion(1);
-        if (metadata.getAdminPasswordEncrypted() != null && !metadata.getAdminPasswordEncrypted().isBlank()) {
-            metadata.setAdminPasswordEncrypted(passwordEncoder.encode(metadata.getAdminPasswordEncrypted()));
-        }
-        AssetAppMetadata savedMetadata = metadataRepository.save(metadata);
-        
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponse.success(savedMetadata));
-    }
-
-    @PutMapping
-    @Operation(summary = "更新元数据", description = "按资产ID更新应用元数据")
-    public ResponseEntity<ApiResponse<AssetAppMetadata>> updateMetadataByAsset(
-            @PathVariable UUID assetId,
-            @RequestBody AssetAppMetadata metadata,
-            @RequestParam(required = false) UUID assetVersionId,
-            @Parameter(description = "变更原因") @RequestParam(required = false) String changeReason) {
-        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
-        return findMetadataByAssetAndVersion(assetId, resolvedVersionId)
-                .map(existing -> updateMetadataInternal(existing, metadata, changeReason))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "元数据不存在")));
-    }
-
-    @PutMapping("/{id}")
-    @Operation(summary = "更新元数据", description = "更新应用元数据")
-    public ResponseEntity<ApiResponse<AssetAppMetadata>> updateMetadata(
-            @PathVariable UUID assetId,
-            @PathVariable UUID id,
-            @RequestBody AssetAppMetadata metadata,
-            @Parameter(description = "变更原因") @RequestParam(required = false) String changeReason) {
-        
-        log.info("更新元数据: assetId={}, id={}", assetId, id);
-        
-        return metadataRepository.findById(Objects.requireNonNull(id, "id must not be null"))
-                .map(existing -> updateMetadataInternal(existing, metadata, changeReason))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "元数据不存在")));
-    }
-
-    @DeleteMapping("/{id}")
-    @Operation(summary = "删除元数据", description = "删除应用元数据")
-    public ResponseEntity<ApiResponse<Void>> deleteMetadata(
-            @PathVariable UUID assetId,
-            @PathVariable UUID id) {
-        
-        log.info("删除元数据: assetId={}, id={}", assetId, id);
-        
-        UUID metadataId = Objects.requireNonNull(id, "id must not be null");
-        if (!metadataRepository.existsById(metadataId)) {
-            return ResponseEntity.ok(ApiResponse.error(404, "元数据不存在"));
-        }
-        
-        metadataRepository.deleteById(metadataId);
-        return ResponseEntity.ok(ApiResponse.success(null));
-    }
-
-    @GetMapping("/{id}/history")
-    @Operation(summary = "获取元数据历史", description = "获取元数据的变更历史")
-    public ResponseEntity<ApiResponse<List<AssetAppMetadataHistory>>> getMetadataHistory(
-            @PathVariable UUID assetId,
-            @PathVariable UUID id) {
-        
-        log.info("获取元数据历史: assetId={}, metadataId={}", assetId, id);
-        
-        List<AssetAppMetadataHistory> history = historyRepository.findByMetadataIdOrderByVersionDesc(id);
-        return ResponseEntity.ok(ApiResponse.success(history));
-    }
-
-    @GetMapping("/history")
-    @Operation(summary = "获取资产元数据历史", description = "按资产ID获取元数据历史")
-    public ResponseEntity<ApiResponse<List<AssetAppMetadataHistory>>> getMetadataHistoryByAsset(
-            @Parameter(description = "资产ID", required = true)
-            @PathVariable UUID assetId,
-            @RequestParam(required = false) UUID assetVersionId) {
-        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
-        return findMetadataByAssetAndVersion(assetId, resolvedVersionId)
-                .map(metadata -> ResponseEntity.ok(ApiResponse.success(
-                        historyRepository.findByMetadataIdOrderByVersionDesc(metadata.getId())
-                )))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "元数据不存在")));
-    }
-
-    @GetMapping("/versions/{version}")
-    @Operation(summary = "获取历史版本", description = "按资产ID与版本号获取元数据历史版本")
-    public ResponseEntity<ApiResponse<AssetAppMetadataHistory>> getMetadataVersionByAsset(
-            @PathVariable UUID assetId,
-            @RequestParam(required = false) UUID assetVersionId,
-            @PathVariable Integer version) {
-        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
-        return findMetadataByAssetAndVersion(assetId, resolvedVersionId)
-                .map(metadata -> {
-                    AssetAppMetadataHistory history = historyRepository.findByMetadataIdAndVersion(metadata.getId(), version);
-                    if (history == null) {
-                        return ResponseEntity.ok(ApiResponse.<AssetAppMetadataHistory>error(404, "历史版本不存在"));
-                    }
-                    return ResponseEntity.ok(ApiResponse.success(history));
-                })
-                .orElse(ResponseEntity.ok(ApiResponse.<AssetAppMetadataHistory>error(404, "元数据不存在")));
-    }
-
-    @GetMapping("/{id}/history/{version}")
-    @Operation(summary = "获取历史版本", description = "获取元数据的指定历史版本")
-    public ResponseEntity<ApiResponse<AssetAppMetadataHistory>> getMetadataVersion(
-            @PathVariable UUID assetId,
-            @PathVariable UUID id,
-            @Parameter(description = "历史版本ID") @PathVariable("version") UUID version) {
-        
-        log.info("获取元数据历史版本: assetId={}, metadataId={}, version={}", assetId, id, version);
-        
-        return historyRepository.findById(Objects.requireNonNull(version, "version must not be null"))
-                .map(history -> ResponseEntity.ok(ApiResponse.success(history)))
-                .orElse(ResponseEntity.ok(ApiResponse.error(404, "历史版本不存在")));
-    }
-
-    private ResponseEntity<ApiResponse<AssetAppMetadata>> updateMetadataInternal(
-            AssetAppMetadata existing,
-            AssetAppMetadata metadata,
-            String changeReason) {
-        UUID currentUserId = getCurrentUserId();
-        String finalReason = (changeReason == null || changeReason.isBlank()) ? "更新元数据" : changeReason;
-        AssetAppMetadataHistory history = Objects.requireNonNull(AssetAppMetadataHistory.builder()
-                .metadataId(existing.getId())
-                .version(existing.getVersion())
-                .systemArchitecture(existing.getSystemArchitecture())
-                .installPath(existing.getInstallPath())
-                .startupScriptPath(existing.getStartupScriptPath())
-                .configFilePath(existing.getConfigFilePath())
-                .startupCommand(existing.getStartupCommand())
-                .programmingLanguage(existing.getProgrammingLanguage())
-                .framework(existing.getFramework())
-                .databaseType(existing.getDatabaseType())
-                .databaseConnection(existing.getDatabaseConnection())
-                .adminUsername(existing.getAdminUsername())
-                .adminPasswordEncrypted(existing.getAdminPasswordEncrypted())
-                .servicePorts(existing.getServicePorts())
-                .apiEndpoints(existing.getApiEndpoints())
-                .specialNotes(existing.getSpecialNotes())
-                .changeReason(finalReason)
-                .changedBy(currentUserId)
-                .build(), "history must not be null");
-        historyRepository.save(history);
-
-        if (metadata.getSystemArchitecture() != null) {
-            existing.setSystemArchitecture(metadata.getSystemArchitecture());
-        }
-        if (metadata.getInstallPath() != null) {
-            existing.setInstallPath(metadata.getInstallPath());
-        }
-        if (metadata.getStartupScriptPath() != null) {
-            existing.setStartupScriptPath(metadata.getStartupScriptPath());
-        }
-        if (metadata.getConfigFilePath() != null) {
-            existing.setConfigFilePath(metadata.getConfigFilePath());
-        }
-        if (metadata.getStartupCommand() != null) {
-            existing.setStartupCommand(metadata.getStartupCommand());
-        }
-        if (metadata.getProgrammingLanguage() != null) {
-            existing.setProgrammingLanguage(metadata.getProgrammingLanguage());
-        }
-        if (metadata.getFramework() != null) {
-            existing.setFramework(metadata.getFramework());
-        }
-        if (metadata.getDatabaseType() != null) {
-            existing.setDatabaseType(metadata.getDatabaseType());
-        }
-        if (metadata.getDatabaseConnection() != null) {
-            existing.setDatabaseConnection(metadata.getDatabaseConnection());
-        }
-        if (metadata.getAdminUsername() != null) {
-            existing.setAdminUsername(metadata.getAdminUsername());
-        }
-        if (metadata.getAdminPasswordEncrypted() != null && !metadata.getAdminPasswordEncrypted().isBlank()) {
-            existing.setAdminPasswordEncrypted(passwordEncoder.encode(metadata.getAdminPasswordEncrypted()));
-        }
-        if (metadata.getServicePorts() != null) {
-            existing.setServicePorts(metadata.getServicePorts());
-        }
-        if (metadata.getApiEndpoints() != null) {
-            existing.setApiEndpoints(metadata.getApiEndpoints());
-        }
-        if (metadata.getSpecialNotes() != null) {
-            existing.setSpecialNotes(metadata.getSpecialNotes());
-        }
-        existing.setClaimedBy(currentUserId);
-        existing.setVersion(existing.getVersion() + 1);
-        AssetAppMetadata updated = metadataRepository.save(existing);
-        return ResponseEntity.ok(ApiResponse.success(updated));
-    }
-
-    private Optional<AssetAppMetadata> findMetadataByAssetAndVersion(UUID assetId, UUID assetVersionId) {
-        if (assetVersionId != null) {
-            Optional<AssetAppMetadata> versioned = metadataRepository.findByAssetIdAndAssetVersionId(assetId, assetVersionId);
-            if (versioned.isPresent()) {
-                return versioned;
-            }
-        }
-        return metadataRepository.findByAssetIdAndAssetVersionId(assetId, null);
+        String username = authentication.getName();
+        return userService.findByUsername(username)
+                .map(user -> user.getId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED, "用户不存在"));
     }
 
     private UUID resolveAssetVersionId(UUID assetId, UUID assetVersionId) {
         if (assetVersionId != null) {
+            boolean exists = assetVersionRepository.findByIdAndAssetId(assetVersionId, assetId).isPresent();
+            if (!exists) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "资产版本不存在或不属于当前资产");
+            }
             return assetVersionId;
         }
         return assetVersionRepository.findByAssetIdAndIsDefaultTrue(assetId)
@@ -293,13 +68,278 @@ public class AssetMetadataController {
                 .orElse(null);
     }
 
-    private UUID getCurrentUserId() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || authentication.getName() == null || "anonymousUser".equals(authentication.getName())) {
-            return null;
+    // ================= BASE =================
+    @GetMapping("/base")
+    @Operation(summary = "获取基础元数据")
+    public ResponseEntity<ApiResponse<AssetMetadataBase>> getBaseMetadata(
+            @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId) {
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        Optional<AssetMetadataBase> data = resolvedVersionId != null 
+                ? baseRepository.findByAssetIdAndAssetVersionId(assetId, resolvedVersionId)
+                : baseRepository.findByAssetIdAndAssetVersionIdIsNull(assetId);
+        return data.map(metadata -> ResponseEntity.ok(ApiResponse.success(metadata)))
+                .orElse(ResponseEntity.ok(ApiResponse.success(null)));
+    }
+
+    @PutMapping("/base")
+    @Operation(summary = "更新基础元数据")
+    public ResponseEntity<ApiResponse<AssetMetadataBase>> updateBaseMetadata(
+            @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId,
+            @RequestBody AssetMetadataBaseRequest request) {
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        UUID currentUserId = getCurrentUserId();
+
+        AssetMetadataBase metadata = (resolvedVersionId != null 
+                ? baseRepository.findByAssetIdAndAssetVersionId(assetId, resolvedVersionId)
+                : baseRepository.findByAssetIdAndAssetVersionIdIsNull(assetId))
+                .orElse(new AssetMetadataBase());
+
+        if (metadata.getId() == null) {
+            metadata.setAssetId(assetId);
+            metadata.setAssetVersionId(resolvedVersionId);
+            metadata.setVersion(1);
+        } else {
+            metadata.setVersion(metadata.getVersion() + 1);
         }
-        return userService.findByUsername(authentication.getName())
-                .map(user -> user.getId())
-                .orElse(null);
+        metadata.setClaimedBy(currentUserId);
+        
+        metadata.setSystemArchitecture(request.getSystemArchitecture());
+        metadata.setRuntimePlatform(request.getRuntimePlatform());
+        metadata.setDeploymentMethod(request.getDeploymentMethod());
+        metadata.setProgrammingLanguagesJson(request.getProgrammingLanguagesJson());
+        metadata.setProgrammingLanguage(request.getProgrammingLanguage());
+        metadata.setFramework(request.getFramework());
+
+        AssetMetadataBase saved = baseRepository.save(metadata);
+        return ResponseEntity.ok(ApiResponse.success(saved));
+    }
+
+    // ================= NETWORK =================
+    @GetMapping("/network")
+    @Operation(summary = "获取网络与接口元数据")
+    public ResponseEntity<ApiResponse<AssetMetadataNetwork>> getNetworkMetadata(
+            @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId) {
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        Optional<AssetMetadataNetwork> data = resolvedVersionId != null 
+                ? networkRepository.findByAssetIdAndAssetVersionId(assetId, resolvedVersionId)
+                : networkRepository.findByAssetIdAndAssetVersionIdIsNull(assetId);
+        return data.map(metadata -> ResponseEntity.ok(ApiResponse.success(metadata)))
+                .orElse(ResponseEntity.ok(ApiResponse.success(null)));
+    }
+
+    @PutMapping("/network")
+    @Operation(summary = "更新网络与接口元数据")
+    public ResponseEntity<ApiResponse<AssetMetadataNetwork>> updateNetworkMetadata(
+            @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId,
+            @RequestBody AssetMetadataNetworkRequest request) {
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        UUID currentUserId = getCurrentUserId();
+
+        AssetMetadataNetwork metadata = (resolvedVersionId != null 
+                ? networkRepository.findByAssetIdAndAssetVersionId(assetId, resolvedVersionId)
+                : networkRepository.findByAssetIdAndAssetVersionIdIsNull(assetId))
+                .orElse(new AssetMetadataNetwork());
+
+        if (metadata.getId() == null) {
+            metadata.setAssetId(assetId);
+            metadata.setAssetVersionId(resolvedVersionId);
+            metadata.setVersion(1);
+        } else {
+            metadata.setVersion(metadata.getVersion() + 1);
+        }
+        metadata.setClaimedBy(currentUserId);
+
+        metadata.setServicePorts(request.getServicePorts());
+        metadata.setApiEndpoints(request.getApiEndpoints());
+
+        AssetMetadataNetwork saved = networkRepository.save(metadata);
+        return ResponseEntity.ok(ApiResponse.success(saved));
+    }
+
+    // ================= ENV =================
+    @GetMapping("/env")
+    @Operation(summary = "获取环境元数据")
+    public ResponseEntity<ApiResponse<AssetMetadataEnv>> getEnvMetadata(
+            @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId) {
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        Optional<AssetMetadataEnv> data = resolvedVersionId != null 
+                ? envRepository.findByAssetIdAndAssetVersionId(assetId, resolvedVersionId)
+                : envRepository.findByAssetIdAndAssetVersionIdIsNull(assetId);
+        return data.map(metadata -> ResponseEntity.ok(ApiResponse.success(metadata)))
+                .orElse(ResponseEntity.ok(ApiResponse.success(null)));
+    }
+
+    @PutMapping("/env")
+    @Operation(summary = "更新环境元数据")
+    public ResponseEntity<ApiResponse<AssetMetadataEnv>> updateEnvMetadata(
+            @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId,
+            @RequestBody AssetMetadataEnvRequest request) {
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        UUID currentUserId = getCurrentUserId();
+
+        AssetMetadataEnv metadata = (resolvedVersionId != null 
+                ? envRepository.findByAssetIdAndAssetVersionId(assetId, resolvedVersionId)
+                : envRepository.findByAssetIdAndAssetVersionIdIsNull(assetId))
+                .orElse(new AssetMetadataEnv());
+
+        if (metadata.getId() == null) {
+            metadata.setAssetId(assetId);
+            metadata.setAssetVersionId(resolvedVersionId);
+            metadata.setVersion(1);
+        } else {
+            metadata.setVersion(metadata.getVersion() + 1);
+        }
+        metadata.setClaimedBy(currentUserId);
+
+        metadata.setInstallPath(request.getInstallPath());
+        metadata.setStartupScriptPath(request.getStartupScriptPath());
+        metadata.setConfigFilePath(request.getConfigFilePath());
+        metadata.setStartupCommand(request.getStartupCommand());
+        metadata.setDatabaseType(request.getDatabaseType());
+        metadata.setDatabaseConnection(request.getDatabaseConnection());
+
+        AssetMetadataEnv saved = envRepository.save(metadata);
+        return ResponseEntity.ok(ApiResponse.success(saved));
+    }
+
+    // ================= ACCOUNT =================
+    @GetMapping("/account")
+    @Operation(summary = "获取认证元数据")
+    public ResponseEntity<ApiResponse<AssetMetadataAccount>> getAccountMetadata(
+            @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId) {
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        Optional<AssetMetadataAccount> data = resolvedVersionId != null 
+                ? accountRepository.findByAssetIdAndAssetVersionId(assetId, resolvedVersionId)
+                : accountRepository.findByAssetIdAndAssetVersionIdIsNull(assetId);
+        return data.map(metadata -> ResponseEntity.ok(ApiResponse.success(metadata)))
+                .orElse(ResponseEntity.ok(ApiResponse.success(null)));
+    }
+
+    @PutMapping("/account")
+    @Operation(summary = "更新认证元数据")
+    public ResponseEntity<ApiResponse<AssetMetadataAccount>> updateAccountMetadata(
+            @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId,
+            @RequestBody AssetMetadataAccountRequest request) {
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        UUID currentUserId = getCurrentUserId();
+
+        AssetMetadataAccount metadata = (resolvedVersionId != null 
+                ? accountRepository.findByAssetIdAndAssetVersionId(assetId, resolvedVersionId)
+                : accountRepository.findByAssetIdAndAssetVersionIdIsNull(assetId))
+                .orElse(new AssetMetadataAccount());
+
+        if (metadata.getId() == null) {
+            metadata.setAssetId(assetId);
+            metadata.setAssetVersionId(resolvedVersionId);
+            metadata.setVersion(1);
+        } else {
+            metadata.setVersion(metadata.getVersion() + 1);
+        }
+        metadata.setClaimedBy(currentUserId);
+
+        metadata.setAdminUsername(request.getAdminUsername());
+        if (request.getAdminPasswordEncrypted() != null && !request.getAdminPasswordEncrypted().isBlank()) {
+            metadata.setAdminPasswordEncrypted(passwordEncoder.encode(request.getAdminPasswordEncrypted()));
+        }
+        metadata.setAccountCredentialsJson(normalizeAccountCredentialsJson(request.getAccountCredentialsJson(), metadata.getAccountCredentialsJson()));
+
+        AssetMetadataAccount saved = accountRepository.save(metadata);
+        return ResponseEntity.ok(ApiResponse.success(saved));
+    }
+
+    // ================= EXTRA =================
+    @GetMapping("/extra")
+    @Operation(summary = "获取附加元数据")
+    public ResponseEntity<ApiResponse<AssetMetadataExtra>> getExtraMetadata(
+            @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId) {
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        Optional<AssetMetadataExtra> data = resolvedVersionId != null 
+                ? extraRepository.findByAssetIdAndAssetVersionId(assetId, resolvedVersionId)
+                : extraRepository.findByAssetIdAndAssetVersionIdIsNull(assetId);
+        return data.map(metadata -> ResponseEntity.ok(ApiResponse.success(metadata)))
+                .orElse(ResponseEntity.ok(ApiResponse.success(null)));
+    }
+
+    @PutMapping("/extra")
+    @Operation(summary = "更新附加元数据")
+    public ResponseEntity<ApiResponse<AssetMetadataExtra>> updateExtraMetadata(
+            @PathVariable UUID assetId,
+            @RequestParam(required = false) UUID assetVersionId,
+            @RequestBody AssetMetadataExtraRequest request) {
+        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+        UUID currentUserId = getCurrentUserId();
+
+        AssetMetadataExtra metadata = (resolvedVersionId != null 
+                ? extraRepository.findByAssetIdAndAssetVersionId(assetId, resolvedVersionId)
+                : extraRepository.findByAssetIdAndAssetVersionIdIsNull(assetId))
+                .orElse(new AssetMetadataExtra());
+
+        if (metadata.getId() == null) {
+            metadata.setAssetId(assetId);
+            metadata.setAssetVersionId(resolvedVersionId);
+            metadata.setVersion(1);
+        } else {
+            metadata.setVersion(metadata.getVersion() + 1);
+        }
+        metadata.setClaimedBy(currentUserId);
+
+        metadata.setSpecialNotes(request.getSpecialNotes());
+
+        AssetMetadataExtra saved = extraRepository.save(metadata);
+        return ResponseEntity.ok(ApiResponse.success(saved));
+    }
+
+    private String normalizeAccountCredentialsJson(String rawJson, String existingJson) {
+        if (rawJson == null) return null;
+        if (rawJson.isBlank()) return "[]";
+        try {
+            ArrayNode input = (ArrayNode) objectMapper.readTree(rawJson);
+            ArrayNode existing = existingJson != null && !existingJson.isBlank() 
+                    ? (ArrayNode) objectMapper.readTree(existingJson) 
+                    : objectMapper.createArrayNode();
+            ArrayNode normalized = objectMapper.createArrayNode();
+
+            for (int i = 0; i < input.size(); i++) {
+                JsonNode node = input.get(i);
+                if (!node.isObject()) continue;
+                String usageNote = node.path("usageNote").asText(null);
+                String username = node.path("username").asText(null);
+                String password = node.path("password").asText(null);
+                String existingEncrypted = node.path("passwordEncrypted").asText(null);
+
+                if (existingEncrypted == null && existing.size() > i) {
+                    existingEncrypted = existing.get(i).path("passwordEncrypted").asText(null);
+                }
+
+                String resolvedEncrypted = existingEncrypted;
+                if (password != null && !password.isBlank()) {
+                    resolvedEncrypted = passwordEncoder.encode(password);
+                }
+
+                if ((usageNote == null || usageNote.isBlank()) && 
+                    (username == null || username.isBlank()) && 
+                    (resolvedEncrypted == null || resolvedEncrypted.isBlank())) {
+                    continue;
+                }
+
+                ObjectNode account = objectMapper.createObjectNode();
+                if (usageNote != null && !usageNote.isBlank()) account.put("usageNote", usageNote.trim());
+                if (username != null && !username.isBlank()) account.put("username", username.trim());
+                if (resolvedEncrypted != null && !resolvedEncrypted.isBlank()) account.put("passwordEncrypted", resolvedEncrypted);
+                normalized.add(account);
+            }
+            return objectMapper.writeValueAsString(normalized);
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "账户信息格式错误");
+        }
     }
 }

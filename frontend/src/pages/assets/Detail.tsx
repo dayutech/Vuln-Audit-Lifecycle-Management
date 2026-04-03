@@ -1,26 +1,136 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Tabs, Card, Button, Descriptions, Tag, Spin, Result, Form, Input, Select, Row, Col, Space, Upload, Table, message, Modal } from 'antd';
-import { AppstoreOutlined, BuildOutlined, FileZipOutlined, BugOutlined, SafetyCertificateOutlined, UploadOutlined, PlusOutlined } from '@ant-design/icons';
+import { Tabs, Card, Button, Descriptions, Tag, Spin, Result, Form, Input, Select, Row, Col, Space, Upload, Table, message, Modal, Tooltip, Steps } from 'antd';
+import { AppstoreOutlined, BuildOutlined, FileZipOutlined, BugOutlined, SafetyCertificateOutlined, UploadOutlined, PlusOutlined, MinusCircleOutlined, UserOutlined, LockOutlined, TagOutlined, PlusCircleOutlined, CodeOutlined, SettingOutlined, NodeIndexOutlined, LinkOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { 
   getAssetDetail, 
   getAssetVersions,
+  createAssetVersion,
+  setDefaultAssetVersion,
   getAssetMetadata, 
-  createAssetMetadata, 
   updateAssetMetadata, 
   getAssetFiles, 
   uploadAssetFile,
+  deleteAssetFile,
+  downloadAssetFile,
+  getAssetDeliverables,
+  uploadAssetDeliverable,
+  deleteAssetDeliverable,
+  downloadAssetDeliverable,
   getEnvironmentList,
   createEnvironment,
   deleteEnvironment
 } from '@/api/asset';
 import { getVulnerabilityList, createVulnerability, updateVulnerability, deleteVulnerability } from '@/api/vulnerability';
 import { getTaskList, createTask, updateTask, deleteTask } from '@/api/task';
-import type { AssetVO, AssetFileVO, UpsertAssetMetadataRequest, EnvironmentVO, AssetVersionVO } from '@/types/asset';
+import type { AssetVO, AssetFileVO, AssetDeliverableVO, EnvironmentVO, AssetVersionVO } from '@/types/asset';
 
 const { TabPane } = Tabs;
 const { Option } = Select;
 const { TextArea } = Input;
+
+const renderListFormItem = (
+  name: string, 
+  label: string, 
+  placeholder: string, 
+  icon: React.ReactNode,
+  extraField?: { name: string; label: string; options: { label: string; value: string }[], dependentField?: { name: string, label: string, placeholder: string, showWhenValue: string } },
+  hideLabel?: boolean
+) => (
+  <Form.Item label={hideLabel ? null : label}>
+    <div style={{ border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
+      <div style={{ background: '#fafafa', padding: '12px 16px', borderBottom: '1px solid #e8e8e8', display: 'flex', fontWeight: 500, color: '#595959' }}>
+        <div style={{ flex: '1', paddingRight: 8 }}>{label}内容</div>
+        {extraField && <div style={{ flex: '0 0 140px', paddingRight: 8 }}>{extraField.label}</div>}
+        <div style={{ flex: '1', paddingRight: 8 }}>用途备注</div>
+        <div style={{ flex: '0 0 50px', textAlign: 'center' }}>操作</div>
+      </div>
+      <div style={{ padding: '12px 16px 0' }}>
+        <Form.List name={name}>
+          {(fields, { add, remove }) => (
+            <>
+              {fields.map(({ key, name: fieldName, ...restField }, index) => (
+                <div key={key} style={{ marginBottom: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+                    <div style={{ flex: '1', paddingRight: 8 }}>
+                      <Form.Item {...restField} name={[fieldName, 'value']} style={{ marginBottom: 0 }}>
+                        <Input placeholder={placeholder} prefix={icon} />
+                      </Form.Item>
+                    </div>
+                    {extraField && (
+                      <div style={{ flex: '0 0 140px', paddingRight: 8 }}>
+                        <Form.Item {...restField} name={[fieldName, extraField.name]} style={{ marginBottom: 0 }}>
+                          <Select options={extraField.options} />
+                        </Form.Item>
+                      </div>
+                    )}
+                    <div style={{ flex: '1', paddingRight: 8 }}>
+                      <Form.Item {...restField} name={[fieldName, 'note']} style={{ marginBottom: 0 }}>
+                        <Input placeholder="如：生产环境 / 内网访问" prefix={<TagOutlined style={{ color: '#bfbfbf' }} />} />
+                      </Form.Item>
+                    </div>
+                    <div style={{ flex: '0 0 50px', display: 'flex', justifyContent: 'center', paddingTop: 4 }}>
+                      <Space size={8}>
+                        {fields.length > 1 && (
+                          <Tooltip title="移除">
+                            <MinusCircleOutlined 
+                              style={{ color: '#ff4d4f', fontSize: 16, cursor: 'pointer' }} 
+                              onClick={() => remove(fieldName)} 
+                            />
+                          </Tooltip>
+                        )}
+                        {index === fields.length - 1 && (
+                          <Tooltip title="添加">
+                            <PlusCircleOutlined 
+                              style={{ color: '#1890ff', fontSize: 16, cursor: 'pointer' }} 
+                              onClick={() => add({ value: '', note: '', ...(extraField ? { [extraField.name]: extraField.options[0].value } : {}) })} 
+                            />
+                          </Tooltip>
+                        )}
+                      </Space>
+                    </div>
+                  </div>
+                  {extraField?.dependentField && (
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(prevValues, currentValues) => {
+                        const prevList = prevValues[name] || [];
+                        const currentList = currentValues[name] || [];
+                        return prevList[fieldName]?.[extraField.name] !== currentList[fieldName]?.[extraField.name];
+                      }}
+                    >
+                      {({ getFieldValue }) => {
+                        const list = getFieldValue(name) || [];
+                        const currentVal = list[fieldName]?.[extraField.name];
+                        if (extraField.dependentField && currentVal === extraField.dependentField.showWhenValue) {
+                          return (
+                            <div style={{ marginTop: 8, paddingLeft: 12, borderLeft: '2px solid #1890ff' }}>
+                              <Form.Item {...restField} name={[fieldName, extraField.dependentField.name]} style={{ marginBottom: 0 }}>
+                                <Input placeholder={extraField.dependentField.placeholder} prefix={<InfoCircleOutlined style={{ color: '#bfbfbf' }}/>} />
+                              </Form.Item>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    </Form.Item>
+                  )}
+                </div>
+              ))}
+              {fields.length === 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <Button type="dashed" onClick={() => add({ value: '', note: '', ...(extraField ? { [extraField.name]: extraField.options[0].value } : {}) })} block icon={<PlusOutlined />}>
+                    添加
+                  </Button>
+                </div>
+              )}
+            </>
+          )}
+        </Form.List>
+      </div>
+    </div>
+  </Form.Item>
+);
 
 const AssetDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -30,6 +140,10 @@ const AssetDetail: React.FC = () => {
   const [assetVersions, setAssetVersions] = useState<AssetVersionVO[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string>();
   const [versionLoading, setVersionLoading] = useState(false);
+  const [createVersionVisible, setCreateVersionVisible] = useState(false);
+  const [creatingVersion, setCreatingVersion] = useState(false);
+  const [setDefaultLoading, setSetDefaultLoading] = useState(false);
+  const [versionForm] = Form.useForm();
 
   // Metadata states
   const [metadataForm] = Form.useForm();
@@ -38,11 +152,19 @@ const AssetDetail: React.FC = () => {
   const [metadataSubmitting, setMetadataSubmitting] = useState(false);
 
   // File states
-  const [uploadForm] = Form.useForm();
+  const [assetFileUploadForm] = Form.useForm();
+  const [deliverableUploadForm] = Form.useForm();
   const [files, setFiles] = useState<AssetFileVO[]>([]);
+  const [deliverables, setDeliverables] = useState<AssetDeliverableVO[]>([]);
   const [fileLoading, setFileLoading] = useState(false);
+  const [deliverableLoading, setDeliverableLoading] = useState(false);
   const [fileUploading, setFileUploading] = useState(false);
-  const [uploadFileList, setUploadFileList] = useState<any[]>([]);
+  const [deliverableUploading, setDeliverableUploading] = useState(false);
+  const [assetFileUploadList, setAssetFileUploadList] = useState<any[]>([]);
+  const [deliverableUploadList, setDeliverableUploadList] = useState<any[]>([]);
+
+  // 卡片切换状态
+  const [overviewStep, setOverviewStep] = useState(0);
 
   // Environment states
   const [environments, setEnvironments] = useState<EnvironmentVO[]>([]);
@@ -69,12 +191,6 @@ const AssetDetail: React.FC = () => {
   const [taskMode, setTaskMode] = useState<'create' | 'edit'>('create');
   const [currentTaskId, setCurrentTaskId] = useState<string>('');
 
-  const metadataInitialValues = useMemo(() => ({
-    systemArchitecture: '', installPath: '', startupScriptPath: '', configFilePath: '',
-    startupCommand: '', programmingLanguage: '', framework: '', databaseType: '',
-    databaseConnection: '', adminUsername: '', adminPasswordEncrypted: '',
-    servicePorts: '', apiEndpoints: '', specialNotes: '', changeReason: '',
-  }), []);
   const normalizeAsset = (item: AssetVO): AssetVO => ({
     ...item,
     team_id: item.team_id ?? item.teamId,
@@ -123,21 +239,111 @@ const AssetDetail: React.FC = () => {
     }
   };
 
-  const loadMetadata = async (assetId: string, assetVersionId?: string) => {
+  const stepToModule = ['base', 'network', 'env', 'account', 'extra'] as const;
+  type MetadataModule = typeof stepToModule[number];
+  const moduleFieldNames: Record<MetadataModule, (string | string[])[]> = {
+    base: ['runtimePlatform', 'deploymentMethod', 'systemArchitecture', 'programmingLanguagesList'],
+    network: ['servicePortsList', 'apiEndpointsList'],
+    env: ['installPath', 'startupCommand', 'databaseType', 'databaseConnection', 'startupScriptPathList', 'configFilePathList'],
+    account: ['accountCredentials'],
+    extra: ['specialNotes'],
+  };
+
+  const loadMetadata = async (assetId: string, module: MetadataModule, assetVersionId?: string) => {
     try {
       setMetadataLoading(true);
-      const res: any = await getAssetMetadata(assetId, assetVersionId);
+      const res: any = await getAssetMetadata(assetId, module, assetVersionId);
       const data = res?.data ? res.data : res;
       if (data && data.id) {
+        let accountCredentials: Array<{ usageNote?: string; username?: string; password?: string }> = [];
+        if (module === 'account') {
+          try {
+            const parsed = data.accountCredentialsJson ? JSON.parse(data.accountCredentialsJson) : [];
+            if (Array.isArray(parsed)) {
+              accountCredentials = parsed.map((item: any) => ({
+                usageNote: item?.usageNote || '',
+                username: item?.username || '',
+                password: '',
+              }));
+            }
+          } catch (error) {
+            accountCredentials = [];
+          }
+          if (accountCredentials.length === 0 && data.adminUsername) {
+            accountCredentials = [{
+              usageNote: '管理员登录',
+              username: data.adminUsername,
+              password: '',
+            }];
+          }
+          if (accountCredentials.length === 0) {
+            accountCredentials = [{ usageNote: '', username: '', password: '' }];
+          }
+        }
+
+        let programmingLanguagesList: Array<{ language: string; version: string; framework: string; note: string }> = [];
+        if (module === 'base') {
+          try {
+            const parsedLang = data.programmingLanguagesJson ? JSON.parse(data.programmingLanguagesJson) : [];
+            if (Array.isArray(parsedLang) && parsedLang.length > 0) {
+              programmingLanguagesList = parsedLang.map((item: any) => ({
+                language: item?.language || '',
+                version: item?.version || '',
+                framework: item?.framework || '',
+                note: item?.note || '',
+              }));
+            }
+          } catch (error) {
+            programmingLanguagesList = [];
+          }
+          if (programmingLanguagesList.length === 0) {
+            programmingLanguagesList = [{ language: '', version: '', framework: '', note: '' }];
+          }
+        }
+
+        const parseJsonList = (str: string | undefined | null, defaultTypeField?: { key: string, val: string }) => {
+          if (!str) return [{ value: '', note: '', ...(defaultTypeField ? { [defaultTypeField.key]: defaultTypeField.val } : {}) }];
+          try {
+            const parsed = JSON.parse(str);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              return parsed.map((item: any) => ({
+                value: item?.value || '',
+                note: item?.note || '',
+                ...(defaultTypeField ? { [defaultTypeField.key]: item?.[defaultTypeField.key] || defaultTypeField.val } : {})
+              }));
+            }
+          } catch (e) {
+            const arr = str.split(/[,;\n]+/).map(s => s.trim()).filter(s => !!s);
+            if (arr.length > 0) {
+              return arr.map(v => ({ 
+                value: v, 
+                note: '', 
+                ...(defaultTypeField ? { [defaultTypeField.key]: defaultTypeField.val } : {}) 
+              }));
+            }
+          }
+          return [{ value: '', note: '', ...(defaultTypeField ? { [defaultTypeField.key]: defaultTypeField.val } : {}) }];
+        };
+
         setMetadataExists(true);
-        metadataForm.setFieldsValue(data);
+        metadataForm.setFieldsValue({
+          ...data,
+          ...(module === 'account' ? { accountCredentials } : {}),
+          ...(module === 'base' ? { programmingLanguagesList } : {}),
+          ...(module === 'env' ? {
+            startupScriptPathList: parseJsonList(data.startupScriptPath),
+            configFilePathList: parseJsonList(data.configFilePath),
+          } : {}),
+          ...(module === 'network' ? {
+            servicePortsList: parseJsonList(data.servicePorts, { key: 'accessType', val: 'all' }),
+            apiEndpointsList: parseJsonList(data.apiEndpoints, { key: 'authType', val: 'auth_required' }),
+          } : {}),
+        });
       } else {
         setMetadataExists(false);
-        metadataForm.setFieldsValue(metadataInitialValues);
       }
     } catch (error) {
-      setMetadataExists(false);
-      metadataForm.setFieldsValue(metadataInitialValues);
+      console.error(error);
     } finally {
       setMetadataLoading(false);
     }
@@ -153,6 +359,19 @@ const AssetDetail: React.FC = () => {
       console.error(error);
     } finally {
       setFileLoading(false);
+    }
+  };
+
+  const loadDeliverables = async (assetId: string, assetVersionId?: string) => {
+    try {
+      setDeliverableLoading(true);
+      const res: any = await getAssetDeliverables(assetId, assetVersionId);
+      const data = res?.data ? res.data : res;
+      setDeliverables(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setDeliverableLoading(false);
     }
   };
 
@@ -328,24 +547,89 @@ const AssetDetail: React.FC = () => {
 
   useEffect(() => {
     if (!asset?.id) return;
-    loadMetadata(asset.id, selectedVersionId);
     loadFiles(asset.id, selectedVersionId);
+    loadDeliverables(asset.id, selectedVersionId);
     loadEnvironments(asset.id, selectedVersionId);
   }, [asset?.id, selectedVersionId]);
+
+  useEffect(() => {
+    if (!asset?.id) return;
+    loadMetadata(asset.id, stepToModule[overviewStep], selectedVersionId);
+  }, [asset?.id, selectedVersionId, overviewStep]);
 
   const handleSubmitMetadata = async () => {
     if (!asset) return;
     try {
-      const values = await metadataForm.validateFields();
+      const currentModule = stepToModule[overviewStep];
+      const values = await metadataForm.validateFields(moduleFieldNames[currentModule]);
       setMetadataSubmitting(true);
-      if (metadataExists) {
-        await updateAssetMetadata(asset.id, values as UpsertAssetMetadataRequest, selectedVersionId);
-        message.success('扩展信息更新成功');
-      } else {
-        await createAssetMetadata(asset.id, values as UpsertAssetMetadataRequest, selectedVersionId);
-        message.success('扩展信息创建成功');
-        setMetadataExists(true);
+      
+      let payload: any = {};
+      
+      const stringifyList = (list: any[], defaultTypeField?: { key: string, val: string }) => {
+        if (!Array.isArray(list)) return '[]';
+        const filtered = list.filter(item => (item?.value?.trim() || item?.note?.trim()));
+        return JSON.stringify(filtered.map(item => ({
+          value: item?.value?.trim() || '',
+          note: item?.note?.trim() || '',
+          ...(defaultTypeField ? { [defaultTypeField.key]: item?.[defaultTypeField.key] || defaultTypeField.val } : {})
+        })));
+      };
+
+      if (currentModule === 'base') {
+        const normalizedLanguages = Array.isArray(values.programmingLanguagesList)
+          ? values.programmingLanguagesList
+              .map((item: any) => ({
+                language: item?.language?.trim() || '',
+                version: item?.version?.trim() || '',
+                framework: item?.framework?.trim() || '',
+                note: item?.note?.trim() || '',
+              }))
+              .filter((item: any) => item.language || item.version || item.framework || item.note)
+          : [];
+        payload = {
+          systemArchitecture: values.systemArchitecture,
+          runtimePlatform: values.runtimePlatform,
+          deploymentMethod: values.deploymentMethod,
+          programmingLanguagesJson: JSON.stringify(normalizedLanguages)
+        };
+      } else if (currentModule === 'network') {
+        payload = {
+          servicePorts: stringifyList(values.servicePortsList, { key: 'accessType', val: 'all' }),
+          apiEndpoints: stringifyList(values.apiEndpointsList, { key: 'authType', val: 'auth_required' })
+        };
+      } else if (currentModule === 'env') {
+        payload = {
+          installPath: values.installPath,
+          startupCommand: values.startupCommand,
+          databaseType: values.databaseType,
+          databaseConnection: values.databaseConnection,
+          startupScriptPath: stringifyList(values.startupScriptPathList),
+          configFilePath: stringifyList(values.configFilePathList)
+        };
+      } else if (currentModule === 'account') {
+        const normalizedAccounts = Array.isArray(values.accountCredentials)
+          ? values.accountCredentials
+              .map((item: any) => ({
+                usageNote: item?.usageNote?.trim() || '',
+                username: item?.username?.trim() || '',
+                password: item?.password || '',
+              }))
+              .filter((item: any) => item.usageNote || item.username || item.password)
+          : [];
+        payload = {
+          accountCredentialsJson: JSON.stringify(normalizedAccounts)
+        };
+      } else if (currentModule === 'extra') {
+        payload = {
+          specialNotes: values.specialNotes,
+          changeReason: values.changeReason
+        };
       }
+
+      await updateAssetMetadata(asset.id, currentModule, payload, selectedVersionId);
+      message.success('扩展信息更新成功');
+      setMetadataExists(true);
     } catch (error) {
       console.error(error);
     } finally {
@@ -353,27 +637,96 @@ const AssetDetail: React.FC = () => {
     }
   };
 
-  const handleUploadAssetFile = async () => {
+  const handleCreateVersion = async () => {
     if (!asset) return;
     try {
+      const values = await versionForm.validateFields();
+      setCreatingVersion(true);
+      await createAssetVersion(asset.id, {
+        name: values.name,
+        description: values.description,
+        status: values.status,
+      }, values.setDefault);
+      message.success('资产版本创建成功');
+      setCreateVersionVisible(false);
+      versionForm.resetFields();
+      await loadVersions(asset.id);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setCreatingVersion(false);
+    }
+  };
+
+  const handleSetDefaultVersion = async () => {
+    if (!asset || !selectedVersionId) {
+      message.warning('请先选择版本');
+      return;
+    }
+    const selected = assetVersions.find((item) => item.id === selectedVersionId);
+    if (selected?.isDefault) {
+      message.info('当前已是默认版本');
+      return;
+    }
+    try {
+      setSetDefaultLoading(true);
+      await setDefaultAssetVersion(asset.id, selectedVersionId);
+      message.success('默认版本切换成功');
+      await loadVersions(asset.id);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setSetDefaultLoading(false);
+    }
+  };
+
+  const handleUploadAssetFile = async (target: 'asset_file' | 'deliverable') => {
+    if (!asset) return;
+    try {
+      const uploadForm = target === 'asset_file' ? assetFileUploadForm : deliverableUploadForm;
+      const uploadList = target === 'asset_file' ? assetFileUploadList : deliverableUploadList;
+      const setUploadList = target === 'asset_file' ? setAssetFileUploadList : setDeliverableUploadList;
       const values = await uploadForm.validateFields();
-      if (uploadFileList.length === 0) {
+      if (uploadList.length === 0) {
         message.error('请先选择文件');
         return;
       }
-      setFileUploading(true);
+      const selectedFile = uploadList[0]?.originFileObj ?? uploadList[0];
+      if (!(selectedFile instanceof Blob)) {
+        message.error('请选择有效文件后再上传');
+        return;
+      }
+      if (target === 'asset_file') {
+        setFileUploading(true);
+      } else {
+        setDeliverableUploading(true);
+      }
       const formData = new FormData();
-      formData.append('file', uploadFileList[0].originFileObj);
-      formData.append('category', values.category);
+      formData.append('file', selectedFile, uploadList[0]?.name || 'upload.bin');
+      if (target === 'asset_file') {
+        formData.append('category', values.category);
+      } else {
+        formData.append('deliverableType', values.category);
+      }
       if (values.fileType) formData.append('fileType', values.fileType);
       if (values.description) formData.append('description', values.description);
-      await uploadAssetFile(asset.id, formData, selectedVersionId);
-      message.success('文件上传成功');
+      if (target === 'asset_file') {
+        await uploadAssetFile(asset.id, formData, selectedVersionId);
+        await loadFiles(asset.id, selectedVersionId);
+        message.success('文件上传成功');
+      } else {
+        await uploadAssetDeliverable(asset.id, formData, selectedVersionId);
+        await loadDeliverables(asset.id, selectedVersionId);
+        message.success('交付物上传成功');
+      }
       uploadForm.resetFields();
-      setUploadFileList([]);
-      await loadFiles(asset.id, selectedVersionId);
+      setUploadList([]);
     } finally {
-      setFileUploading(false);
+      if (target === 'asset_file') {
+        setFileUploading(false);
+      } else {
+        setDeliverableUploading(false);
+      }
     }
   };
 
@@ -416,6 +769,76 @@ const AssetDetail: React.FC = () => {
     });
   };
 
+  const handleDeleteDeliverable = (deliverableId: string) => {
+    if (!asset) return;
+    Modal.confirm({
+      title: '确认删除',
+      content: '确定要删除该交付物吗？删除后将归档。',
+      onOk: async () => {
+        try {
+          await deleteAssetDeliverable(deliverableId);
+          message.success('交付物已删除');
+          await loadDeliverables(asset.id, selectedVersionId);
+        } catch (error) {
+          console.error(error);
+          message.error('交付物删除失败');
+        }
+      },
+    });
+  };
+
+  const handleDeleteAssetFile = (fileId: string) => {
+    if (!asset) return;
+    Modal.confirm({
+      title: '确认删除',
+      content: '确定要删除该资产文件吗？删除后将归档。',
+      onOk: async () => {
+        try {
+          await deleteAssetFile(fileId);
+          message.success('资产文件已删除');
+          await loadFiles(asset.id, selectedVersionId);
+        } catch (error) {
+          console.error(error);
+          message.error('资产文件删除失败');
+        }
+      },
+    });
+  };
+
+  const handleDownloadAssetFile = async (record: AssetFileVO) => {
+    try {
+      const blob = await downloadAssetFile(record.id);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = record.name || 'asset-file.bin';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      console.error(error);
+      message.error('资产文件下载失败');
+    }
+  };
+
+  const handleDownloadDeliverable = async (record: AssetDeliverableVO) => {
+    try {
+      const blob = await downloadAssetDeliverable(record.id);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = record.name || 'deliverable.bin';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(objectUrl);
+    } catch (error) {
+      console.error(error);
+      message.error('交付物下载失败');
+    }
+  };
+
   const fileColumns = [
     { title: '文件名', dataIndex: 'name', key: 'name' },
     { title: '分类', dataIndex: 'category', key: 'category' },
@@ -434,6 +857,45 @@ const AssetDetail: React.FC = () => {
     },
     { title: '版本', dataIndex: 'version', key: 'version' },
     { title: '上传时间', dataIndex: 'createdAt', key: 'createdAt', render: (val: string) => val ? new Date(val).toLocaleString() : '-' },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_: any, record: AssetFileVO) => (
+        <Space>
+          <a onClick={() => handleDownloadAssetFile(record)}>下载</a>
+          <a onClick={() => handleDeleteAssetFile(record.id)} style={{ color: 'red' }}>删除</a>
+        </Space>
+      ),
+    },
+  ];
+
+  const deliverableColumns = [
+    { title: '文件名', dataIndex: 'name', key: 'name' },
+    { title: '交付物类型', dataIndex: 'deliverableType', key: 'deliverableType' },
+    { title: '类型', dataIndex: 'fileType', key: 'fileType' },
+    {
+      title: '大小',
+      dataIndex: 'fileSize',
+      key: 'fileSize',
+      render: (size?: number) => {
+        if (!size) return '-';
+        if (size >= 1024 * 1024 * 1024) return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+        if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+        if (size >= 1024) return `${(size / 1024).toFixed(2)} KB`;
+        return `${size} B`;
+      },
+    },
+    { title: '上传时间', dataIndex: 'createdAt', key: 'createdAt', render: (val: string) => val ? new Date(val).toLocaleString() : '-' },
+    {
+      title: '操作',
+      key: 'action',
+      render: (_: any, record: AssetDeliverableVO) => (
+        <Space>
+          <a onClick={() => handleDownloadDeliverable(record)}>下载</a>
+          <a onClick={() => handleDeleteDeliverable(record.id)} style={{ color: 'red' }}>删除</a>
+        </Space>
+      ),
+    },
   ];
 
   const envColumns = [
@@ -529,6 +991,8 @@ const AssetDetail: React.FC = () => {
                 value: item.id,
               }))}
             />
+            <Button onClick={() => setCreateVersionVisible(true)}>新建版本</Button>
+            <Button loading={setDefaultLoading} onClick={handleSetDefaultVersion}>设为默认</Button>
             <Button onClick={() => navigate('/assets')}>返回列表</Button>
           </Space>
         }
@@ -544,49 +1008,51 @@ const AssetDetail: React.FC = () => {
         </Descriptions>
       </Card>
 
+      <Modal
+        title="新建资产版本"
+        open={createVersionVisible}
+        onOk={handleCreateVersion}
+        onCancel={() => {
+          setCreateVersionVisible(false);
+          versionForm.resetFields();
+        }}
+        confirmLoading={creatingVersion}
+      >
+        <Form
+          form={versionForm}
+          layout="vertical"
+          initialValues={{
+            setDefault: false,
+            status: 'active',
+          }}
+        >
+          <Form.Item name="name" label="版本名称">
+            <Input placeholder="留空将自动使用 v{版本号}" />
+          </Form.Item>
+          <Form.Item name="description" label="版本描述">
+            <TextArea rows={3} placeholder="输入本次版本说明" />
+          </Form.Item>
+          <Form.Item name="status" label="状态">
+            <Select>
+              <Option value="active">active</Option>
+              <Option value="inactive">inactive</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="setDefault" label="创建后设为默认">
+            <Select>
+              <Option value={false}>否</Option>
+              <Option value={true}>是</Option>
+            </Select>
+          </Form.Item>
+        </Form>
+      </Modal>
+
       <Card style={{ borderRadius: 8 }} bodyStyle={{ padding: '0 24px 24px' }}>
         <Tabs defaultActiveKey="overview" size="large">
-          <TabPane tab={<span><AppstoreOutlined />产品概览</span>} key="overview">
-            <div style={{ padding: '24px 0', maxWidth: 900 }}>
-              <Spin spinning={metadataLoading}>
-                <Form form={metadataForm} layout="vertical">
-                  <Row gutter={16}>
-                    <Col span={12}><Form.Item name="systemArchitecture" label="系统架构"><Input placeholder="x86 / ARM" /></Form.Item></Col>
-                    <Col span={12}><Form.Item name="installPath" label="安装路径"><Input placeholder="/opt/app" /></Form.Item></Col>
-                  </Row>
-                  <Row gutter={16}>
-                    <Col span={12}><Form.Item name="startupScriptPath" label="启动脚本路径"><Input /></Form.Item></Col>
-                    <Col span={12}><Form.Item name="configFilePath" label="配置文件路径"><Input /></Form.Item></Col>
-                  </Row>
-                  <Row gutter={16}>
-                    <Col span={12}><Form.Item name="startupCommand" label="启动命令"><Input /></Form.Item></Col>
-                    <Col span={12}><Form.Item name="programmingLanguage" label="编程语言"><Input placeholder="Java / Go / Python" /></Form.Item></Col>
-                  </Row>
-                  <Row gutter={16}>
-                    <Col span={12}><Form.Item name="framework" label="框架"><Input placeholder="Spring Boot / Gin / Django" /></Form.Item></Col>
-                    <Col span={12}><Form.Item name="databaseType" label="数据库类型"><Input placeholder="MySQL / PostgreSQL / Redis" /></Form.Item></Col>
-                  </Row>
-                  <Form.Item name="databaseConnection" label="数据库连接信息"><Input /></Form.Item>
-                  <Row gutter={16}>
-                    <Col span={12}><Form.Item name="adminUsername" label="管理员用户名"><Input /></Form.Item></Col>
-                    <Col span={12}><Form.Item name="adminPasswordEncrypted" label="管理员密码"><Input.Password placeholder={metadataExists ? '留空表示不修改' : ''} /></Form.Item></Col>
-                  </Row>
-                  <Form.Item name="servicePorts" label="服务端口"><Input placeholder="8080,3306,6379" /></Form.Item>
-                  <Form.Item name="apiEndpoints" label="API端点"><TextArea rows={2} placeholder="/api/v1/users" /></Form.Item>
-                  <Form.Item name="specialNotes" label="特殊说明"><TextArea rows={3} /></Form.Item>
-                  <Space>
-                    <Button type="primary" loading={metadataSubmitting} onClick={handleSubmitMetadata}>
-                      {metadataExists ? '保存修改' : '创建扩展信息'}
-                    </Button>
-                  </Space>
-                </Form>
-              </Spin>
-            </div>
-          </TabPane>
-          <TabPane tab={<span><FileZipOutlined />交付物管理</span>} key="artifacts">
+          <TabPane tab={<span><FileZipOutlined />资产文件</span>} key="asset-files">
             <div style={{ padding: '24px 0' }}>
               <div style={{ marginBottom: 24, padding: 16, background: '#fafafa', borderRadius: 8 }}>
-                <Form form={uploadForm} layout="vertical">
+                <Form form={assetFileUploadForm} layout="vertical">
                   <Row gutter={16}>
                     <Col span={6}>
                       <Form.Item name="category" label="文件分类" rules={[{ required: true, message: '请选择文件分类' }]}>
@@ -607,30 +1073,32 @@ const AssetDetail: React.FC = () => {
                     </Col>
                     <Col span={8}>
                       <Form.Item name="description" label="描述">
-                        <Input placeholder="输入版本或更新说明" />
+                        <Input placeholder="输入安装包或配置文件说明" />
                       </Form.Item>
                     </Col>
                   </Row>
                   <Row gutter={16}>
                     <Col span={24}>
                       <Form.Item label="文件上传">
-                        <Upload
-                          beforeUpload={(file) => {
-                            setUploadFileList([file]);
-                            return false;
-                          }}
-                          onRemove={() => setUploadFileList([])}
-                          fileList={uploadFileList}
-                          maxCount={1}
-                        >
-                          <Button icon={<UploadOutlined />}>选择文件</Button>
-                        </Upload>
+                        <Space>
+                          <Upload
+                            beforeUpload={(file) => {
+                              setAssetFileUploadList([file]);
+                              return false;
+                            }}
+                            onRemove={() => setAssetFileUploadList([])}
+                            fileList={assetFileUploadList}
+                            maxCount={1}
+                          >
+                            <Button icon={<UploadOutlined />}>选择文件</Button>
+                          </Upload>
+                          <Button type="primary" loading={fileUploading} onClick={() => handleUploadAssetFile('asset_file')} disabled={assetFileUploadList.length === 0}>
+                            开始上传
+                          </Button>
+                        </Space>
                       </Form.Item>
                     </Col>
                   </Row>
-                  <Button type="primary" loading={fileUploading} onClick={handleUploadAssetFile}>
-                    开始上传
-                  </Button>
                 </Form>
               </div>
               <Table
@@ -640,6 +1108,263 @@ const AssetDetail: React.FC = () => {
                 loading={fileLoading}
                 pagination={false}
               />
+            </div>
+          </TabPane>
+          <TabPane tab={<span><AppstoreOutlined />产品概览</span>} key="overview">
+            <div style={{ padding: '24px 0', maxWidth: 1000 }}>
+              <Spin spinning={metadataLoading}>
+                <Steps 
+                  current={overviewStep} 
+                  onChange={setOverviewStep} 
+                  style={{ marginBottom: 40 }}
+                  items={[
+                    { title: '基础与存储' },
+                    { title: '网络与接口' },
+                    { title: '运行配置' },
+                    { title: '认证与权限' },
+                    { title: '附加信息' },
+                  ]}
+                />
+                
+                <Form form={metadataForm} layout="vertical">
+                  <div style={{ display: overviewStep === 0 ? 'block' : 'none' }}>
+                    <Card bordered={false} className="overview-step-card">
+                      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 24, paddingBottom: 8, borderBottom: '1px solid #f0f0f0', color: '#1f1f1f' }}>基础与存储信息</div>
+                      <Row gutter={24}>
+                        <Col span={8}><Form.Item name="runtimePlatform" label="运行平台 (操作系统)"><Input placeholder="如: Windows Server / Linux / Unix" /></Form.Item></Col>
+                        <Col span={8}><Form.Item name="deploymentMethod" label="部署方式"><Input placeholder="如: Docker / 物理机 / K8s" /></Form.Item></Col>
+                        <Col span={8}><Form.Item name="systemArchitecture" label="系统架构"><Input placeholder="x86 / ARM" /></Form.Item></Col>
+                        
+                        <Col span={24}>
+                          <Form.Item label="编程语言与框架">
+                            <div style={{ border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
+                              <div style={{ background: '#fafafa', padding: '12px 16px', borderBottom: '1px solid #e8e8e8', display: 'flex', fontWeight: 500, color: '#595959' }}>
+                                <div style={{ flex: '0 0 20%', paddingRight: 8 }}>编程语言</div>
+                                <div style={{ flex: '0 0 20%', paddingRight: 8 }}>版本</div>
+                                <div style={{ flex: '0 0 20%', paddingRight: 8 }}>框架</div>
+                                <div style={{ flex: '0 0 30%', paddingRight: 8 }}>说明（使用该语言的服务）</div>
+                                <div style={{ flex: '0 0 10%', textAlign: 'center' }}>操作</div>
+                              </div>
+                              <div style={{ padding: '16px 16px 0' }}>
+                                <Form.List name="programmingLanguagesList">
+                                  {(fields, { add, remove }) => (
+                                    <>
+                                      {fields.map(({ key, name, ...restField }, index) => (
+                                        <div key={key} style={{ display: 'flex', marginBottom: 16, alignItems: 'flex-start' }}>
+                                          <div style={{ flex: '0 0 20%', paddingRight: 8 }}>
+                                            <Form.Item {...restField} name={[name, 'language']} style={{ marginBottom: 0 }}>
+                                              <Input placeholder="如：Java / Go" />
+                                            </Form.Item>
+                                          </div>
+                                          <div style={{ flex: '0 0 20%', paddingRight: 8 }}>
+                                            <Form.Item {...restField} name={[name, 'version']} style={{ marginBottom: 0 }}>
+                                              <Input placeholder="如：jdk1.8 / 1.21" />
+                                            </Form.Item>
+                                          </div>
+                                          <div style={{ flex: '0 0 20%', paddingRight: 8 }}>
+                                            <Form.Item {...restField} name={[name, 'framework']} style={{ marginBottom: 0 }}>
+                                              <Input placeholder="如：Spring Boot" />
+                                            </Form.Item>
+                                          </div>
+                                          <div style={{ flex: '0 0 30%', paddingRight: 8 }}>
+                                            <Form.Item {...restField} name={[name, 'note']} style={{ marginBottom: 0 }}>
+                                              <Input placeholder="如：核心后端服务" />
+                                            </Form.Item>
+                                          </div>
+                                          <div style={{ flex: '0 0 10%', display: 'flex', justifyContent: 'center', paddingTop: 4 }}>
+                                            <Space size={8}>
+                                              {fields.length > 1 && (
+                                                <Tooltip title="移除">
+                                                  <MinusCircleOutlined 
+                                                    style={{ color: '#ff4d4f', fontSize: 16, cursor: 'pointer' }} 
+                                                    onClick={() => remove(name)} 
+                                                  />
+                                                </Tooltip>
+                                              )}
+                                              {index === fields.length - 1 && (
+                                                <Tooltip title="添加">
+                                                  <PlusCircleOutlined 
+                                                    style={{ color: '#1890ff', fontSize: 16, cursor: 'pointer' }} 
+                                                    onClick={() => add({ language: '', version: '', framework: '', note: '' })} 
+                                                  />
+                                                </Tooltip>
+                                              )}
+                                            </Space>
+                                          </div>
+                                        </div>
+                                      ))}
+                                      {fields.length === 0 && (
+                                        <div style={{ marginBottom: 16 }}>
+                                          <Button type="dashed" onClick={() => add({ language: '', version: '', framework: '', note: '' })} block icon={<PlusOutlined />}>
+                                            添加编程语言
+                                          </Button>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                </Form.List>
+                              </div>
+                            </div>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                    </Card>
+                  </div>
+
+                  <div style={{ display: overviewStep === 1 ? 'block' : 'none' }}>
+                    <Card bordered={false} className="overview-step-card">
+                      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 24, paddingBottom: 8, borderBottom: '1px solid #f0f0f0', color: '#1f1f1f' }}>网络与接口</div>
+                      <Row gutter={24}>
+                        <Col span={24}>{renderListFormItem('servicePortsList', '服务端口', '如：8080', <NodeIndexOutlined style={{ color: '#bfbfbf' }} />, {
+                          name: 'accessType',
+                          label: '访问权限',
+                          options: [
+                            { label: '全部开放', value: 'all' },
+                            { label: '仅限本地', value: 'local' },
+                            { label: '仅限内网', value: 'internal' },
+                            { label: '指定IP', value: 'specific_ip' },
+                          ],
+                          dependentField: {
+                            name: 'allowedIps',
+                            label: '允许的IP',
+                            placeholder: '输入允许访问的IP或IP段，多个用逗号分隔（如：192.168.1.1, 10.0.0.0/24）',
+                            showWhenValue: 'specific_ip'
+                          }
+                        }, true)}</Col>
+                        <Col span={24}>
+                          <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                            <span style={{ fontSize: 16, fontWeight: 600, color: '#1f1f1f' }}>API端点分组管理</span>
+                            <Tooltip title="基于授权类型分组管理API端点信息">
+                              <InfoCircleOutlined style={{ color: '#8c8c8c' }} />
+                            </Tooltip>
+                          </div>
+                          {renderListFormItem('apiEndpointsList', 'API端点', '如：/api/v1/users', <LinkOutlined style={{ color: '#bfbfbf' }} />, {
+                            name: 'authType',
+                            label: '授权类型',
+                            options: [
+                              { label: '需要认证', value: 'auth_required' },
+                              { label: '预认证', value: 'public' },
+                            ]
+                          }, true)}
+                        </Col>
+                      </Row>
+                    </Card>
+                  </div>
+
+                  <div style={{ display: overviewStep === 2 ? 'block' : 'none' }}>
+                    <Card bordered={false} className="overview-step-card">
+                      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 24, paddingBottom: 8, borderBottom: '1px solid #f0f0f0', color: '#1f1f1f' }}>运行配置</div>
+                      <Row gutter={24}>
+                        <Col span={12}><Form.Item name="installPath" label="安装路径"><Input placeholder="/opt/app" /></Form.Item></Col>
+                        <Col span={12}><Form.Item name="startupCommand" label="启动命令"><Input placeholder="如: ./start.sh" /></Form.Item></Col>
+
+                        <Col span={8}><Form.Item name="databaseType" label="数据库类型"><Input placeholder="MySQL / PostgreSQL / Redis" /></Form.Item></Col>
+                        <Col span={16}><Form.Item name="databaseConnection" label="数据库连接信息"><Input placeholder="如: jdbc:mysql://localhost:3306/db" /></Form.Item></Col>
+
+                        <Col span={24}>{renderListFormItem('startupScriptPathList', '启动脚本路径', '如：/opt/app/start.sh', <CodeOutlined style={{ color: '#bfbfbf' }} />)}</Col>
+                        <Col span={24}>{renderListFormItem('configFilePathList', '配置文件路径', '如：/etc/app/config.yaml', <SettingOutlined style={{ color: '#bfbfbf' }} />)}</Col>
+                      </Row>
+                    </Card>
+                  </div>
+
+                  <div style={{ display: overviewStep === 3 ? 'block' : 'none' }}>
+                    <Card bordered={false} className="overview-step-card">
+                      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 24, paddingBottom: 8, borderBottom: '1px solid #f0f0f0', color: '#1f1f1f' }}>认证与权限</div>
+                      <Row gutter={24}>
+                        <Col span={24}>
+                          <Form.Item label="账号密码组">
+                            <div style={{ border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
+                              <div style={{ background: '#fafafa', padding: '12px 16px', borderBottom: '1px solid #e8e8e8', display: 'flex', fontWeight: 500, color: '#595959' }}>
+                                <div style={{ flex: '0 0 28%', paddingRight: 8 }}>用户名</div>
+                                <div style={{ flex: '0 0 28%', paddingRight: 8 }}>密码</div>
+                                <div style={{ flex: '0 0 34%', paddingRight: 8 }}>账号用途备注</div>
+                                <div style={{ flex: '0 0 10%', textAlign: 'center' }}>操作</div>
+                              </div>
+                              <div style={{ padding: '16px 16px 0' }}>
+                                <Form.List name="accountCredentials">
+                                  {(fields, { add, remove }) => (
+                                    <>
+                                      {fields.map(({ key, name, ...restField }, index) => (
+                                        <div key={key} style={{ display: 'flex', marginBottom: 16, alignItems: 'flex-start' }}>
+                                          <div style={{ flex: '0 0 28%', paddingRight: 8 }}>
+                                            <Form.Item {...restField} name={[name, 'username']} style={{ marginBottom: 0 }}>
+                                              <Input placeholder="输入用户名" prefix={<UserOutlined style={{ color: '#bfbfbf' }} />} />
+                                            </Form.Item>
+                                          </div>
+                                          <div style={{ flex: '0 0 28%', paddingRight: 8 }}>
+                                            <Form.Item {...restField} name={[name, 'password']} style={{ marginBottom: 0 }}>
+                                              <Input.Password placeholder="留空不修改" prefix={<LockOutlined style={{ color: '#bfbfbf' }} />} />
+                                            </Form.Item>
+                                          </div>
+                                          <div style={{ flex: '0 0 34%', paddingRight: 8 }}>
+                                            <Form.Item {...restField} name={[name, 'usageNote']} style={{ marginBottom: 0 }}>
+                                              <Input placeholder="如：SSH / Web管理" prefix={<TagOutlined style={{ color: '#bfbfbf' }} />} />
+                                            </Form.Item>
+                                          </div>
+                                          <div style={{ flex: '0 0 10%', display: 'flex', justifyContent: 'center', paddingTop: 4 }}>
+                                            <Space size={8}>
+                                              {fields.length > 1 && (
+                                                <Tooltip title="移除">
+                                                  <MinusCircleOutlined 
+                                                    style={{ color: '#ff4d4f', fontSize: 16, cursor: 'pointer' }} 
+                                                    onClick={() => remove(name)} 
+                                                  />
+                                                </Tooltip>
+                                              )}
+                                              {index === fields.length - 1 && (
+                                                <Tooltip title="添加账号">
+                                                  <PlusCircleOutlined 
+                                                    style={{ color: '#1890ff', fontSize: 16, cursor: 'pointer' }} 
+                                                    onClick={() => add({ usageNote: '', username: '', password: '' })} 
+                                                  />
+                                                </Tooltip>
+                                              )}
+                                            </Space>
+                                          </div>
+                                        </div>
+                                      ))}
+                                      {fields.length === 0 && (
+                                        <div style={{ marginBottom: 16 }}>
+                                          <Button type="dashed" onClick={() => add({ usageNote: '', username: '', password: '' })} block icon={<PlusOutlined />}>
+                                            添加账号
+                                          </Button>
+                                        </div>
+                                      )}
+                                    </>
+                                  )}
+                                </Form.List>
+                              </div>
+                            </div>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                    </Card>
+                  </div>
+
+                  <div style={{ display: overviewStep === 4 ? 'block' : 'none' }}>
+                    <Card bordered={false} className="overview-step-card">
+                      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 24, paddingBottom: 8, borderBottom: '1px solid #f0f0f0', color: '#1f1f1f' }}>附加信息</div>
+                      <Row gutter={24}>
+                        <Col span={24}>
+                          <Form.Item name="specialNotes" label="特殊说明"><TextArea rows={3} /></Form.Item>
+                        </Col>
+                      </Row>
+                    </Card>
+                  </div>
+
+                  <div style={{ marginTop: 40, paddingTop: 24, borderTop: '1px solid #f0f0f0', display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <Button disabled={overviewStep === 0} onClick={() => setOverviewStep(overviewStep - 1)}>
+                      上一步
+                    </Button>
+                    <Button disabled={overviewStep === 4} onClick={() => setOverviewStep(overviewStep + 1)}>
+                      下一步
+                    </Button>
+                    <Button type="primary" loading={metadataSubmitting} onClick={handleSubmitMetadata} style={{ marginLeft: 8 }}>
+                      {metadataExists ? '保存修改' : '创建扩展信息'}
+                    </Button>
+                  </div>
+                </Form>
+              </Spin>
             </div>
           </TabPane>
           <TabPane tab={<span><BuildOutlined />环境与部署</span>} key="environments">
@@ -656,6 +1381,27 @@ const AssetDetail: React.FC = () => {
                 dataSource={environments}
                 rowKey="id"
                 loading={envLoading}
+                pagination={false}
+              />
+            </div>
+          </TabPane>
+          <TabPane tab={<span><SafetyCertificateOutlined />审计任务</span>} key="tasks">
+            <div style={{ padding: '24px 0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+                <div>
+                  <h3>审计记录</h3>
+                  <p style={{ color: '#8c8c8c' }}>展示针对此产品的历史审计任务、安全测试报告等。</p>
+                </div>
+                <Space>
+                  <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateTask}>新建任务</Button>
+                  <Button onClick={() => navigate('/tasks')}>查看全部</Button>
+                </Space>
+              </div>
+              <Table
+                columns={taskColumns}
+                dataSource={tasks}
+                rowKey="id"
+                loading={taskLoading}
                 pagination={false}
               />
             </div>
@@ -681,23 +1427,63 @@ const AssetDetail: React.FC = () => {
               />
             </div>
           </TabPane>
-          <TabPane tab={<span><SafetyCertificateOutlined />审计任务</span>} key="tasks">
+          <TabPane tab={<span><FileZipOutlined />交付物管理</span>} key="deliverables">
             <div style={{ padding: '24px 0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
-                <div>
-                  <h3>审计记录</h3>
-                  <p style={{ color: '#8c8c8c' }}>展示针对此产品的历史审计任务、安全测试报告等。</p>
-                </div>
-                <Space>
-                  <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateTask}>新建任务</Button>
-                  <Button onClick={() => navigate('/tasks')}>查看全部</Button>
-                </Space>
+              <div style={{ marginBottom: 24, padding: 16, background: '#fafafa', borderRadius: 8 }}>
+                <Form form={deliverableUploadForm} layout="vertical">
+                  <Row gutter={16}>
+                    <Col span={6}>
+                      <Form.Item name="category" label="交付物类型" rules={[{ required: true, message: '请选择交付物类型' }]}>
+                        <Select placeholder="选择交付物类型">
+                          <Option value="漏洞利用代码">漏洞利用代码</Option>
+                          <Option value="POC脚本">POC脚本</Option>
+                          <Option value="EXP脚本">EXP脚本</Option>
+                          <Option value="复现步骤文档">复现步骤文档</Option>
+                          <Option value="利用说明文档">利用说明文档</Option>
+                          <Option value="其他交付物">其他交付物</Option>
+                        </Select>
+                      </Form.Item>
+                    </Col>
+                    <Col span={6}>
+                      <Form.Item name="fileType" label="文件类型">
+                        <Input placeholder="py/js/md/txt/zip" />
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item name="description" label="说明">
+                        <Input placeholder="输入交付物作用、适用版本与使用方式" />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                  <Row gutter={16}>
+                    <Col span={24}>
+                      <Form.Item label="交付物上传">
+                        <Space>
+                          <Upload
+                            beforeUpload={(file) => {
+                              setDeliverableUploadList([file]);
+                              return false;
+                            }}
+                            onRemove={() => setDeliverableUploadList([])}
+                            fileList={deliverableUploadList}
+                            maxCount={1}
+                          >
+                            <Button icon={<UploadOutlined />}>选择文件</Button>
+                          </Upload>
+                          <Button type="primary" loading={deliverableUploading} onClick={() => handleUploadAssetFile('deliverable')} disabled={deliverableUploadList.length === 0}>
+                            提交交付物
+                          </Button>
+                        </Space>
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </Form>
               </div>
               <Table
-                columns={taskColumns}
-                dataSource={tasks}
+                columns={deliverableColumns}
+                dataSource={deliverables}
                 rowKey="id"
-                loading={taskLoading}
+                loading={deliverableLoading}
                 pagination={false}
               />
             </div>

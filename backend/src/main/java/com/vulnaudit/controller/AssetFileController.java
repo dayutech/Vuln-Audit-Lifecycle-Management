@@ -3,6 +3,8 @@ package com.vulnaudit.controller;
 import com.vulnaudit.dto.ApiResponse;
 import com.vulnaudit.entity.AssetFile;
 import com.vulnaudit.entity.AssetFileVersion;
+import com.vulnaudit.exception.BusinessException;
+import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.AssetFileRepository;
 import com.vulnaudit.repository.AssetFileVersionRepository;
 import com.vulnaudit.repository.AssetVersionRepository;
@@ -34,6 +36,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -86,8 +89,12 @@ public class AssetFileController {
             @Parameter(description = "文件类型") @RequestParam(required = false) String fileType,
             @Parameter(description = "文件分类") @RequestParam String category,
             @Parameter(description = "描述") @RequestParam(required = false) String description) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "上传文件不能为空");
+        }
         UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
-        log.info("上传资产文件: assetId={}, assetVersionId={}, fileName={}", assetId, resolvedVersionId, file.getOriginalFilename());
+        String originalFilename = resolveUploadFileName(file);
+        log.info("上传资产文件: assetId={}, assetVersionId={}, fileName={}", assetId, resolvedVersionId, originalFilename);
         
         // 创建上传目录
         Path uploadPath = Paths.get(UPLOAD_DIR + assetId);
@@ -96,7 +103,6 @@ public class AssetFileController {
         }
         
         // 生成唯一文件名
-        String originalFilename = file.getOriginalFilename();
         String storedFilename = UUID.randomUUID() + "_" + originalFilename;
         Path filePath = uploadPath.resolve(storedFilename);
         
@@ -197,6 +203,9 @@ public class AssetFileController {
             @PathVariable UUID id,
             @Parameter(description = "文件") @RequestParam("file") MultipartFile file,
             @Parameter(description = "变更说明") @RequestParam(required = false) String changelog) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "上传文件不能为空");
+        }
         
         log.info("上传文件新版本: fileId={}", id);
         
@@ -221,11 +230,12 @@ public class AssetFileController {
         
         // 更新文件
         Path uploadPath = Paths.get(UPLOAD_DIR + existingFile.getAssetId());
-        String storedFilename = UUID.randomUUID() + "_" + file.getOriginalFilename();
+        String originalFilename = resolveUploadFileName(file);
+        String storedFilename = UUID.randomUUID() + "_" + originalFilename;
         Path filePath = uploadPath.resolve(storedFilename);
         Files.copy(file.getInputStream(), filePath);
         
-        existingFile.setName(file.getOriginalFilename());
+        existingFile.setName(originalFilename);
         existingFile.setFilePath(filePath.toString());
         existingFile.setFileSize(file.getSize());
         existingFile.setChecksum(calculateSha256(filePath));
@@ -274,11 +284,29 @@ public class AssetFileController {
     private UUID getCurrentUserId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || authentication.getName() == null || "anonymousUser".equals(authentication.getName())) {
-            return null;
+            throw new BusinessException(ErrorCode.UNAUTHORIZED);
         }
-        return userService.findByUsername(authentication.getName())
-                .map(user -> user.getId())
-                .orElse(null);
+        String principal = authentication.getName();
+        Optional<UUID> userIdByUsername = userService.findByUsername(principal).map(user -> user.getId());
+        if (userIdByUsername.isPresent()) {
+            return userIdByUsername.get();
+        }
+        try {
+            UUID userId = UUID.fromString(principal);
+            return userService.findById(userId)
+                    .map(user -> user.getId())
+                    .orElseThrow(() -> new BusinessException(ErrorCode.UNAUTHORIZED));
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED);
+        }
+    }
+
+    private String resolveUploadFileName(MultipartFile file) {
+        String originalFilename = file.getOriginalFilename();
+        if (originalFilename == null || originalFilename.isBlank()) {
+            return "unnamed-file";
+        }
+        return originalFilename;
     }
 
     private String resolveFileType(String filename) {
@@ -311,6 +339,10 @@ public class AssetFileController {
 
     private UUID resolveAssetVersionId(UUID assetId, UUID assetVersionId) {
         if (assetVersionId != null) {
+            boolean exists = assetVersionRepository.findByIdAndAssetId(assetVersionId, assetId).isPresent();
+            if (!exists) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "资产版本不存在或不属于当前资产");
+            }
             return assetVersionId;
         }
         return assetVersionRepository.findByAssetIdAndIsDefaultTrue(assetId)
@@ -320,11 +352,11 @@ public class AssetFileController {
 
     private List<AssetFile> findFilesByAssetAndVersion(UUID assetId, UUID assetVersionId) {
         if (assetVersionId != null) {
-            List<AssetFile> versionedFiles = assetFileRepository.findByAssetIdAndAssetVersionIdOrderByCreatedAtDesc(assetId, assetVersionId);
+            List<AssetFile> versionedFiles = assetFileRepository.findByAssetIdAndAssetVersionIdAndStatusOrderByCreatedAtDesc(assetId, assetVersionId, "active");
             if (!versionedFiles.isEmpty()) {
                 return versionedFiles;
             }
         }
-        return assetFileRepository.findByAssetIdAndAssetVersionIdOrderByCreatedAtDesc(assetId, null);
+        return assetFileRepository.findByAssetIdAndAssetVersionIdAndStatusOrderByCreatedAtDesc(assetId, null, "active");
     }
 }

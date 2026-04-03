@@ -1,5 +1,6 @@
 package com.vulnaudit.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.vulnaudit.dto.AssetCreateRequest;
 import com.vulnaudit.dto.AssetUpdateRequest;
 import com.vulnaudit.entity.Asset;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MvcResult;
 
 import java.util.Objects;
 import java.util.UUID;
@@ -299,7 +301,7 @@ public class AssetControllerTest extends BaseTest {
         @Test
         @DisplayName("申请访问资产 - 成功")
         void requestAccess_Success() throws Exception {
-            String accessJson = "{\"requestNote\":\"需要访问此资产进行测试\"}";
+            String accessJson = "{\"canViewDocuments\":true,\"canViewEnvironments\":false,\"canViewFiles\":false,\"requestNote\":\"需要访问此资产进行测试\"}";
             mockMvc.perform(post("/api/v1/assets/" + testAsset.getId() + "/access-requests")
                     .header("Authorization", engineerToken)
                     .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
@@ -318,14 +320,28 @@ public class AssetControllerTest extends BaseTest {
         @Test
         @DisplayName("审批访问申请 - 成功")
         void reviewAccessRequest_Success() throws Exception {
-            // 先创建访问申请
+            String accessJson = "{\"canViewDocuments\":true,\"canViewEnvironments\":false,\"canViewFiles\":false,\"requestNote\":\"申请访问\"}";
             mockMvc.perform(post("/api/v1/assets/" + testAsset.getId() + "/access-requests")
                     .header("Authorization", engineerToken)
-                    .param("requestNote", "申请访问"));
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(accessJson))
+                    .andExpect(status().isCreated());
 
-            // 获取申请列表
-            mockMvc.perform(get("/api/v1/assets/" + testAsset.getId() + "/access-requests")
-                    .header("Authorization", adminToken));
+            MvcResult listResult = mockMvc.perform(get("/api/v1/assets/" + testAsset.getId() + "/access-requests")
+                    .header("Authorization", adminToken))
+                    .andExpect(status().isOk())
+                    .andReturn();
+
+            JsonNode root = objectMapper.readTree(listResult.getResponse().getContentAsString());
+            String requestId = root.path("data").path("content").get(0).path("id").asText();
+
+            String reviewJson = "{\"approved\":true,\"reviewNote\":\"审批通过\"}";
+            mockMvc.perform(post("/api/v1/assets/access-requests/" + requestId + "/review")
+                    .header("Authorization", adminToken)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content(reviewJson))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.status").value("approved"));
         }
     }
 

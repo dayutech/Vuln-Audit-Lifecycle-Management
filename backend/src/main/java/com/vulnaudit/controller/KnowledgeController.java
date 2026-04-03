@@ -3,6 +3,7 @@ package com.vulnaudit.controller;
 import com.vulnaudit.dto.*;
 import com.vulnaudit.entity.KnowledgeArticle;
 import com.vulnaudit.service.KnowledgeService;
+import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -12,6 +13,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -29,6 +32,7 @@ import java.util.UUID;
 public class KnowledgeController {
 
     private final KnowledgeService knowledgeService;
+    private final UserService userService;
 
     @PostMapping
     @Operation(summary = "创建知识文章", description = "创建新知识文章")
@@ -137,7 +141,7 @@ public class KnowledgeController {
         
         log.info("添加文章评论: articleId={}", id);
         
-        knowledgeService.addComment(id, null, content);
+        knowledgeService.addComment(id, getCurrentUserId(), content);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
@@ -172,5 +176,15 @@ public class KnowledgeController {
         
         knowledgeService.removeTag(id, tag);
         return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    private UUID getCurrentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || authentication.getName() == null || "anonymousUser".equals(authentication.getName())) {
+            return null;
+        }
+        return userService.findByUsername(authentication.getName())
+                .map(user -> user.getId())
+                .orElse(null);
     }
 }

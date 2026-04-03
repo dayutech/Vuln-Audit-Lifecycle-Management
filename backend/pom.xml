@@ -37,6 +37,11 @@
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+
         <!-- Spring Boot Security Starter: 提供安全框架支持，用于认证和授权 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

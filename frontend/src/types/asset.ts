@@ -42,6 +42,9 @@ export interface AssetMetadataVO {
   claimedBy?: string;
   version?: number;
   systemArchitecture?: string;
+  runtimePlatform?: string;
+  deploymentMethod?: string;
+  programmingLanguagesJson?: string;
   installPath?: string;
   startupScriptPath?: string;
   configFilePath?: string;
@@ -52,6 +55,7 @@ export interface AssetMetadataVO {
   databaseConnection?: string;
   adminUsername?: string;
   adminPasswordEncrypted?: string;
+  accountCredentialsJson?: string;
   servicePorts?: string;
   apiEndpoints?: string;
   specialNotes?: string;
@@ -61,6 +65,9 @@ export interface AssetMetadataVO {
 
 export interface UpsertAssetMetadataRequest {
   systemArchitecture?: string;
+  runtimePlatform?: string;
+  deploymentMethod?: string;
+  programmingLanguagesJson?: string;
   installPath?: string;
   startupScriptPath?: string;
   configFilePath?: string;
@@ -71,6 +78,7 @@ export interface UpsertAssetMetadataRequest {
   databaseConnection?: string;
   adminUsername?: string;
   adminPasswordEncrypted?: string;
+  accountCredentialsJson?: string;
   servicePorts?: string;
   apiEndpoints?: string;
   specialNotes?: string;
@@ -87,6 +95,20 @@ export interface AssetFileVO {
   fileSize?: number;
   checksum?: string;
   version?: number;
+  status?: string;
+  createdAt?: string;
+}
+
+export interface AssetDeliverableVO {
+  id: string;
+  assetId: string;
+  assetVersionId?: string;
+  name: string;
+  deliverableType: string;
+  fileType: string;
+  description?: string;
+  fileSize?: number;
+  checksum?: string;
   status?: string;
   createdAt?: string;
 }
@@ -133,6 +155,12 @@ export interface AssetVersionVO {
   createdBy?: string;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface CreateAssetVersionRequest {
+  name?: string;
+  description?: string;
+  status?: string;
 }
 
 export type AssetListResponse = PaginatedResponse<AssetVO>;
