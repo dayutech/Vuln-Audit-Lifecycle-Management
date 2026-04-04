@@ -7,6 +7,7 @@ import {
   getAssetVersions,
   createAssetVersion,
   setDefaultAssetVersion,
+  setLatestAssetVersion,
   getAssetMetadata, 
   updateAssetMetadata, 
   getAssetFiles, 
@@ -22,8 +23,10 @@ import {
   deleteEnvironment
 } from '@/api/asset';
 import { getVulnerabilityList, createVulnerability, updateVulnerability, deleteVulnerability } from '@/api/vulnerability';
-import { getTaskList, createTask, updateTask, deleteTask } from '@/api/task';
+import { getTaskList, createTask, updateTask, updateTaskStatus, deleteTask } from '@/api/task';
+import { getUserList } from '@/api/user';
 import type { AssetVO, AssetFileVO, AssetDeliverableVO, EnvironmentVO, AssetVersionVO } from '@/types/asset';
+import type { UserVO } from '@/types/user';
 
 const { TabPane } = Tabs;
 const { Option } = Select;
@@ -139,10 +142,16 @@ const AssetDetail: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [assetVersions, setAssetVersions] = useState<AssetVersionVO[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string>();
+  const [overviewVersionId, setOverviewVersionId] = useState<string>();
+  const [fileVersionScope, setFileVersionScope] = useState<string>();
+  const [deliverableVersionScope, setDeliverableVersionScope] = useState<string>();
+  const [environmentVersionId, setEnvironmentVersionId] = useState<string>();
+  const [taskVersionId, setTaskVersionId] = useState<string>();
   const [versionLoading, setVersionLoading] = useState(false);
   const [createVersionVisible, setCreateVersionVisible] = useState(false);
   const [creatingVersion, setCreatingVersion] = useState(false);
   const [setDefaultLoading, setSetDefaultLoading] = useState(false);
+  const [setLatestLoading, setSetLatestLoading] = useState(false);
   const [versionForm] = Form.useForm();
 
   // Metadata states
@@ -190,6 +199,8 @@ const AssetDetail: React.FC = () => {
   const [taskForm] = Form.useForm();
   const [taskMode, setTaskMode] = useState<'create' | 'edit'>('create');
   const [currentTaskId, setCurrentTaskId] = useState<string>('');
+  const [taskUsers, setTaskUsers] = useState<UserVO[]>([]);
+  const [taskStatusUpdatingId, setTaskStatusUpdatingId] = useState<string | null>(null);
 
   const normalizeAsset = (item: AssetVO): AssetVO => ({
     ...item,
@@ -210,6 +221,7 @@ const AssetDetail: React.FC = () => {
     name: item?.name ?? '',
     description: item?.description,
     isDefault: Boolean(item?.isDefault ?? item?.is_default),
+    isLatest: Boolean(item?.isLatest ?? item?.is_latest),
     status: item?.status ?? 'active',
     createdBy: item?.createdBy ?? item?.created_by,
     createdAt: item?.createdAt ?? item?.created_at,
@@ -237,6 +249,13 @@ const AssetDetail: React.FC = () => {
     } finally {
       setVersionLoading(false);
     }
+  };
+
+  const versionLabelById = (versionId?: string) => {
+    if (!versionId) return '-';
+    const found = assetVersions.find((item) => item.id === versionId);
+    if (!found) return versionId;
+    return `${found.name || `v${found.versionNo}`}${found.isDefault ? ' - 默认' : ''}${found.isLatest ? ' - 最新' : ''}`;
   };
 
   const stepToModule = ['base', 'network', 'env', 'account', 'extra'] as const;
@@ -401,16 +420,28 @@ const AssetDetail: React.FC = () => {
     }
   };
 
-  const loadTasks = async (assetId: string) => {
+  const loadTasks = async (assetId: string, assetVersionId?: string) => {
     try {
       setTaskLoading(true);
-      const res: any = await getTaskList({ page: 1, page_size: 100, reference_id: assetId });
+      const res: any = await getTaskList({ page: 1, page_size: 100, reference_id: assetId, asset_id: assetId, asset_version_id: assetVersionId });
       const data = res?.data ? res.data : res;
       setTasks(Array.isArray(data?.items) ? data.items : Array.isArray(data?.content) ? data.content : Array.isArray(data) ? data : []);
     } catch (error) {
       console.error(error);
     } finally {
       setTaskLoading(false);
+    }
+  };
+
+  const loadTaskUsers = async () => {
+    try {
+      const res: any = await getUserList({ page: 1, page_size: 200 });
+      const data = res?.data ? res.data : res;
+      const sourceList = Array.isArray(data?.items) ? data.items : Array.isArray(data?.content) ? data.content : Array.isArray(data) ? data : [];
+      setTaskUsers(sourceList);
+    } catch (error) {
+      console.error(error);
+      setTaskUsers([]);
     }
   };
 
@@ -472,6 +503,7 @@ const AssetDetail: React.FC = () => {
   const handleCreateTask = () => {
     setTaskMode('create');
     taskForm.resetFields();
+    taskForm.setFieldsValue({ asset_version_id: taskVersionId || selectedVersionId });
     setTaskModalVisible(true);
   };
 
@@ -480,8 +512,6 @@ const AssetDetail: React.FC = () => {
     setCurrentTaskId(record.id);
     taskForm.setFieldsValue({
       title: record.title,
-      type: record.type,
-      priority: record.priority,
       description: record.description,
     });
     setTaskModalVisible(true);
@@ -495,7 +525,7 @@ const AssetDetail: React.FC = () => {
         try {
           await deleteTask(id);
           message.success('删除成功');
-          if (asset?.id) loadTasks(asset.id);
+          if (asset?.id) loadTasks(asset.id, taskVersionId);
         } catch (error) {
           console.error(error);
         }
@@ -508,18 +538,32 @@ const AssetDetail: React.FC = () => {
       const values = await taskForm.validateFields();
       setTaskSubmitting(true);
       if (taskMode === 'create') {
-        await createTask({ ...values, reference_id: asset?.id });
+        await createTask({ ...values, reference_id: asset?.id, asset_id: asset?.id, asset_version_id: values.asset_version_id || taskVersionId || selectedVersionId });
         message.success('任务创建成功');
       } else {
         await updateTask(currentTaskId, values);
         message.success('任务更新成功');
       }
       setTaskModalVisible(false);
-      if (asset?.id) loadTasks(asset.id);
+      if (asset?.id) loadTasks(asset.id, taskVersionId);
     } catch (error) {
       console.error(error);
     } finally {
       setTaskSubmitting(false);
+    }
+  };
+
+  const handleInlineTaskStatusChange = async (record: any, status: string) => {
+    if (record?.status === status) return;
+    try {
+      setTaskStatusUpdatingId(record.id);
+      await updateTaskStatus(record.id, { status });
+      message.success('任务状态更新成功');
+      if (asset?.id) loadTasks(asset.id, taskVersionId);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setTaskStatusUpdatingId(null);
     }
   };
 
@@ -534,7 +578,7 @@ const AssetDetail: React.FC = () => {
           setAsset(normalizedAsset);
           loadVersions(found.id);
           loadVulnerabilities(found.id);
-          loadTasks(found.id);
+          loadTaskUsers();
         }
       } catch (error) {
         console.error('Failed to fetch asset detail', error);
@@ -546,16 +590,37 @@ const AssetDetail: React.FC = () => {
   }, [id]);
 
   useEffect(() => {
-    if (!asset?.id) return;
-    loadFiles(asset.id, selectedVersionId);
-    loadDeliverables(asset.id, selectedVersionId);
-    loadEnvironments(asset.id, selectedVersionId);
-  }, [asset?.id, selectedVersionId]);
+    setOverviewVersionId(selectedVersionId);
+    setFileVersionScope(selectedVersionId);
+    setDeliverableVersionScope(selectedVersionId);
+    setEnvironmentVersionId(selectedVersionId);
+    setTaskVersionId(selectedVersionId);
+  }, [selectedVersionId]);
 
   useEffect(() => {
     if (!asset?.id) return;
-    loadMetadata(asset.id, stepToModule[overviewStep], selectedVersionId);
-  }, [asset?.id, selectedVersionId, overviewStep]);
+    loadFiles(asset.id, fileVersionScope === '__all__' ? undefined : fileVersionScope);
+  }, [asset?.id, fileVersionScope]);
+
+  useEffect(() => {
+    if (!asset?.id) return;
+    loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope);
+  }, [asset?.id, deliverableVersionScope]);
+
+  useEffect(() => {
+    if (!asset?.id) return;
+    loadEnvironments(asset.id, environmentVersionId);
+  }, [asset?.id, environmentVersionId]);
+
+  useEffect(() => {
+    if (!asset?.id) return;
+    loadTasks(asset.id, taskVersionId);
+  }, [asset?.id, taskVersionId]);
+
+  useEffect(() => {
+    if (!asset?.id) return;
+    loadMetadata(asset.id, stepToModule[overviewStep], overviewVersionId);
+  }, [asset?.id, overviewVersionId, overviewStep]);
 
   const handleSubmitMetadata = async () => {
     if (!asset) return;
@@ -627,7 +692,7 @@ const AssetDetail: React.FC = () => {
         };
       }
 
-      await updateAssetMetadata(asset.id, currentModule, payload, selectedVersionId);
+      await updateAssetMetadata(asset.id, currentModule, payload, overviewVersionId);
       message.success('扩展信息更新成功');
       setMetadataExists(true);
     } catch (error) {
@@ -680,6 +745,28 @@ const AssetDetail: React.FC = () => {
     }
   };
 
+  const handleSetLatestVersion = async () => {
+    if (!asset || !selectedVersionId) {
+      message.warning('请先选择版本');
+      return;
+    }
+    const selected = assetVersions.find((item) => item.id === selectedVersionId);
+    if (selected?.isLatest) {
+      message.info('当前已是最新版本');
+      return;
+    }
+    try {
+      setSetLatestLoading(true);
+      await setLatestAssetVersion(asset.id, selectedVersionId);
+      message.success('最新版本设置成功');
+      await loadVersions(asset.id);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setSetLatestLoading(false);
+    }
+  };
+
   const handleUploadAssetFile = async (target: 'asset_file' | 'deliverable') => {
     if (!asset) return;
     try {
@@ -708,15 +795,17 @@ const AssetDetail: React.FC = () => {
       } else {
         formData.append('deliverableType', values.category);
       }
-      if (values.fileType) formData.append('fileType', values.fileType);
       if (values.description) formData.append('description', values.description);
+      const bindVersionId = target === 'asset_file'
+        ? (fileVersionScope === '__all__' ? selectedVersionId : fileVersionScope)
+        : (deliverableVersionScope === '__all__' ? selectedVersionId : deliverableVersionScope);
       if (target === 'asset_file') {
-        await uploadAssetFile(asset.id, formData, selectedVersionId);
-        await loadFiles(asset.id, selectedVersionId);
+        await uploadAssetFile(asset.id, formData, bindVersionId);
+        await loadFiles(asset.id, fileVersionScope === '__all__' ? undefined : fileVersionScope);
         message.success('文件上传成功');
       } else {
-        await uploadAssetDeliverable(asset.id, formData, selectedVersionId);
-        await loadDeliverables(asset.id, selectedVersionId);
+        await uploadAssetDeliverable(asset.id, formData, bindVersionId);
+        await loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope);
         message.success('交付物上传成功');
       }
       uploadForm.resetFields();
@@ -738,14 +827,14 @@ const AssetDetail: React.FC = () => {
       await createEnvironment({
         name: values.name,
         asset_id: asset.id,
-        asset_version_id: selectedVersionId,
+        asset_version_id: environmentVersionId || selectedVersionId,
         template_id: values.template_id || '',
         config: values.config || '{}',
       });
       message.success('环境创建成功');
       setEnvModalVisible(false);
       envForm.resetFields();
-      loadEnvironments(asset.id, selectedVersionId);
+      loadEnvironments(asset.id, environmentVersionId);
     } catch (error) {
       console.error(error);
     } finally {
@@ -761,7 +850,7 @@ const AssetDetail: React.FC = () => {
         try {
           await deleteEnvironment(envId);
           message.success('环境已删除');
-          if (asset) loadEnvironments(asset.id, selectedVersionId);
+          if (asset) loadEnvironments(asset.id, environmentVersionId);
         } catch (error) {
           console.error(error);
         }
@@ -778,7 +867,7 @@ const AssetDetail: React.FC = () => {
         try {
           await deleteAssetDeliverable(deliverableId);
           message.success('交付物已删除');
-          await loadDeliverables(asset.id, selectedVersionId);
+          await loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope);
         } catch (error) {
           console.error(error);
           message.error('交付物删除失败');
@@ -796,7 +885,7 @@ const AssetDetail: React.FC = () => {
         try {
           await deleteAssetFile(fileId);
           message.success('资产文件已删除');
-          await loadFiles(asset.id, selectedVersionId);
+          await loadFiles(asset.id, fileVersionScope === '__all__' ? undefined : fileVersionScope);
         } catch (error) {
           console.error(error);
           message.error('资产文件删除失败');
@@ -842,7 +931,7 @@ const AssetDetail: React.FC = () => {
   const fileColumns = [
     { title: '文件名', dataIndex: 'name', key: 'name' },
     { title: '分类', dataIndex: 'category', key: 'category' },
-    { title: '类型', dataIndex: 'fileType', key: 'fileType' },
+    { title: '版本', key: 'assetVersionId', render: (_: any, record: AssetFileVO & { asset_version_id?: string }) => versionLabelById(record.assetVersionId || record.asset_version_id) },
     {
       title: '大小',
       dataIndex: 'fileSize',
@@ -855,7 +944,6 @@ const AssetDetail: React.FC = () => {
         return `${size} B`;
       },
     },
-    { title: '版本', dataIndex: 'version', key: 'version' },
     { title: '上传时间', dataIndex: 'createdAt', key: 'createdAt', render: (val: string) => val ? new Date(val).toLocaleString() : '-' },
     {
       title: '操作',
@@ -872,7 +960,7 @@ const AssetDetail: React.FC = () => {
   const deliverableColumns = [
     { title: '文件名', dataIndex: 'name', key: 'name' },
     { title: '交付物类型', dataIndex: 'deliverableType', key: 'deliverableType' },
-    { title: '类型', dataIndex: 'fileType', key: 'fileType' },
+    { title: '版本', key: 'assetVersionId', render: (_: any, record: AssetDeliverableVO & { asset_version_id?: string }) => versionLabelById(record.assetVersionId || record.asset_version_id) },
     {
       title: '大小',
       dataIndex: 'fileSize',
@@ -936,10 +1024,27 @@ const AssetDetail: React.FC = () => {
 
   const taskColumns = [
     { title: '任务名称', dataIndex: 'title', key: 'title', render: (text: string, record: any) => <a onClick={() => navigate(`/tasks/${record.id}`)}>{text}</a> },
-    { title: '任务类型', dataIndex: 'type', key: 'type' },
-    { title: '优先级', dataIndex: 'priority', key: 'priority' },
-    { title: '状态', dataIndex: 'status', key: 'status' },
-    { title: '负责人', dataIndex: ['assignee', 'username'], key: 'assignee', render: (text: string) => text || '-' },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status: string, record: any) => (
+        <Select
+          size="small"
+          style={{ width: 130 }}
+          value={status}
+          loading={taskStatusUpdatingId === record.id}
+          onChange={(value) => handleInlineTaskStatusChange(record, value)}
+        >
+          <Option value="pending">待处理</Option>
+          <Option value="in_progress">进行中</Option>
+          <Option value="completed">已完成</Option>
+          <Option value="cancelled">已取消</Option>
+        </Select>
+      ),
+    },
+    { title: '创建者', key: 'creator', render: (_: any, record: any) => record?.creator?.username || '-' },
+    { title: '责任人', key: 'assignee', render: (_: any, record: any) => record?.assignee?.username || '-' },
     { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', render: (text: string) => text ? new Date(text).toLocaleString() : '-' },
     { 
       title: '操作', 
@@ -987,12 +1092,13 @@ const AssetDetail: React.FC = () => {
               placeholder="选择资产版本"
               onChange={(value) => setSelectedVersionId(value)}
               options={assetVersions.map((item) => ({
-                label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}`,
+                label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}${item.isLatest ? ' - 最新' : ''}`,
                 value: item.id,
               }))}
             />
             <Button onClick={() => setCreateVersionVisible(true)}>新建版本</Button>
             <Button loading={setDefaultLoading} onClick={handleSetDefaultVersion}>设为默认</Button>
+            <Button loading={setLatestLoading} onClick={handleSetLatestVersion}>设为最新</Button>
             <Button onClick={() => navigate('/assets')}>返回列表</Button>
           </Space>
         }
@@ -1051,6 +1157,24 @@ const AssetDetail: React.FC = () => {
         <Tabs defaultActiveKey="overview" size="large">
           <TabPane tab={<span><FileZipOutlined />资产文件</span>} key="asset-files">
             <div style={{ padding: '24px 0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <h3 style={{ marginBottom: 0 }}>资产文件</h3>
+                </div>
+                <Select
+                  style={{ width: 260 }}
+                  value={fileVersionScope}
+                  placeholder="选择文件卡片版本"
+                  onChange={(value) => setFileVersionScope(value)}
+                  options={[
+                    { label: '显示所有版本', value: '__all__' },
+                    ...assetVersions.map((item) => ({
+                      label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}${item.isLatest ? ' - 最新' : ''}`,
+                      value: item.id,
+                    })),
+                  ]}
+                />
+              </div>
               <div style={{ marginBottom: 24, padding: 16, background: '#fafafa', borderRadius: 8 }}>
                 <Form form={assetFileUploadForm} layout="vertical">
                   <Row gutter={16}>
@@ -1064,11 +1188,6 @@ const AssetDetail: React.FC = () => {
                           <Option value="配置文件">配置文件</Option>
                           <Option value="其他">其他</Option>
                         </Select>
-                      </Form.Item>
-                    </Col>
-                    <Col span={6}>
-                      <Form.Item name="fileType" label="文件类型">
-                        <Input placeholder="iso/vmdk/zip/exe" />
                       </Form.Item>
                     </Col>
                     <Col span={8}>
@@ -1112,6 +1231,18 @@ const AssetDetail: React.FC = () => {
           </TabPane>
           <TabPane tab={<span><AppstoreOutlined />产品概览</span>} key="overview">
             <div style={{ padding: '24px 0', maxWidth: 1000 }}>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+                <Select
+                  style={{ width: 260 }}
+                  value={overviewVersionId}
+                  placeholder="选择概览卡片版本"
+                  onChange={(value) => setOverviewVersionId(value)}
+                  options={assetVersions.map((item) => ({
+                    label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}${item.isLatest ? ' - 最新' : ''}`,
+                    value: item.id,
+                  }))}
+                />
+              </div>
               <Spin spinning={metadataLoading}>
                 <Steps 
                   current={overviewStep} 
@@ -1129,7 +1260,6 @@ const AssetDetail: React.FC = () => {
                 <Form form={metadataForm} layout="vertical">
                   <div style={{ display: overviewStep === 0 ? 'block' : 'none' }}>
                     <Card bordered={false} className="overview-step-card">
-                      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 24, paddingBottom: 8, borderBottom: '1px solid #f0f0f0', color: '#1f1f1f' }}>基础与存储信息</div>
                       <Row gutter={24}>
                         <Col span={8}><Form.Item name="runtimePlatform" label="运行平台 (操作系统)"><Input placeholder="如: Windows Server / Linux / Unix" /></Form.Item></Col>
                         <Col span={8}><Form.Item name="deploymentMethod" label="部署方式"><Input placeholder="如: Docker / 物理机 / K8s" /></Form.Item></Col>
@@ -1213,7 +1343,6 @@ const AssetDetail: React.FC = () => {
 
                   <div style={{ display: overviewStep === 1 ? 'block' : 'none' }}>
                     <Card bordered={false} className="overview-step-card">
-                      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 24, paddingBottom: 8, borderBottom: '1px solid #f0f0f0', color: '#1f1f1f' }}>网络与接口</div>
                       <Row gutter={24}>
                         <Col span={24}>{renderListFormItem('servicePortsList', '服务端口', '如：8080', <NodeIndexOutlined style={{ color: '#bfbfbf' }} />, {
                           name: 'accessType',
@@ -1232,8 +1361,8 @@ const AssetDetail: React.FC = () => {
                           }
                         }, true)}</Col>
                         <Col span={24}>
-                          <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                            <span style={{ fontSize: 16, fontWeight: 600, color: '#1f1f1f' }}>API端点分组管理</span>
+                          <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                            <span style={{ fontSize: 14, fontWeight: 500, color: '#595959' }}>API端点</span>
                             <Tooltip title="基于授权类型分组管理API端点信息">
                               <InfoCircleOutlined style={{ color: '#8c8c8c' }} />
                             </Tooltip>
@@ -1253,7 +1382,6 @@ const AssetDetail: React.FC = () => {
 
                   <div style={{ display: overviewStep === 2 ? 'block' : 'none' }}>
                     <Card bordered={false} className="overview-step-card">
-                      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 24, paddingBottom: 8, borderBottom: '1px solid #f0f0f0', color: '#1f1f1f' }}>运行配置</div>
                       <Row gutter={24}>
                         <Col span={12}><Form.Item name="installPath" label="安装路径"><Input placeholder="/opt/app" /></Form.Item></Col>
                         <Col span={12}><Form.Item name="startupCommand" label="启动命令"><Input placeholder="如: ./start.sh" /></Form.Item></Col>
@@ -1269,7 +1397,6 @@ const AssetDetail: React.FC = () => {
 
                   <div style={{ display: overviewStep === 3 ? 'block' : 'none' }}>
                     <Card bordered={false} className="overview-step-card">
-                      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 24, paddingBottom: 8, borderBottom: '1px solid #f0f0f0', color: '#1f1f1f' }}>认证与权限</div>
                       <Row gutter={24}>
                         <Col span={24}>
                           <Form.Item label="账号密码组">
@@ -1343,7 +1470,6 @@ const AssetDetail: React.FC = () => {
 
                   <div style={{ display: overviewStep === 4 ? 'block' : 'none' }}>
                     <Card bordered={false} className="overview-step-card">
-                      <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 24, paddingBottom: 8, borderBottom: '1px solid #f0f0f0', color: '#1f1f1f' }}>附加信息</div>
                       <Row gutter={24}>
                         <Col span={24}>
                           <Form.Item name="specialNotes" label="特殊说明"><TextArea rows={3} /></Form.Item>
@@ -1374,7 +1500,19 @@ const AssetDetail: React.FC = () => {
                   <h3>环境管理</h3>
                   <p style={{ color: '#8c8c8c' }}>可以在此处对接云平台或K8s，管理资产的多套部署环境（开发、测试、生产）。</p>
                 </div>
-                <Button type="primary" icon={<PlusOutlined />} onClick={() => setEnvModalVisible(true)}>添加环境</Button>
+                <Space>
+                  <Select
+                    style={{ width: 260 }}
+                    value={environmentVersionId}
+                    placeholder="选择环境卡片版本"
+                    onChange={(value) => setEnvironmentVersionId(value)}
+                    options={assetVersions.map((item) => ({
+                      label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}${item.isLatest ? ' - 最新' : ''}`,
+                      value: item.id,
+                    }))}
+                  />
+                  <Button type="primary" icon={<PlusOutlined />} onClick={() => setEnvModalVisible(true)}>添加环境</Button>
+                </Space>
               </div>
               <Table
                 columns={envColumns}
@@ -1393,6 +1531,16 @@ const AssetDetail: React.FC = () => {
                   <p style={{ color: '#8c8c8c' }}>展示针对此产品的历史审计任务、安全测试报告等。</p>
                 </div>
                 <Space>
+                  <Select
+                    style={{ width: 260 }}
+                    value={taskVersionId}
+                    placeholder="选择任务卡片版本"
+                    onChange={(value) => setTaskVersionId(value)}
+                    options={assetVersions.map((item) => ({
+                      label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}${item.isLatest ? ' - 最新' : ''}`,
+                      value: item.id,
+                    }))}
+                  />
                   <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateTask}>新建任务</Button>
                   <Button onClick={() => navigate('/tasks')}>查看全部</Button>
                 </Space>
@@ -1429,6 +1577,24 @@ const AssetDetail: React.FC = () => {
           </TabPane>
           <TabPane tab={<span><FileZipOutlined />交付物管理</span>} key="deliverables">
             <div style={{ padding: '24px 0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div>
+                  <h3 style={{ marginBottom: 0 }}>交付物</h3>
+                </div>
+                <Select
+                  style={{ width: 260 }}
+                  value={deliverableVersionScope}
+                  placeholder="选择交付物卡片版本"
+                  onChange={(value) => setDeliverableVersionScope(value)}
+                  options={[
+                    { label: '显示所有版本', value: '__all__' },
+                    ...assetVersions.map((item) => ({
+                      label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}${item.isLatest ? ' - 最新' : ''}`,
+                      value: item.id,
+                    })),
+                  ]}
+                />
+              </div>
               <div style={{ marginBottom: 24, padding: 16, background: '#fafafa', borderRadius: 8 }}>
                 <Form form={deliverableUploadForm} layout="vertical">
                   <Row gutter={16}>
@@ -1442,11 +1608,6 @@ const AssetDetail: React.FC = () => {
                           <Option value="利用说明文档">利用说明文档</Option>
                           <Option value="其他交付物">其他交付物</Option>
                         </Select>
-                      </Form.Item>
-                    </Col>
-                    <Col span={6}>
-                      <Form.Item name="fileType" label="文件类型">
-                        <Input placeholder="py/js/md/txt/zip" />
                       </Form.Item>
                     </Col>
                     <Col span={8}>
@@ -1562,26 +1723,31 @@ const AssetDetail: React.FC = () => {
         confirmLoading={taskSubmitting}
       >
         <Form form={taskForm} layout="vertical">
-          <Form.Item name="title" label="任务名称" rules={[{ required: true, message: '请输入任务名称' }]}>
-            <Input placeholder="请输入任务名称" />
-          </Form.Item>
-          <Form.Item name="type" label="任务类型" rules={[{ required: true, message: '请选择任务类型' }]}>
-            <Select placeholder="请选择任务类型">
-              <Option value="AUDIT">安全审计</Option>
-              <Option value="TEST">渗透测试</Option>
-              <Option value="REMEDIATION">漏洞修复</Option>
-              <Option value="REVIEW">代码审查</Option>
-              <Option value="OTHER">其他</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item name="priority" label="优先级" rules={[{ required: true, message: '请选择优先级' }]}>
-            <Select placeholder="请选择优先级">
-              <Option value="P0">P0 - 紧急</Option>
-              <Option value="P1">P1 - 高</Option>
-              <Option value="P2">P2 - 中</Option>
-              <Option value="P3">P3 - 低</Option>
-            </Select>
-          </Form.Item>
+          {taskMode === 'edit' && (
+            <Form.Item name="title" label="任务名称" rules={[{ required: true, message: '请输入任务名称' }]}>
+              <Input placeholder="请输入任务名称" />
+            </Form.Item>
+          )}
+          {taskMode === 'create' && (
+            <Form.Item name="asset_version_id" label="关联版本" rules={[{ required: true, message: '请选择关联版本' }]}>
+              <Select placeholder="请选择关联版本">
+                {assetVersions.map((item) => (
+                  <Option key={item.id} value={item.id}>
+                    {item.name || `v${item.versionNo}`}{item.isDefault ? ' - 默认' : ''}{item.isLatest ? ' - 最新' : ''}
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
+          {taskMode === 'create' && (
+            <Form.Item name="assignee_id" label="责任人">
+              <Select placeholder="不选择则默认为创建者" allowClear showSearch optionFilterProp="children">
+                {taskUsers.map((item) => (
+                  <Option key={item.id} value={item.id}>{item.username}</Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
           <Form.Item name="description" label="任务描述">
             <Input.TextArea rows={4} placeholder="请输入任务描述" />
           </Form.Item>

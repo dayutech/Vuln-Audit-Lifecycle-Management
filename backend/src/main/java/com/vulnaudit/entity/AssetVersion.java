@@ -52,6 +52,10 @@ public class AssetVersion {
     @Builder.Default
     private Boolean isDefault = false;
 
+    @Column(name = "is_latest", nullable = false)
+    @Builder.Default
+    private Boolean isLatest = false;
+
     @Column(name = "status", length = 20, nullable = false)
     @Builder.Default
     private String status = "active";

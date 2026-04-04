@@ -75,7 +75,6 @@ public class AssetDeliverableController {
             @RequestParam(required = false) UUID assetVersionId,
             @Parameter(description = "文件") @RequestParam("file") MultipartFile file,
             @Parameter(description = "交付物类型") @RequestParam String deliverableType,
-            @Parameter(description = "文件类型") @RequestParam(required = false) String fileType,
             @Parameter(description = "说明") @RequestParam(required = false) String description) throws IOException {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "上传文件不能为空");
@@ -92,16 +91,11 @@ public class AssetDeliverableController {
         Path filePath = uploadPath.resolve(storedFilename);
         Files.copy(file.getInputStream(), filePath);
 
-        String resolvedFileType = (fileType == null || fileType.isBlank())
-                ? resolveFileType(originalFilename)
-                : fileType;
-
         AssetDeliverable deliverable = AssetDeliverable.builder()
                 .assetId(assetId)
                 .assetVersionId(resolvedVersionId)
                 .name(originalFilename)
                 .deliverableType(deliverableType)
-                .fileType(resolvedFileType)
                 .description(description)
                 .fileSize(file.getSize())
                 .filePath(filePath.toString())
@@ -187,14 +181,6 @@ public class AssetDeliverableController {
             return "unnamed-file";
         }
         return originalFilename;
-    }
-
-    private String resolveFileType(String filename) {
-        if (filename == null || !filename.contains(".")) {
-            return "other";
-        }
-        int idx = filename.lastIndexOf('.');
-        return filename.substring(idx + 1).toLowerCase();
     }
 
     private String calculateSha256(Path path) {

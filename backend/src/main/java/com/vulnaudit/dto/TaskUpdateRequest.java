@@ -25,9 +25,6 @@ public class TaskUpdateRequest {
     @Schema(description = "任务描述")
     private String description;
 
-    @Schema(description = "优先级")
-    private String priority;
-
     @Schema(description = "截止日期")
     private String dueDate;
 }

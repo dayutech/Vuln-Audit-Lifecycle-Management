@@ -2,6 +2,7 @@ package com.vulnaudit.controller;
 
 import com.vulnaudit.dto.*;
 import com.vulnaudit.entity.Task;
+import com.vulnaudit.entity.User;
 import com.vulnaudit.service.TaskService;
 import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -15,6 +16,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -46,16 +48,17 @@ public class TaskController {
         
         Task task = Task.builder()
                 .title(request.getTitle())
-                .type(request.getType())
-                .referenceId(request.getReferenceId())
-                .assignedTo(request.getAssigneeId())
+                .assetId(request.getAssetId())
+                .assetVersionId(request.getAssetVersionId())
+                .referenceId(request.getReferenceId() != null ? request.getReferenceId() : request.getAssetId())
+                .assignedTo(request.getAssigneeId() != null ? request.getAssigneeId() : currentUserId)
                 .assignedBy(currentUserId)
-                .priority(request.getPriority())
                 .dueDate(request.getDueDate())
                 .description(request.getDescription())
+                .status("pending")
                 .build();
         
-        Task createdTask = taskService.createTask(task);
+        Task createdTask = enrichTaskUsers(taskService.createTask(task));
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(createdTask));
     }
@@ -66,7 +69,7 @@ public class TaskController {
         log.info("获取任务详情: id={}", id);
         
         return taskService.findById(id)
-                .map(task -> ResponseEntity.ok(ApiResponse.success(task)))
+                .map(task -> ResponseEntity.ok(ApiResponse.success(enrichTaskUsers(task))))
                 .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(ApiResponse.error(404, "任务不存在")));
     }
@@ -79,11 +82,14 @@ public class TaskController {
             @Parameter(description = "搜索关键词") @RequestParam(required = false) String keyword,
             @Parameter(description = "状态") @RequestParam(required = false) String status,
             @Parameter(description = "指派人ID") @RequestParam(required = false) UUID assigneeId,
-            @Parameter(description = "关联资源ID") @RequestParam(required = false) UUID referenceId) {
+            @Parameter(description = "关联资源ID") @RequestParam(required = false) UUID referenceId,
+            @Parameter(description = "关联资产ID") @RequestParam(required = false) UUID assetId,
+            @Parameter(description = "关联资产版本ID") @RequestParam(required = false) UUID assetVersionId) {
         
-        log.info("分页查询任务: page={}, size={}, keyword={}, status={}, assigneeId={}, referenceId={}", page, size, keyword, status, assigneeId, referenceId);
+        log.info("分页查询任务: page={}, size={}, keyword={}, status={}, assigneeId={}, referenceId={}, assetId={}, assetVersionId={}", page, size, keyword, status, assigneeId, referenceId, assetId, assetVersionId);
         
-        PageResponse<Task> result = taskService.findAll(page, size, keyword, status, assigneeId, referenceId);
+        PageResponse<Task> result = taskService.findAll(page, size, keyword, status, assigneeId, referenceId, assetId, assetVersionId);
+        result.setContent(result.getContent().stream().map(this::enrichTaskUsers).toList());
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 
@@ -92,7 +98,7 @@ public class TaskController {
     public ResponseEntity<ApiResponse<List<Task>>> listTasksByAssignee(@PathVariable UUID assigneeId) {
         log.info("获取指派人的任务: assigneeId={}", assigneeId);
         
-        List<Task> tasks = taskService.findByAssigneeId(assigneeId);
+        List<Task> tasks = taskService.findByAssigneeId(assigneeId).stream().map(this::enrichTaskUsers).toList();
         return ResponseEntity.ok(ApiResponse.success(tasks));
     }
 
@@ -101,7 +107,7 @@ public class TaskController {
     public ResponseEntity<ApiResponse<List<Task>>> listTasksByReference(@PathVariable UUID referenceId) {
         log.info("获取关联任务: referenceId={}", referenceId);
         
-        List<Task> tasks = taskService.findByReferenceId(referenceId);
+        List<Task> tasks = taskService.findByReferenceId(referenceId).stream().map(this::enrichTaskUsers).toList();
         return ResponseEntity.ok(ApiResponse.success(tasks));
     }
 
@@ -116,10 +122,9 @@ public class TaskController {
         Task task = Task.builder()
                 .title(request.getTitle())
                 .description(request.getDescription())
-                .priority(request.getPriority())
                 .build();
         
-        Task updatedTask = taskService.updateTask(id, task);
+        Task updatedTask = enrichTaskUsers(taskService.updateTask(id, task));
         return ResponseEntity.ok(ApiResponse.success(updatedTask));
     }
 
@@ -131,7 +136,7 @@ public class TaskController {
         
         log.info("更新任务状态: id={}, status={}", id, status);
         
-        Task updatedTask = taskService.updateStatus(id, status, null);
+        Task updatedTask = enrichTaskUsers(taskService.updateStatus(id, status, null));
         return ResponseEntity.ok(ApiResponse.success(updatedTask));
     }
 
@@ -145,14 +150,15 @@ public class TaskController {
     }
 
     @PostMapping("/{id}/assign")
+    @PreAuthorize("hasAnyAuthority('admin','project_leader','team_leader','ROLE_ADMIN','ROLE_LEADER')")
     @Operation(summary = "分配任务", description = "将任务分配给用户")
     public ResponseEntity<ApiResponse<Void>> assignTask(
             @PathVariable UUID id,
             @Parameter(description = "指派人ID") @RequestParam UUID assigneeId) {
         
         log.info("分配任务: taskId={}, assigneeId={}", id, assigneeId);
-        
-        taskService.assignTask(id, assigneeId, null);
+        UUID currentUserId = getCurrentUserId();
+        taskService.assignTask(id, assigneeId, currentUserId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
@@ -189,5 +195,31 @@ public class TaskController {
         return userService.findByUsername(authentication.getName())
                 .map(user -> user.getId())
                 .orElse(null);
+    }
+
+    private Task enrichTaskUsers(Task task) {
+        if (task == null) {
+            return null;
+        }
+        task.setAssignee(toTaskUserInfo(task.getAssignedTo()));
+        task.setCreator(toTaskUserInfo(task.getAssignedBy()));
+        return task;
+    }
+
+    private TaskUserInfo toTaskUserInfo(UUID userId) {
+        if (userId == null) {
+            return null;
+        }
+        return userService.findById(userId)
+                .map(this::toTaskUserInfo)
+                .orElse(null);
+    }
+
+    private TaskUserInfo toTaskUserInfo(User user) {
+        return TaskUserInfo.builder()
+                .id(user.getId())
+                .username(user.getUsername())
+                .fullName(user.getFullName())
+                .build();
     }
 }

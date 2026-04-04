@@ -2,6 +2,7 @@ package com.vulnaudit.dto;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.util.UUID;
@@ -16,10 +17,6 @@ public class AssetCreateRequest {
     @Size(max = 200, message = "名称长度不能超过200个字符")
     private String name;
 
-    @NotBlank(message = "资产编码不能为空")
-    @Size(max = 50, message = "编码长度不能超过50个字符")
-    private String code;
-
     @NotBlank(message = "目标类型不能为空")
     private String targetType;
 
@@ -29,9 +26,12 @@ public class AssetCreateRequest {
     @Size(max = 1000, message = "描述长度不能超过1000个字符")
     private String description;
 
+    @NotBlank(message = "优先级不能为空")
     private String priority;
 
-    private UUID ownerId;
+    @NotBlank(message = "资产状态不能为空")
+    private String status;
 
+    @NotNull(message = "所属团队不能为空")
     private UUID teamId;
 }

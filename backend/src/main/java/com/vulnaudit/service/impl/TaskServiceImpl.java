@@ -21,10 +21,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import jakarta.annotation.Nullable;
@@ -40,10 +45,14 @@ public class TaskServiceImpl implements TaskService {
     private final TaskRepository taskRepository;
     private final TaskCommentRepository taskCommentRepository;
     private final TaskAttachmentRepository taskAttachmentRepository;
+    private static final Set<String> VALID_STATUSES = new HashSet<>(Arrays.asList("pending", "in_progress", "completed", "cancelled", "assigned"));
+    private static final DateTimeFormatter TASK_NAME_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     @Override
     @Transactional
     public Task createTask(Task task) {
+        task.setTitle(generateTaskTitle(task.getReferenceId()));
+        task.setStatus("pending");
         log.info("创建任务: title={}", task.getTitle());
         return taskRepository.save(task);
     }
@@ -54,7 +63,7 @@ public class TaskServiceImpl implements TaskService {
     }
 
     @Override
-    public PageResponse<Task> findAll(int page, int size, @Nullable String keyword, @Nullable String status, @Nullable UUID assigneeId, @Nullable UUID referenceId) {
+    public PageResponse<Task> findAll(int page, int size, @Nullable String keyword, @Nullable String status, @Nullable UUID assigneeId, @Nullable UUID referenceId, @Nullable UUID assetId, @Nullable UUID assetVersionId) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         
         Specification<Task> spec = (root, query, cb) -> {
@@ -74,6 +83,14 @@ public class TaskServiceImpl implements TaskService {
             
             if (referenceId != null) {
                 predicates.add(cb.equal(root.get("referenceId"), referenceId));
+            }
+
+            if (assetId != null) {
+                predicates.add(cb.equal(root.get("assetId"), assetId));
+            }
+
+            if (assetVersionId != null) {
+                predicates.add(cb.equal(root.get("assetVersionId"), assetVersionId));
             }
             
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
@@ -118,9 +135,6 @@ public class TaskServiceImpl implements TaskService {
         if (task.getDescription() != null) {
             existingTask.setDescription(task.getDescription());
         }
-        if (task.getPriority() != null) {
-            existingTask.setPriority(task.getPriority());
-        }
         if (task.getDueDate() != null) {
             existingTask.setDueDate(task.getDueDate());
         }
@@ -140,7 +154,7 @@ public class TaskServiceImpl implements TaskService {
         Task task = taskRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
 
-        task.setStatus(status);
+        task.setStatus(normalizeStatus(status));
         return taskRepository.save(task);
     }
 
@@ -168,6 +182,20 @@ public class TaskServiceImpl implements TaskService {
         task.setAssignedTo(assigneeId);
         task.setStatus("assigned");
         taskRepository.save(task);
+    }
+
+    private String normalizeStatus(String status) {
+        if (!StringUtils.hasText(status)) {
+            return "pending";
+        }
+        String normalized = status.trim().toLowerCase();
+        return VALID_STATUSES.contains(normalized) ? normalized : "pending";
+    }
+
+    private String generateTaskTitle(UUID referenceId) {
+        String timestamp = LocalDateTime.now().format(TASK_NAME_TIME_FORMATTER);
+        String referenceSuffix = referenceId == null ? "general" : referenceId.toString().replace("-", "").substring(0, 8);
+        return "审计任务-" + timestamp + "-" + referenceSuffix;
     }
 
     @Override

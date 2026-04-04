@@ -4,6 +4,7 @@ import com.vulnaudit.entity.Asset;
 import jakarta.annotation.Nullable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -93,5 +94,11 @@ public interface AssetRepository extends JpaRepository<Asset, UUID>, JpaSpecific
      * @return 资产数量
      */
     long countByStatus(String status);
+
+    @Query("SELECT DISTINCT a.targetType FROM Asset a WHERE a.targetType IS NOT NULL AND a.targetType <> '' ORDER BY a.targetType ASC")
+    List<String> findDistinctTargetTypes();
+
+    @Query("SELECT DISTINCT a.targetSource FROM Asset a WHERE a.targetSource IS NOT NULL AND a.targetSource <> '' ORDER BY a.targetSource ASC")
+    List<String> findDistinctTargetSources();
 
 }

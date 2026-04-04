@@ -89,12 +89,10 @@ export interface AssetFileVO {
   assetId: string;
   assetVersionId?: string;
   name: string;
-  fileType: string;
   category: string;
   description?: string;
   fileSize?: number;
   checksum?: string;
-  version?: number;
   status?: string;
   createdAt?: string;
 }
@@ -105,7 +103,6 @@ export interface AssetDeliverableVO {
   assetVersionId?: string;
   name: string;
   deliverableType: string;
-  fileType: string;
   description?: string;
   fileSize?: number;
   checksum?: string;
@@ -151,6 +148,7 @@ export interface AssetVersionVO {
   name: string;
   description?: string;
   isDefault: boolean;
+  isLatest?: boolean;
   status: string;
   createdBy?: string;
   createdAt?: string;
@@ -167,13 +165,12 @@ export type AssetListResponse = PaginatedResponse<AssetVO>;
 
 export interface CreateAssetRequest {
   name: string;
-  code: string;
   target_type: string;
   target_source: string;
   description?: string;
   priority: string;
-  team_id?: string;
-  owner_id?: string;
+  status: string;
+  team_id: string;
 }
 
 export interface UpdateAssetRequest {

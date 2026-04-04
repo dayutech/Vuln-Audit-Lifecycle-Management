@@ -24,6 +24,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -54,33 +56,40 @@ public class AssetServiceImpl implements AssetService {
     private final TeamRepository teamRepository;
     private final UserRepository userRepository;
 
+    private static final List<String> VALID_PRIORITIES = List.of("P0", "P1", "P2", "P3");
+    private static final List<String> VALID_STATUSES = List.of("active", "under_test", "suspended", "archived");
+    private static final DateTimeFormatter ASSET_CODE_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
+
     /**
      * 创建资产
      */
     @Override
     @Transactional
     public Asset createAsset(Asset asset) {
-        log.info("创建资产: code={}, name={}", asset.getCode(), asset.getName());
-        
-        // 检查资产编号是否已存在
-        if (assetRepository.existsByCode(asset.getCode())) {
-            log.warn("资产编号已存在: {}", asset.getCode());
-            throw new BusinessException(ErrorCode.ASSET_CODE_EXISTS);
+        if (asset.getTeamId() == null || !teamRepository.existsById(asset.getTeamId())) {
+            throw new BusinessException(ErrorCode.TEAM_NOT_FOUND);
         }
-        
-        // 设置默认状态
-        if (asset.getStatus() == null) {
-            asset.setStatus("active");
+
+        if (asset.getOwnerId() == null || !userRepository.existsById(asset.getOwnerId())) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
         }
-        
-        // 设置默认优先级
-        if (asset.getPriority() == null) {
+
+        if (!StringUtils.hasText(asset.getPriority())) {
             asset.setPriority("P2");
         }
-        
+        validatePriority(asset.getPriority());
+
+        if (!StringUtils.hasText(asset.getStatus())) {
+            asset.setStatus("active");
+        }
+        validateStatus(asset.getStatus());
+
+        asset.setCode(generateAssetCode());
+        log.info("创建资产: code={}, name={}", asset.getCode(), asset.getName());
+
         Asset savedAsset = assetRepository.save(asset);
         log.info("资产创建成功: id={}, code={}", savedAsset.getId(), savedAsset.getCode());
-        
+
         return savedAsset;
     }
 
@@ -279,12 +288,19 @@ public class AssetServiceImpl implements AssetService {
             existingAsset.setTargetSource(asset.getTargetSource());
         }
         if (asset.getPriority() != null) {
+            validatePriority(asset.getPriority());
             existingAsset.setPriority(asset.getPriority());
         }
         if (asset.getTeamId() != null) {
+            if (!teamRepository.existsById(asset.getTeamId())) {
+                throw new BusinessException(ErrorCode.TEAM_NOT_FOUND);
+            }
             existingAsset.setTeamId(asset.getTeamId());
         }
         if (asset.getOwnerId() != null) {
+            if (!userRepository.existsById(asset.getOwnerId())) {
+                throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+            }
             existingAsset.setOwnerId(asset.getOwnerId());
         }
 
@@ -312,12 +328,7 @@ public class AssetServiceImpl implements AssetService {
                     return new BusinessException(ErrorCode.ASSET_NOT_FOUND);
                 });
 
-        // 验证状态值
-        List<String> validStatuses = List.of("active", "under_test", "suspended", "archived");
-        if (!validStatuses.contains(status)) {
-            log.warn("无效的资产状态: {}", status);
-            throw new BusinessException(ErrorCode.INVALID_STATUS);
-        }
+        validateStatus(status);
 
         asset.setStatus(status);
         Asset updatedAsset = assetRepository.save(asset);
@@ -502,5 +513,29 @@ public class AssetServiceImpl implements AssetService {
         List<User> users = userRepository.findAllById(ownerIds);
         return users.stream()
                 .collect(Collectors.toMap(User::getId, User::getUsername));
+    }
+
+    private void validatePriority(String priority) {
+        if (!VALID_PRIORITIES.contains(priority)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "无效的优先级值");
+        }
+    }
+
+    private void validateStatus(String status) {
+        if (!VALID_STATUSES.contains(status)) {
+            throw new BusinessException(ErrorCode.INVALID_STATUS);
+        }
+    }
+
+    private String generateAssetCode() {
+        String datePart = LocalDate.now().format(ASSET_CODE_DATE_FORMATTER);
+        for (int i = 0; i < 20; i++) {
+            String randomPart = UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
+            String code = "AST-" + datePart + "-" + randomPart;
+            if (!assetRepository.existsByCode(code)) {
+                return code;
+            }
+        }
+        throw new BusinessException(ErrorCode.INTERNAL_ERROR, "资产编号生成失败");
     }
 }

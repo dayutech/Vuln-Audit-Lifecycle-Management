@@ -3,10 +3,10 @@ import type { PaginatedResponse } from './common';
 export interface TaskVO {
   id: string;
   title: string;
-  type: string;
   reference_id?: string;
+  asset_id?: string;
+  asset_version_id?: string;
   status: string;
-  priority: string;
   assignee?: {
     id: string;
     username: string;
@@ -25,12 +25,13 @@ export interface TaskVO {
 export type TaskListResponse = PaginatedResponse<TaskVO>;
 
 export interface CreateTaskRequest {
-  title: string;
-  type: string;
+  title?: string;
   reference_id?: string;
+  asset_id?: string;
+  asset_version_id?: string;
   assignee_id?: string;
-  priority: string;
   due_date?: string;
+  description?: string;
 }
 
 export interface UpdateTaskStatusRequest {

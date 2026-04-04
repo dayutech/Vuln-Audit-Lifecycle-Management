@@ -1,5 +1,6 @@
 package com.vulnaudit.entity;
 
+import com.vulnaudit.dto.TaskUserInfo;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -35,6 +36,9 @@ public class Task {
     @Column(name = "asset_id")
     private UUID assetId;
 
+    @Column(name = "asset_version_id")
+    private UUID assetVersionId;
+
     @Column(name = "vulnerability_id")
     private UUID vulnerabilityId;
 
@@ -51,13 +55,6 @@ public class Task {
     @Builder.Default
     private String status = "pending";
 
-    @Column(name = "priority", length = 2, nullable = false)
-    @Builder.Default
-    private String priority = "P2";
-
-    @Column(name = "type", length = 50)
-    private String type;
-
     @Column(name = "due_date")
     private LocalDateTime dueDate;
 
@@ -69,6 +66,12 @@ public class Task {
 
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    @Transient
+    private TaskUserInfo assignee;
+
+    @Transient
+    private TaskUserInfo creator;
 
     @PrePersist
     protected void onCreate() {

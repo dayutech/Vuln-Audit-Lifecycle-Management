@@ -7,6 +7,7 @@ import com.vulnaudit.entity.AssetClaim;
 import com.vulnaudit.entity.AssetHistory;
 import com.vulnaudit.entity.AssetTag;
 import com.vulnaudit.repository.AssetHistoryRepository;
+import com.vulnaudit.repository.AssetRepository;
 import com.vulnaudit.repository.AssetTagRepository;
 import com.vulnaudit.service.AssetService;
 import com.vulnaudit.service.AssetAccessService;
@@ -27,6 +28,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -46,27 +48,67 @@ public class AssetController {
     private final AssetClaimService assetClaimService;
     private final AssetTagRepository assetTagRepository;
     private final AssetHistoryRepository assetHistoryRepository;
+    private final AssetRepository assetRepository;
     private final UserService userService;
+
+    private static final List<Map<String, String>> ASSET_PRIORITY_OPTIONS = List.of(
+            Map.of("value", "P0", "label", "P0 - 核心/关键"),
+            Map.of("value", "P1", "label", "P1 - 重要"),
+            Map.of("value", "P2", "label", "P2 - 一般"),
+            Map.of("value", "P3", "label", "P3 - 边缘")
+    );
+    private static final List<Map<String, String>> ASSET_STATUS_OPTIONS = List.of(
+            Map.of("value", "active", "label", "活跃"),
+            Map.of("value", "under_test", "label", "测试中"),
+            Map.of("value", "suspended", "label", "暂停"),
+            Map.of("value", "archived", "label", "已归档")
+    );
 
     @PostMapping
     @Operation(summary = "创建资产", description = "创建新的资产记录")
     public ResponseEntity<ApiResponse<Asset>> createAsset(@Valid @RequestBody AssetCreateRequest request) {
         log.info("创建资产: name={}", request.getName());
-        
+
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        UUID currentUserId = getCurrentUserId(authentication);
+        if (currentUserId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
+
         Asset asset = Asset.builder()
                 .name(request.getName())
-                .code(request.getCode())
                 .targetType(request.getTargetType())
                 .targetSource(request.getTargetSource())
                 .description(request.getDescription())
                 .priority(request.getPriority())
+                .status(request.getStatus())
                 .teamId(request.getTeamId())
-                .ownerId(request.getOwnerId())
+                .ownerId(currentUserId)
                 .build();
-        
+
         Asset createdAsset = assetService.createAsset(asset);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(createdAsset));
+    }
+
+    @GetMapping("/options")
+    @Operation(summary = "获取资产选项", description = "获取资产类型、来源、优先级、状态选项")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getAssetOptions() {
+        List<Map<String, String>> targetTypeOptions = assetRepository.findDistinctTargetTypes().stream()
+                .map(item -> Map.of("value", item, "label", item))
+                .toList();
+        List<Map<String, String>> targetSourceOptions = assetRepository.findDistinctTargetSources().stream()
+                .map(item -> Map.of("value", item, "label", item))
+                .toList();
+
+        Map<String, Object> result = Map.of(
+                "targetTypes", targetTypeOptions,
+                "targetSources", targetSourceOptions,
+                "priorities", ASSET_PRIORITY_OPTIONS,
+                "statuses", ASSET_STATUS_OPTIONS
+        );
+        return ResponseEntity.ok(ApiResponse.success(result));
     }
 
     @GetMapping("/{id}")

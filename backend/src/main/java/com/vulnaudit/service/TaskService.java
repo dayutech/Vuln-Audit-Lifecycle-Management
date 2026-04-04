@@ -20,7 +20,7 @@ public interface TaskService {
     Optional<Task> findById(@Nullable UUID id);
 
     @Nonnull
-    PageResponse<Task> findAll(int page, int size, @Nullable String keyword, @Nullable String status, @Nullable UUID assigneeId, @Nullable UUID referenceId);
+    PageResponse<Task> findAll(int page, int size, @Nullable String keyword, @Nullable String status, @Nullable UUID assigneeId, @Nullable UUID referenceId, @Nullable UUID assetId, @Nullable UUID assetVersionId);
 
     @Nonnull
     List<Task> findByAssigneeId(@Nullable UUID assigneeId);

@@ -175,12 +175,11 @@ public class AssetControllerTest extends BaseTest {
         void createAsset_Success() throws Exception {
             AssetCreateRequest request = new AssetCreateRequest();
             request.setName("新资产");
-            request.setCode("NEW-001");
             request.setTargetType("web");
             request.setTargetSource("internal");
             request.setDescription("新创建的资产");
             request.setPriority("P2");
-            request.setOwnerId(testUser.getId());
+            request.setStatus("active");
             request.setTeamId(testTeam.getId());
 
             mockMvc.perform(post("/api/v1/assets")
@@ -188,7 +187,8 @@ public class AssetControllerTest extends BaseTest {
                     .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(Objects.requireNonNull(objectMapper.writeValueAsString(request))))
                     .andExpect(status().isCreated())
-                    .andExpect(jsonPath("$.data.name").value("新资产"));
+                    .andExpect(jsonPath("$.data.name").value("新资产"))
+                    .andExpect(jsonPath("$.data.code").exists());
         }
 
         @Test
@@ -196,7 +196,6 @@ public class AssetControllerTest extends BaseTest {
         void createAsset_ValidationError() throws Exception {
             AssetCreateRequest request = new AssetCreateRequest();
             request.setName(""); // 空名称
-            request.setCode(""); // 空编码
             request.setTargetType(null); // 空类型
 
             mockMvc.perform(post("/api/v1/assets")

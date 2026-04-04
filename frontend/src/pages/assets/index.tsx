@@ -18,14 +18,16 @@ import {
   createAsset,
   updateAsset,
   deleteAsset,
+  getAssetOptions,
 } from '@/api/asset';
 import type {
   AssetVO,
   CreateAssetRequest,
   UpdateAssetRequest,
 } from '@/types/asset';
+import { getTeamList } from '@/api/team';
+import type { TeamVO } from '@/types/team';
 
-const { Option } = Select;
 const { TextArea } = Input;
 
 const Assets: React.FC = () => {
@@ -37,6 +39,11 @@ const Assets: React.FC = () => {
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [currentAsset, setCurrentAsset] = useState<AssetVO | null>(null);
+  const [teams, setTeams] = useState<TeamVO[]>([]);
+  const [targetTypeOptions, setTargetTypeOptions] = useState<Array<{ label: string; value: string }>>([]);
+  const [targetSourceOptions, setTargetSourceOptions] = useState<Array<{ label: string; value: string }>>([]);
+  const [priorityOptions, setPriorityOptions] = useState<Array<{ label: string; value: string }>>([]);
+  const [statusOptions, setStatusOptions] = useState<Array<{ label: string; value: string }>>([]);
   const [form] = Form.useForm();
 
   const unwrapPayload = (res: any) => (res?.data ? res.data : res);
@@ -68,13 +75,49 @@ const Assets: React.FC = () => {
     }
   };
 
+  const fetchTeams = async () => {
+    try {
+      const res = await getTeamList();
+      const payload = unwrapPayload(res);
+      const items = payload.content || payload.items || [];
+      setTeams(Array.isArray(items) ? items : []);
+    } catch (error) {
+      setTeams([]);
+    }
+  };
+
+  const fetchAssetOptions = async () => {
+    try {
+      const res: any = await getAssetOptions();
+      const payload = res?.data?.data ?? res?.data ?? res;
+      setTargetTypeOptions(Array.isArray(payload?.targetTypes) ? payload.targetTypes : []);
+      setTargetSourceOptions(Array.isArray(payload?.targetSources) ? payload.targetSources : []);
+      setPriorityOptions(Array.isArray(payload?.priorities) ? payload.priorities : []);
+      setStatusOptions(Array.isArray(payload?.statuses) ? payload.statuses : []);
+    } catch (error) {
+      setTargetTypeOptions([]);
+      setTargetSourceOptions([]);
+      setPriorityOptions([]);
+      setStatusOptions([]);
+    }
+  };
+
   useEffect(() => {
     fetchData();
   }, [params.page, params.page_size, params.search]);
 
+  useEffect(() => {
+    fetchTeams();
+    fetchAssetOptions();
+  }, []);
+
   const handleCreate = () => {
     setModalMode('create');
     form.resetFields();
+    form.setFieldsValue({
+      priority: priorityOptions[0]?.value,
+      status: statusOptions[0]?.value,
+    });
     setCurrentAsset(null);
     setIsModalVisible(true);
   };
@@ -84,7 +127,7 @@ const Assets: React.FC = () => {
     setCurrentAsset(record);
     form.setFieldsValue({
       name: record.name,
-      code: record.code,
+      team_id: record.team_id || record.teamId,
       target_type: record.target_type,
       target_source: record.target_source,
       description: record.description,
@@ -167,8 +210,18 @@ const Assets: React.FC = () => {
       dataIndex: 'status', 
       key: 'status',
       render: (text: string) => {
-        const colors: Record<string, string> = { active: 'success', inactive: 'default', archived: 'warning' };
-        const labels: Record<string, string> = { active: '活跃', inactive: '未活跃', archived: '已归档' };
+        const colors: Record<string, string> = {
+          active: 'success',
+          under_test: 'processing',
+          suspended: 'warning',
+          archived: 'default',
+        };
+        const labels: Record<string, string> = {
+          active: '活跃',
+          under_test: '测试中',
+          suspended: '暂停',
+          archived: '已归档',
+        };
         return <Tag color={colors[text] || 'default'}>{labels[text] || text}</Tag>;
       }
     },
@@ -219,41 +272,29 @@ const Assets: React.FC = () => {
           <Form.Item name="name" label="资产名称" rules={[{ required: true, message: '请输入资产名称' }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="code" label="资产编码" rules={[{ required: true, message: '请输入资产编码' }]}>
-            <Input disabled={modalMode === 'edit'} />
+          <Form.Item name="team_id" label="所属团队" rules={[{ required: true, message: '请选择所属团队' }]}>
+            <Select placeholder="请选择所属团队" showSearch optionFilterProp="label" options={teams.map((team) => ({ label: team.name, value: team.id }))} />
           </Form.Item>
           <Form.Item name="target_type" label="资产类型" rules={[{ required: true, message: '请选择资产类型' }]}>
-            <Select disabled={modalMode === 'edit'}>
-              <Option value="web">Web应用</Option>
-              <Option value="mobile">移动应用</Option>
-              <Option value="host">主机系统</Option>
-              <Option value="network">网络设备</Option>
-            </Select>
+            <Select
+              placeholder="请选择资产类型"
+              options={targetTypeOptions}
+              disabled={targetTypeOptions.length === 0}
+            />
           </Form.Item>
           <Form.Item name="target_source" label="资产来源" rules={[{ required: true, message: '请选择资产来源' }]}>
-            <Select disabled={modalMode === 'edit'}>
-              <Option value="internal">内部自研</Option>
-              <Option value="external">外部采购</Option>
-              <Option value="customer">客户授权</Option>
-            </Select>
+            <Select
+              placeholder="请选择资产来源"
+              options={targetSourceOptions}
+              disabled={targetSourceOptions.length === 0}
+            />
           </Form.Item>
           <Form.Item name="priority" label="优先级" rules={[{ required: true, message: '请选择优先级' }]}>
-            <Select>
-              <Option value="P0">P0 - 核心/关键</Option>
-              <Option value="P1">P1 - 重要</Option>
-              <Option value="P2">P2 - 一般</Option>
-              <Option value="P3">P3 - 边缘</Option>
-            </Select>
+            <Select placeholder="请选择优先级" options={priorityOptions} />
           </Form.Item>
-          {modalMode === 'edit' && (
-            <Form.Item name="status" label="状态">
-              <Select>
-                <Option value="active">活跃</Option>
-                <Option value="inactive">未活跃</Option>
-                <Option value="archived">已归档</Option>
-              </Select>
-            </Form.Item>
-          )}
+          <Form.Item name="status" label="状态" rules={[{ required: true, message: '请选择状态' }]}>
+            <Select placeholder="请选择状态" options={statusOptions} />
+          </Form.Item>
           <Form.Item name="description" label="描述">
             <TextArea rows={4} />
           </Form.Item>

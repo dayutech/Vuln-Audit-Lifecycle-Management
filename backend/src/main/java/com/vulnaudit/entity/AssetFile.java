@@ -52,14 +52,6 @@ public class AssetFile {
     private String name;
 
     /**
-     * 文件类型
-     * 可选值：iso/vmdk/exe/zip/7z/tar/gz/源码包/二进制程序/配置文件/其他
-     * 最大长度20字符
-     */
-    @Column(name = "file_type", length = 20, nullable = false)
-    private String fileType;
-
-    /**
      * 文件分类
      * 可选值：系统镜像/磁盘文件/安装包/提取程序/配置文件/其他
      * 最大长度20字符

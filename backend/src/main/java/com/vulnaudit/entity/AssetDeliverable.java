@@ -42,9 +42,6 @@ public class AssetDeliverable {
     @Column(name = "deliverable_type", length = 50, nullable = false)
     private String deliverableType;
 
-    @Column(name = "file_type", length = 20, nullable = false)
-    private String fileType;
-
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 

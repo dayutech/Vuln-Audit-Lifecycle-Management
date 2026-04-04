@@ -38,15 +38,6 @@ public interface AssetFileRepository extends JpaRepository<AssetFile, UUID> {
     List<AssetFile> findByAssetIdAndStatus(UUID assetId, String status);
 
     /**
-     * 根据资产ID和文件类型查询文件
-     * 
-     * @param assetId 资产ID
-     * @param fileType 文件类型
-     * @return 文件列表
-     */
-    List<AssetFile> findByAssetIdAndFileType(UUID assetId, String fileType);
-
-    /**
      * 根据资产ID和分类查询文件
      * 
      * @param assetId 资产ID

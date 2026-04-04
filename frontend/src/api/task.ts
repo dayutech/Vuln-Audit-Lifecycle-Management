@@ -4,17 +4,11 @@ import type { PaginationParams } from '@/types/common';
 
 export interface TaskQueryParams extends PaginationParams {
   status?: string;
-  priority?: string;
   assignee_id?: string;
-  type?: string;
   reference_id?: string;
+  asset_id?: string;
+  asset_version_id?: string;
 }
-
-const taskPriorityMap: Record<string, string> = {
-  high: 'P1',
-  medium: 'P2',
-  low: 'P3',
-};
 
 export const getTaskList = (params: TaskQueryParams): Promise<any> => {
   return request.get('/tasks', {
@@ -25,6 +19,8 @@ export const getTaskList = (params: TaskQueryParams): Promise<any> => {
       status: params.status,
       assigneeId: params.assignee_id,
       referenceId: params.reference_id,
+      assetId: params.asset_id,
+      assetVersionId: params.asset_version_id,
     },
   });
 };
@@ -48,11 +44,12 @@ export const getTaskDetail = (id: string): Promise<TaskVO> => {
 export const createTask = (data: CreateTaskRequest): Promise<TaskVO> => {
   return request.post('/tasks', {
     title: data.title,
-    type: data.type,
     referenceId: data.reference_id,
+    assetId: data.asset_id,
+    assetVersionId: data.asset_version_id,
     assigneeId: data.assignee_id,
-    priority: taskPriorityMap[data.priority] || data.priority,
     dueDate: data.due_date,
+    description: data.description,
   });
 };
 

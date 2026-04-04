@@ -126,7 +126,7 @@ const BasicLayout: React.FC = () => {
           <Dropdown menu={userMenu} placement="bottomRight">
             <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
               <Avatar icon={<UserOutlined />} src={user?.avatar} />
-              <span>{user?.full_name || user?.username}</span>
+              <span>{user?.username || '-'}</span>
             </div>
           </Dropdown>
         </Header>

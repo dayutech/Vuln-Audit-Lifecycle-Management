@@ -29,4 +29,8 @@ public interface AssetVersionRepository extends JpaRepository<AssetVersion, UUID
     @Modifying
     @Query("UPDATE AssetVersion av SET av.isDefault = false WHERE av.assetId = :assetId")
     int clearDefaultByAssetId(@Param("assetId") UUID assetId);
+
+    @Modifying
+    @Query("UPDATE AssetVersion av SET av.isLatest = false WHERE av.assetId = :assetId")
+    int clearLatestByAssetId(@Param("assetId") UUID assetId);
 }

@@ -63,8 +63,8 @@ public class AssetVersionController {
                 .map(version -> version.getVersionNo() + 1)
                 .orElse(1);
 
-        boolean noVersionExists = !assetVersionRepository.findByAssetIdOrderByVersionNoDesc(assetId).isEmpty();
-        boolean shouldSetDefault = setDefault || !noVersionExists;
+        boolean hasExistingVersion = !assetVersionRepository.findByAssetIdOrderByVersionNoDesc(assetId).isEmpty();
+        boolean shouldSetDefault = setDefault || !hasExistingVersion;
 
         AssetVersion version = AssetVersion.builder()
                 .assetId(assetId)
@@ -72,6 +72,7 @@ public class AssetVersionController {
                 .name(resolveName(request, nextVersionNo))
                 .description(request == null ? null : request.getDescription())
                 .isDefault(shouldSetDefault)
+                .isLatest(true)
                 .status(request == null || request.getStatus() == null || request.getStatus().isBlank() ? "active" : request.getStatus())
                 .createdBy(getCurrentUserId())
                 .build();
@@ -79,6 +80,7 @@ public class AssetVersionController {
         if (shouldSetDefault) {
             assetVersionRepository.clearDefaultByAssetId(assetId);
         }
+        assetVersionRepository.clearLatestByAssetId(assetId);
         AssetVersion saved = assetVersionRepository.save(Objects.requireNonNull(version, "version must not be null"));
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(saved));
     }
@@ -98,6 +100,25 @@ public class AssetVersionController {
 
         assetVersionRepository.clearDefaultByAssetId(assetId);
         version.setIsDefault(true);
+        AssetVersion saved = assetVersionRepository.save(version);
+        return ResponseEntity.ok(ApiResponse.success(saved));
+    }
+
+    @PutMapping("/{id}/latest")
+    @Operation(summary = "切换最新版本", description = "将指定版本设置为最新版本")
+    @Transactional
+    public ResponseEntity<ApiResponse<AssetVersion>> setLatestVersion(
+            @PathVariable UUID assetId,
+            @PathVariable UUID id) {
+        log.info("切换最新资产版本: assetId={}, versionId={}", assetId, id);
+
+        AssetVersion version = assetVersionRepository.findByIdAndAssetId(id, assetId).orElse(null);
+        if (version == null) {
+            return ResponseEntity.ok(ApiResponse.error(404, "版本不存在"));
+        }
+
+        assetVersionRepository.clearLatestByAssetId(assetId);
+        version.setIsLatest(true);
         AssetVersion saved = assetVersionRepository.save(version);
         return ResponseEntity.ok(ApiResponse.success(saved));
     }

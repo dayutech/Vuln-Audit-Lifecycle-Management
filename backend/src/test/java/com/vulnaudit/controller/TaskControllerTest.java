@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -49,9 +50,7 @@ public class TaskControllerTest extends BaseTest {
 
         testTask = Task.builder()
                 .title("测试任务")
-                .type("vulnerability")
                 .description("用于测试的任务")
-                .priority("P1")
                 .status("pending")
                 .assignedTo(testAssignee.getId())
                 .assignedBy(testAssignee.getId())
@@ -112,13 +111,44 @@ public class TaskControllerTest extends BaseTest {
         @Test
         @DisplayName("创建任务 - 成功")
         void createTask_Success() throws Exception {
-            String taskJson = "{\"title\":\"新任务\",\"type\":\"vulnerability\",\"description\":\"新创建的任务\",\"priority\":\"P2\",\"assigneeId\":\"" + testAssignee.getId() + "\",\"dueDate\":\"" + LocalDateTime.now().plusDays(3) + "\"}";
+            UUID assetId = UUID.randomUUID();
+            UUID assetVersionId = UUID.randomUUID();
+            String taskJson = "{\"description\":\"新创建的任务\",\"assigneeId\":\"" + engineerUserId + "\",\"assetId\":\"" + assetId + "\",\"assetVersionId\":\"" + assetVersionId + "\",\"dueDate\":\"" + LocalDateTime.now().plusDays(3) + "\"}";
 
             mockMvc.perform(post("/api/v1/tasks")
                     .header("Authorization", leaderToken)
                     .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(taskJson))
-                    .andExpect(status().isCreated());
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.title", startsWith("审计任务-")))
+                    .andExpect(jsonPath("$.data.status").value("pending"))
+                    .andExpect(jsonPath("$.data.assignedTo").value(engineerUserId.toString()))
+                    .andExpect(jsonPath("$.data.assignedBy").value(leaderUserId.toString()))
+                    .andExpect(jsonPath("$.data.assetId").value(assetId.toString()))
+                    .andExpect(jsonPath("$.data.assetVersionId").value(assetVersionId.toString()));
+        }
+    }
+
+    @Nested
+    @DisplayName("任务分配测试")
+    class AssignTaskTests {
+
+        @Test
+        @DisplayName("分配任务 - 组长成功")
+        void assignTask_ByLeader_Success() throws Exception {
+            mockMvc.perform(post("/api/v1/tasks/" + testTask.getId() + "/assign")
+                    .header("Authorization", leaderToken)
+                    .param("assigneeId", engineerUserId.toString()))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("分配任务 - 工程师无权限")
+        void assignTask_ByEngineer_Forbidden() throws Exception {
+            mockMvc.perform(post("/api/v1/tasks/" + testTask.getId() + "/assign")
+                    .header("Authorization", engineerToken)
+                    .param("assigneeId", leaderUserId.toString()))
+                    .andExpect(status().isForbidden());
         }
     }
 

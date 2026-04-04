@@ -1,8 +1,6 @@
 package com.vulnaudit.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -22,26 +20,26 @@ import java.util.UUID;
 public class TaskCreateRequest {
 
     @Schema(description = "任务标题")
-    @NotBlank(message = "任务标题不能为空")
     private String title;
-
-    @Schema(description = "任务类型")
-    @NotBlank(message = "任务类型不能为空")
-    private String type;
 
     @Schema(description = "关联ID（资产/漏洞等）")
     private UUID referenceId;
 
-    @Schema(description = "指派人ID")
-    @NotNull(message = "指派人不能为空")
-    private UUID assigneeId;
+    @Schema(description = "关联资产ID")
+    private UUID assetId;
 
-    @Schema(description = "优先级")
-    private String priority;
+    @Schema(description = "关联资产版本ID")
+    private UUID assetVersionId;
+
+    @Schema(description = "指派人ID")
+    private UUID assigneeId;
 
     @Schema(description = "截止日期")
     private LocalDateTime dueDate;
 
     @Schema(description = "任务描述")
     private String description;
+
+    @Schema(description = "任务状态")
+    private String status;
 }

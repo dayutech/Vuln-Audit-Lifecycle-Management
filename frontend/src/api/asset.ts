@@ -21,6 +21,18 @@ export interface AssetQueryParams extends PaginationParams {
   status?: string;
 }
 
+export interface AssetOptionItem {
+  value: string;
+  label: string;
+}
+
+export interface AssetOptionsResponse {
+  targetTypes: AssetOptionItem[];
+  targetSources: AssetOptionItem[];
+  priorities: AssetOptionItem[];
+  statuses: AssetOptionItem[];
+}
+
 export const getAssetList = (params: AssetQueryParams): Promise<any> => {
   return request.get('/assets', {
     params: {
@@ -43,14 +55,17 @@ export const getAssetDetail = (id: string): Promise<AssetVO> => {
 export const createAsset = (data: CreateAssetRequest): Promise<AssetVO> => {
   return request.post('/assets', {
     name: data.name,
-    code: data.code,
     targetType: data.target_type,
     targetSource: data.target_source,
     description: data.description,
     priority: data.priority,
+    status: data.status,
     teamId: data.team_id,
-    ownerId: data.owner_id,
   });
+};
+
+export const getAssetOptions = (): Promise<AssetOptionsResponse> => {
+  return request.get('/assets/options');
 };
 
 export const updateAsset = (id: string, data: UpdateAssetRequest): Promise<AssetVO> => {
@@ -197,6 +212,10 @@ export const createAssetVersion = (
 
 export const setDefaultAssetVersion = (assetId: string, versionId: string): Promise<AssetVersionVO> => {
   return request.put(`/assets/${assetId}/versions/${versionId}/default`);
+};
+
+export const setLatestAssetVersion = (assetId: string, versionId: string): Promise<AssetVersionVO> => {
+  return request.put(`/assets/${assetId}/versions/${versionId}/latest`);
 };
 
 export const deleteEnvironment = (id: string): Promise<any> => {

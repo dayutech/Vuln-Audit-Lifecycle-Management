@@ -86,7 +86,6 @@ public class AssetFileController {
             @PathVariable UUID assetId,
             @RequestParam(required = false) UUID assetVersionId,
             @Parameter(description = "文件") @RequestParam("file") MultipartFile file,
-            @Parameter(description = "文件类型") @RequestParam(required = false) String fileType,
             @Parameter(description = "文件分类") @RequestParam String category,
             @Parameter(description = "描述") @RequestParam(required = false) String description) throws IOException {
         if (file == null || file.isEmpty()) {
@@ -113,16 +112,12 @@ public class AssetFileController {
         long fileSize = file.getSize();
         
         UUID currentUserId = getCurrentUserId();
-        String resolvedFileType = (fileType == null || fileType.isBlank())
-                ? resolveFileType(originalFilename)
-                : fileType;
         String checksum = calculateSha256(filePath);
 
         AssetFile assetFile = AssetFile.builder()
                 .assetId(assetId)
                 .assetVersionId(resolvedVersionId)
                 .name(originalFilename)
-                .fileType(resolvedFileType)
                 .category(category)
                 .description(description)
                 .fileSize(fileSize)
@@ -307,14 +302,6 @@ public class AssetFileController {
             return "unnamed-file";
         }
         return originalFilename;
-    }
-
-    private String resolveFileType(String filename) {
-        if (filename == null || !filename.contains(".")) {
-            return "other";
-        }
-        int idx = filename.lastIndexOf('.');
-        return filename.substring(idx + 1).toLowerCase();
     }
 
     private String calculateSha256(Path path) {
