@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -39,6 +40,9 @@ public class TaskCreateRequest {
 
     @Schema(description = "任务描述")
     private String description;
+
+    @Schema(description = "预估工时")
+    private BigDecimal estimatedHours;
 
     @Schema(description = "任务状态")
     private String status;

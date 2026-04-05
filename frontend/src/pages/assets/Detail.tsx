@@ -22,7 +22,7 @@ import {
   createEnvironment,
   deleteEnvironment
 } from '@/api/asset';
-import { getVulnerabilityList, createVulnerability, updateVulnerability, deleteVulnerability } from '@/api/vulnerability';
+import { getVulnerabilityList, createVulnerability, updateVulnerability, deleteVulnerability, getVulnerabilityOptions } from '@/api/vulnerability';
 import { getTaskList, createTask, updateTask, updateTaskStatus, deleteTask } from '@/api/task';
 import { getUserList } from '@/api/user';
 import type { AssetVO, AssetFileVO, AssetDeliverableVO, EnvironmentVO, AssetVersionVO } from '@/types/asset';
@@ -145,8 +145,6 @@ const AssetDetail: React.FC = () => {
   const [overviewVersionId, setOverviewVersionId] = useState<string>();
   const [fileVersionScope, setFileVersionScope] = useState<string>();
   const [deliverableVersionScope, setDeliverableVersionScope] = useState<string>();
-  const [environmentVersionId, setEnvironmentVersionId] = useState<string>();
-  const [taskVersionId, setTaskVersionId] = useState<string>();
   const [versionLoading, setVersionLoading] = useState(false);
   const [createVersionVisible, setCreateVersionVisible] = useState(false);
   const [creatingVersion, setCreatingVersion] = useState(false);
@@ -159,6 +157,7 @@ const AssetDetail: React.FC = () => {
   const [metadataExists, setMetadataExists] = useState(false);
   const [metadataLoading, setMetadataLoading] = useState(false);
   const [metadataSubmitting, setMetadataSubmitting] = useState(false);
+  const [baseOverviewInheritedFromVersionId, setBaseOverviewInheritedFromVersionId] = useState<string>();
 
   // File states
   const [assetFileUploadForm] = Form.useForm();
@@ -190,6 +189,7 @@ const AssetDetail: React.FC = () => {
   const [vulnForm] = Form.useForm();
   const [vulnMode, setVulnMode] = useState<'create' | 'edit'>('create');
   const [currentVulnId, setCurrentVulnId] = useState<string>('');
+  const [vulnTypeOptions, setVulnTypeOptions] = useState<Array<{ value: string; label: string }>>([]);
 
   // Task states
   const [tasks, setTasks] = useState<any[]>([]);
@@ -345,6 +345,11 @@ const AssetDetail: React.FC = () => {
         };
 
         setMetadataExists(true);
+        if (module === 'base') {
+          setBaseOverviewInheritedFromVersionId(
+            data.copiedFromAssetVersionId ?? data.copied_from_asset_version_id ?? undefined
+          );
+        }
         metadataForm.setFieldsValue({
           ...data,
           ...(module === 'account' ? { accountCredentials } : {}),
@@ -360,18 +365,36 @@ const AssetDetail: React.FC = () => {
         });
       } else {
         setMetadataExists(false);
+        if (module === 'base') {
+          setBaseOverviewInheritedFromVersionId(undefined);
+        }
       }
     } catch (error) {
       console.error(error);
+      if (module === 'base') {
+        setBaseOverviewInheritedFromVersionId(undefined);
+      }
     } finally {
       setMetadataLoading(false);
     }
   };
 
-  const loadFiles = async (assetId: string, assetVersionId?: string) => {
+  const loadBaseOverviewInheritance = async (assetId: string, assetVersionId?: string) => {
+    try {
+      const res: any = await getAssetMetadata(assetId, 'base', assetVersionId);
+      const data = res?.data ? res.data : res;
+      setBaseOverviewInheritedFromVersionId(
+        data?.copiedFromAssetVersionId ?? data?.copied_from_asset_version_id ?? undefined
+      );
+    } catch (error) {
+      setBaseOverviewInheritedFromVersionId(undefined);
+    }
+  };
+
+  const loadFiles = async (assetId: string, assetVersionId?: string, allVersions?: boolean) => {
     try {
       setFileLoading(true);
-      const res: any = await getAssetFiles(assetId, assetVersionId);
+      const res: any = await getAssetFiles(assetId, assetVersionId, allVersions);
       const data = res?.data ? res.data : res;
       setFiles(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -381,10 +404,10 @@ const AssetDetail: React.FC = () => {
     }
   };
 
-  const loadDeliverables = async (assetId: string, assetVersionId?: string) => {
+  const loadDeliverables = async (assetId: string, assetVersionId?: string, allVersions?: boolean) => {
     try {
       setDeliverableLoading(true);
-      const res: any = await getAssetDeliverables(assetId, assetVersionId);
+      const res: any = await getAssetDeliverables(assetId, assetVersionId, allVersions);
       const data = res?.data ? res.data : res;
       setDeliverables(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -394,10 +417,10 @@ const AssetDetail: React.FC = () => {
     }
   };
 
-  const loadEnvironments = async (assetId: string, assetVersionId?: string) => {
+  const loadEnvironments = async (assetId: string) => {
     try {
       setEnvLoading(true);
-      const res: any = await getEnvironmentList({ page: 1, page_size: 100, assetId, assetVersionId });
+      const res: any = await getEnvironmentList({ page: 1, page_size: 100, assetId });
       const data = res?.data ? res.data : res;
       setEnvironments(Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []);
     } catch (error) {
@@ -420,10 +443,25 @@ const AssetDetail: React.FC = () => {
     }
   };
 
-  const loadTasks = async (assetId: string, assetVersionId?: string) => {
+  const loadVulnerabilityOptions = async () => {
+    try {
+      const res: any = await getVulnerabilityOptions();
+      const data = res?.data ? res.data : res;
+      const types = Array.isArray(data?.types) ? data.types : [];
+      setVulnTypeOptions(types.map((item: any) => ({
+        value: String(item?.value ?? item?.label ?? ''),
+        label: String(item?.label ?? item?.value ?? ''),
+      })).filter((item: any) => !!item.value));
+    } catch (error) {
+      console.error(error);
+      setVulnTypeOptions([]);
+    }
+  };
+
+  const loadTasks = async (assetId: string) => {
     try {
       setTaskLoading(true);
-      const res: any = await getTaskList({ page: 1, page_size: 100, reference_id: assetId, asset_id: assetId, asset_version_id: assetVersionId });
+      const res: any = await getTaskList({ page: 1, page_size: 100, reference_id: assetId, asset_id: assetId });
       const data = res?.data ? res.data : res;
       setTasks(Array.isArray(data?.items) ? data.items : Array.isArray(data?.content) ? data.content : Array.isArray(data) ? data : []);
     } catch (error) {
@@ -448,6 +486,9 @@ const AssetDetail: React.FC = () => {
   const handleCreateVuln = () => {
     setVulnMode('create');
     vulnForm.resetFields();
+    if (selectedVersionId) {
+      vulnForm.setFieldsValue({ discovered_version_id: selectedVersionId });
+    }
     setVulnModalVisible(true);
   };
 
@@ -458,8 +499,9 @@ const AssetDetail: React.FC = () => {
       title: record.title,
       type: record.type,
       severity: record.severity,
+      discovered_version_id: record.discoveredVersionId || record.discovered_version_id,
+      affected_versions: record.affectedVersions || record.affected_versions,
       description: record.description,
-      remediation: record.remediation,
     });
     setVulnModalVisible(true);
   };
@@ -484,11 +526,15 @@ const AssetDetail: React.FC = () => {
     try {
       const values = await vulnForm.validateFields();
       setVulnSubmitting(true);
+      const payload = {
+        ...values,
+        affected_versions: values.affected_versions?.trim() ? values.affected_versions.trim() : undefined,
+      };
       if (vulnMode === 'create') {
-        await createVulnerability({ ...values, asset_id: asset?.id });
+        await createVulnerability({ ...payload, asset_id: asset?.id || '' });
         message.success('漏洞创建成功');
       } else {
-        await updateVulnerability(currentVulnId, values);
+        await updateVulnerability(currentVulnId, payload);
         message.success('漏洞更新成功');
       }
       setVulnModalVisible(false);
@@ -503,7 +549,6 @@ const AssetDetail: React.FC = () => {
   const handleCreateTask = () => {
     setTaskMode('create');
     taskForm.resetFields();
-    taskForm.setFieldsValue({ asset_version_id: taskVersionId || selectedVersionId });
     setTaskModalVisible(true);
   };
 
@@ -525,7 +570,7 @@ const AssetDetail: React.FC = () => {
         try {
           await deleteTask(id);
           message.success('删除成功');
-          if (asset?.id) loadTasks(asset.id, taskVersionId);
+          if (asset?.id) loadTasks(asset.id);
         } catch (error) {
           console.error(error);
         }
@@ -538,14 +583,14 @@ const AssetDetail: React.FC = () => {
       const values = await taskForm.validateFields();
       setTaskSubmitting(true);
       if (taskMode === 'create') {
-        await createTask({ ...values, reference_id: asset?.id, asset_id: asset?.id, asset_version_id: values.asset_version_id || taskVersionId || selectedVersionId });
+        await createTask({ ...values, reference_id: asset?.id, asset_id: asset?.id });
         message.success('任务创建成功');
       } else {
         await updateTask(currentTaskId, values);
         message.success('任务更新成功');
       }
       setTaskModalVisible(false);
-      if (asset?.id) loadTasks(asset.id, taskVersionId);
+      if (asset?.id) loadTasks(asset.id);
     } catch (error) {
       console.error(error);
     } finally {
@@ -559,7 +604,7 @@ const AssetDetail: React.FC = () => {
       setTaskStatusUpdatingId(record.id);
       await updateTaskStatus(record.id, { status });
       message.success('任务状态更新成功');
-      if (asset?.id) loadTasks(asset.id, taskVersionId);
+      if (asset?.id) loadTasks(asset.id);
     } catch (error) {
       console.error(error);
     } finally {
@@ -578,6 +623,7 @@ const AssetDetail: React.FC = () => {
           setAsset(normalizedAsset);
           loadVersions(found.id);
           loadVulnerabilities(found.id);
+          loadVulnerabilityOptions();
           loadTaskUsers();
         }
       } catch (error) {
@@ -593,34 +639,37 @@ const AssetDetail: React.FC = () => {
     setOverviewVersionId(selectedVersionId);
     setFileVersionScope(selectedVersionId);
     setDeliverableVersionScope(selectedVersionId);
-    setEnvironmentVersionId(selectedVersionId);
-    setTaskVersionId(selectedVersionId);
   }, [selectedVersionId]);
 
   useEffect(() => {
     if (!asset?.id) return;
-    loadFiles(asset.id, fileVersionScope === '__all__' ? undefined : fileVersionScope);
+    loadFiles(asset.id, fileVersionScope === '__all__' ? undefined : fileVersionScope, fileVersionScope === '__all__');
   }, [asset?.id, fileVersionScope]);
 
   useEffect(() => {
     if (!asset?.id) return;
-    loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope);
+    loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope, deliverableVersionScope === '__all__');
   }, [asset?.id, deliverableVersionScope]);
 
   useEffect(() => {
     if (!asset?.id) return;
-    loadEnvironments(asset.id, environmentVersionId);
-  }, [asset?.id, environmentVersionId]);
+    loadEnvironments(asset.id);
+  }, [asset?.id]);
 
   useEffect(() => {
     if (!asset?.id) return;
-    loadTasks(asset.id, taskVersionId);
-  }, [asset?.id, taskVersionId]);
+    loadTasks(asset.id);
+  }, [asset?.id]);
 
   useEffect(() => {
     if (!asset?.id) return;
     loadMetadata(asset.id, stepToModule[overviewStep], overviewVersionId);
   }, [asset?.id, overviewVersionId, overviewStep]);
+
+  useEffect(() => {
+    if (!asset?.id) return;
+    loadBaseOverviewInheritance(asset.id, overviewVersionId);
+  }, [asset?.id, overviewVersionId]);
 
   const handleSubmitMetadata = async () => {
     if (!asset) return;
@@ -711,6 +760,8 @@ const AssetDetail: React.FC = () => {
         name: values.name,
         description: values.description,
         status: values.status,
+        inherit_base_overview: values.inheritBaseOverview,
+        inherit_from_version_id: values.inheritFromVersionId,
       }, values.setDefault);
       message.success('资产版本创建成功');
       setCreateVersionVisible(false);
@@ -801,11 +852,11 @@ const AssetDetail: React.FC = () => {
         : (deliverableVersionScope === '__all__' ? selectedVersionId : deliverableVersionScope);
       if (target === 'asset_file') {
         await uploadAssetFile(asset.id, formData, bindVersionId);
-        await loadFiles(asset.id, fileVersionScope === '__all__' ? undefined : fileVersionScope);
+        await loadFiles(asset.id, fileVersionScope === '__all__' ? undefined : fileVersionScope, fileVersionScope === '__all__');
         message.success('文件上传成功');
       } else {
         await uploadAssetDeliverable(asset.id, formData, bindVersionId);
-        await loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope);
+        await loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope, deliverableVersionScope === '__all__');
         message.success('交付物上传成功');
       }
       uploadForm.resetFields();
@@ -827,14 +878,13 @@ const AssetDetail: React.FC = () => {
       await createEnvironment({
         name: values.name,
         asset_id: asset.id,
-        asset_version_id: environmentVersionId || selectedVersionId,
         template_id: values.template_id || '',
         config: values.config || '{}',
       });
       message.success('环境创建成功');
       setEnvModalVisible(false);
       envForm.resetFields();
-      loadEnvironments(asset.id, environmentVersionId);
+      loadEnvironments(asset.id);
     } catch (error) {
       console.error(error);
     } finally {
@@ -850,7 +900,7 @@ const AssetDetail: React.FC = () => {
         try {
           await deleteEnvironment(envId);
           message.success('环境已删除');
-          if (asset) loadEnvironments(asset.id, environmentVersionId);
+          if (asset) loadEnvironments(asset.id);
         } catch (error) {
           console.error(error);
         }
@@ -867,7 +917,7 @@ const AssetDetail: React.FC = () => {
         try {
           await deleteAssetDeliverable(deliverableId);
           message.success('交付物已删除');
-          await loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope);
+          await loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope, deliverableVersionScope === '__all__');
         } catch (error) {
           console.error(error);
           message.error('交付物删除失败');
@@ -885,7 +935,7 @@ const AssetDetail: React.FC = () => {
         try {
           await deleteAssetFile(fileId);
           message.success('资产文件已删除');
-          await loadFiles(asset.id, fileVersionScope === '__all__' ? undefined : fileVersionScope);
+          await loadFiles(asset.id, fileVersionScope === '__all__' ? undefined : fileVersionScope, fileVersionScope === '__all__');
         } catch (error) {
           console.error(error);
           message.error('资产文件删除失败');
@@ -1003,7 +1053,10 @@ const AssetDetail: React.FC = () => {
   ];
 
   const vulnColumns = [
+    { title: '漏洞编号', dataIndex: 'vulnerabilityNo', key: 'vulnerabilityNo', render: (_: string, record: any) => record?.vulnerabilityNo || record?.vulnerability_no || '-' },
     { title: '漏洞名称', dataIndex: 'title', key: 'title', render: (text: string, record: any) => <a onClick={() => navigate(`/vulnerabilities/${record.id}`)}>{text}</a> },
+    { title: '发现版本', dataIndex: 'discoveredVersionId', key: 'discoveredVersionId', render: (_: string, record: any) => versionLabelById(record?.discoveredVersionId || record?.discovered_version_id) },
+    { title: '受影响版本', dataIndex: 'affectedVersions', key: 'affectedVersions', render: (_: string, record: any) => record?.affectedVersions || record?.affected_versions || '-' },
     { title: '严重程度', dataIndex: 'severity', key: 'severity', render: (severity: string) => {
         const colors: Record<string, string> = { CRITICAL: 'darkred', HIGH: 'red', MEDIUM: 'orange', LOW: 'blue', INFO: 'default' };
         return <Tag color={colors[severity] || 'default'}>{severity}</Tag>;
@@ -1130,6 +1183,7 @@ const AssetDetail: React.FC = () => {
           initialValues={{
             setDefault: false,
             status: 'active',
+            inheritBaseOverview: false,
           }}
         >
           <Form.Item name="name" label="版本名称">
@@ -1149,6 +1203,37 @@ const AssetDetail: React.FC = () => {
               <Option value={false}>否</Option>
               <Option value={true}>是</Option>
             </Select>
+          </Form.Item>
+          <Form.Item name="inheritBaseOverview" label="带入产品概览">
+            <Select>
+              <Option value={false}>否</Option>
+              <Option value={true} disabled={assetVersions.length === 0}>是</Option>
+            </Select>
+          </Form.Item>
+          <Form.Item
+            noStyle
+            shouldUpdate={(prevValues, currentValues) => prevValues.inheritBaseOverview !== currentValues.inheritBaseOverview}
+          >
+            {({ getFieldValue }) => {
+              if (!getFieldValue('inheritBaseOverview')) {
+                return null;
+              }
+              return (
+                <Form.Item
+                  name="inheritFromVersionId"
+                  label="来源版本"
+                  rules={[{ required: true, message: '请选择来源版本' }]}
+                >
+                  <Select
+                    placeholder="请选择需要带入产品概览的版本"
+                    options={assetVersions.map((item) => ({
+                      label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}${item.isLatest ? ' - 最新' : ''}`,
+                      value: item.id,
+                    }))}
+                  />
+                </Form.Item>
+              );
+            }}
           </Form.Item>
         </Form>
       </Modal>
@@ -1231,7 +1316,8 @@ const AssetDetail: React.FC = () => {
           </TabPane>
           <TabPane tab={<span><AppstoreOutlined />产品概览</span>} key="overview">
             <div style={{ padding: '24px 0', maxWidth: 1000 }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <h3 style={{ margin: 0 }}>产品概览</h3>
                 <Select
                   style={{ width: 260 }}
                   value={overviewVersionId}
@@ -1243,6 +1329,11 @@ const AssetDetail: React.FC = () => {
                   }))}
                 />
               </div>
+              {baseOverviewInheritedFromVersionId && (
+                <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 6, color: '#389e0d' }}>
+                  当前版本产品概览基于 {versionLabelById(baseOverviewInheritedFromVersionId)} 带入
+                </div>
+              )}
               <Spin spinning={metadataLoading}>
                 <Steps 
                   current={overviewStep} 
@@ -1497,20 +1588,10 @@ const AssetDetail: React.FC = () => {
             <div style={{ padding: '24px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
                 <div>
-                  <h3>环境管理</h3>
-                  <p style={{ color: '#8c8c8c' }}>可以在此处对接云平台或K8s，管理资产的多套部署环境（开发、测试、生产）。</p>
+                  <h3 style={{ margin: 0 }}>环境管理</h3>
+                  <p style={{ marginTop: 8, marginBottom: 0, color: '#8c8c8c' }}>可以在此处对接云平台或K8s，管理资产的多套部署环境（开发、测试、生产）。</p>
                 </div>
                 <Space>
-                  <Select
-                    style={{ width: 260 }}
-                    value={environmentVersionId}
-                    placeholder="选择环境卡片版本"
-                    onChange={(value) => setEnvironmentVersionId(value)}
-                    options={assetVersions.map((item) => ({
-                      label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}${item.isLatest ? ' - 最新' : ''}`,
-                      value: item.id,
-                    }))}
-                  />
                   <Button type="primary" icon={<PlusOutlined />} onClick={() => setEnvModalVisible(true)}>添加环境</Button>
                 </Space>
               </div>
@@ -1527,20 +1608,10 @@ const AssetDetail: React.FC = () => {
             <div style={{ padding: '24px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
                 <div>
-                  <h3>审计记录</h3>
-                  <p style={{ color: '#8c8c8c' }}>展示针对此产品的历史审计任务、安全测试报告等。</p>
+                  <h3 style={{ margin: 0 }}>审计记录</h3>
+                  <p style={{ marginTop: 8, marginBottom: 0, color: '#8c8c8c' }}>展示针对此产品的历史审计任务、安全测试报告等。</p>
                 </div>
                 <Space>
-                  <Select
-                    style={{ width: 260 }}
-                    value={taskVersionId}
-                    placeholder="选择任务卡片版本"
-                    onChange={(value) => setTaskVersionId(value)}
-                    options={assetVersions.map((item) => ({
-                      label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}${item.isLatest ? ' - 最新' : ''}`,
-                      value: item.id,
-                    }))}
-                  />
                   <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateTask}>新建任务</Button>
                   <Button onClick={() => navigate('/tasks')}>查看全部</Button>
                 </Space>
@@ -1688,13 +1759,19 @@ const AssetDetail: React.FC = () => {
             <Input placeholder="请输入漏洞名称" />
           </Form.Item>
           <Form.Item name="type" label="漏洞类型" rules={[{ required: true, message: '请选择漏洞类型' }]}>
-            <Select placeholder="请选择漏洞类型">
-              <Option value="SQL_INJECTION">SQL注入</Option>
-              <Option value="XSS">跨站脚本 (XSS)</Option>
-              <Option value="CSRF">跨站请求伪造 (CSRF)</Option>
-              <Option value="RCE">远程代码执行</Option>
-              <Option value="OTHER">其他</Option>
+            <Select placeholder="请选择漏洞类型" options={vulnTypeOptions} />
+          </Form.Item>
+          <Form.Item name="discovered_version_id" label="发现版本" rules={[{ required: true, message: '请选择发现版本' }]}>
+            <Select placeholder="请选择发现时所属资产版本">
+              {assetVersions.map((item) => (
+                <Option key={item.id} value={item.id}>
+                  {item.name || `v${item.versionNo}`}{item.isLatest ? ' - 最新' : ''}{item.isDefault ? ' - 默认' : ''}
+                </Option>
+              ))}
             </Select>
+          </Form.Item>
+          <Form.Item name="affected_versions" label="受影响版本">
+            <Input.TextArea rows={2} placeholder="可自由填写，例如：v1.0, v1.1, v2.x" />
           </Form.Item>
           <Form.Item name="severity" label="严重程度" rules={[{ required: true, message: '请选择严重程度' }]}>
             <Select placeholder="请选择严重程度">
@@ -1707,9 +1784,6 @@ const AssetDetail: React.FC = () => {
           </Form.Item>
           <Form.Item name="description" label="漏洞描述" rules={[{ required: true, message: '请输入漏洞描述' }]}>
             <Input.TextArea rows={4} placeholder="请输入漏洞描述" />
-          </Form.Item>
-          <Form.Item name="remediation" label="修复建议">
-            <Input.TextArea rows={3} placeholder="请输入修复建议" />
           </Form.Item>
         </Form>
       </Modal>
@@ -1726,17 +1800,6 @@ const AssetDetail: React.FC = () => {
           {taskMode === 'edit' && (
             <Form.Item name="title" label="任务名称" rules={[{ required: true, message: '请输入任务名称' }]}>
               <Input placeholder="请输入任务名称" />
-            </Form.Item>
-          )}
-          {taskMode === 'create' && (
-            <Form.Item name="asset_version_id" label="关联版本" rules={[{ required: true, message: '请选择关联版本' }]}>
-              <Select placeholder="请选择关联版本">
-                {assetVersions.map((item) => (
-                  <Option key={item.id} value={item.id}>
-                    {item.name || `v${item.versionNo}`}{item.isDefault ? ' - 默认' : ''}{item.isLatest ? ' - 最新' : ''}
-                  </Option>
-                ))}
-              </Select>
             </Form.Item>
           )}
           {taskMode === 'create' && (

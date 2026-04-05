@@ -7,7 +7,9 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -61,6 +63,28 @@ public class Task {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
+    @Column(name = "estimated_hours", precision = 10, scale = 2)
+    private BigDecimal estimatedHours;
+
+    @Column(name = "actual_hours", precision = 10, scale = 2, nullable = false)
+    @Builder.Default
+    private BigDecimal actualHours = BigDecimal.ZERO;
+
+    @Column(name = "audit_conclusion", columnDefinition = "TEXT")
+    private String auditConclusion;
+
+    @Column(name = "review_signature", length = 255)
+    private String reviewSignature;
+
+    @Column(name = "approval_comment", columnDefinition = "TEXT")
+    private String approvalComment;
+
+    @Column(name = "reviewed_by")
+    private UUID reviewedBy;
+
+    @Column(name = "reviewed_at")
+    private LocalDateTime reviewedAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -72,6 +96,9 @@ public class Task {
 
     @Transient
     private TaskUserInfo creator;
+
+    @Transient
+    private List<TaskUserInfo> collaborators;
 
     @PrePersist
     protected void onCreate() {

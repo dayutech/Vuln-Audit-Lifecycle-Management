@@ -106,10 +106,11 @@ export const updateAssetMetadata = (
   });
 };
 
-export const getAssetFiles = (assetId: string, assetVersionId?: string): Promise<AssetFileVO[]> => {
+export const getAssetFiles = (assetId: string, assetVersionId?: string, allVersions?: boolean): Promise<AssetFileVO[]> => {
   return request.get(`/assets/${assetId}/files`, {
     params: {
       assetVersionId,
+      allVersions,
     },
   });
 };
@@ -132,10 +133,11 @@ export const downloadAssetFile = (id: string): Promise<Blob> => {
   });
 };
 
-export const getAssetDeliverables = (assetId: string, assetVersionId?: string): Promise<AssetDeliverableVO[]> => {
+export const getAssetDeliverables = (assetId: string, assetVersionId?: string, allVersions?: boolean): Promise<AssetDeliverableVO[]> => {
   return request.get(`/assets/${assetId}/deliverables`, {
     params: {
       assetVersionId,
+      allVersions,
     },
   });
 };
@@ -203,7 +205,13 @@ export const createAssetVersion = (
   data: CreateAssetVersionRequest,
   setDefault?: boolean
 ): Promise<AssetVersionVO> => {
-  return request.post(`/assets/${assetId}/versions`, data, {
+  return request.post(`/assets/${assetId}/versions`, {
+    name: data.name,
+    description: data.description,
+    status: data.status,
+    inheritBaseOverview: data.inherit_base_overview,
+    inheritFromVersionId: data.inherit_from_version_id,
+  }, {
     params: {
       setDefault,
     },

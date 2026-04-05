@@ -1,0 +1,6 @@
+ALTER TABLE tasks
+    ADD COLUMN IF NOT EXISTS audit_conclusion TEXT,
+    ADD COLUMN IF NOT EXISTS review_signature VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS approval_comment TEXT,
+    ADD COLUMN IF NOT EXISTS reviewed_by UUID,
+    ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;

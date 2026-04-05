@@ -6,6 +6,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -47,6 +48,15 @@ public class TaskComment {
      */
     @Column(name = "content", nullable = false, columnDefinition = "TEXT")
     private String content;
+
+    @Column(name = "spent_hours", precision = 10, scale = 2)
+    private BigDecimal spentHours;
+
+    @Column(name = "work_type", length = 50)
+    private String workType;
+
+    @Column(name = "evidence_path", length = 1000)
+    private String evidencePath;
 
     /**
      * 创建时间

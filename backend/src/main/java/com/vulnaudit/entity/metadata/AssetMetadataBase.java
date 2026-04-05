@@ -31,4 +31,7 @@ public class AssetMetadataBase extends BaseAssetMetadata {
 
     @Column(name = "framework", length = 100)
     private String framework;
+
+    @Column(name = "copied_from_asset_version_id")
+    private java.util.UUID copiedFromAssetVersionId;
 }

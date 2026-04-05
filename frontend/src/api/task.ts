@@ -1,5 +1,13 @@
 import request from '@/utils/request';
-import type { TaskListResponse, TaskVO, CreateTaskRequest, UpdateTaskStatusRequest, AssignTaskRequest } from '@/types/task';
+import type {
+  TaskListResponse,
+  TaskVO,
+  CreateTaskRequest,
+  UpdateTaskStatusRequest,
+  AssignTaskRequest,
+  TaskCommentVO,
+  TaskAttachmentVO,
+} from '@/types/task';
 import type { PaginationParams } from '@/types/common';
 
 export interface TaskQueryParams extends PaginationParams {
@@ -50,6 +58,7 @@ export const createTask = (data: CreateTaskRequest): Promise<TaskVO> => {
     assigneeId: data.assignee_id,
     dueDate: data.due_date,
     description: data.description,
+    estimatedHours: data.estimated_hours,
   });
 };
 
@@ -58,7 +67,13 @@ export const updateTaskStatus = (id: string, data: UpdateTaskStatusRequest): Pro
 };
 
 export const updateTask = (id: string, data: Partial<CreateTaskRequest>): Promise<TaskVO> => {
-  return request.put(`/tasks/${id}`, data);
+  return request.put(`/tasks/${id}`, {
+    title: data.title,
+    description: data.description,
+    dueDate: data.due_date,
+    auditConclusion: data.audit_conclusion,
+    estimatedHours: data.estimated_hours,
+  });
 };
 
 export const deleteTask = (id: string): Promise<any> => {
@@ -67,4 +82,65 @@ export const deleteTask = (id: string): Promise<any> => {
 
 export const assignTask = (id: string, data: AssignTaskRequest): Promise<any> => {
   return request.post(`/tasks/${id}/assign`, null, { params: { assigneeId: data.assignee_id } });
+};
+
+export const getTaskComments = (id: string): Promise<TaskCommentVO[]> => {
+  return request.get(`/tasks/${id}/comments`);
+};
+
+export const createTaskComment = (id: string, content: string, spentHours?: number, workType?: string, evidencePath?: string): Promise<any> => {
+  return request.post(`/tasks/${id}/comments`, null, { params: { content, spentHours, workType, evidencePath } });
+};
+
+export const addTaskCollaborator = (id: string, userId: string): Promise<any> => {
+  return request.post(`/tasks/${id}/collaborators`, null, { params: { userId } });
+};
+
+export const removeTaskCollaborator = (id: string, userId: string): Promise<any> => {
+  return request.delete(`/tasks/${id}/collaborators/${userId}`);
+};
+
+export const getTaskAttachments = (id: string): Promise<TaskAttachmentVO[]> => {
+  return request.get(`/tasks/${id}/attachments`);
+};
+
+export const createTaskAttachment = (id: string, fileName: string, filePath: string): Promise<any> => {
+  return request.post(`/tasks/${id}/attachments`, null, { params: { fileName, filePath } });
+};
+
+export const getTaskAuditLogs = (id: string): Promise<any> => {
+  return request.get(`/audit-logs/resources/task/${id}`, {
+    params: {
+      page: 0,
+      size: 50,
+    },
+  });
+};
+
+export const getTaskRelatedVulnerabilities = (assetId: string): Promise<any> => {
+  return request.get('/vulnerabilities', {
+    params: {
+      page: 0,
+      size: 50,
+      assetId,
+    },
+  });
+};
+
+export const submitTaskReview = (id: string): Promise<TaskVO> => {
+  return request.post(`/tasks/${id}/submit-review`);
+};
+
+export const approveTaskReview = (id: string, signature?: string, comment?: string): Promise<TaskVO> => {
+  return request.post(`/tasks/${id}/approve`, {
+    signature,
+    comment,
+  });
+};
+
+export const rejectTaskReview = (id: string, signature?: string, comment?: string): Promise<TaskVO> => {
+  return request.post(`/tasks/${id}/reject`, {
+    signature,
+    comment,
+  });
 };

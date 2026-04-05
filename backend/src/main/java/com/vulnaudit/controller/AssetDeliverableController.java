@@ -61,7 +61,13 @@ public class AssetDeliverableController {
     @Operation(summary = "获取资产交付物列表", description = "获取指定资产版本的交付物列表")
     public ResponseEntity<ApiResponse<List<AssetDeliverable>>> listDeliverables(
             @PathVariable UUID assetId,
-            @RequestParam(required = false) UUID assetVersionId) {
+            @RequestParam(required = false) UUID assetVersionId,
+            @RequestParam(defaultValue = "false") boolean allVersions) {
+        if (allVersions) {
+            List<AssetDeliverable> deliverables = assetDeliverableRepository
+                    .findByAssetIdAndStatusOrderByCreatedAtDesc(assetId, "active");
+            return ResponseEntity.ok(ApiResponse.success(deliverables));
+        }
         UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
         List<AssetDeliverable> deliverables = assetDeliverableRepository
                 .findByAssetIdAndAssetVersionIdAndStatusOrderByCreatedAtDesc(assetId, resolvedVersionId, "active");

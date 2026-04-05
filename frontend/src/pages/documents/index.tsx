@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Table, Button, Space, Card, Input, Tag, Modal, Form, Select, message } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { getDocumentList, createDocument, updateDocument, deleteDocument, publishDocument, unpublishDocument } from '@/api/document';
 import type { DocumentVO, CreateDocumentRequest, UpdateDocumentRequest } from '@/types/document';
 import { formatDateTime } from '@/utils/datetime';
 import ReactQuill from 'react-quill';
+import { useLocation } from 'react-router-dom';
 import 'react-quill/dist/quill.snow.css';
 
 const { Option } = Select;
@@ -22,10 +23,13 @@ const statusLabels: Record<string, string> = {
 };
 
 const Documents: React.FC = () => {
+  const location = useLocation();
+  const tableWrapRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<DocumentVO[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [params, setParams] = useState({ page: 1, page_size: 10, search: '' });
+  const [searchText, setSearchText] = useState('');
 
   // Modal states
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -53,6 +57,41 @@ const Documents: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [params.page, params.page_size, params.search]);
+
+  useEffect(() => {
+    const search = new URLSearchParams(location.search).get('search') || '';
+    setSearchText(search);
+    setParams((prev) => (prev.search === search ? prev : { ...prev, search, page: 1 }));
+  }, [location.search]);
+
+  const normalizedSearch = useMemo(() => params.search.trim().toLowerCase(), [params.search]);
+
+  const isMatchedRecord = (record: DocumentVO) => {
+    if (!normalizedSearch) {
+      return false;
+    }
+    const fields = [
+      record.id,
+      record.title,
+      record.category,
+      record.summary,
+    ]
+      .filter(Boolean)
+      .map((item) => String(item).toLowerCase());
+    return fields.some((value) => value.includes(normalizedSearch));
+  };
+
+  useEffect(() => {
+    if (!normalizedSearch || data.length === 0) {
+      return;
+    }
+    const firstMatched = data.find((item) => isMatchedRecord(item));
+    if (!firstMatched || !tableWrapRef.current) {
+      return;
+    }
+    const row = tableWrapRef.current.querySelector(`tr[data-row-key="${firstMatched.id}"]`) as HTMLTableRowElement | null;
+    row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [data, normalizedSearch]);
 
   const handleCreate = () => {
     setModalMode('create');
@@ -176,21 +215,30 @@ const Documents: React.FC = () => {
           placeholder="搜索文档标题" 
           prefix={<SearchOutlined />} 
           style={{ width: 300 }} 
-          onPressEnter={(e) => setParams({ ...params, search: e.currentTarget.value, page: 1 })}
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          onPressEnter={() => setParams((prev) => ({ ...prev, search: searchText.trim(), page: 1 }))}
         />
       </div>
-      <Table 
-        columns={columns} 
-        dataSource={data} 
-        rowKey="id"
-        loading={loading}
-        pagination={{
-          current: params.page,
-          pageSize: params.page_size,
-          total,
-          onChange: (page, pageSize) => setParams({ ...params, page, page_size: pageSize })
-        }}
-      />
+      <div ref={tableWrapRef}>
+        <Table 
+          columns={columns} 
+          dataSource={data} 
+          rowKey="id"
+          loading={loading}
+          onRow={(record) => (
+            isMatchedRecord(record)
+              ? { style: { backgroundColor: '#fffbe6' } }
+              : {}
+          )}
+          pagination={{
+            current: params.page,
+            pageSize: params.page_size,
+            total,
+            onChange: (page, pageSize) => setParams({ ...params, page, page_size: pageSize })
+          }}
+        />
+      </div>
 
       <Modal
         title={modalMode === 'create' ? '新建文档' : '编辑文档'}

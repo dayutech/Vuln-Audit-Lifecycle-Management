@@ -12,5 +12,7 @@ public interface AssetDeliverableRepository extends JpaRepository<AssetDeliverab
 
     List<AssetDeliverable> findByAssetIdAndAssetVersionIdOrderByCreatedAtDesc(UUID assetId, UUID assetVersionId);
 
+    List<AssetDeliverable> findByAssetIdAndStatusOrderByCreatedAtDesc(UUID assetId, String status);
+
     List<AssetDeliverable> findByAssetIdAndAssetVersionIdAndStatusOrderByCreatedAtDesc(UUID assetId, UUID assetVersionId, String status);
 }

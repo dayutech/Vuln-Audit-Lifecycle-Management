@@ -1,7 +1,9 @@
 package com.vulnaudit.controller;
 
 import com.vulnaudit.entity.AssetVersion;
+import com.vulnaudit.entity.metadata.AssetMetadataBase;
 import com.vulnaudit.repository.AssetVersionRepository;
+import com.vulnaudit.repository.metadata.AssetMetadataBaseRepository;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -22,6 +24,9 @@ public class AssetVersionControllerTest extends BaseTest {
 
     @Autowired
     private AssetVersionRepository assetVersionRepository;
+
+    @Autowired
+    private AssetMetadataBaseRepository assetMetadataBaseRepository;
 
     @Nested
     @DisplayName("资产版本列表查询测试")
@@ -165,6 +170,48 @@ public class AssetVersionControllerTest extends BaseTest {
                             .header("Authorization", engineerToken))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.versionNo").value(2));
+        }
+
+        @Test
+        @DisplayName("创建资产版本 - 带入指定版本产品概览")
+        void createVersion_InheritBaseOverview_Success() throws Exception {
+            UUID assetId = UUID.randomUUID();
+            AssetVersion sourceVersion = assetVersionRepository.save(Objects.requireNonNull(AssetVersion.builder()
+                    .assetId(assetId)
+                    .versionNo(1)
+                    .name("v1")
+                    .isDefault(true)
+                    .isLatest(true)
+                    .status("active")
+                    .createdBy(engineerUserId)
+                    .build()));
+            AssetMetadataBase sourceBase = new AssetMetadataBase();
+            sourceBase.setAssetId(assetId);
+            sourceBase.setAssetVersionId(sourceVersion.getId());
+            sourceBase.setClaimedBy(engineerUserId);
+            sourceBase.setVersion(1);
+            sourceBase.setSystemArchitecture("x86_64");
+            sourceBase.setRuntimePlatform("linux");
+            sourceBase.setDeploymentMethod("k8s");
+            sourceBase.setProgrammingLanguagesJson("[{\"language\":\"Java\"}]");
+            sourceBase.setProgrammingLanguage("Java");
+            sourceBase.setFramework("Spring Boot");
+            assetMetadataBaseRepository.save(Objects.requireNonNull(sourceBase));
+
+            String payload = "{\"name\":\"v2\",\"inheritBaseOverview\":true,\"inheritFromVersionId\":\"" + sourceVersion.getId() + "\"}";
+
+            mockMvc.perform(post("/api/v1/assets/" + assetId + "/versions")
+                            .header("Authorization", engineerToken)
+                            .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                            .content(payload))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.versionNo").value(2));
+
+            AssetVersion targetVersion = assetVersionRepository.findFirstByAssetIdOrderByVersionNoDesc(assetId).orElseThrow();
+            AssetMetadataBase targetBase = assetMetadataBaseRepository.findByAssetIdAndAssetVersionId(assetId, targetVersion.getId()).orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals("x86_64", targetBase.getSystemArchitecture());
+            org.junit.jupiter.api.Assertions.assertEquals("linux", targetBase.getRuntimePlatform());
+            org.junit.jupiter.api.Assertions.assertEquals(sourceVersion.getId(), targetBase.getCopiedFromAssetVersionId());
         }
     }
 

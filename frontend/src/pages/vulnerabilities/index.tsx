@@ -1,13 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Table, Button, Space, Input, Tag, Card, Modal, Form, Select, InputNumber, message } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
-import { getVulnerabilityList, createVulnerability } from '@/api/vulnerability';
+import { getVulnerabilityList, createVulnerability, getVulnerabilityOptions } from '@/api/vulnerability';
 import type { VulnerabilityVO, CreateVulnerabilityRequest } from '@/types/vulnerability';
+import { useLocation } from 'react-router-dom';
 
 const { Option } = Select;
 const { TextArea } = Input;
 
 const severityColors: Record<string, string> = {
+  CRITICAL: 'red',
+  HIGH: 'orange',
+  MEDIUM: 'blue',
+  LOW: 'green',
+  INFO: 'default',
   critical: 'red',
   high: 'orange',
   medium: 'blue',
@@ -15,6 +21,11 @@ const severityColors: Record<string, string> = {
 };
 
 const severityLabels: Record<string, string> = {
+  CRITICAL: '严重',
+  HIGH: '高危',
+  MEDIUM: '中危',
+  LOW: '低危',
+  INFO: '信息',
   critical: '严重',
   high: '高危',
   medium: '中危',
@@ -22,14 +33,18 @@ const severityLabels: Record<string, string> = {
 };
 
 const Vulnerabilities: React.FC = () => {
+  const location = useLocation();
+  const tableWrapRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<VulnerabilityVO[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [params, setParams] = useState({ page: 1, page_size: 10, search: '' });
+  const [searchText, setSearchText] = useState('');
 
   // Modal states
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [form] = Form.useForm();
+  const [typeOptions, setTypeOptions] = useState<Array<{ value: string; label: string }>>([]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -50,6 +65,59 @@ const Vulnerabilities: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [params.page, params.page_size, params.search]);
+
+  useEffect(() => {
+    const search = new URLSearchParams(location.search).get('search') || '';
+    setSearchText(search);
+    setParams((prev) => (prev.search === search ? prev : { ...prev, search, page: 1 }));
+  }, [location.search]);
+
+  const normalizedSearch = useMemo(() => params.search.trim().toLowerCase(), [params.search]);
+
+  const isMatchedRecord = (record: VulnerabilityVO) => {
+    if (!normalizedSearch) {
+      return false;
+    }
+    const fields = [
+      record.id,
+      record.vulnerability_no,
+      record.title,
+      record.cve_id,
+      record.type,
+    ]
+      .filter(Boolean)
+      .map((item) => String(item).toLowerCase());
+    return fields.some((value) => value.includes(normalizedSearch));
+  };
+
+  useEffect(() => {
+    if (!normalizedSearch || data.length === 0) {
+      return;
+    }
+    const firstMatched = data.find((item) => isMatchedRecord(item));
+    if (!firstMatched || !tableWrapRef.current) {
+      return;
+    }
+    const row = tableWrapRef.current.querySelector(`tr[data-row-key="${firstMatched.id}"]`) as HTMLTableRowElement | null;
+    row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [data, normalizedSearch]);
+
+  useEffect(() => {
+    const fetchOptions = async () => {
+      try {
+        const res: any = await getVulnerabilityOptions();
+        const payload = res?.data ? res.data : res;
+        const types = Array.isArray(payload?.types) ? payload.types : [];
+        setTypeOptions(types.map((item: any) => ({
+          value: String(item?.value ?? item?.label ?? ''),
+          label: String(item?.label ?? item?.value ?? ''),
+        })).filter((item: any) => !!item.value));
+      } catch (error) {
+        setTypeOptions([]);
+      }
+    };
+    fetchOptions();
+  }, []);
 
   const handleCreate = () => {
     form.resetFields();
@@ -108,21 +176,30 @@ const Vulnerabilities: React.FC = () => {
           placeholder="搜索漏洞名称/CVE" 
           prefix={<SearchOutlined />} 
           style={{ width: 300 }} 
-          onPressEnter={(e) => setParams({ ...params, search: e.currentTarget.value, page: 1 })}
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          onPressEnter={() => setParams((prev) => ({ ...prev, search: searchText.trim(), page: 1 }))}
         />
       </div>
-      <Table 
-        columns={columns} 
-        dataSource={data} 
-        rowKey="id"
-        loading={loading}
-        pagination={{
-          current: params.page,
-          pageSize: params.page_size,
-          total,
-          onChange: (page, pageSize) => setParams({ ...params, page, page_size: pageSize })
-        }}
-      />
+      <div ref={tableWrapRef}>
+        <Table 
+          columns={columns} 
+          dataSource={data} 
+          rowKey="id"
+          loading={loading}
+          onRow={(record) => (
+            isMatchedRecord(record)
+              ? { style: { backgroundColor: '#fffbe6' } }
+              : {}
+          )}
+          pagination={{
+            current: params.page,
+            pageSize: params.page_size,
+            total,
+            onChange: (page, pageSize) => setParams({ ...params, page, page_size: pageSize })
+          }}
+        />
+      </div>
 
       <Modal
         title="提交漏洞"
@@ -140,15 +217,22 @@ const Vulnerabilities: React.FC = () => {
           <Form.Item name="asset_id" label="资产ID" rules={[{ required: true, message: '请输入资产ID' }]}>
             <Input placeholder="输入UUID" />
           </Form.Item>
-          <Form.Item name="type" label="漏洞类型" rules={[{ required: true, message: '请输入漏洞类型' }]}>
-            <Input placeholder="例如: SQL注入, XSS" />
+          <Form.Item name="discovered_version_id" label="发现版本ID" rules={[{ required: true, message: '请输入发现版本ID' }]}>
+            <Input placeholder="输入资产版本UUID" />
+          </Form.Item>
+          <Form.Item name="affected_versions" label="受影响版本">
+            <Input placeholder="例如: v1.0, v1.1, v2.x" />
+          </Form.Item>
+          <Form.Item name="type" label="漏洞类型" rules={[{ required: true, message: '请选择漏洞类型' }]}>
+            <Select options={typeOptions} placeholder="请选择漏洞类型" />
           </Form.Item>
           <Form.Item name="severity" label="严重程度" rules={[{ required: true, message: '请选择严重程度' }]}>
             <Select>
-              <Option value="critical">严重</Option>
-              <Option value="high">高危</Option>
-              <Option value="medium">中危</Option>
-              <Option value="low">低危</Option>
+              <Option value="CRITICAL">严重</Option>
+              <Option value="HIGH">高危</Option>
+              <Option value="MEDIUM">中危</Option>
+              <Option value="LOW">低危</Option>
+              <Option value="INFO">信息</Option>
             </Select>
           </Form.Item>
           <Form.Item name="cvss_score" label="CVSS评分">

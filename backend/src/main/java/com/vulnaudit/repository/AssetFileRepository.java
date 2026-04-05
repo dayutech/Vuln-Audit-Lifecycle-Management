@@ -76,6 +76,8 @@ public interface AssetFileRepository extends JpaRepository<AssetFile, UUID> {
 
     List<AssetFile> findByAssetIdAndAssetVersionIdOrderByCreatedAtDesc(UUID assetId, UUID assetVersionId);
 
+    List<AssetFile> findByAssetIdAndStatusOrderByCreatedAtDesc(UUID assetId, String status);
+
     List<AssetFile> findByAssetIdAndAssetVersionIdAndStatusOrderByCreatedAtDesc(UUID assetId, UUID assetVersionId, String status);
 
 }

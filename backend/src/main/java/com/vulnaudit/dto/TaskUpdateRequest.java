@@ -6,6 +6,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
+
 /**
  * 任务更新请求DTO
  */
@@ -27,4 +29,11 @@ public class TaskUpdateRequest {
 
     @Schema(description = "截止日期")
     private String dueDate;
+
+    @Schema(description = "审计结论")
+    private String auditConclusion;
+
+    @Schema(description = "预估工时")
+    private BigDecimal estimatedHours;
+
 }

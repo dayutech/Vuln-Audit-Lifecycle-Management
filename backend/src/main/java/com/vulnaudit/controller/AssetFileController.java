@@ -61,7 +61,13 @@ public class AssetFileController {
     @Operation(summary = "获取资产文件列表", description = "获取指定资产的所有文件")
     public ResponseEntity<ApiResponse<List<AssetFile>>> listAssetFiles(
             @PathVariable UUID assetId,
-            @RequestParam(required = false) UUID assetVersionId) {
+            @RequestParam(required = false) UUID assetVersionId,
+            @RequestParam(defaultValue = "false") boolean allVersions) {
+        if (allVersions) {
+            log.info("获取资产文件列表(所有版本): assetId={}", assetId);
+            List<AssetFile> files = assetFileRepository.findByAssetIdAndStatusOrderByCreatedAtDesc(assetId, "active");
+            return ResponseEntity.ok(ApiResponse.success(files));
+        }
         UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
         log.info("获取资产文件列表: assetId={}, assetVersionId={}", assetId, resolvedVersionId);
 

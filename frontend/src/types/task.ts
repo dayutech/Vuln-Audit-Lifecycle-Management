@@ -17,9 +17,58 @@ export interface TaskVO {
     username: string;
     full_name: string;
   };
+  collaborators?: Array<{
+    id: string;
+    username: string;
+    full_name: string;
+  }>;
+  estimated_hours?: number;
+  estimatedHours?: number;
+  actual_hours?: number;
+  actualHours?: number;
   due_date?: string;
   created_at: string;
   updated_at: string;
+  description?: string;
+  audit_conclusion?: string;
+  review_signature?: string;
+  approval_comment?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
+}
+
+export interface TaskCommentVO {
+  id: string;
+  taskId: string;
+  userId: string;
+  content: string;
+  spentHours?: number;
+  spent_hours?: number;
+  workType?: string;
+  work_type?: string;
+  evidencePath?: string;
+  evidence_path?: string;
+  createdAt: string;
+  created_at?: string;
+}
+
+export interface TaskAttachmentVO {
+  id: string;
+  taskId: string;
+  fileName: string;
+  filePath: string;
+  uploadedBy: string;
+  createdAt: string;
+}
+
+export interface AuditLogVO {
+  id: string;
+  userId: string;
+  action: string;
+  resourceType: string;
+  resourceId?: string;
+  details?: string;
+  createdAt: string;
 }
 
 export type TaskListResponse = PaginatedResponse<TaskVO>;
@@ -32,6 +81,8 @@ export interface CreateTaskRequest {
   assignee_id?: string;
   due_date?: string;
   description?: string;
+  audit_conclusion?: string;
+  estimated_hours?: number;
 }
 
 export interface UpdateTaskStatusRequest {

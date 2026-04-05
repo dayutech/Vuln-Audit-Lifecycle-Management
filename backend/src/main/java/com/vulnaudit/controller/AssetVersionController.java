@@ -1,8 +1,13 @@
 package com.vulnaudit.controller;
 
 import com.vulnaudit.dto.ApiResponse;
+import com.vulnaudit.dto.AssetVersionCreateRequest;
 import com.vulnaudit.entity.AssetVersion;
+import com.vulnaudit.entity.metadata.AssetMetadataBase;
+import com.vulnaudit.exception.BusinessException;
+import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.AssetVersionRepository;
+import com.vulnaudit.repository.metadata.AssetMetadataBaseRepository;
 import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -29,6 +34,7 @@ import java.util.UUID;
 public class AssetVersionController {
 
     private final AssetVersionRepository assetVersionRepository;
+    private final AssetMetadataBaseRepository assetMetadataBaseRepository;
     private final UserService userService;
 
     @GetMapping
@@ -55,7 +61,7 @@ public class AssetVersionController {
     @Transactional
     public ResponseEntity<ApiResponse<AssetVersion>> createVersion(
             @PathVariable UUID assetId,
-            @RequestBody(required = false) AssetVersion request,
+            @RequestBody(required = false) AssetVersionCreateRequest request,
             @RequestParam(defaultValue = "false") boolean setDefault) {
         log.info("创建资产版本: assetId={}, setDefault={}", assetId, setDefault);
 
@@ -66,6 +72,8 @@ public class AssetVersionController {
         boolean hasExistingVersion = !assetVersionRepository.findByAssetIdOrderByVersionNoDesc(assetId).isEmpty();
         boolean shouldSetDefault = setDefault || !hasExistingVersion;
 
+        UUID currentUserId = getCurrentUserId();
+
         AssetVersion version = AssetVersion.builder()
                 .assetId(assetId)
                 .versionNo(nextVersionNo)
@@ -74,7 +82,7 @@ public class AssetVersionController {
                 .isDefault(shouldSetDefault)
                 .isLatest(true)
                 .status(request == null || request.getStatus() == null || request.getStatus().isBlank() ? "active" : request.getStatus())
-                .createdBy(getCurrentUserId())
+                .createdBy(currentUserId)
                 .build();
 
         if (shouldSetDefault) {
@@ -82,6 +90,11 @@ public class AssetVersionController {
         }
         assetVersionRepository.clearLatestByAssetId(assetId);
         AssetVersion saved = assetVersionRepository.save(Objects.requireNonNull(version, "version must not be null"));
+
+        if (shouldInheritBaseOverview(request)) {
+            copyBaseOverview(assetId, saved.getId(), request.getInheritFromVersionId(), currentUserId);
+        }
+
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(saved));
     }
 
@@ -123,11 +136,45 @@ public class AssetVersionController {
         return ResponseEntity.ok(ApiResponse.success(saved));
     }
 
-    private String resolveName(AssetVersion request, Integer versionNo) {
+    private String resolveName(AssetVersionCreateRequest request, Integer versionNo) {
         if (request == null || request.getName() == null || request.getName().isBlank()) {
             return "v" + versionNo;
         }
         return request.getName();
+    }
+
+    private boolean shouldInheritBaseOverview(AssetVersionCreateRequest request) {
+        return request != null && Boolean.TRUE.equals(request.getInheritBaseOverview());
+    }
+
+    private void copyBaseOverview(UUID assetId, UUID targetVersionId, UUID sourceVersionId, UUID currentUserId) {
+        if (sourceVersionId == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "请选择要带入产品概览的来源版本");
+        }
+
+        AssetVersion sourceVersion = assetVersionRepository.findByIdAndAssetId(sourceVersionId, assetId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "来源版本不存在"));
+
+        AssetMetadataBase sourceBase = assetMetadataBaseRepository.findByAssetIdAndAssetVersionId(assetId, sourceVersionId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.BAD_REQUEST, "来源版本不存在产品概览信息"));
+
+        if (assetMetadataBaseRepository.findByAssetIdAndAssetVersionId(assetId, targetVersionId).isPresent()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "目标版本已存在产品概览信息");
+        }
+
+        AssetMetadataBase targetBase = new AssetMetadataBase();
+        targetBase.setAssetId(assetId);
+        targetBase.setAssetVersionId(targetVersionId);
+        targetBase.setClaimedBy(currentUserId);
+        targetBase.setVersion(1);
+        targetBase.setSystemArchitecture(sourceBase.getSystemArchitecture());
+        targetBase.setRuntimePlatform(sourceBase.getRuntimePlatform());
+        targetBase.setDeploymentMethod(sourceBase.getDeploymentMethod());
+        targetBase.setProgrammingLanguagesJson(sourceBase.getProgrammingLanguagesJson());
+        targetBase.setProgrammingLanguage(sourceBase.getProgrammingLanguage());
+        targetBase.setFramework(sourceBase.getFramework());
+        targetBase.setCopiedFromAssetVersionId(sourceVersion.getId());
+        assetMetadataBaseRepository.save(targetBase);
     }
 
     private UUID getCurrentUserId() {

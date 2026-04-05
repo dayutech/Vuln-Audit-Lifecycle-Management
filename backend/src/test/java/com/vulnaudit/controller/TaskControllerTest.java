@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.UUID;
@@ -113,7 +114,7 @@ public class TaskControllerTest extends BaseTest {
         void createTask_Success() throws Exception {
             UUID assetId = UUID.randomUUID();
             UUID assetVersionId = UUID.randomUUID();
-            String taskJson = "{\"description\":\"新创建的任务\",\"assigneeId\":\"" + engineerUserId + "\",\"assetId\":\"" + assetId + "\",\"assetVersionId\":\"" + assetVersionId + "\",\"dueDate\":\"" + LocalDateTime.now().plusDays(3) + "\"}";
+            String taskJson = "{\"description\":\"新创建的任务\",\"assigneeId\":\"" + engineerUserId + "\",\"assetId\":\"" + assetId + "\",\"assetVersionId\":\"" + assetVersionId + "\",\"estimatedHours\":8.5,\"dueDate\":\"" + LocalDateTime.now().plusDays(3) + "\"}";
 
             mockMvc.perform(post("/api/v1/tasks")
                     .header("Authorization", leaderToken)
@@ -122,11 +123,13 @@ public class TaskControllerTest extends BaseTest {
                     .andExpect(status().isCreated())
                     .andExpect(jsonPath("$.data.title", startsWith("审计任务-")))
                     .andExpect(jsonPath("$.data.status").value("pending"))
+                    .andExpect(jsonPath("$.data.estimatedHours").value(8.5))
                     .andExpect(jsonPath("$.data.assignedTo").value(engineerUserId.toString()))
                     .andExpect(jsonPath("$.data.assignedBy").value(leaderUserId.toString()))
                     .andExpect(jsonPath("$.data.assetId").value(assetId.toString()))
                     .andExpect(jsonPath("$.data.assetVersionId").value(assetVersionId.toString()));
         }
+
     }
 
     @Nested
@@ -159,10 +162,78 @@ public class TaskControllerTest extends BaseTest {
         @Test
         @DisplayName("更新任务状态 - 成功")
         void updateTaskStatus_Success() throws Exception {
+            testTask.setAssignedTo(engineerUserId);
+            taskRepository.save(Objects.requireNonNull(testTask));
             mockMvc.perform(put("/api/v1/tasks/" + testTask.getId() + "/status")
                     .header("Authorization", engineerToken)
                     .param("status", "in_progress"))
                     .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("更新任务状态 - 非法流转被拒绝")
+        void updateTaskStatus_InvalidTransition_BadRequest() throws Exception {
+            testTask.setAssignedTo(engineerUserId);
+            taskRepository.save(Objects.requireNonNull(testTask));
+            mockMvc.perform(put("/api/v1/tasks/" + testTask.getId() + "/status")
+                    .header("Authorization", engineerToken)
+                    .param("status", "completed"))
+                    .andExpect(status().isBadRequest());
+        }
+    }
+
+    @Nested
+    @DisplayName("任务审核流测试")
+    class TaskReviewFlowTests {
+
+        @Test
+        @DisplayName("提交审核 - 负责人成功")
+        void submitReview_ByAssignee_Success() throws Exception {
+            testTask.setAssignedTo(engineerUserId);
+            testTask.setAssignedBy(leaderUserId);
+            testTask.setAuditConclusion("已完成审计，存在中危配置项");
+            taskRepository.save(Objects.requireNonNull(testTask));
+
+            mockMvc.perform(post("/api/v1/tasks/" + testTask.getId() + "/submit-review")
+                    .header("Authorization", engineerToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.status").value("review_pending"));
+        }
+
+        @Test
+        @DisplayName("审核通过 - 组长成功")
+        void approveReview_ByLeader_Success() throws Exception {
+            testTask.setAssignedTo(engineerUserId);
+            testTask.setAssignedBy(leaderUserId);
+            testTask.setAuditConclusion("审计完成，建议加固");
+            taskRepository.save(Objects.requireNonNull(testTask));
+
+            mockMvc.perform(post("/api/v1/tasks/" + testTask.getId() + "/submit-review")
+                    .header("Authorization", engineerToken))
+                    .andExpect(status().isOk());
+
+            mockMvc.perform(post("/api/v1/tasks/" + testTask.getId() + "/approve")
+                    .header("Authorization", leaderToken)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content("{\"signature\":\"组长签字\",\"comment\":\"同意结论\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.status").value("completed"));
+        }
+
+        @Test
+        @DisplayName("审核通过 - 工程师无权限")
+        void approveReview_ByEngineer_Forbidden() throws Exception {
+            testTask.setAssignedTo(engineerUserId);
+            testTask.setAssignedBy(leaderUserId);
+            testTask.setStatus("review_pending");
+            testTask.setAuditConclusion("审计完成，待审核");
+            taskRepository.save(Objects.requireNonNull(testTask));
+
+            mockMvc.perform(post("/api/v1/tasks/" + testTask.getId() + "/approve")
+                    .header("Authorization", engineerToken)
+                    .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                    .content("{\"signature\":\"工程师签字\"}"))
+                    .andExpect(status().isForbidden());
         }
     }
 
@@ -173,9 +244,57 @@ public class TaskControllerTest extends BaseTest {
         @Test
         @DisplayName("添加任务评论 - 成功")
         void addTaskComment_Success() throws Exception {
+            testTask.setAssignedTo(engineerUserId);
+            taskRepository.save(Objects.requireNonNull(testTask));
             mockMvc.perform(post("/api/v1/tasks/" + testTask.getId() + "/comments")
                     .header("Authorization", engineerToken)
-                    .param("content", "这是一条测试评论"))
+                    .param("content", "这是一条测试评论")
+                    .param("spentHours", "2.5"))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("添加任务评论 - 支持执行类型与证据路径")
+        void addTaskComment_WithExecutionMeta_Success() throws Exception {
+            testTask.setAssignedTo(engineerUserId);
+            taskRepository.save(Objects.requireNonNull(testTask));
+            mockMvc.perform(post("/api/v1/tasks/" + testTask.getId() + "/comments")
+                    .header("Authorization", engineerToken)
+                    .param("content", "已完成登录链路代码分析")
+                    .param("workType", "analysis")
+                    .param("evidencePath", "/evidence/task/login-analysis.md"))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("添加任务评论 - 非负责人非协作者无权限")
+        void addTaskComment_ByUnauthorized_Forbidden() throws Exception {
+            testTask.setAssignedTo(leaderUserId);
+            taskRepository.save(Objects.requireNonNull(testTask));
+            mockMvc.perform(post("/api/v1/tasks/" + testTask.getId() + "/comments")
+                    .header("Authorization", engineerToken)
+                    .param("content", "无权限执行记录"))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @DisplayName("查询任务评论列表 - 成功")
+        void getTaskComments_Success() throws Exception {
+            mockMvc.perform(get("/api/v1/tasks/" + testTask.getId() + "/comments")
+                    .header("Authorization", engineerToken))
+                    .andExpect(status().isOk());
+        }
+    }
+
+    @Nested
+    @DisplayName("任务附件测试")
+    class TaskAttachmentTests {
+
+        @Test
+        @DisplayName("查询任务附件列表 - 成功")
+        void getTaskAttachments_Success() throws Exception {
+            mockMvc.perform(get("/api/v1/tasks/" + testTask.getId() + "/attachments")
+                    .header("Authorization", engineerToken))
                     .andExpect(status().isOk());
         }
     }
@@ -190,6 +309,44 @@ public class TaskControllerTest extends BaseTest {
             mockMvc.perform(delete("/api/v1/tasks/" + testTask.getId())
                     .header("Authorization", adminToken))
                     .andExpect(status().isOk());
+        }
+    }
+
+    @Nested
+    @DisplayName("任务可见性测试")
+    class TaskVisibilityTests {
+        @Test
+        @DisplayName("按指派人查询 - 普通工程师不可查看他人任务")
+        void listByAssignee_EngineerCannotViewOthers_Forbidden() throws Exception {
+            mockMvc.perform(get("/api/v1/tasks/assignee/" + leaderUserId)
+                    .header("Authorization", engineerToken))
+                    .andExpect(status().isForbidden());
+        }
+    }
+
+    @Nested
+    @DisplayName("任务协作者测试")
+    class TaskCollaboratorTests {
+
+        @Test
+        @DisplayName("添加协作者后可记录执行项")
+        void addCollaborator_ThenCanComment() throws Exception {
+            testTask.setAssignedTo(leaderUserId);
+            taskRepository.save(Objects.requireNonNull(testTask));
+
+            mockMvc.perform(post("/api/v1/tasks/" + testTask.getId() + "/collaborators")
+                    .header("Authorization", leaderToken)
+                    .param("userId", engineerUserId.toString()))
+                    .andExpect(status().isOk());
+
+            mockMvc.perform(post("/api/v1/tasks/" + testTask.getId() + "/comments")
+                    .header("Authorization", engineerToken)
+                    .param("content", "协作者执行记录")
+                    .param("spentHours", "1.0"))
+                    .andExpect(status().isOk());
+
+            Task updatedTask = taskRepository.findById(testTask.getId()).orElseThrow();
+            org.junit.jupiter.api.Assertions.assertEquals(0, new BigDecimal("1.0").compareTo(updatedTask.getActualHours()));
         }
     }
 }

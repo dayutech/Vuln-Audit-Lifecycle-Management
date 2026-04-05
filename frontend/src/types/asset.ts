@@ -159,6 +159,8 @@ export interface CreateAssetVersionRequest {
   name?: string;
   description?: string;
   status?: string;
+  inherit_base_overview?: boolean;
+  inherit_from_version_id?: string;
 }
 
 export type AssetListResponse = PaginatedResponse<AssetVO>;
