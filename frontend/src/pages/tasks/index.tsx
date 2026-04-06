@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Space, Card, Tag, Modal, Form, Select, Input, DatePicker, InputNumber, message, Descriptions, Tabs, Timeline } from 'antd';
+import { Table, Button, Space, Card, Tag, Modal, Form, Select, Input, DatePicker, InputNumber, message, Descriptions, Tabs, Progress, Steps } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import {
   getTaskList,
@@ -9,10 +9,8 @@ import {
   getTaskDetail,
   assignTask,
   getTaskComments,
-  createTaskComment,
   getTaskAttachments,
   createTaskAttachment,
-  getTaskAuditLogs,
   getTaskRelatedVulnerabilities,
   addTaskCollaborator,
   removeTaskCollaborator,
@@ -20,7 +18,8 @@ import {
   approveTaskReview,
   rejectTaskReview,
 } from '@/api/task';
-import type { TaskVO, CreateTaskRequest, UpdateTaskStatusRequest, TaskCommentVO, TaskAttachmentVO, AuditLogVO } from '@/types/task';
+import { createVulnerability, getVulnerabilityOptions } from '@/api/vulnerability';
+import type { TaskVO, CreateTaskRequest, UpdateTaskStatusRequest, TaskCommentVO, TaskAttachmentVO } from '@/types/task';
 import { getAssetList, getAssetVersions } from '@/api/asset';
 import { getUserList } from '@/api/user';
 import { getDocumentList } from '@/api/document';
@@ -59,6 +58,17 @@ const executionTypeLabels: Record<string, string> = {
   other: '其他',
 };
 
+const executionStageProgress: Record<string, number> = {
+  analysis: 20,
+  verify: 45,
+  retest: 70,
+  fix_review: 90,
+  meeting: 100,
+  other: 50,
+};
+
+const auditProgressStageOrder = ['analysis', 'verify', 'retest', 'fix_review', 'meeting'];
+
 const getPayload = (res: any) => (res as any)?.data ?? res;
 
 const Tasks: React.FC = () => {
@@ -75,19 +85,20 @@ const Tasks: React.FC = () => {
   const [assetVersions, setAssetVersions] = useState<AssetVersionVO[]>([]);
   const [taskComments, setTaskComments] = useState<TaskCommentVO[]>([]);
   const [taskAttachments, setTaskAttachments] = useState<TaskAttachmentVO[]>([]);
-  const [taskAuditLogs, setTaskAuditLogs] = useState<AuditLogVO[]>([]);
   const [relatedVulnerabilities, setRelatedVulnerabilities] = useState<any[]>([]);
   const [relatedDocuments, setRelatedDocuments] = useState<any[]>([]);
-  const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [vulnTypeOptions, setVulnTypeOptions] = useState<Array<{ value: string; label: string }>>([]);
+  const [relatedVulnModalVisible, setRelatedVulnModalVisible] = useState(false);
+  const [relatedVulnSubmitting, setRelatedVulnSubmitting] = useState(false);
   const [attachmentSubmitting, setAttachmentSubmitting] = useState(false);
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [decisionSubmitting, setDecisionSubmitting] = useState(false);
   const [collaboratorSubmitting, setCollaboratorSubmitting] = useState(false);
-  const [commentForm] = Form.useForm();
   const [attachmentForm] = Form.useForm();
   const [conclusionForm] = Form.useForm();
   const [reviewDecisionForm] = Form.useForm();
   const [collaboratorForm] = Form.useForm();
+  const [relatedVulnForm] = Form.useForm();
 
   // Modal states
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -139,10 +150,9 @@ const Tasks: React.FC = () => {
       });
       reviewDecisionForm.setFieldsValue({ signature: user?.full_name || user?.username || '', comment: '' });
       const assetId = payload?.asset_id || payload?.assetId;
-      const [commentsRes, attachmentsRes, auditLogsRes, vulnerabilitiesRes, documentsRes] = await Promise.all([
+      const [commentsRes, attachmentsRes, vulnerabilitiesRes, documentsRes] = await Promise.all([
         getTaskComments(id),
         getTaskAttachments(id),
-        getTaskAuditLogs(id),
         assetId ? getTaskRelatedVulnerabilities(assetId) : Promise.resolve([]),
         assetId ? getDocumentList({ page: 1, page_size: 50, asset_id: assetId }) : Promise.resolve([]),
       ]);
@@ -151,17 +161,16 @@ const Tasks: React.FC = () => {
       const attachmentsPayload = getPayload(attachmentsRes);
       setTaskAttachments(Array.isArray(attachmentsPayload) ? attachmentsPayload : []);
       attachmentForm.resetFields();
-      const auditLogsPayload = getPayload(auditLogsRes);
-      setTaskAuditLogs(auditLogsPayload?.content || auditLogsPayload?.items || []);
       const vulnerabilitiesPayload = getPayload(vulnerabilitiesRes);
       setRelatedVulnerabilities(vulnerabilitiesPayload?.content || vulnerabilitiesPayload?.items || []);
       const documentsPayload = getPayload(documentsRes);
       setRelatedDocuments(documentsPayload?.content || documentsPayload?.items || []);
+      fetchAssetVersions(assetId);
+      fetchVulnerabilityTypeOptions();
     } catch (error) {
       setDetailTask(null);
       setTaskComments([]);
       setTaskAttachments([]);
-      setTaskAuditLogs([]);
       setRelatedVulnerabilities([]);
       setRelatedDocuments([]);
     } finally {
@@ -214,6 +223,20 @@ const Tasks: React.FC = () => {
       setAssetVersions(list);
     } catch (error) {
       setAssetVersions([]);
+    }
+  };
+
+  const fetchVulnerabilityTypeOptions = async () => {
+    try {
+      const res = await getVulnerabilityOptions();
+      const payload = (res as any)?.data ?? res;
+      const types = Array.isArray(payload?.types) ? payload.types : [];
+      setVulnTypeOptions(types.map((item: any) => ({
+        value: String(item?.value ?? item?.label ?? ''),
+        label: String(item?.label ?? item?.value ?? ''),
+      })).filter((item: any) => !!item.value));
+    } catch (error) {
+      setVulnTypeOptions([]);
     }
   };
 
@@ -315,24 +338,6 @@ const Tasks: React.FC = () => {
     }
   };
 
-  const handleCommentSubmit = async () => {
-    if (!taskId) {
-      return;
-    }
-    try {
-      const values = await commentForm.validateFields();
-      setCommentSubmitting(true);
-      await createTaskComment(taskId, values.content, values.spent_hours, values.work_type, values.evidence_path);
-      message.success('执行记录添加成功');
-      commentForm.resetFields();
-      const commentsRes = await getTaskComments(taskId);
-      const commentsPayload = getPayload(commentsRes);
-      setTaskComments(Array.isArray(commentsPayload) ? commentsPayload : []);
-    } finally {
-      setCommentSubmitting(false);
-    }
-  };
-
   const handleCollaboratorManage = () => {
     if (!detailTask) {
       return;
@@ -392,16 +397,54 @@ const Tasks: React.FC = () => {
       const values = await attachmentForm.validateFields();
       setAttachmentSubmitting(true);
       await createTaskAttachment(taskId, values.fileName, values.filePath);
-      message.success('任务附件添加成功');
+      message.success('附件添加成功');
       attachmentForm.resetFields();
       const attachmentsRes = await getTaskAttachments(taskId);
       const attachmentsPayload = getPayload(attachmentsRes);
       setTaskAttachments(Array.isArray(attachmentsPayload) ? attachmentsPayload : []);
-      const auditLogsRes = await getTaskAuditLogs(taskId);
-      const auditLogsPayload = getPayload(auditLogsRes);
-      setTaskAuditLogs(auditLogsPayload?.content || auditLogsPayload?.items || []);
     } finally {
       setAttachmentSubmitting(false);
+    }
+  };
+
+  const handleCreateRelatedVulnerability = () => {
+    const assetId = (detailTask as any)?.asset_id || (detailTask as any)?.assetId;
+    if (!assetId) {
+      message.warning('当前任务未关联资产，无法创建漏洞');
+      return;
+    }
+    relatedVulnForm.resetFields();
+    relatedVulnForm.setFieldsValue({
+      discovered_version_id: (detailTask as any)?.asset_version_id || (detailTask as any)?.assetVersionId,
+    });
+    setRelatedVulnModalVisible(true);
+  };
+
+  const handleSubmitRelatedVulnerability = async () => {
+    if (!taskId || !detailTask) {
+      return;
+    }
+    const assetId = (detailTask as any)?.asset_id || (detailTask as any)?.assetId;
+    if (!assetId) {
+      message.warning('当前任务未关联资产，无法创建漏洞');
+      return;
+    }
+    try {
+      const values = await relatedVulnForm.validateFields();
+      setRelatedVulnSubmitting(true);
+      await createVulnerability({
+        ...values,
+        asset_id: assetId,
+        affected_versions: values.affected_versions?.trim() ? values.affected_versions.trim() : undefined,
+      });
+      message.success('漏洞创建成功');
+      setRelatedVulnModalVisible(false);
+      relatedVulnForm.resetFields();
+      const vulnerabilitiesRes = await getTaskRelatedVulnerabilities(assetId);
+      const vulnerabilitiesPayload = getPayload(vulnerabilitiesRes);
+      setRelatedVulnerabilities(vulnerabilitiesPayload?.content || vulnerabilitiesPayload?.items || []);
+    } finally {
+      setRelatedVulnSubmitting(false);
     }
   };
 
@@ -489,6 +532,38 @@ const Tasks: React.FC = () => {
     const canUpdateStatus = !!detailTask && (canAssignTask || currentUserId === assigneeId) && taskStatus !== 'review_pending';
     const collaboratorIds = (detailTask?.collaborators || []).map((item) => item.id);
     const canRecordExecution = !!detailTask && (canAssignTask || currentUserId === assigneeId || collaboratorIds.includes(currentUserId || ''));
+    const canCreateRelatedVulnerability = canRecordExecution;
+    const sortedProgressComments = [...taskComments].sort((a, b) => {
+      const aTime = dayjs(a.createdAt || a.created_at || 0).valueOf();
+      const bTime = dayjs(b.createdAt || b.created_at || 0).valueOf();
+      return bTime - aTime;
+    });
+    const latestProgressStageKey = (sortedProgressComments[0]?.workType || sortedProgressComments[0]?.work_type || '') as string;
+    const progressCurrentStageIndex = auditProgressStageOrder.indexOf(latestProgressStageKey);
+    const progressCurrentStageLabel = executionTypeLabels[latestProgressStageKey] || latestProgressStageKey || '未开始';
+    const progressPercent = executionStageProgress[latestProgressStageKey] ?? 0;
+    const mergedEvidence = [
+      ...relatedDocuments.map((item) => ({
+        rowId: `document-${item.id}`,
+        sourceType: '文档证据',
+        name: item.title || '-',
+        reference: item.documentNo || '-',
+        category: item.category || '-',
+        status: item.status || '-',
+        createdAt: item.createdAt || item.created_at,
+        navigateKeyword: item.title || item.documentNo || '',
+      })),
+      ...taskAttachments.map((item) => ({
+        rowId: `attachment-${item.id}`,
+        sourceType: '任务附件',
+        name: item.fileName || '-',
+        reference: item.filePath || '-',
+        category: '任务附件',
+        status: '已上传',
+        createdAt: item.createdAt || (item as any).created_at,
+        navigateKeyword: '',
+      })),
+    ];
     return (
       <Card
         title="审计任务工作台"
@@ -567,46 +642,22 @@ const Tasks: React.FC = () => {
                 },
                 {
                   key: 'execution',
-                  label: `执行记录 (${taskComments.length})`,
+                  label: `审计进度 (${taskComments.length})`,
                   children: (
                     <>
-                      <Form form={commentForm} layout="vertical" style={{ marginBottom: 16 }}>
-                        <Form.Item name="content" label="新增执行记录" rules={[{ required: true, message: '请输入执行记录内容' }]}>
-                          <Input.TextArea rows={3} placeholder="例如：已完成资产配置核查，发现xx风险点" />
-                        </Form.Item>
-                        <Form.Item name="spent_hours" label="本次实际工时">
-                          <InputNumber min={0} precision={2} style={{ width: '100%' }} placeholder="如：1.5" />
-                        </Form.Item>
-                        <Form.Item name="work_type" label="执行类型">
-                          <Select allowClear placeholder="选择执行类型">
-                            <Option value="analysis">代码分析</Option>
-                            <Option value="verify">验证复现</Option>
-                            <Option value="retest">复测回归</Option>
-                            <Option value="fix_review">修复复核</Option>
-                            <Option value="meeting">沟通评审</Option>
-                            <Option value="other">其他</Option>
-                          </Select>
-                        </Form.Item>
-                        <Form.Item name="evidence_path" label="证据路径">
-                          <Input placeholder="例如：/evidence/task-001/login-module-review.md" />
-                        </Form.Item>
-                        <Button type="primary" loading={commentSubmitting} onClick={handleCommentSubmit} disabled={!canRecordExecution}>提交执行记录</Button>
-                      </Form>
-                      <Timeline
-                        items={taskComments.map((item) => ({
-                          children: (
-                            <div>
-                              <div>{item.content}</div>
-                              <div style={{ color: '#8c8c8c', marginTop: 4 }}>
-                                {(item.createdAt || item.created_at) ? dayjs(item.createdAt || item.created_at).format('YYYY-MM-DD HH:mm:ss') : '-'}
-                                {typeof (item.spentHours ?? item.spent_hours) === 'number' ? ` · 工时 ${item.spentHours ?? item.spent_hours}h` : ''}
-                                {item.workType || item.work_type ? ` · 类型 ${executionTypeLabels[(item.workType || item.work_type) as string] || item.workType || item.work_type}` : ''}
-                                {item.evidencePath || item.evidence_path ? ` · 证据 ${item.evidencePath || item.evidence_path}` : ''}
-                              </div>
-                            </div>
-                          ),
-                        }))}
-                      />
+                      <Card bordered={false} className="overview-step-card" style={{ marginBottom: 16 }}>
+                        <Steps
+                          current={progressCurrentStageIndex >= 0 ? progressCurrentStageIndex : 0}
+                          items={auditProgressStageOrder.map((stageKey) => ({ title: executionTypeLabels[stageKey] }))}
+                        />
+                      </Card>
+                      <Card bordered={false} className="overview-step-card">
+                        <div style={{ marginBottom: 16, fontWeight: 500 }}>当前阶段：{progressCurrentStageLabel}</div>
+                        <Progress percent={progressPercent} />
+                        <div style={{ marginTop: 8, color: '#8c8c8c' }}>
+                          总进度按当前阶段自动计算；未记录阶段时默认展示 0%
+                        </div>
+                      </Card>
                     </>
                   ),
                 },
@@ -614,72 +665,51 @@ const Tasks: React.FC = () => {
                   key: 'vulnerabilities',
                   label: `关联漏洞 (${relatedVulnerabilities.length})`,
                   children: (
-                    <Table
-                      rowKey={(record) => record.id || record.vulnerabilityId}
-                      size="small"
-                      pagination={false}
-                      dataSource={relatedVulnerabilities}
-                      columns={[
-                        {
-                          title: '漏洞编号',
-                          dataIndex: 'vulnerabilityId',
-                          key: 'vulnerabilityId',
-                          render: (value: string, record: any) => {
-                            const keyword = value || record?.id || '';
-                            return keyword ? (
-                              <a onClick={() => navigate(`/vulnerabilities?search=${encodeURIComponent(keyword)}`)}>{value || record?.id}</a>
-                            ) : '-';
+                    <>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateRelatedVulnerability} disabled={!canCreateRelatedVulnerability}>
+                          新建漏洞
+                        </Button>
+                      </div>
+                      <Table
+                        rowKey={(record) => record.id || record.vulnerabilityId}
+                        size="small"
+                        pagination={false}
+                        dataSource={relatedVulnerabilities}
+                        columns={[
+                          {
+                            title: '漏洞编号',
+                            dataIndex: 'vulnerabilityId',
+                            key: 'vulnerabilityId',
+                            render: (value: string, record: any) => {
+                              const keyword = value || record?.id || '';
+                              return keyword ? (
+                                <a onClick={() => navigate(`/vulnerabilities?search=${encodeURIComponent(keyword)}`)}>{value || record?.id}</a>
+                              ) : '-';
+                            },
                           },
-                        },
-                        {
-                          title: '漏洞标题',
-                          dataIndex: 'title',
-                          key: 'title',
-                          render: (value: string, record: any) => {
-                            const keyword = value || record?.vulnerabilityId || record?.id || '';
-                            return keyword ? (
-                              <a onClick={() => navigate(`/vulnerabilities?search=${encodeURIComponent(keyword)}`)}>{value || '-'}</a>
-                            ) : '-';
+                          {
+                            title: '漏洞标题',
+                            dataIndex: 'title',
+                            key: 'title',
+                            render: (value: string, record: any) => {
+                              const keyword = value || record?.vulnerabilityId || record?.id || '';
+                              return keyword ? (
+                                <a onClick={() => navigate(`/vulnerabilities?search=${encodeURIComponent(keyword)}`)}>{value || '-'}</a>
+                              ) : '-';
+                            },
                           },
-                        },
-                        { title: '类型', dataIndex: 'type', key: 'type' },
-                        { title: '严重级别', dataIndex: 'severity', key: 'severity' },
-                        { title: '状态', dataIndex: 'status', key: 'status' },
-                      ]}
-                    />
+                          { title: '类型', dataIndex: 'type', key: 'type' },
+                          { title: '严重级别', dataIndex: 'severity', key: 'severity' },
+                          { title: '状态', dataIndex: 'status', key: 'status' },
+                        ]}
+                      />
+                    </>
                   ),
                 },
                 {
-                  key: 'documents',
-                  label: `文档证据 (${relatedDocuments.length})`,
-                  children: (
-                    <Table
-                      rowKey="id"
-                      size="small"
-                      pagination={false}
-                      dataSource={relatedDocuments}
-                      columns={[
-                        {
-                          title: '文档标题',
-                          dataIndex: 'title',
-                          key: 'title',
-                          render: (value: string, record: any) => {
-                            const keyword = value || record?.documentNo || '';
-                            return keyword ? (
-                              <a onClick={() => navigate(`/documents?search=${encodeURIComponent(keyword)}`)}>{value || '-'}</a>
-                            ) : '-';
-                          },
-                        },
-                        { title: '文档编号', dataIndex: 'documentNo', key: 'documentNo' },
-                        { title: '分类', dataIndex: 'category', key: 'category' },
-                        { title: '状态', dataIndex: 'status', key: 'status' },
-                      ]}
-                    />
-                  ),
-                },
-                {
-                  key: 'attachments',
-                  label: `任务附件 (${taskAttachments.length})`,
+                  key: 'evidence',
+                  label: `文档与附件 (${mergedEvidence.length})`,
                   children: (
                     <>
                       <Form form={attachmentForm} layout="vertical" style={{ marginBottom: 16 }}>
@@ -706,15 +736,32 @@ const Tasks: React.FC = () => {
                         </Space>
                       </Form>
                       <Table
-                        rowKey="id"
+                        rowKey="rowId"
                         size="small"
                         pagination={false}
-                        dataSource={taskAttachments}
+                        dataSource={mergedEvidence}
                         columns={[
-                          { title: '文件名', dataIndex: 'fileName', key: 'fileName' },
-                          { title: '文件路径', dataIndex: 'filePath', key: 'filePath' },
+                          { title: '来源', dataIndex: 'sourceType', key: 'sourceType' },
                           {
-                            title: '上传时间',
+                            title: '名称',
+                            dataIndex: 'name',
+                            key: 'name',
+                            render: (value: string, record: any) => {
+                              if (record.sourceType !== '文档证据' || !record.navigateKeyword) {
+                                return value || '-';
+                              }
+                              return (
+                                <a onClick={() => navigate(`/documents?search=${encodeURIComponent(record.navigateKeyword)}`)}>
+                                  {value || '-'}
+                                </a>
+                              );
+                            },
+                          },
+                          { title: '编号/路径', dataIndex: 'reference', key: 'reference' },
+                          { title: '分类', dataIndex: 'category', key: 'category' },
+                          { title: '状态', dataIndex: 'status', key: 'status' },
+                          {
+                            title: '时间',
                             dataIndex: 'createdAt',
                             key: 'createdAt',
                             render: (value: string) => value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-',
@@ -724,31 +771,48 @@ const Tasks: React.FC = () => {
                     </>
                   ),
                 },
-                {
-                  key: 'auditLogs',
-                  label: `操作留痕 (${taskAuditLogs.length})`,
-                  children: (
-                    <Table
-                      rowKey="id"
-                      size="small"
-                      pagination={false}
-                      dataSource={taskAuditLogs}
-                      columns={[
-                        { title: '动作', dataIndex: 'action', key: 'action' },
-                        { title: '类型', dataIndex: 'resourceType', key: 'resourceType' },
-                        { title: '详情', dataIndex: 'details', key: 'details' },
-                        {
-                          title: '时间',
-                          dataIndex: 'createdAt',
-                          key: 'createdAt',
-                          render: (value: string) => value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-',
-                        },
-                      ]}
-                    />
-                  ),
-                },
               ]}
             />
+            <Modal
+              title="新建漏洞"
+              open={relatedVulnModalVisible}
+              onCancel={() => setRelatedVulnModalVisible(false)}
+              onOk={handleSubmitRelatedVulnerability}
+              confirmLoading={relatedVulnSubmitting}
+            >
+              <Form form={relatedVulnForm} layout="vertical">
+                <Form.Item name="title" label="漏洞名称" rules={[{ required: true, message: '请输入漏洞名称' }]}>
+                  <Input placeholder="请输入漏洞名称" />
+                </Form.Item>
+                <Form.Item name="type" label="漏洞类型" rules={[{ required: true, message: '请选择漏洞类型' }]}>
+                  <Select placeholder="请选择漏洞类型" options={vulnTypeOptions} />
+                </Form.Item>
+                <Form.Item name="discovered_version_id" label="发现版本" rules={[{ required: true, message: '请选择发现版本' }]}>
+                  <Select placeholder="请选择发现时所属资产版本">
+                    {assetVersions.map((item) => (
+                      <Option key={item.id} value={item.id}>
+                        {item.name || `v${item.versionNo}`}{item.isLatest ? ' - 最新' : ''}{item.isDefault ? ' - 默认' : ''}
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+                <Form.Item name="affected_versions" label="受影响版本">
+                  <Input.TextArea rows={2} placeholder="可自由填写，例如：v1.0, v1.1, v2.x" />
+                </Form.Item>
+                <Form.Item name="severity" label="严重程度" rules={[{ required: true, message: '请选择严重程度' }]}>
+                  <Select placeholder="请选择严重程度">
+                    <Option value="CRITICAL">严重</Option>
+                    <Option value="HIGH">高危</Option>
+                    <Option value="MEDIUM">中危</Option>
+                    <Option value="LOW">低危</Option>
+                    <Option value="INFO">信息</Option>
+                  </Select>
+                </Form.Item>
+                <Form.Item name="description" label="漏洞描述" rules={[{ required: true, message: '请输入漏洞描述' }]}>
+                  <Input.TextArea rows={4} placeholder="请输入漏洞描述" />
+                </Form.Item>
+              </Form>
+            </Modal>
           </>
         ) : (
           <div>任务不存在或无权限查看</div>
@@ -841,7 +905,7 @@ const Tasks: React.FC = () => {
             <InputNumber min={0} precision={2} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="collaborator_ids" label="协作者">
-            <Select mode="multiple" allowClear showSearch optionFilterProp="children" placeholder="可选：协作者可记录执行项">
+            <Select mode="multiple" allowClear showSearch optionFilterProp="children" placeholder="可选：协作者可记录审计进度">
               {users.map((item) => (
                 <Option key={item.id} value={item.id}>{item.username}</Option>
               ))}
