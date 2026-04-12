@@ -5,6 +5,7 @@ import type { PaginationParams } from '@/types/common';
 export interface DocumentQueryParams extends PaginationParams {
   category?: string;
   asset_id?: string;
+  task_id?: string;
   author_id?: string;
   status?: string;
 }
@@ -17,6 +18,7 @@ export const getDocumentList = (params: DocumentQueryParams): Promise<any> => {
       keyword: params.search,
       category: params.category,
       assetId: params.asset_id,
+      taskId: params.task_id,
     },
   });
 };

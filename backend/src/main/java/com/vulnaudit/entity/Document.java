@@ -46,6 +46,9 @@ public class Document {
     @Column(name = "asset_id")
     private UUID assetId;
 
+    @Column(name = "task_id")
+    private UUID taskId;
+
     @Column(name = "author_id", nullable = false)
     private UUID authorId;
 

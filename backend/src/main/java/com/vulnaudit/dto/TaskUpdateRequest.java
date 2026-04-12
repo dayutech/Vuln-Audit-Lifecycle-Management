@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.UUID;
 
 /**
  * 任务更新请求DTO
@@ -35,5 +36,14 @@ public class TaskUpdateRequest {
 
     @Schema(description = "预估工时")
     private BigDecimal estimatedHours;
+
+    @Schema(description = "环境信息收集阶段文档ID")
+    private UUID envCollectDocId;
+
+    @Schema(description = "环境搭建阶段文档ID")
+    private UUID envSetupDocId;
+
+    @Schema(description = "代码审计阶段文档ID")
+    private UUID codeAuditDocId;
 
 }

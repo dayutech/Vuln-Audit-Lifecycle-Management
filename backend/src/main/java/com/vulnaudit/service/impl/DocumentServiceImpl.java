@@ -51,7 +51,7 @@ public class DocumentServiceImpl implements DocumentService {
     }
 
     @Override
-    public PageResponse<Document> findAll(int page, int size, @Nullable String keyword, @Nullable String category, @Nullable UUID assetId) {
+    public PageResponse<Document> findAll(int page, int size, @Nullable String keyword, @Nullable String category, @Nullable UUID assetId, @Nullable UUID taskId) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
         
         Specification<Document> spec = (root, query, cb) -> {
@@ -69,6 +69,10 @@ public class DocumentServiceImpl implements DocumentService {
             
             if (assetId != null) {
                 predicates.add(cb.equal(root.get("assetId"), assetId));
+            }
+
+            if (taskId != null) {
+                predicates.add(cb.equal(root.get("taskId"), taskId));
             }
             
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
@@ -88,6 +92,11 @@ public class DocumentServiceImpl implements DocumentService {
     @Override
     public List<Document> findByAssetId(@Nullable UUID assetId) {
         return assetId != null ? documentRepository.findByAssetId(assetId) : List.of();
+    }
+
+    @Override
+    public List<Document> findByTaskId(@Nullable UUID taskId) {
+        return taskId != null ? documentRepository.findByTaskId(taskId) : List.of();
     }
 
     @Override

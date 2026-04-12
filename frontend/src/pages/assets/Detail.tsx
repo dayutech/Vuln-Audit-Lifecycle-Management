@@ -583,7 +583,7 @@ const AssetDetail: React.FC = () => {
       const values = await taskForm.validateFields();
       setTaskSubmitting(true);
       if (taskMode === 'create') {
-        await createTask({ ...values, reference_id: asset?.id, asset_id: asset?.id });
+        await createTask({ ...values, reference_id: asset?.id, asset_id: asset?.id, asset_version_id: selectedVersionId });
         message.success('任务创建成功');
       } else {
         await updateTask(currentTaskId, values);

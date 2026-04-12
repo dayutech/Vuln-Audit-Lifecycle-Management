@@ -35,6 +35,12 @@ export interface TaskVO {
   approval_comment?: string;
   reviewed_by?: string;
   reviewed_at?: string;
+  env_collect_doc_id?: string;
+  env_setup_doc_id?: string;
+  code_audit_doc_id?: string;
+  envCollectDocId?: string;
+  envSetupDocId?: string;
+  codeAuditDocId?: string;
 }
 
 export interface TaskCommentVO {
@@ -83,6 +89,9 @@ export interface CreateTaskRequest {
   description?: string;
   audit_conclusion?: string;
   estimated_hours?: number;
+  env_collect_doc_id?: string;
+  env_setup_doc_id?: string;
+  code_audit_doc_id?: string;
 }
 
 export interface UpdateTaskStatusRequest {

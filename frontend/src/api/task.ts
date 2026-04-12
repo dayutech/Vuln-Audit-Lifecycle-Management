@@ -73,6 +73,9 @@ export const updateTask = (id: string, data: Partial<CreateTaskRequest>): Promis
     dueDate: data.due_date,
     auditConclusion: data.audit_conclusion,
     estimatedHours: data.estimated_hours,
+    envCollectDocId: data.env_collect_doc_id,
+    envSetupDocId: data.env_setup_doc_id,
+    codeAuditDocId: data.code_audit_doc_id,
   });
 };
 

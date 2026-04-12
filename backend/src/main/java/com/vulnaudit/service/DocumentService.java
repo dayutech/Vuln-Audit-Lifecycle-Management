@@ -20,10 +20,13 @@ public interface DocumentService {
     Optional<Document> findById(@Nullable UUID id);
 
     @Nonnull
-    PageResponse<Document> findAll(int page, int size, @Nullable String keyword, @Nullable String category, @Nullable UUID assetId);
+    PageResponse<Document> findAll(int page, int size, @Nullable String keyword, @Nullable String category, @Nullable UUID assetId, @Nullable UUID taskId);
 
     @Nonnull
     List<Document> findByAssetId(@Nullable UUID assetId);
+
+    @Nonnull
+    List<Document> findByTaskId(@Nullable UUID taskId);
 
     @Nonnull
     List<Document> findByCategory(@Nullable String category);

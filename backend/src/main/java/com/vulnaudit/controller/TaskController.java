@@ -147,6 +147,9 @@ public class TaskController {
                 .dueDate(parseDueDate(request.getDueDate()))
                 .auditConclusion(request.getAuditConclusion())
                 .estimatedHours(request.getEstimatedHours())
+                .envCollectDocId(request.getEnvCollectDocId())
+                .envSetupDocId(request.getEnvSetupDocId())
+                .codeAuditDocId(request.getCodeAuditDocId())
                 .build();
         
         Task updatedTask = enrichTaskUsers(taskService.updateTask(id, task));

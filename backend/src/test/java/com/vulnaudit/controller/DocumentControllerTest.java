@@ -31,6 +31,7 @@ public class DocumentControllerTest extends BaseTest {
 
     private Document testDocument;
     private User testAuthor;
+    private UUID testTaskId;
 
     @BeforeEach
     void setUpDocument() {
@@ -45,12 +46,14 @@ public class DocumentControllerTest extends BaseTest {
                 .status("active")
                 .build();
         testAuthor = userRepository.save(Objects.requireNonNull(testAuthor));
+        testTaskId = UUID.randomUUID();
 
         testDocument = Document.builder()
                 .title("测试文档")
                 .category("guide")
                 .summary("测试文档摘要")
                 .content("测试文档内容")
+                .taskId(testTaskId)
                 .authorId(testAuthor.getId())
                 .status("draft")
                 .version(1)
@@ -81,6 +84,17 @@ public class DocumentControllerTest extends BaseTest {
                     .header("Authorization", engineerToken)
                     .param("category", "guide"))
                     .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("获取文档列表 - 按任务筛选")
+        void getDocumentList_FilterByTaskId() throws Exception {
+            mockMvc.perform(get("/api/v1/documents")
+                    .header("Authorization", engineerToken)
+                    .param("taskId", testTaskId.toString()))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.content[0].id").value(testDocument.getId().toString()))
+                    .andExpect(jsonPath("$.data.content[0].taskId").value(testTaskId.toString()));
         }
 
         @Test
@@ -121,13 +135,15 @@ public class DocumentControllerTest extends BaseTest {
         @Test
         @DisplayName("创建文档 - 成功")
         void createDocument_Success() throws Exception {
-            String docJson = "{\"title\":\"新文档\",\"category\":\"report\",\"summary\":\"新文档摘要\",\"content\":\"新文档内容\"}";
+            String taskId = UUID.randomUUID().toString();
+            String docJson = "{\"title\":\"新文档\",\"category\":\"report\",\"summary\":\"新文档摘要\",\"content\":\"新文档内容\",\"taskId\":\"" + taskId + "\"}";
 
             mockMvc.perform(post("/api/v1/documents")
                     .header("Authorization", engineerToken)
                     .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(docJson))
-                    .andExpect(status().isCreated());
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.data.taskId").value(taskId));
         }
     }
 

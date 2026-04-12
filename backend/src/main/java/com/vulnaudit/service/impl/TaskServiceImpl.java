@@ -51,7 +51,10 @@ public class TaskServiceImpl implements TaskService {
     private final TaskAttachmentRepository taskAttachmentRepository;
     private final TaskCollaboratorRepository taskCollaboratorRepository;
     private static final Set<String> VALID_STATUSES = new HashSet<>(Arrays.asList("pending", "in_progress", "review_pending", "completed", "cancelled", "assigned"));
-    private static final Set<String> VALID_WORK_TYPES = new HashSet<>(Arrays.asList("analysis", "verify", "retest", "fix_review", "meeting", "other"));
+    private static final Set<String> VALID_WORK_TYPES = new HashSet<>(Arrays.asList(
+            "analysis", "verify", "retest", "fix_review", "meeting", "other",
+            "env_collect", "env_setup", "code_audit"
+    ));
     private static final Map<String, Set<String>> STATUS_TRANSITIONS = Map.of(
             "pending", Set.of("assigned", "in_progress", "cancelled"),
             "assigned", Set.of("in_progress", "cancelled"),
@@ -184,6 +187,15 @@ public class TaskServiceImpl implements TaskService {
         }
         if (task.getEstimatedHours() != null) {
             existingTask.setEstimatedHours(normalizeNonNegative(task.getEstimatedHours(), "预估工时不能为负数"));
+        }
+        if (task.getEnvCollectDocId() != null) {
+            existingTask.setEnvCollectDocId(task.getEnvCollectDocId());
+        }
+        if (task.getEnvSetupDocId() != null) {
+            existingTask.setEnvSetupDocId(task.getEnvSetupDocId());
+        }
+        if (task.getCodeAuditDocId() != null) {
+            existingTask.setCodeAuditDocId(task.getCodeAuditDocId());
         }
 
         return taskRepository.save(Objects.requireNonNull(existingTask));

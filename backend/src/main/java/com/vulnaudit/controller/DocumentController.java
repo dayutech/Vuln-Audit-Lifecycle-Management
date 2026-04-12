@@ -58,6 +58,7 @@ public class DocumentController {
                 .summary(request.getSummary())
                 .content(request.getContent())
                 .assetId(request.getAssetId())
+                .taskId(request.getTaskId())
                 .authorId(currentUserId)
                 .createdBy(currentUserId)
                 .build();
@@ -85,11 +86,12 @@ public class DocumentController {
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size,
             @Parameter(description = "搜索关键词") @RequestParam(required = false) String keyword,
             @Parameter(description = "分类") @RequestParam(required = false) String category,
-            @Parameter(description = "资产ID") @RequestParam(required = false) UUID assetId) {
+            @Parameter(description = "资产ID") @RequestParam(required = false) UUID assetId,
+            @Parameter(description = "任务ID") @RequestParam(required = false) UUID taskId) {
         
-        log.info("分页查询文档: page={}, size={}, keyword={}, category={}", page, size, keyword, category);
+        log.info("分页查询文档: page={}, size={}, keyword={}, category={}, assetId={}, taskId={}", page, size, keyword, category, assetId, taskId);
         
-        PageResponse<Document> result = documentService.findAll(page, size, keyword, category, assetId);
+        PageResponse<Document> result = documentService.findAll(page, size, keyword, category, assetId, taskId);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

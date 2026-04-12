@@ -54,6 +54,14 @@ const router = createBrowserRouter([
         element: <Vulnerabilities />,
       },
       {
+        path: '/vulnerabilities/:id',
+        element: <Vulnerabilities />,
+      },
+      {
+        path: '/vulnerabilities/:id/edit',
+        element: <Vulnerabilities />,
+      },
+      {
         path: '/tasks',
         element: <Tasks />,
       },

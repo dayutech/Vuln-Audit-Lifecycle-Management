@@ -38,4 +38,7 @@ public class DocumentCreateRequest {
 
     @Schema(description = "关联资产ID")
     private UUID assetId;
+
+    @Schema(description = "关联任务ID")
+    private UUID taskId;
 }

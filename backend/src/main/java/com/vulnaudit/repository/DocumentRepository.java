@@ -13,6 +13,7 @@ import java.util.UUID;
 public interface DocumentRepository extends JpaRepository<Document, UUID>, JpaSpecificationExecutor<Document> {
 
     List<Document> findByAssetId(@Nullable UUID assetId);
+    List<Document> findByTaskId(@Nullable UUID taskId);
     List<Document> findByAuthorId(@Nullable UUID authorId);
     List<Document> findByStatus(@Nullable String status);
     List<Document> findByCategory(@Nullable String category);

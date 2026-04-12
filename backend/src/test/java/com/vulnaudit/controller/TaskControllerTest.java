@@ -260,8 +260,8 @@ public class TaskControllerTest extends BaseTest {
             taskRepository.save(Objects.requireNonNull(testTask));
             mockMvc.perform(post("/api/v1/tasks/" + testTask.getId() + "/comments")
                     .header("Authorization", engineerToken)
-                    .param("content", "已完成登录链路代码分析")
-                    .param("workType", "analysis")
+                    .param("content", "已完成环境获取")
+                    .param("workType", "env_collect")
                     .param("evidencePath", "/evidence/task/login-analysis.md"))
                     .andExpect(status().isOk());
         }

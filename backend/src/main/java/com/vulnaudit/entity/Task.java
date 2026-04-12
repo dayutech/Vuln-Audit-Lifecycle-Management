@@ -85,6 +85,15 @@ public class Task {
     @Column(name = "reviewed_at")
     private LocalDateTime reviewedAt;
 
+    @Column(name = "env_collect_doc_id")
+    private UUID envCollectDocId;
+
+    @Column(name = "env_setup_doc_id")
+    private UUID envSetupDocId;
+
+    @Column(name = "code_audit_doc_id")
+    private UUID codeAuditDocId;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

@@ -1,15 +1,91 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Button, Space, Card, Input, Tag, Modal, Form, Select, message } from 'antd';
+import { Table, Button, Space, Card, Input, Tag, Modal, Form, Select, message, Tabs } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { getKnowledgeList, createKnowledge, deleteKnowledge } from '@/api/knowledge';
 import type { KnowledgeArticleVO, CreateKnowledgeRequest } from '@/types/knowledge';
 import { formatDateTime } from '@/utils/datetime';
-import ReactQuill from 'react-quill';
-import 'react-quill/dist/quill.snow.css';
 
 const { Option } = Select;
 
 type KnowledgeTagItem = { id: string; tag: string };
+
+const containsHtmlTag = (content: string) => /<\/?[a-z][\s\S]*>/i.test(content);
+const escapeHtml = (content: string) =>
+  content
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const renderInlineMarkdown = (text: string) =>
+  escapeHtml(text)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+
+const renderMarkdownToHtml = (markdown: string) => {
+  const codeBlocks: string[] = [];
+  const placeholderMarkdown = markdown.replace(/```([\s\S]*?)```/g, (_, block: string) => {
+    const index = codeBlocks.push(block) - 1;
+    return `@@CODE_BLOCK_${index}@@`;
+  });
+  const lines = placeholderMarkdown.replace(/\r\n/g, '\n').split('\n');
+  const htmlParts: string[] = [];
+  let listItems: string[] = [];
+  const flushList = () => {
+    if (listItems.length > 0) {
+      htmlParts.push(`<ul>${listItems.map((item) => `<li>${item}</li>`).join('')}</ul>`);
+      listItems = [];
+    }
+  };
+
+  lines.forEach((raw) => {
+    const line = raw.trimEnd();
+    if (line.startsWith('- ')) {
+      listItems.push(renderInlineMarkdown(line.slice(2).trim()));
+      return;
+    }
+    flushList();
+    if (!line.trim()) {
+      htmlParts.push('<div><br/></div>');
+      return;
+    }
+    if (line.startsWith('### ')) {
+      htmlParts.push(`<h3>${renderInlineMarkdown(line.slice(4).trim())}</h3>`);
+      return;
+    }
+    if (line.startsWith('## ')) {
+      htmlParts.push(`<h2>${renderInlineMarkdown(line.slice(3).trim())}</h2>`);
+      return;
+    }
+    if (line.startsWith('# ')) {
+      htmlParts.push(`<h1>${renderInlineMarkdown(line.slice(2).trim())}</h1>`);
+      return;
+    }
+    htmlParts.push(`<p>${renderInlineMarkdown(line.trim())}</p>`);
+  });
+  flushList();
+
+  let html = htmlParts.join('');
+  codeBlocks.forEach((block, index) => {
+    const codeHtml = `<pre style="padding:12px;background:#f6f8fa;border-radius:6px;overflow:auto;"><code>${escapeHtml(block.trim())}</code></pre>`;
+    html = html.replace(`@@CODE_BLOCK_${index}@@`, codeHtml);
+  });
+  return html;
+};
+
+const renderRichContent = (content: string, emptyText: string) => {
+  const normalized = (content || '').trim();
+  if (!normalized) {
+    return `<p>${emptyText}</p>`;
+  }
+  if (containsHtmlTag(normalized)) {
+    return normalized;
+  }
+  return renderMarkdownToHtml(normalized);
+};
 
 const normalizeKnowledgeTags = (value: unknown): KnowledgeTagItem[] => {
   if (Array.isArray(value)) {
@@ -118,6 +194,10 @@ const Knowledge: React.FC = () => {
   const handleModalOk = async () => {
     try {
       const values = await form.validateFields();
+      if (!editorContent.trim()) {
+        message.warning('请输入正文内容');
+        return;
+      }
       const payload = { 
         ...values, 
         content: editorContent,
@@ -170,16 +250,6 @@ const Knowledge: React.FC = () => {
     },
   ];
 
-  const modules = {
-    toolbar: [
-      [{ 'header': [1, 2, 3, 4, 5, 6, false] }],
-      ['bold', 'italic', 'underline', 'strike', 'blockquote'],
-      [{'list': 'ordered'}, {'list': 'bullet'}, {'indent': '-1'}, {'indent': '+1'}],
-      ['link', 'image', 'code-block'],
-      ['clean']
-    ],
-  };
-
   return (
     <Card title="知识库" extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>发布文章</Button>}>
       <div style={{ marginBottom: 16 }}>
@@ -227,15 +297,33 @@ const Knowledge: React.FC = () => {
             <Select mode="tags" placeholder="输入标签后按回车" style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item label="正文内容" required>
-            <div style={{ height: 400, marginBottom: 50 }}>
-              <ReactQuill 
-                theme="snow" 
-                value={editorContent} 
-                onChange={setEditorContent} 
-                modules={modules}
-                style={{ height: '100%' }}
-              />
-            </div>
+            <Tabs
+              defaultActiveKey="edit"
+              items={[
+                {
+                  key: 'edit',
+                  label: '编写',
+                  children: (
+                    <Input.TextArea
+                      rows={14}
+                      value={editorContent}
+                      onChange={(e) => setEditorContent(e.target.value)}
+                      placeholder="使用 Markdown 编写文章内容"
+                    />
+                  ),
+                },
+                {
+                  key: 'preview',
+                  label: '预览',
+                  children: (
+                    <div
+                      style={{ minHeight: 320, border: '1px solid #f0f0f0', borderRadius: 6, padding: 12, background: '#fafafa' }}
+                      dangerouslySetInnerHTML={{ __html: renderRichContent(editorContent, '暂无内容') }}
+                    />
+                  ),
+                },
+              ]}
+            />
           </Form.Item>
         </Form>
       </Modal>

@@ -7,6 +7,8 @@ export interface DocumentVO {
   summary?: string;
   content?: string;
   asset_id?: string;
+  task_id?: string;
+  taskId?: string;
   author_id: string;
   status: string;
   version: number;
@@ -23,6 +25,7 @@ export interface CreateDocumentRequest {
   summary?: string;
   content: string;
   asset_id?: string;
+  task_id?: string;
 }
 
 export interface UpdateDocumentRequest {
