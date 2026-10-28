@@ -1,0 +1,23 @@
+[Unit]
+Description=Vuln Audit Lifecycle Management - Backend (Spring Boot)
+After=network-online.target mariadb.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/apps/vuln-audit
+EnvironmentFile=%h/apps/vuln-audit/deploy/backend.env
+ExecStart=/usr/bin/java -Xms512m -Xmx2g -XX:+UseG1GC -jar %h/apps/vuln-audit/backend/target/vuln-audit-backend-1.0.0-SNAPSHOT.jar \
+    --spring.jpa.show-sql=false \
+    --logging.level.org.hibernate.SQL=WARN \
+    --logging.level.org.hibernate.type.descriptor.sql.BasicBinder=WARN \
+    --logging.level.com.vulnaudit=INFO \
+    --logging.level.org.springframework.security=INFO
+Restart=on-failure
+RestartSec=5
+SuccessExitStatus=143
+StandardOutput=append:%h/apps/vuln-audit/logs/backend.log
+StandardError=append:%h/apps/vuln-audit/logs/backend.log
+
+[Install]
+WantedBy=default.target

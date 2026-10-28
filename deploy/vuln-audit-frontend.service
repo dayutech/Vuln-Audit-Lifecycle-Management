@@ -1,0 +1,17 @@
+[Unit]
+Description=Vuln Audit Lifecycle Management - Frontend (static + api proxy)
+After=network-online.target vuln-audit-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/apps/vuln-audit
+EnvironmentFile=%h/apps/vuln-audit/deploy/frontend.env
+ExecStart=%h/opt/node-v22.14.0-linux-x64/bin/node %h/apps/vuln-audit/deploy/static-server.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:%h/apps/vuln-audit/logs/frontend.log
+StandardError=append:%h/apps/vuln-audit/logs/frontend.log
+
+[Install]
+WantedBy=default.target

@@ -1038,7 +1038,24 @@ const AssetDetail: React.FC = () => {
 
   const envColumns = [
     { title: '环境名称', dataIndex: 'name', key: 'name' },
-    { title: '状态', dataIndex: 'status', key: 'status', render: (status: string) => <Tag color={status === 'ACTIVE' ? 'success' : 'default'}>{status}</Tag> },
+    { title: '状态', dataIndex: 'status', key: 'status', render: (status: string) => {
+      // 后端环境状态为 running / stopped / deploying / failed；
+      // 原先按大写 ACTIVE 判断，标签恒为灰色且文案不直观
+      const colorMap: Record<string, string> = {
+        running: 'success',
+        stopped: 'default',
+        deploying: 'processing',
+        failed: 'error',
+      };
+      const labelMap: Record<string, string> = {
+        running: '运行中',
+        stopped: '已停止',
+        deploying: '部署中',
+        failed: '失败',
+      };
+      const key = (status || '').toLowerCase();
+      return <Tag color={colorMap[key] ?? 'default'}>{labelMap[key] ?? (status || '-')}</Tag>;
+    } },
     { title: '模板ID', dataIndex: 'templateId', key: 'templateId' },
     { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', render: (text: string) => text ? new Date(text).toLocaleString() : '-' },
     { 
