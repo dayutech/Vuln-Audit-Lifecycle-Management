@@ -203,6 +203,11 @@ public enum ErrorCode {
      */
     VULNERABILITY_ATTACHMENT_NOT_FOUND(1303, "漏洞附件不存在"),
 
+    /**
+     * CVE 编号重复
+     */
+    VULNERABILITY_CVE_DUPLICATED(1304, "CVE 编号已存在"),
+
     // 文档相关错误码 (1400-1499)
 
     /**

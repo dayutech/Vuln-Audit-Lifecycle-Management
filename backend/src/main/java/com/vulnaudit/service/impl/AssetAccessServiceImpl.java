@@ -8,6 +8,7 @@ import com.vulnaudit.repository.AssetAccessRepository;
 import com.vulnaudit.repository.AssetRepository;
 import com.vulnaudit.repository.UserRepository;
 import com.vulnaudit.service.AssetAccessService;
+import com.vulnaudit.util.Paging;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -108,7 +109,7 @@ public class AssetAccessServiceImpl implements AssetAccessService {
         log.debug("分页查询访问申请: page={}, size={}, assetId={}, userId={}, status={}",
                 page, size, assetId, userId, status);
         
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         
         Specification<AssetAccess> spec = (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
@@ -259,7 +260,7 @@ public class AssetAccessServiceImpl implements AssetAccessService {
     public PageResponse<AssetAccess> findPendingApprovalByUser(UUID userId, int page, int size) {
         log.debug("获取用户待审批的访问申请: userId={}", userId);
         
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         
         // 查询状态为pending的访问申请
         Specification<AssetAccess> spec = (root, query, cb) -> {

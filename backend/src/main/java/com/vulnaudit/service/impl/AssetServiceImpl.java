@@ -13,6 +13,7 @@ import com.vulnaudit.repository.AssetRepository;
 import com.vulnaudit.repository.TeamRepository;
 import com.vulnaudit.repository.UserRepository;
 import com.vulnaudit.service.AssetService;
+import com.vulnaudit.util.Paging;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -141,7 +142,7 @@ public class AssetServiceImpl implements AssetService {
         log.debug("分页查询资产: page={}, size={}, keyword={}, status={}, teamId={}, priority={}",
                 page, size, keyword, status, teamId, priority);
         
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         
         Specification<Asset> spec = (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
@@ -187,7 +188,7 @@ public class AssetServiceImpl implements AssetService {
         log.debug("分页查询资产详情: page={}, size={}, keyword={}, status={}, teamId={}, priority={}",
                 page, size, keyword, status, teamId, priority);
         
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         
         Specification<Asset> spec = (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();

@@ -10,6 +10,7 @@ import com.vulnaudit.repository.KnowledgeArticleRepository;
 import com.vulnaudit.repository.KnowledgeCommentRepository;
 import com.vulnaudit.repository.KnowledgeTagRepository;
 import com.vulnaudit.service.KnowledgeService;
+import com.vulnaudit.util.Paging;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -56,7 +57,7 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Override
     public PageResponse<KnowledgeArticle> findAll(int page, int size, @Nullable String keyword, @Nullable String category) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         
         Specification<KnowledgeArticle> spec = (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();

@@ -7,6 +7,7 @@ import com.vulnaudit.dto.LoginRequest;
 import com.vulnaudit.dto.LoginResponse;
 import com.vulnaudit.entity.User;
 import com.vulnaudit.security.JwtUtils;
+import com.vulnaudit.security.RoleAuthority;
 import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -71,7 +72,7 @@ public class AuthController {
 
         String token = jwtUtils.generateToken(user.getUsername(),
                 roles.stream()
-                        .map(r -> new SimpleGrantedAuthority("ROLE_" + r))
+                        .map(r -> new SimpleGrantedAuthority(RoleAuthority.of(r)))
                         .collect(Collectors.toList()));
 
         LoginResponse response = LoginResponse.builder()
@@ -213,7 +214,7 @@ public class AuthController {
 
         String token = jwtUtils.generateToken(username,
                 roles.stream()
-                        .map(r -> new SimpleGrantedAuthority("ROLE_" + r))
+                        .map(r -> new SimpleGrantedAuthority(RoleAuthority.of(r)))
                         .collect(Collectors.toList()));
 
         LoginResponse response = LoginResponse.builder()

@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -58,6 +59,7 @@ public class AssetFileController {
     private static final String UPLOAD_DIR = "./uploads/assets/";
 
     @GetMapping("/assets/{assetId}/files")
+    @PreAuthorize("@accessGuard.canReadAsset(#assetId, authentication)")
     @Operation(summary = "获取资产文件列表", description = "获取指定资产的所有文件")
     public ResponseEntity<ApiResponse<List<AssetFile>>> listAssetFiles(
             @PathVariable UUID assetId,
@@ -76,6 +78,7 @@ public class AssetFileController {
     }
 
     @GetMapping("/asset-files/{id}")
+    @PreAuthorize("@accessGuard.canReadAssetFile(#id, authentication)")
     @Operation(summary = "获取文件详情", description = "根据ID获取文件详细信息")
     public ResponseEntity<ApiResponse<AssetFile>> getFile(@PathVariable UUID id) {
         log.info("获取文件详情: id={}", id);
@@ -87,6 +90,7 @@ public class AssetFileController {
     }
 
     @PostMapping("/assets/{assetId}/files")
+    @PreAuthorize("@accessGuard.canWriteAsset(#assetId, authentication)")
     @Operation(summary = "上传资产文件", description = "上传文件到指定资产")
     public ResponseEntity<ApiResponse<AssetFile>> uploadFile(
             @PathVariable UUID assetId,
@@ -141,6 +145,7 @@ public class AssetFileController {
     }
 
     @GetMapping("/asset-files/{id}/download")
+    @PreAuthorize("@accessGuard.canReadAssetFile(#id, authentication)")
     @Operation(summary = "下载文件", description = "下载指定文件")
     public ResponseEntity<Resource> downloadFile(@PathVariable UUID id) {
         log.info("下载文件: id={}", id);
@@ -172,6 +177,7 @@ public class AssetFileController {
     }
 
     @DeleteMapping("/asset-files/{id}")
+    @PreAuthorize("@accessGuard.canWriteAssetFile(#id, authentication)")
     @Operation(summary = "删除文件", description = "删除指定文件（软删除，归档）")
     public ResponseEntity<ApiResponse<Void>> deleteFile(@PathVariable UUID id) {
         log.info("删除文件: id={}", id);
@@ -190,6 +196,7 @@ public class AssetFileController {
     // ==================== 版本管理 ====================
 
     @GetMapping("/asset-files/{id}/versions")
+    @PreAuthorize("@accessGuard.canReadAssetFile(#id, authentication)")
     @Operation(summary = "获取文件版本列表", description = "获取文件的所有版本")
     public ResponseEntity<ApiResponse<List<AssetFileVersion>>> listFileVersions(@PathVariable UUID id) {
         log.info("获取文件版本列表: fileId={}", id);
@@ -199,6 +206,7 @@ public class AssetFileController {
     }
 
     @PostMapping("/asset-files/{id}/versions")
+    @PreAuthorize("@accessGuard.canWriteAssetFile(#id, authentication)")
     @Operation(summary = "上传新版本", description = "上传文件的新版本")
     public ResponseEntity<ApiResponse<AssetFile>> uploadNewVersion(
             @PathVariable UUID id,
@@ -248,6 +256,7 @@ public class AssetFileController {
     }
 
     @GetMapping("/asset-files/{fileId}/versions/{version}")
+    @PreAuthorize("@accessGuard.canReadAssetFile(#fileId, authentication)")
     @Operation(summary = "下载指定版本", description = "下载文件的指定版本")
     public ResponseEntity<Resource> downloadVersion(
             @PathVariable UUID fileId,

@@ -10,6 +10,7 @@ import com.vulnaudit.repository.AssetVersionRepository;
 import com.vulnaudit.repository.EnvironmentRepository;
 import com.vulnaudit.repository.EnvironmentSnapshotRepository;
 import com.vulnaudit.service.EnvironmentService;
+import com.vulnaudit.util.Paging;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -54,7 +55,7 @@ public class EnvironmentServiceImpl implements EnvironmentService {
     @Override
     public PageResponse<Environment> findAll(int page, int size, String keyword, UUID assetId, UUID assetVersionId) {
         log.debug("分页查询环境: page={}, size={}, keyword={}, assetId={}, assetVersionId={}", page, size, keyword, assetId, assetVersionId);
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         Page<Environment> environmentPage;
         
         if (assetId != null) {

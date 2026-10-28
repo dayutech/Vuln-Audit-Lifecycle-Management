@@ -18,6 +18,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -70,6 +71,7 @@ public class AssetMetadataController {
 
     // ================= BASE =================
     @GetMapping("/base")
+    @PreAuthorize("@accessGuard.canReadAsset(#assetId, authentication)")
     @Operation(summary = "获取基础元数据")
     public ResponseEntity<ApiResponse<AssetMetadataBase>> getBaseMetadata(
             @PathVariable UUID assetId,
@@ -83,6 +85,7 @@ public class AssetMetadataController {
     }
 
     @PutMapping("/base")
+    @PreAuthorize("@accessGuard.canWriteAsset(#assetId, authentication)")
     @Operation(summary = "更新基础元数据")
     public ResponseEntity<ApiResponse<AssetMetadataBase>> updateBaseMetadata(
             @PathVariable UUID assetId,
@@ -118,6 +121,7 @@ public class AssetMetadataController {
 
     // ================= NETWORK =================
     @GetMapping("/network")
+    @PreAuthorize("@accessGuard.canReadAsset(#assetId, authentication)")
     @Operation(summary = "获取网络与接口元数据")
     public ResponseEntity<ApiResponse<AssetMetadataNetwork>> getNetworkMetadata(
             @PathVariable UUID assetId,
@@ -131,6 +135,7 @@ public class AssetMetadataController {
     }
 
     @PutMapping("/network")
+    @PreAuthorize("@accessGuard.canWriteAsset(#assetId, authentication)")
     @Operation(summary = "更新网络与接口元数据")
     public ResponseEntity<ApiResponse<AssetMetadataNetwork>> updateNetworkMetadata(
             @PathVariable UUID assetId,
@@ -162,6 +167,7 @@ public class AssetMetadataController {
 
     // ================= ENV =================
     @GetMapping("/env")
+    @PreAuthorize("@accessGuard.canReadAsset(#assetId, authentication)")
     @Operation(summary = "获取环境元数据")
     public ResponseEntity<ApiResponse<AssetMetadataEnv>> getEnvMetadata(
             @PathVariable UUID assetId,
@@ -175,6 +181,7 @@ public class AssetMetadataController {
     }
 
     @PutMapping("/env")
+    @PreAuthorize("@accessGuard.canWriteAsset(#assetId, authentication)")
     @Operation(summary = "更新环境元数据")
     public ResponseEntity<ApiResponse<AssetMetadataEnv>> updateEnvMetadata(
             @PathVariable UUID assetId,
@@ -210,6 +217,7 @@ public class AssetMetadataController {
 
     // ================= ACCOUNT =================
     @GetMapping("/account")
+    @PreAuthorize("@accessGuard.canReadAsset(#assetId, authentication)")
     @Operation(summary = "获取认证元数据")
     public ResponseEntity<ApiResponse<AssetMetadataAccount>> getAccountMetadata(
             @PathVariable UUID assetId,
@@ -223,6 +231,7 @@ public class AssetMetadataController {
     }
 
     @PutMapping("/account")
+    @PreAuthorize("@accessGuard.canWriteAsset(#assetId, authentication)")
     @Operation(summary = "更新认证元数据")
     public ResponseEntity<ApiResponse<AssetMetadataAccount>> updateAccountMetadata(
             @PathVariable UUID assetId,
@@ -257,6 +266,7 @@ public class AssetMetadataController {
 
     // ================= EXTRA =================
     @GetMapping("/extra")
+    @PreAuthorize("@accessGuard.canReadAsset(#assetId, authentication)")
     @Operation(summary = "获取附加元数据")
     public ResponseEntity<ApiResponse<AssetMetadataExtra>> getExtraMetadata(
             @PathVariable UUID assetId,
@@ -270,6 +280,7 @@ public class AssetMetadataController {
     }
 
     @PutMapping("/extra")
+    @PreAuthorize("@accessGuard.canWriteAsset(#assetId, authentication)")
     @Operation(summary = "更新附加元数据")
     public ResponseEntity<ApiResponse<AssetMetadataExtra>> updateExtraMetadata(
             @PathVariable UUID assetId,

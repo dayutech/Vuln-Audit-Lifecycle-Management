@@ -19,6 +19,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -58,6 +59,7 @@ public class AssetDeliverableController {
     private static final String UPLOAD_DIR = "./uploads/deliverables/";
 
     @GetMapping("/assets/{assetId}/deliverables")
+    @PreAuthorize("@accessGuard.canReadAsset(#assetId, authentication)")
     @Operation(summary = "获取资产交付物列表", description = "获取指定资产版本的交付物列表")
     public ResponseEntity<ApiResponse<List<AssetDeliverable>>> listDeliverables(
             @PathVariable UUID assetId,
@@ -75,6 +77,7 @@ public class AssetDeliverableController {
     }
 
     @PostMapping("/assets/{assetId}/deliverables")
+    @PreAuthorize("@accessGuard.canWriteAsset(#assetId, authentication)")
     @Operation(summary = "上传资产交付物", description = "上传漏洞利用代码、POC、EXP、说明文档等交付物")
     public ResponseEntity<ApiResponse<AssetDeliverable>> uploadDeliverable(
             @PathVariable UUID assetId,
@@ -115,6 +118,7 @@ public class AssetDeliverableController {
     }
 
     @GetMapping("/asset-deliverables/{id}/download")
+    @PreAuthorize("@accessGuard.canReadDeliverable(#id, authentication)")
     @Operation(summary = "下载交付物", description = "下载指定交付物")
     public ResponseEntity<Resource> downloadDeliverable(@PathVariable UUID id) {
         AssetDeliverable deliverable = assetDeliverableRepository.findById(Objects.requireNonNull(id, "id must not be null")).orElse(null);
@@ -137,6 +141,7 @@ public class AssetDeliverableController {
     }
 
     @DeleteMapping("/asset-deliverables/{id}")
+    @PreAuthorize("@accessGuard.canWriteDeliverable(#id, authentication)")
     @Operation(summary = "删除交付物", description = "删除指定交付物（软删除，归档）")
     public ResponseEntity<ApiResponse<Void>> deleteDeliverable(@PathVariable UUID id) {
         AssetDeliverable deliverable = assetDeliverableRepository.findById(Objects.requireNonNull(id, "id must not be null")).orElse(null);

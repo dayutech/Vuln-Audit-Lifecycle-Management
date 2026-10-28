@@ -8,6 +8,7 @@ import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.DocumentAccessRepository;
 import com.vulnaudit.repository.DocumentRepository;
 import com.vulnaudit.service.DocumentService;
+import com.vulnaudit.util.Paging;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -52,7 +53,7 @@ public class DocumentServiceImpl implements DocumentService {
 
     @Override
     public PageResponse<Document> findAll(int page, int size, @Nullable String keyword, @Nullable String category, @Nullable UUID assetId, @Nullable UUID taskId) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         
         Specification<Document> spec = (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
@@ -116,11 +117,16 @@ public class DocumentServiceImpl implements DocumentService {
         Document existingDocument = documentRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.DOCUMENT_NOT_FOUND));
 
+        // 先判断正文是否变化（OSIV 下实体被就地更新，必须在赋值前比较）
+        boolean contentChanged = document.getContent() != null
+                && !Objects.equals(existingDocument.getContent(), document.getContent());
+
         if (document.getTitle() != null) {
             existingDocument.setTitle(document.getTitle());
         }
         if (document.getContent() != null) {
             existingDocument.setContent(document.getContent());
+            existingDocument.setWordCount(countContentLength(document.getContent()));
         }
         if (document.getSummary() != null) {
             existingDocument.setSummary(document.getSummary());
@@ -129,7 +135,24 @@ public class DocumentServiceImpl implements DocumentService {
             existingDocument.setCategory(document.getCategory());
         }
 
+        // 仅在正文变化时递增版本号，保证版本历史与内容变更一一对应
+        if (contentChanged) {
+            int currentVersion = existingDocument.getVersion() == null ? 1 : existingDocument.getVersion();
+            existingDocument.setVersion(currentVersion + 1);
+        }
+
         return documentRepository.save(Objects.requireNonNull(existingDocument));
+    }
+
+    /**
+     * 统计内容长度（去除 HTML 标签后按字符计），用于列表展示字数。
+     */
+    private int countContentLength(String content) {
+        if (content == null || content.isBlank()) {
+            return 0;
+        }
+        String plain = content.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+        return plain.length();
     }
 
     @Override

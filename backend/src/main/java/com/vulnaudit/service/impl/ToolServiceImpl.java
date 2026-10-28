@@ -12,6 +12,7 @@ import com.vulnaudit.repository.ToolRepository;
 import com.vulnaudit.repository.ToolTagRepository;
 import com.vulnaudit.repository.ToolVersionRepository;
 import com.vulnaudit.service.ToolService;
+import com.vulnaudit.util.Paging;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -73,7 +74,7 @@ public class ToolServiceImpl implements ToolService {
 
     @Override
     public PageResponse<Tool> findAll(int page, int size, String keyword, String category) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         
         Specification<Tool> spec = (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();

@@ -9,6 +9,7 @@ import com.vulnaudit.repository.TeamMemberRepository;
 import com.vulnaudit.repository.TeamRepository;
 import com.vulnaudit.repository.UserRepository;
 import com.vulnaudit.service.TeamService;
+import com.vulnaudit.util.Paging;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -65,7 +66,7 @@ public class TeamServiceImpl implements TeamService {
 
     @Override
     public PageResponse<Team> findAll(int page, int size, String keyword) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         Page<Team> teamPage;
         
         if (StringUtils.hasText(keyword)) {

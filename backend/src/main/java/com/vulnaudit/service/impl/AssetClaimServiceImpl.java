@@ -8,6 +8,7 @@ import com.vulnaudit.repository.AssetClaimRepository;
 import com.vulnaudit.repository.AssetRepository;
 import com.vulnaudit.repository.UserRepository;
 import com.vulnaudit.service.AssetClaimService;
+import com.vulnaudit.util.Paging;
 import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 import lombok.RequiredArgsConstructor;
@@ -105,7 +106,7 @@ public class AssetClaimServiceImpl implements AssetClaimService {
         log.debug("分页查询认领申请: page={}, size={}, assetId={}, userId={}, status={}",
                 page, size, assetId, userId, status);
         
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         
         Specification<AssetClaim> spec = (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();

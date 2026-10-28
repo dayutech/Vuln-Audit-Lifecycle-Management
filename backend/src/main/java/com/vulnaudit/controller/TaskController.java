@@ -5,6 +5,7 @@ import com.vulnaudit.entity.Task;
 import com.vulnaudit.entity.TaskAttachment;
 import com.vulnaudit.entity.TaskComment;
 import com.vulnaudit.entity.User;
+import com.vulnaudit.security.RoleAuthority;
 import com.vulnaudit.service.AuditLogService;
 import com.vulnaudit.service.TaskService;
 import com.vulnaudit.service.UserService;
@@ -72,6 +73,7 @@ public class TaskController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("@accessGuard.canReadTask(#id, authentication)")
     @Operation(summary = "获取任务详情", description = "根据ID获取任务详细信息")
     public ResponseEntity<ApiResponse<Task>> getTask(@PathVariable UUID id) {
         log.info("获取任务详情: id={}", id);
@@ -190,7 +192,7 @@ public class TaskController {
     }
 
     @PostMapping("/{id}/approve")
-    @PreAuthorize("hasAnyAuthority('admin','project_leader','team_leader','ROLE_ADMIN','ROLE_LEADER')")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "通过任务审核", description = "负责人或管理员审核通过任务")
     public ResponseEntity<ApiResponse<Task>> approveReview(
             @PathVariable UUID id,
@@ -211,7 +213,7 @@ public class TaskController {
     }
 
     @PostMapping("/{id}/reject")
-    @PreAuthorize("hasAnyAuthority('admin','project_leader','team_leader','ROLE_ADMIN','ROLE_LEADER')")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "驳回任务审核", description = "负责人或管理员驳回任务")
     public ResponseEntity<ApiResponse<Task>> rejectReview(
             @PathVariable UUID id,
@@ -232,6 +234,7 @@ public class TaskController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("@accessGuard.canDeleteTask(#id, authentication)")
     @Operation(summary = "删除任务", description = "删除任务")
     public ResponseEntity<ApiResponse<Void>> deleteTask(@PathVariable UUID id) {
         log.info("删除任务: id={}", id);
@@ -244,7 +247,7 @@ public class TaskController {
     }
 
     @PostMapping("/{id}/assign")
-    @PreAuthorize("hasAnyAuthority('admin','project_leader','team_leader','ROLE_ADMIN','ROLE_LEADER')")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "分配任务", description = "将任务分配给用户")
     public ResponseEntity<ApiResponse<Void>> assignTask(
             @PathVariable UUID id,
@@ -290,7 +293,7 @@ public class TaskController {
     }
 
     @PostMapping("/{id}/collaborators")
-    @PreAuthorize("hasAnyAuthority('admin','project_leader','team_leader','ROLE_ADMIN','ROLE_LEADER')")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "添加任务协作者", description = "为任务添加协作者，协作者可记录执行项")
     public ResponseEntity<ApiResponse<Void>> addCollaborator(
             @PathVariable UUID id,
@@ -310,7 +313,7 @@ public class TaskController {
     }
 
     @DeleteMapping("/{id}/collaborators/{userId}")
-    @PreAuthorize("hasAnyAuthority('admin','project_leader','team_leader','ROLE_ADMIN','ROLE_LEADER')")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "移除任务协作者", description = "移除任务协作者")
     public ResponseEntity<ApiResponse<Void>> removeCollaborator(
             @PathVariable UUID id,
@@ -326,6 +329,7 @@ public class TaskController {
     }
 
     @GetMapping("/{id}/comments")
+    @PreAuthorize("@accessGuard.canReadTask(#id, authentication)")
     @Operation(summary = "查询任务执行记录", description = "查询任务评论/执行记录列表")
     public ResponseEntity<ApiResponse<List<TaskComment>>> getComments(@PathVariable UUID id) {
         log.info("查询任务执行记录: taskId={}", id);
@@ -351,6 +355,7 @@ public class TaskController {
     }
 
     @GetMapping("/{id}/attachments")
+    @PreAuthorize("@accessGuard.canReadTask(#id, authentication)")
     @Operation(summary = "查询任务附件", description = "查询任务附件列表")
     public ResponseEntity<ApiResponse<List<TaskAttachment>>> getAttachments(@PathVariable UUID id) {
         log.info("查询任务附件: taskId={}", id);
@@ -398,13 +403,8 @@ public class TaskController {
         if (authentication == null || authentication.getAuthorities() == null) {
             return false;
         }
-        return authentication.getAuthorities().stream().anyMatch(a ->
-                "admin".equals(a.getAuthority()) ||
-                        "project_leader".equals(a.getAuthority()) ||
-                        "team_leader".equals(a.getAuthority()) ||
-                        "ROLE_ADMIN".equals(a.getAuthority()) ||
-                        "ROLE_LEADER".equals(a.getAuthority())
-        );
+        return authentication.getAuthorities().stream()
+                .anyMatch(a -> RoleAuthority.isManager(a.getAuthority()));
     }
 
     private TaskUserInfo toTaskUserInfo(UUID userId) {

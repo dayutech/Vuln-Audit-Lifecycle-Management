@@ -22,6 +22,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
@@ -88,6 +89,7 @@ public class AssetController {
                 .build();
 
         Asset createdAsset = assetService.createAsset(asset);
+        recordHistory(createdAsset.getId(), "created", null, createdAsset.getName(), currentUserId);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(createdAsset));
     }
@@ -112,6 +114,7 @@ public class AssetController {
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("@accessGuard.canReadAsset(#id, authentication)")
     @Operation(summary = "获取资产详情", description = "根据ID获取资产详细信息")
     public ResponseEntity<ApiResponse<AssetResponse>> getAsset(@PathVariable UUID id) {
         log.info("获取资产详情: id={}", id);
@@ -139,6 +142,7 @@ public class AssetController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("@accessGuard.canWriteAsset(#id, authentication)")
     @Operation(summary = "更新资产", description = "更新资产信息")
     public ResponseEntity<ApiResponse<Asset>> updateAsset(
             @PathVariable UUID id,
@@ -146,6 +150,28 @@ public class AssetController {
         
         log.info("更新资产: id={}", id);
         
+        UUID operatorId = getCurrentUserId(SecurityContextHolder.getContext().getAuthentication());
+
+        // 注意：开启 open-in-view 后，findById 返回的实体与 Service 内更新的是同一持久化上下文实例，
+        // 更新后旧值会被覆盖。因此先把旧值快照成不可变字符串，再执行更新。
+        String oldName = null;
+        String oldDescription = null;
+        String oldTargetType = null;
+        String oldTargetSource = null;
+        String oldPriority = null;
+        String oldTeamId = null;
+        String oldOwnerId = null;
+        Asset snapshot = assetRepository.findById(id).orElse(null);
+        if (snapshot != null) {
+            oldName = snapshot.getName();
+            oldDescription = snapshot.getDescription();
+            oldTargetType = snapshot.getTargetType();
+            oldTargetSource = snapshot.getTargetSource();
+            oldPriority = snapshot.getPriority();
+            oldTeamId = snapshot.getTeamId() == null ? null : snapshot.getTeamId().toString();
+            oldOwnerId = snapshot.getOwnerId() == null ? null : snapshot.getOwnerId().toString();
+        }
+
         Asset asset = Asset.builder()
                 .name(request.getName())
                 .targetType(request.getTargetType())
@@ -157,19 +183,38 @@ public class AssetController {
                 .build();
         
         Asset updatedAsset = assetService.updateAsset(id, asset);
+
+        // 字段级变更历史：仅记录真正发生变化的字段
+        if (snapshot != null) {
+            recordIfChanged(id, "name", oldName, updatedAsset.getName(), operatorId);
+            recordIfChanged(id, "description", oldDescription, updatedAsset.getDescription(), operatorId);
+            recordIfChanged(id, "targetType", oldTargetType, updatedAsset.getTargetType(), operatorId);
+            recordIfChanged(id, "targetSource", oldTargetSource, updatedAsset.getTargetSource(), operatorId);
+            recordIfChanged(id, "priority", oldPriority, updatedAsset.getPriority(), operatorId);
+            recordIfChanged(id, "teamId", oldTeamId,
+                    updatedAsset.getTeamId() == null ? null : updatedAsset.getTeamId().toString(), operatorId);
+            recordIfChanged(id, "ownerId", oldOwnerId,
+                    updatedAsset.getOwnerId() == null ? null : updatedAsset.getOwnerId().toString(), operatorId);
+        }
+
         return ResponseEntity.ok(ApiResponse.success(updatedAsset));
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("@accessGuard.canWriteAsset(#id, authentication)")
     @Operation(summary = "删除资产", description = "软删除资产（归档）")
     public ResponseEntity<ApiResponse<Void>> deleteAsset(@PathVariable UUID id) {
         log.info("删除资产: id={}", id);
         
+        UUID operatorId = getCurrentUserId(SecurityContextHolder.getContext().getAuthentication());
+        String beforeStatus = assetRepository.findById(id).map(Asset::getStatus).orElse(null);
         assetService.deleteAsset(id, null);
+        recordHistory(id, "status", beforeStatus, "archived", operatorId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
     @PutMapping("/{id}/status")
+    @PreAuthorize("@accessGuard.canWriteAsset(#id, authentication)")
     @Operation(summary = "更新资产状态", description = "更新资产状态")
     public ResponseEntity<ApiResponse<Asset>> updateStatus(
             @PathVariable UUID id,
@@ -177,7 +222,10 @@ public class AssetController {
         
         log.info("更新资产状态: id={}, status={}", id, status);
         
-        Asset updatedAsset = assetService.updateStatus(id, status, null);
+        UUID operatorId = getCurrentUserId(SecurityContextHolder.getContext().getAuthentication());
+        String beforeStatus = assetRepository.findById(id).map(Asset::getStatus).orElse(null);
+        Asset updatedAsset = assetService.updateStatus(id, status, operatorId);
+        recordIfChanged(id, "status", beforeStatus, updatedAsset.getStatus(), operatorId);
         return ResponseEntity.ok(ApiResponse.success(updatedAsset));
     }
 
@@ -224,6 +272,7 @@ public class AssetController {
     }
 
     @PostMapping("/access-requests/{requestId}/review")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "审批访问申请", description = "审批资产访问申请")
     public ResponseEntity<ApiResponse<AssetAccess>> reviewAccessRequest(
             @PathVariable UUID requestId,
@@ -261,6 +310,7 @@ public class AssetController {
     }
 
     @GetMapping("/{id}/claims")
+    @PreAuthorize("@accessGuard.canReadAsset(#id, authentication)")
     @Operation(summary = "获取资产认领记录", description = "获取指定资产的认领记录")
     public ResponseEntity<ApiResponse<PageResponse<AssetClaim>>> listClaims(
             @PathVariable UUID id,
@@ -275,6 +325,7 @@ public class AssetController {
     }
 
     @PostMapping("/claims/{claimId}/review")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "审批认领申请", description = "审批资产认领申请")
     public ResponseEntity<ApiResponse<AssetClaim>> reviewClaim(
             @PathVariable UUID claimId,
@@ -314,6 +365,7 @@ public class AssetController {
      * 获取资产的标签列表
      */
     @GetMapping("/{id}/tags")
+    @PreAuthorize("@accessGuard.canReadAsset(#id, authentication)")
     @Operation(summary = "获取资产的标签列表", description = "获取指定资产的所有标签")
     public ResponseEntity<ApiResponse<List<AssetTag>>> getAssetTags(@PathVariable UUID id) {
         log.info("获取资产标签列表: assetId={}", id);
@@ -375,6 +427,7 @@ public class AssetController {
      * 获取资产历史记录
      */
     @GetMapping("/{id}/history")
+    @PreAuthorize("@accessGuard.canReadAsset(#id, authentication)")
     @Operation(summary = "获取资产历史记录", description = "获取资产的所有变更历史")
     public ResponseEntity<ApiResponse<List<AssetHistory>>> getAssetHistory(@PathVariable UUID id) {
         log.info("获取资产历史记录: assetId={}", id);
@@ -454,6 +507,38 @@ public class AssetController {
         
         List<Asset> assets = assetService.findAuthorizedAssetsByUser(currentUserId);
         return ResponseEntity.ok(ApiResponse.success(assets));
+    }
+
+    /**
+     * 写入一条资产变更历史。
+     *
+     * <p>此前 asset_history 只有查询接口、没有任何写入点，导致历史永远为空。
+     */
+    private void recordHistory(UUID assetId, String fieldName, String oldValue, String newValue, UUID changedBy) {
+        if (assetId == null || fieldName == null) {
+            return;
+        }
+        try {
+            assetHistoryRepository.save(AssetHistory.builder()
+                    .assetId(assetId)
+                    .fieldName(fieldName)
+                    .oldValue(oldValue)
+                    .newValue(newValue)
+                    .changedBy(changedBy)
+                    .build());
+        } catch (Exception e) {
+            log.warn("记录资产历史失败: assetId={}, field={}", assetId, fieldName, e);
+        }
+    }
+
+    /**
+     * 仅当值发生变化时写入历史，避免产生大量无意义记录。
+     */
+    private void recordIfChanged(UUID assetId, String fieldName, String oldValue, String newValue, UUID changedBy) {
+        if (Objects.equals(oldValue, newValue)) {
+            return;
+        }
+        recordHistory(assetId, fieldName, oldValue, newValue, changedBy);
     }
 
     /**

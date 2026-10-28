@@ -17,6 +17,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
@@ -64,11 +65,24 @@ public class DocumentController {
                 .build();
         
         Document createdDocument = documentService.createDocument(document);
+
+        // 落首个版本快照，保证版本历史从创建起可追溯
+        documentVersionRepository.save(DocumentVersion.builder()
+                .documentId(createdDocument.getId())
+                .version(createdDocument.getVersion() == null ? 1 : createdDocument.getVersion())
+                .title(createdDocument.getTitle())
+                .summary(createdDocument.getSummary())
+                .content(createdDocument.getContent())
+                .changelog("创建文档")
+                .createdBy(currentUserId)
+                .build());
+
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(createdDocument));
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("@accessGuard.canReadDocument(#id, authentication)")
     @Operation(summary = "获取文档详情", description = "根据ID获取文档详细信息")
     public ResponseEntity<ApiResponse<Document>> getDocument(@PathVariable UUID id) {
         log.info("获取文档详情: id={}", id);
@@ -114,13 +128,18 @@ public class DocumentController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("@accessGuard.canWriteDocument(#id, authentication)")
     @Operation(summary = "更新文档", description = "更新文档信息")
     public ResponseEntity<ApiResponse<Document>> updateDocument(
             @PathVariable UUID id,
             @Valid @RequestBody DocumentUpdateRequest request) {
         
         log.info("更新文档: id={}", id);
-        
+        UUID currentUserId = getCurrentUserId();
+
+        // 先取出旧内容（OSIV 下实体被就地更新，必须提前快照成字符串）
+        String oldContent = documentService.findById(id).map(Document::getContent).orElse(null);
+
         Document document = Document.builder()
                 .title(request.getTitle())
                 .category(request.getCategory())
@@ -129,10 +148,25 @@ public class DocumentController {
                 .build();
         
         Document updatedDocument = documentService.updateDocument(id, document);
+
+        // 内容确实变化时，把新版本写入 document_versions，版本号与文档实体版本保持一致
+        if (request.getContent() != null && !Objects.equals(oldContent, updatedDocument.getContent())) {
+            documentVersionRepository.save(DocumentVersion.builder()
+                    .documentId(id)
+                    .version(updatedDocument.getVersion() == null ? 1 : updatedDocument.getVersion())
+                    .title(updatedDocument.getTitle())
+                    .summary(updatedDocument.getSummary())
+                    .content(updatedDocument.getContent())
+                    .changelog("编辑保存")
+                    .createdBy(currentUserId)
+                    .build());
+        }
+
         return ResponseEntity.ok(ApiResponse.success(updatedDocument));
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("@accessGuard.canWriteDocument(#id, authentication)")
     @Operation(summary = "删除文档", description = "删除文档")
     public ResponseEntity<ApiResponse<Void>> deleteDocument(@PathVariable UUID id) {
         log.info("删除文档: id={}", id);
@@ -153,6 +187,7 @@ public class DocumentController {
     }
 
     @PostMapping("/{id}/access")
+    @PreAuthorize("@accessGuard.canWriteDocument(#id, authentication)")
     @Operation(summary = "授予文档访问权限", description = "授予用户文档访问权限")
     public ResponseEntity<ApiResponse<Void>> grantAccess(
             @PathVariable UUID id,
@@ -166,6 +201,7 @@ public class DocumentController {
     }
 
     @DeleteMapping("/{id}/access")
+    @PreAuthorize("@accessGuard.canWriteDocument(#id, authentication)")
     @Operation(summary = "撤销文档访问权限", description = "撤销用户文档访问权限")
     public ResponseEntity<ApiResponse<Void>> revokeAccess(
             @PathVariable UUID id,
@@ -183,6 +219,7 @@ public class DocumentController {
      * 发布文档
      */
     @PostMapping("/{id}/publish")
+    @PreAuthorize("@accessGuard.canWriteDocument(#id, authentication)")
     @Operation(summary = "发布文档", description = "将文档状态设置为已发布")
     public ResponseEntity<ApiResponse<Document>> publishDocument(@PathVariable UUID id) {
         log.info("发布文档: id={}", id);
@@ -203,6 +240,7 @@ public class DocumentController {
      * 取消发布文档
      */
     @PostMapping("/{id}/unpublish")
+    @PreAuthorize("@accessGuard.canWriteDocument(#id, authentication)")
     @Operation(summary = "取消发布文档", description = "将文档状态设置为未发布")
     public ResponseEntity<ApiResponse<Document>> unpublishDocument(@PathVariable UUID id) {
         log.info("取消发布文档: id={}", id);
@@ -224,6 +262,7 @@ public class DocumentController {
      * 获取文档版本历史
      */
     @GetMapping("/{id}/versions")
+    @PreAuthorize("@accessGuard.canReadDocument(#id, authentication)")
     @Operation(summary = "获取文档版本历史", description = "获取文档的所有历史版本")
     public ResponseEntity<ApiResponse<List<DocumentVersion>>> getDocumentVersions(@PathVariable UUID id) {
         log.info("获取文档版本历史: documentId={}", id);
@@ -236,6 +275,7 @@ public class DocumentController {
      * 获取指定版本详情
      */
     @GetMapping("/{id}/versions/{version}")
+    @PreAuthorize("@accessGuard.canReadDocument(#id, authentication)")
     @Operation(summary = "获取指定版本详情", description = "获取文档的指定版本内容")
     public ResponseEntity<ApiResponse<DocumentVersion>> getDocumentVersion(
             @PathVariable UUID id,
@@ -251,6 +291,7 @@ public class DocumentController {
      * 回滚到指定版本
      */
     @PostMapping("/{id}/versions/{version}/rollback")
+    @PreAuthorize("@accessGuard.canWriteDocument(#id, authentication)")
     @Operation(summary = "回滚到指定版本", description = "将文档内容回滚到指定版本")
     public ResponseEntity<ApiResponse<Document>> rollbackDocumentVersion(
             @PathVariable UUID id,

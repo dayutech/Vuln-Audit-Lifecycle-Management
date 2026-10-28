@@ -12,6 +12,7 @@ import com.vulnaudit.repository.RolePermissionRepository;
 import com.vulnaudit.repository.RoleRepository;
 import com.vulnaudit.repository.UserRoleRepository;
 import com.vulnaudit.service.RoleService;
+import com.vulnaudit.util.Paging;
 import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 import lombok.RequiredArgsConstructor;
@@ -110,7 +111,7 @@ public class RoleServiceImpl implements RoleService {
     public PageResponse<Role> findAll(int page, int size, @Nullable String keyword) {
         log.debug("分页查询角色: page={}, size={}, keyword={}", page, size, keyword);
 
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         Page<Role> rolePage;
 
         if (StringUtils.hasText(keyword)) {

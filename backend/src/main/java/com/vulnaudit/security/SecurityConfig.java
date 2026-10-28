@@ -1,6 +1,7 @@
 package com.vulnaudit.security;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -17,13 +18,13 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.util.StringUtils;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
 import java.util.List;
-
 /**
  * Spring Security安全配置类
  * 
@@ -44,6 +45,14 @@ public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final UserDetailsService userDetailsService;
 
+    /** API 文档是否匿名可访问（默认关闭，避免接口面暴露给未登录者） */
+    @Value("${app.security.public-api-docs:false}")
+    private boolean publicApiDocs;
+
+    /** 允许跨域的来源白名单，逗号分隔；为空表示不启用跨域（同源部署） */
+    @Value("${app.cors.allowed-origins:}")
+    private String allowedOrigins;
+
     /**
      * 配置安全过滤器链
      * 
@@ -57,24 +66,40 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 
                 // 配置CORS
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                // 未配置来源白名单时（同源部署 / 反向代理场景）不安装 CORS 过滤器。
+                // 否则 Spring 的 CorsFilter 会把任何携带 Origin 的请求当作跨域并直接拒绝，
+                // 表现为 “Invalid CORS request” 403 —— 反向代理下 Host 丢失端口时尤为常见。
+                .cors(cors -> {
+                    if (StringUtils.hasText(allowedOrigins)) {
+                        cors.configurationSource(corsConfigurationSource());
+                    } else {
+                        cors.disable();
+                    }
+                })
                 
                 // 配置请求授权
-                .authorizeHttpRequests(auth -> auth
-                        // 公开端点，无需认证
-                        .requestMatchers(
-                                "/api/v1/auth/login",
-                                "/api/v1/auth/register",
-                                "/api/v1/auth/refresh",
+                .authorizeHttpRequests(auth -> {
+                    // 登录相关端点始终公开
+                    auth.requestMatchers(
+                            "/api/v1/auth/login",
+                            "/api/v1/auth/logout",
+                            "/api/v1/auth/refresh",
+                            "/api/v1/auth/register",
+                            "/actuator/health"
+                    ).permitAll();
+
+                    // API 文档默认需要认证，仅在显式开启时公开（见 app.security.public-api-docs）
+                    if (publicApiDocs) {
+                        auth.requestMatchers(
                                 "/swagger-ui/**",
                                 "/swagger-ui.html",
-                                "/v3/api-docs/**",
-                                "/actuator/health"
-                        ).permitAll()
-                        
-                        // 其他所有请求需要认证
-                        .anyRequest().authenticated()
-                )
+                                "/v3/api-docs/**"
+                        ).permitAll();
+                    }
+
+                    // 其他所有请求需要认证
+                    auth.anyRequest().authenticated();
+                })
                 
                 // 配置会话管理：无状态会话
                 .sessionManagement(session -> session
@@ -127,35 +152,45 @@ public class SecurityConfig {
 
     /**
      * 配置CORS
-     * 允许前端跨域访问
-     * 
+     *
+     * <p>仅对显式配置的来源开放（{@code app.cors.allowed-origins}）。
+     * 默认生产形态是「前端与 API 同源，经 nginx 反向代理」，无需跨域；
+     * 因此默认为空，不再无条件放开 {@code *} + credentials。
+     *
      * @return CORS配置源
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        
-        // 允许的来源
-        configuration.setAllowedOriginPatterns(List.of("*"));
-        
+
+        List<String> origins = StringUtils.hasText(allowedOrigins)
+                ? Arrays.stream(allowedOrigins.split(","))
+                        .map(String::trim)
+                        .filter(StringUtils::hasText)
+                        .toList()
+                : List.of();
+
+        // 允许的来源：白名单为空时 registerCorsConfiguration 仍注册，但不会放行任何跨域来源
+        configuration.setAllowedOriginPatterns(origins);
+
         // 允许的方法
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
-        
+
         // 允许的头
         configuration.setAllowedHeaders(List.of("*"));
-        
-        // 允许携带凭证
-        configuration.setAllowCredentials(true);
-        
+
+        // 允许携带凭证：仅在显式配置来源时开启
+        configuration.setAllowCredentials(!origins.isEmpty());
+
         // 暴露的响应头
         configuration.setExposedHeaders(Arrays.asList("Authorization", "Content-Disposition"));
-        
+
         // 预检请求缓存时间（秒）
         configuration.setMaxAge(3600L);
-        
+
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
-        
+
         return source;
     }
 

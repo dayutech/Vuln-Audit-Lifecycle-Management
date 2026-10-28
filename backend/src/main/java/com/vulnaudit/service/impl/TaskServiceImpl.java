@@ -12,6 +12,7 @@ import com.vulnaudit.repository.TaskCollaboratorRepository;
 import com.vulnaudit.repository.TaskCommentRepository;
 import com.vulnaudit.repository.TaskRepository;
 import com.vulnaudit.service.TaskService;
+import com.vulnaudit.util.Paging;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -89,7 +90,7 @@ public class TaskServiceImpl implements TaskService {
 
     @Override
     public PageResponse<Task> findAll(int page, int size, @Nullable String keyword, @Nullable String status, @Nullable UUID assigneeId, @Nullable UUID referenceId, @Nullable UUID assetId, @Nullable UUID assetVersionId, @Nullable UUID operatorId, boolean managerAccess) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         Set<UUID> collaboratorTaskIds = operatorId == null ? Set.of() : taskCollaboratorRepository.findByUserId(operatorId)
                 .stream()
                 .map(TaskCollaborator::getTaskId)

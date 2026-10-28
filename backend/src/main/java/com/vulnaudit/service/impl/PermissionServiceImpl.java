@@ -9,6 +9,7 @@ import com.vulnaudit.repository.RolePermissionRepository;
 import com.vulnaudit.repository.UserPermissionRepository;
 import com.vulnaudit.repository.UserRoleRepository;
 import com.vulnaudit.service.PermissionService;
+import com.vulnaudit.util.Paging;
 import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 import lombok.RequiredArgsConstructor;
@@ -104,7 +105,7 @@ public class PermissionServiceImpl implements PermissionService {
     public PageResponse<Permission> findAll(int page, int size, @Nullable String keyword) {
         log.debug("分页查询权限: page={}, size={}, keyword={}", page, size, keyword);
 
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         Page<Permission> permissionPage;
 
         if (StringUtils.hasText(keyword)) {

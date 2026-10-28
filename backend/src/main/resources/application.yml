@@ -9,6 +9,14 @@ server:
 spring:
   application:
     name: vuln-audit-backend
+
+  # 文件上传上限：SRS 要求单文件 < 100MB（资产镜像/安装包/交付物）
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 100MB
+      max-request-size: 120MB
+      file-size-threshold: 2MB
   
   datasource:
     url: jdbc:mariadb://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:vuln_audit}?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8mb4&characterSetResults=utf8mb4&connectionCollation=utf8mb4_unicode_ci

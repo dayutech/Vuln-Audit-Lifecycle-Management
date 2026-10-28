@@ -8,6 +8,7 @@ import com.vulnaudit.exception.BusinessException;
 import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.*;
 import com.vulnaudit.service.UserService;
+import com.vulnaudit.util.Paging;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -118,7 +119,7 @@ public class UserServiceImpl implements UserService {
     public PageResponse<User> findAll(int page, int size, String keyword, String status) {
         log.debug("分页查询用户: page={}, size={}, keyword={}, status={}", page, size, keyword, status);
         
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         Page<User> userPage;
         
         if (StringUtils.hasText(keyword) && StringUtils.hasText(status)) {

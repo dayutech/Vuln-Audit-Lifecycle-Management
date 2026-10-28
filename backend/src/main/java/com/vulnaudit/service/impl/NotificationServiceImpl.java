@@ -14,6 +14,7 @@ import com.vulnaudit.repository.NotificationSettingRepository;
 import com.vulnaudit.repository.SystemAnnouncementRepository;
 import com.vulnaudit.repository.AssetSubscriptionRepository;
 import com.vulnaudit.service.NotificationService;
+import com.vulnaudit.util.Paging;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -73,7 +74,7 @@ public class NotificationServiceImpl implements NotificationService {
                     .build();
         }
 
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         
         Page<NotificationRecipient> recipientPage;
         if (isRead != null) {
@@ -296,7 +297,7 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     public PageResponse<SystemAnnouncement> findAllAnnouncements(int page, int size) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by("publishedAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("publishedAt").descending());
         Page<SystemAnnouncement> announcementPage = systemAnnouncementRepository.findAll(pageable);
 
         return PageResponse.<SystemAnnouncement>builder()

@@ -79,15 +79,19 @@ public class UserDetailsServiceImpl implements UserDetailsService {
                 .filter(roleCode -> roleCode != null)
                 .collect(Collectors.toList());
         
-        // 如果用户没有角色，默认添加ROLE_USER
-        if (roles.isEmpty()) {
-            roles.add("ROLE_USER");
-        }
-        
-        // 构建权限列表
+        // 构建权限列表：角色码统一转换为 ROLE_ 前缀的大写 authority，
+        // 保证 hasRole('ADMIN') 与 getAuthorities() 手工判断口径一致
         List<SimpleGrantedAuthority> authorities = roles.stream()
+                .map(RoleAuthority::of)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
                 .map(SimpleGrantedAuthority::new)
                 .collect(Collectors.toList());
+
+        // 如果用户没有角色，默认赋予 ROLE_USER
+        if (authorities.isEmpty()) {
+            authorities.add(new SimpleGrantedAuthority(RoleAuthority.USER));
+        }
         
         log.debug("用户 {} 加载了 {} 个角色: {}", username, authorities.size(), authorities);
         

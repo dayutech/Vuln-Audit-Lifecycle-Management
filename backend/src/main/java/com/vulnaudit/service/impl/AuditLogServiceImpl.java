@@ -4,6 +4,7 @@ import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.AuditLog;
 import com.vulnaudit.repository.AuditLogRepository;
 import com.vulnaudit.service.AuditLogService;
+import com.vulnaudit.util.Paging;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -71,7 +72,7 @@ public class AuditLogServiceImpl implements AuditLogService {
 
     @Override
     public PageResponse<AuditLog> findAll(int page, int size, @Nullable UUID userId, @Nullable String action, @Nullable String resourceType) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         
         Specification<AuditLog> spec = (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
@@ -104,7 +105,7 @@ public class AuditLogServiceImpl implements AuditLogService {
 
     @Override
     public PageResponse<AuditLog> findByUserId(UUID userId, int page, int size) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         Page<AuditLog> logPage = auditLogRepository.findByUserId(userId, pageable);
         
         return PageResponse.<AuditLog>builder()
@@ -118,7 +119,7 @@ public class AuditLogServiceImpl implements AuditLogService {
 
     @Override
     public PageResponse<AuditLog> findByResource(String resourceType, UUID resourceId, int page, int size) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
         Page<AuditLog> logPage = auditLogRepository.findByResourceTypeAndResourceId(resourceType, resourceId, pageable);
         
         return PageResponse.<AuditLog>builder()
