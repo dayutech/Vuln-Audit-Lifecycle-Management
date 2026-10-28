@@ -92,7 +92,7 @@ public class TaskControllerTest extends BaseTest {
         @DisplayName("获取任务详情 - 成功")
         void getTask_Success() throws Exception {
             mockMvc.perform(get("/api/v1/tasks/" + testTask.getId())
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }
 
@@ -100,7 +100,7 @@ public class TaskControllerTest extends BaseTest {
         @DisplayName("获取任务详情 - 任务不存在")
         void getTask_NotFound() throws Exception {
             mockMvc.perform(get("/api/v1/tasks/" + UUID.randomUUID())
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isNotFound());
         }
     }
@@ -281,7 +281,7 @@ public class TaskControllerTest extends BaseTest {
         @DisplayName("查询任务评论列表 - 成功")
         void getTaskComments_Success() throws Exception {
             mockMvc.perform(get("/api/v1/tasks/" + testTask.getId() + "/comments")
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }
     }
@@ -294,7 +294,7 @@ public class TaskControllerTest extends BaseTest {
         @DisplayName("查询任务附件列表 - 成功")
         void getTaskAttachments_Success() throws Exception {
             mockMvc.perform(get("/api/v1/tasks/" + testTask.getId() + "/attachments")
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }
     }
@@ -340,7 +340,7 @@ public class TaskControllerTest extends BaseTest {
                     .andExpect(status().isOk());
 
             mockMvc.perform(post("/api/v1/tasks/" + testTask.getId() + "/comments")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .param("content", "协作者执行记录")
                     .param("spentHours", "1.0"))
                     .andExpect(status().isOk());

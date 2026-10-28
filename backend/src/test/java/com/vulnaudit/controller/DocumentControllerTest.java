@@ -115,7 +115,7 @@ public class DocumentControllerTest extends BaseTest {
         @DisplayName("获取文档详情 - 成功")
         void getDocument_Success() throws Exception {
             mockMvc.perform(get("/api/v1/documents/" + testDocument.getId())
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }
 
@@ -123,7 +123,7 @@ public class DocumentControllerTest extends BaseTest {
         @DisplayName("获取文档详情 - 文档不存在")
         void getDocument_NotFound() throws Exception {
             mockMvc.perform(get("/api/v1/documents/" + UUID.randomUUID())
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isNotFound());
         }
     }
@@ -157,7 +157,7 @@ public class DocumentControllerTest extends BaseTest {
             String docJson = "{\"title\":\"更新后的标题\",\"content\":\"更新后的内容\"}";
 
             mockMvc.perform(put("/api/v1/documents/" + testDocument.getId())
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(docJson))
                     .andExpect(status().isOk());
@@ -172,7 +172,7 @@ public class DocumentControllerTest extends BaseTest {
         @DisplayName("发布文档 - 成功")
         void publishDocument_Success() throws Exception {
             mockMvc.perform(post("/api/v1/documents/" + testDocument.getId() + "/publish")
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }
 
@@ -180,7 +180,7 @@ public class DocumentControllerTest extends BaseTest {
         @DisplayName("取消发布文档 - 成功")
         void unpublishDocument_Success() throws Exception {
             mockMvc.perform(post("/api/v1/documents/" + testDocument.getId() + "/unpublish")
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }
     }
@@ -193,7 +193,7 @@ public class DocumentControllerTest extends BaseTest {
         @DisplayName("获取文档版本历史 - 成功")
         void getDocumentVersions_Success() throws Exception {
             mockMvc.perform(get("/api/v1/documents/" + testDocument.getId() + "/versions")
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }
     }

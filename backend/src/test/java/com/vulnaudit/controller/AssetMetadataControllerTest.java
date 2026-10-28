@@ -84,7 +84,7 @@ public class AssetMetadataControllerTest extends BaseTest {
         @DisplayName("获取基础元数据 - 成功")
         void getBaseMetadata_Success() throws Exception {
             mockMvc.perform(get("/api/v1/assets/" + testAsset.getId() + "/metadata/base")
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.systemArchitecture").value("x86_64"));
         }
@@ -95,7 +95,7 @@ public class AssetMetadataControllerTest extends BaseTest {
             String metadataJson = "{\"systemArchitecture\":\"arm64\",\"runtimePlatform\":\"Docker\",\"deploymentMethod\":\"k8s\"}";
 
             mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/base")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .contentType("application/json")
                     .content(metadataJson))
                     .andExpect(status().isOk())
@@ -112,7 +112,7 @@ public class AssetMetadataControllerTest extends BaseTest {
         @DisplayName("获取网络元数据 - 不存在时返回null")
         void getNetworkMetadata_NotFound() throws Exception {
             mockMvc.perform(get("/api/v1/assets/" + testAsset.getId() + "/metadata/network")
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }
 
@@ -122,7 +122,7 @@ public class AssetMetadataControllerTest extends BaseTest {
             String metadataJson = "{\"servicePorts\":\"8080,8443\",\"apiEndpoints\":\"/api/v1/test\"}";
 
             mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/network")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .contentType("application/json")
                     .content(metadataJson))
                     .andExpect(status().isOk())
@@ -141,7 +141,7 @@ public class AssetMetadataControllerTest extends BaseTest {
             String metadataJson = "{\"accountCredentialsJson\":\"[{\\\"usageNote\\\":\\\"SSH登录\\\",\\\"username\\\":\\\"root\\\",\\\"password\\\":\\\"root123\\\"},{\\\"usageNote\\\":\\\"Web管理员\\\",\\\"username\\\":\\\"admin\\\",\\\"password\\\":\\\"admin123\\\"}]\"}";
 
             mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/account")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .contentType("application/json")
                     .content(metadataJson))
                     .andExpect(status().isOk())
@@ -159,7 +159,7 @@ public class AssetMetadataControllerTest extends BaseTest {
             String metadataJson = "{\"installPath\":\"/opt/app\",\"startupScriptPath\":\"[\\\"/opt/app/start.sh\\\"]\",\"configFilePath\":\"[\\\"/etc/app/config.yml\\\"]\",\"startupCommand\":\"./start.sh\",\"databaseType\":\"MySQL\",\"databaseConnection\":\"jdbc:mysql://localhost:3306/demo\"}";
 
             mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/env")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .contentType("application/json")
                     .content(metadataJson))
                     .andExpect(status().isOk())
@@ -173,7 +173,7 @@ public class AssetMetadataControllerTest extends BaseTest {
             String metadataJson = "{\"specialNotes\":\"该资产依赖内网DNS与白名单策略\"}";
 
             mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/extra")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .contentType("application/json")
                     .content(metadataJson))
                     .andExpect(status().isOk())
@@ -201,7 +201,7 @@ public class AssetMetadataControllerTest extends BaseTest {
             String metadataJson = "{\"systemArchitecture\":\"arm64\",\"runtimePlatform\":\"Linux\"}";
 
             mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/base")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .param("assetVersionId", version.getId().toString())
                     .contentType("application/json")
                     .content(metadataJson))
@@ -237,7 +237,7 @@ public class AssetMetadataControllerTest extends BaseTest {
             String metadataJson = "{\"systemArchitecture\":\"arm64\",\"runtimePlatform\":\"Linux\"}";
 
             mockMvc.perform(put("/api/v1/assets/" + testAsset.getId() + "/metadata/base")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .param("assetVersionId", version.getId().toString())
                     .contentType("application/json")
                     .content(metadataJson))

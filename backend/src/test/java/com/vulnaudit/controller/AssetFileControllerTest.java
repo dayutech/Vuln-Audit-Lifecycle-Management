@@ -97,7 +97,7 @@ public class AssetFileControllerTest extends BaseTest {
         @DisplayName("获取资产文件列表 - 成功")
         void getFileList_Success() throws Exception {
             mockMvc.perform(get("/api/v1/assets/" + testAsset.getId() + "/files")
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.length()").value(1))
                     .andExpect(jsonPath("$.data[0].name").value("test_file.zip"));
@@ -112,7 +112,7 @@ public class AssetFileControllerTest extends BaseTest {
         @DisplayName("获取文件详情 - 成功")
         void getFile_Success() throws Exception {
             mockMvc.perform(get("/api/v1/asset-files/" + testFile.getId())
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }
 
@@ -120,7 +120,7 @@ public class AssetFileControllerTest extends BaseTest {
         @DisplayName("获取文件详情 - 文件不存在")
         void getFile_NotFound() throws Exception {
             mockMvc.perform(get("/api/v1/asset-files/" + UUID.randomUUID())
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isNotFound());
         }
     }
@@ -133,7 +133,7 @@ public class AssetFileControllerTest extends BaseTest {
         @DisplayName("获取文件版本列表 - 成功")
         void getFileVersions_Success() throws Exception {
             mockMvc.perform(get("/api/v1/asset-files/" + testFile.getId() + "/versions")
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }
     }
@@ -155,7 +155,7 @@ public class AssetFileControllerTest extends BaseTest {
             mockMvc.perform(multipart("/api/v1/assets/" + testAsset.getId() + "/files")
                             .file(emptyFile)
                             .param("category", "其他")
-                            .header("Authorization", engineerToken))
+                            .header("Authorization", adminToken))
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.success").value(false))
                     .andExpect(jsonPath("$.message").value("上传文件不能为空"));
@@ -170,7 +170,7 @@ public class AssetFileControllerTest extends BaseTest {
         @DisplayName("删除文件 - 成功")
         void deleteFile_Success() throws Exception {
             mockMvc.perform(delete("/api/v1/asset-files/" + testFile.getId())
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }
 
@@ -178,7 +178,7 @@ public class AssetFileControllerTest extends BaseTest {
         @DisplayName("删除文件 - 文件不存在")
         void deleteFile_NotFound() throws Exception {
             mockMvc.perform(delete("/api/v1/asset-files/" + UUID.randomUUID())
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isNotFound());
         }
     }

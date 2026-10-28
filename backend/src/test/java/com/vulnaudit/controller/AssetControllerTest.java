@@ -151,7 +151,7 @@ public class AssetControllerTest extends BaseTest {
         @DisplayName("获取资产详情 - 成功")
         void getAsset_Success() throws Exception {
             mockMvc.perform(get("/api/v1/assets/" + testAsset.getId())
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.name").value("测试资产"))
                     .andExpect(jsonPath("$.data.code").exists());
@@ -161,7 +161,7 @@ public class AssetControllerTest extends BaseTest {
         @DisplayName("获取资产详情 - 资产不存在")
         void getAsset_NotFound() throws Exception {
             mockMvc.perform(get("/api/v1/assets/" + UUID.randomUUID())
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isNotFound());
         }
     }
@@ -265,7 +265,7 @@ public class AssetControllerTest extends BaseTest {
         @DisplayName("获取资产标签 - 成功")
         void getAssetTags_Success() throws Exception {
             mockMvc.perform(get("/api/v1/assets/" + testAsset.getId() + "/tags")
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data").isArray());
         }
@@ -376,7 +376,7 @@ public class AssetControllerTest extends BaseTest {
         @DisplayName("获取资产历史记录 - 成功")
         void getAssetHistory_Success() throws Exception {
             mockMvc.perform(get("/api/v1/assets/" + testAsset.getId() + "/history")
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data").isArray());
         }

@@ -78,11 +78,11 @@ public abstract class BaseTest {
         testCounter++;
         clearDatabase();
         Role adminRole = roleRepository.save(Objects.requireNonNull(Role.builder()
-                .name("管理员").code("ROLE_ADMIN").description("管理员").isSystem(true).build()));
+                .name("管理员").code("admin").description("管理员").isSystem(true).build()));
         Role leaderRole = roleRepository.save(Objects.requireNonNull(Role.builder()
-                .name("组长").code("ROLE_LEADER").description("组长").isSystem(false).build()));
+                .name("组长").code("team_leader").description("组长").isSystem(false).build()));
         Role engineerRole = roleRepository.save(Objects.requireNonNull(Role.builder()
-                .name("工程师").code("ROLE_ENGINEER").description("工程师").isSystem(false).build()));
+                .name("工程师").code("vulnerability_engineer").description("工程师").isSystem(false).build()));
         User adminUser = userRepository.save(Objects.requireNonNull(User.builder()
                 .username("admin_" + testCounter)
                 .passwordHash(passwordEncoder.encode("admin123"))
@@ -126,8 +126,8 @@ public abstract class BaseTest {
                 .assignedAt(LocalDateTime.now())
                 .build()));
         adminToken = Objects.requireNonNull(generateTestToken("admin_" + testCounter, "ROLE_ADMIN"));
-        leaderToken = Objects.requireNonNull(generateTestToken("leader1_" + testCounter, "ROLE_LEADER"));
-        engineerToken = Objects.requireNonNull(generateTestToken("engineer1_" + testCounter, "ROLE_ENGINEER"));
+        leaderToken = Objects.requireNonNull(generateTestToken("leader1_" + testCounter, "ROLE_TEAM_LEADER"));
+        engineerToken = Objects.requireNonNull(generateTestToken("engineer1_" + testCounter, "ROLE_VULNERABILITY_ENGINEER"));
     }
 
     private void clearDatabase() {
