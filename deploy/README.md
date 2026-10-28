@@ -162,3 +162,18 @@ MYSQL_PWD='VulnApp_2026#Db9x' mariadb -uvulnapp vuln_audit \
 - 报表导出仍为空实现；邮件/短信/Webhook 无发送通道
 - 工具库「下载」仍只计数、无文件流端点
 - 约 150 个后端接口仍无前端入口（访问申请、认领、标签、漏洞历史/附件、通知设置等）
+### 9.1 CORS 相关补充（登录报 "Invalid CORS request" 的处置）
+
+现象：CORS 收紧为白名单后，`admin` 登录返回 403 `Invalid CORS request`。
+
+原因：nginx 用 `proxy_set_header Host $host` 转发时**丢失了端口**，后端看到的请求 Host 是
+`192.168.188.200`，而浏览器 `Origin` 是 `http://192.168.188.200:8089`，两者端口不一致，
+Spring 判定为跨域；此时白名单为空 → 直接拒绝。
+
+处置（两处同时生效）：
+1. nginx 改用 `proxy_set_header Host $http_host`，保留端口，同源判定重新成立；
+2. 后端在 `app.cors.allowed-origins` 为空时**不安装 CORS 过滤器**（而非安装一个空配置），
+   同源/反代场景不再因为携带 `Origin` 而被拒。
+
+如需真正的跨域访问（前端独立域名），在 `backend.env` 设置
+`APP_CORS_ALLOWED_ORIGINS=https://your-frontend` 即可，此时过滤器才会启用。
