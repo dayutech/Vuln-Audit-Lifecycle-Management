@@ -145,3 +145,12 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 4) E-k 并发 3 次上传未撞出 409：t28 的行级锁把版本号分配串行化，实际输出 201/201/201 且 versionNo 唯一（无 500）；409 语义由 ToolVersionConcurrencyTest 单测覆盖，线上难以自然触发。
 5) 数据清理：20 个残留分组（13 个回归/调试/诊断/空分组 + 7 个冒烟分组）经新后端逐个 DELETE 全部 200；8 个冒烟/乱码资产清理（DELETE /assets 为软删除，最终按 id 硬删除并清理关联）；notification_settings 3→0；演练审批范围 1 条删除；资产表剩 3 条示例数据。
 6) 如需复跑：bash ~/apps/vuln-audit/scripts/smoke.sh（默认 BASE_URL=http://127.0.0.1:8089）。
+
+########## 四、复跑与最终状态（2026-10-29 22:43） ##########
+- 第二次冒烟（同一部署、清理后复跑）：TOTAL=92  PASS=92  FAIL=0  SKIP=0（脚本退出码 0），说明脚本可重复执行且账号/数据自愈有效。
+- 静态资源：/var/www/vuln-audit/static/ 仅 index-DmCRvmQl.js + index-TaRZIJNx.css（与本次前端构建产物一致）。
+- 后端：jar 72,869,597 B（2026-10-29 14:16 UTC 构建），服务 active (running)，日志时间戳 +08:00。
+- RBAC：permissions=90 / role_permissions=261 / roles=4（两次重启后不变）。
+- 数据收尾：assets=3（示例数据）、asset_groups=0、notification_settings=0、vulnerabilities=0、tools=0、environments=0、tasks=1（历史审计任务）、audit_logs=568（保留审计轨迹）。
+- 备份：~/backups/vuln_audit_pre_t13_*.sql.gz（DDL 前）、backend_*.jar 与 backend_src_*.tar.gz（部署前）。
+- 软删除说明：脚本每轮 DELETE /assets 只置 archived，本次已按 id 清理关联表后硬删；自动化收尾脚本见 deploy/README.md §18.4。
