@@ -43,6 +43,7 @@ public class AssetAccessServiceImpl implements AssetAccessService {
     private final AssetAccessRepository assetAccessRepository;
     private final AssetRepository assetRepository;
     private final UserRepository userRepository;
+    private final com.vulnaudit.service.ApprovalRoutingService approvalRoutingService;
 
     /**
      * 创建访问申请
@@ -85,9 +86,26 @@ public class AssetAccessServiceImpl implements AssetAccessService {
         
         // 设置默认状态
         assetAccess.setStatus("pending");
-        
+
+        // 三个可见性开关在库中为 NOT NULL；请求未显式传值时兜底为 false，
+        // 否则插入会因 NULL 约束失败（调用方只关心其中某一项时尤其容易触发）
+        if (assetAccess.getCanViewDocuments() == null) {
+            assetAccess.setCanViewDocuments(false);
+        }
+        if (assetAccess.getCanViewEnvironments() == null) {
+            assetAccess.setCanViewEnvironments(false);
+        }
+        if (assetAccess.getCanViewFiles() == null) {
+            assetAccess.setCanViewFiles(false);
+        }
+
+        // 按「直属领导 → 项目负责人 → 管理员」路由审批人（SRS 3.7.3.2）
+        if (assetAccess.getApproverId() == null) {
+            assetAccess.setApproverId(approvalRoutingService.resolveApprover(assetId, userId));
+        }
+
         AssetAccess savedAccess = assetAccessRepository.save(assetAccess);
-        log.info("访问申请创建成功: id={}", savedAccess.getId());
+        log.info("访问申请创建成功: id={}, approverId={}", savedAccess.getId(), savedAccess.getApproverId());
         
         return savedAccess;
     }
@@ -182,6 +200,17 @@ public class AssetAccessServiceImpl implements AssetAccessService {
             throw new BusinessException(ErrorCode.INVALID_STATUS);
         }
 
+        // 审批权限校验：只有被路由到的审批人、覆盖该资产范围的团队负责人、
+        // 或 admin/project_leader 才能审批
+        if (reviewerId == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "审批人不能为空");
+        }
+        boolean isRoutedApprover = reviewerId.equals(access.getApproverId());
+        if (!isRoutedApprover && !approvalRoutingService.canReview(access.getAssetId(), reviewerId)) {
+            log.warn("无审批权限: requestId={}, reviewerId={}, assetId={}", id, reviewerId, access.getAssetId());
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限审批该资产的访问申请");
+        }
+
         // 更新审批信息
         access.setStatus(approved ? "approved" : "rejected");
         access.setReviewedBy(reviewerId);
@@ -253,18 +282,26 @@ public class AssetAccessServiceImpl implements AssetAccessService {
     }
 
     /**
-     * 获取用户待审批的访问申请列表
-     * 用户作为资产负责人时需要审批的申请
+     * 获取用户待审批的访问申请列表。
+     *
+     * <p>此前返回系统内**全部**待审申请，任何登录用户都能看到其他人的申请。
+     * 现按审批路由过滤：admin / project_leader 看全部；其他人只看路由给自己的。
      */
     @Override
     public PageResponse<AssetAccess> findPendingApprovalByUser(UUID userId, int page, int size) {
         log.debug("获取用户待审批的访问申请: userId={}", userId);
         
         Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
+        boolean globalApprover = userId != null && approvalRoutingService.isGlobalApprover(userId);
         
-        // 查询状态为pending的访问申请
         Specification<AssetAccess> spec = (root, query, cb) -> {
-            return cb.equal(root.get("status"), "pending");
+            if (globalApprover) {
+                return cb.equal(root.get("status"), "pending");
+            }
+            return cb.and(
+                    cb.equal(root.get("status"), "pending"),
+                    cb.equal(root.get("approverId"), userId)
+            );
         };
         
         Page<AssetAccess> accessPage = assetAccessRepository.findAll(spec, pageable);

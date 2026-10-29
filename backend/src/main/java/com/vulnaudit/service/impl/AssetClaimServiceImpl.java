@@ -44,6 +44,7 @@ public class AssetClaimServiceImpl implements AssetClaimService {
     private final AssetClaimRepository assetClaimRepository;
     private final AssetRepository assetRepository;
     private final UserRepository userRepository;
+    private final com.vulnaudit.service.ApprovalRoutingService approvalRoutingService;
 
     /**
      * 创建认领申请
@@ -177,6 +178,13 @@ public class AssetClaimServiceImpl implements AssetClaimService {
         if (!"pending".equals(claim.getStatus())) {
             log.warn("认领申请已处理: id={}, status={}", id, claim.getStatus());
             throw new BusinessException(ErrorCode.INVALID_STATUS);
+        }
+
+        // 审批权限校验：与访问申请一致，仅限覆盖该资产范围的管理人员
+        if (reviewerId == null
+                || !approvalRoutingService.canReview(claim.getAssetId(), reviewerId)) {
+            log.warn("无认领审批权限: claimId={}, reviewerId={}, assetId={}", id, reviewerId, claim.getAssetId());
+            throw new BusinessException(ErrorCode.FORBIDDEN, "无权限审批该资产的认领申请");
         }
 
         // 更新审批信息

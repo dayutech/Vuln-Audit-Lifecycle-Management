@@ -279,9 +279,11 @@ public class AssetController {
             @Valid @RequestBody AssetAccessReviewRequest request) {
         
         log.info("审批访问申请: requestId={}, approved={}", requestId, request.isApproved());
-        
+
+        // 传入真实审批人，服务层据此校验「是否被授权审批该资产」
+        UUID reviewerId = getCurrentUserId(SecurityContextHolder.getContext().getAuthentication());
         AssetAccess reviewedAccess = assetAccessService.reviewAccessRequest(
-                requestId, request.isApproved(), request.getReviewNote(), null);
+                requestId, request.isApproved(), request.getReviewNote(), reviewerId);
         return ResponseEntity.ok(ApiResponse.success(reviewedAccess));
     }
 
@@ -332,9 +334,10 @@ public class AssetController {
             @Valid @RequestBody AssetAccessReviewRequest request) {
         
         log.info("审批认领申请: claimId={}, approved={}", claimId, request.isApproved());
-        
+
+        UUID reviewerId = getCurrentUserId(SecurityContextHolder.getContext().getAuthentication());
         AssetClaim reviewedClaim = assetClaimService.reviewClaim(
-                claimId, request.isApproved(), request.getReviewNote(), null);
+                claimId, request.isApproved(), request.getReviewNote(), reviewerId);
         return ResponseEntity.ok(ApiResponse.success(reviewedClaim));
     }
 

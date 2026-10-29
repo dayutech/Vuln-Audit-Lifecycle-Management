@@ -62,6 +62,15 @@ public class AssetAccess {
     private String status = "pending";
 
     /**
+     * 路由到的审批人ID
+     *
+     * <p>由 {@code ApprovalRoutingService} 在申请创建时按「直属领导 → 项目负责人 → 管理员」
+     * 的规则计算并落库，便于审批人只看自己的待办。
+     */
+    @Column(name = "approver_id")
+    private UUID approverId;
+
+    /**
      * 是否可查看文档
      */
     @Column(name = "can_view_documents", nullable = false)
