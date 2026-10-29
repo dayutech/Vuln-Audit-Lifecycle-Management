@@ -20,6 +20,10 @@ import java.util.UUID;
 
 /**
  * 角色管理控制器
+ *
+ * <p><b>双轨说明</b>：本控制器仍按角色准入（权限矩阵 2.11：admin/project_leader 可查询，
+ * 增删改仅 admin）。角色与权限点的关联（{@code role_permissions}）是后续 ABAC 的基础数据，
+ * 前端「角色权限分配」页据此渲染勾选状态。
  */
 @Slf4j
 @RestController
@@ -35,11 +39,27 @@ public class RoleController {
     @PreAuthorize("hasRole('ADMIN')")
 
     @PostMapping
-    @Operation(summary = "创建角色", description = "创建新角色")
-    public ResponseEntity<ApiResponse<Role>> createRole(@Valid @RequestBody Role role) {
-        log.info("创建角色: code={}", role.getCode());
-        
-        Role createdRole = roleService.createRole(role);
+    @Operation(summary = "创建角色", description = "创建新角色；可一并提交 permissionIds 完成权限分配")
+    public ResponseEntity<ApiResponse<Role>> createRole(@Valid @RequestBody RoleUpsertRequest request) {
+        log.info("创建角色: code={}, permissionCount={}",
+                request.getCode(), request.getPermissionIds() == null ? 0 : request.getPermissionIds().size());
+
+        if (request.getName() == null || request.getName().isBlank()
+                || request.getCode() == null || request.getCode().isBlank()) {
+            throw new com.vulnaudit.exception.BusinessException(com.vulnaudit.exception.ErrorCode.BAD_REQUEST);
+        }
+
+        Role createdRole = roleService.createRole(Role.builder()
+                .name(request.getName())
+                .code(request.getCode())
+                .description(request.getDescription())
+                .isSystem(false)
+                .build());
+
+        if (request.getPermissionIds() != null) {
+            roleService.syncPermissions(createdRole.getId(), request.getPermissionIds());
+        }
+
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(createdRole));
     }
@@ -55,26 +75,67 @@ public class RoleController {
                         .body(ApiResponse.error(404, "角色不存在")));
     }
 
+    /**
+     * 获取角色列表
+     *
+     * @param includePermissions 是否附带每个角色的权限点（前端「角色权限分配」页回显勾选状态用），
+     *                           兼容 {@code include_permissions} 命名
+     */
     @GetMapping
-    @Operation(summary = "获取所有角色", description = "获取所有角色列表")
-    public ResponseEntity<ApiResponse<List<Role>>> listRoles() {
-        log.info("获取所有角色");
-        
+    @Operation(summary = "获取所有角色", description = "获取所有角色列表，可选附带权限点")
+    public ResponseEntity<ApiResponse<List<Role>>> listRoles(
+            @RequestParam(required = false) Boolean includePermissions,
+            @RequestParam(name = "include_permissions", required = false) Boolean includePermissionsSnake) {
+        boolean withPermissions = Boolean.TRUE.equals(includePermissions)
+                || Boolean.TRUE.equals(includePermissionsSnake);
+        log.info("获取所有角色: includePermissions={}", withPermissions);
+
         List<Role> roles = roleService.findAll();
+        if (withPermissions) {
+            // 返回副本而不是直接改实体：避免瞬态字段残留在持久化上下文中串到后续请求
+            roles = roles.stream().map(this::withPermissions).toList();
+        }
         return ResponseEntity.ok(ApiResponse.success(roles));
+    }
+
+    /**
+     * 复制角色并附带权限点（瞬态字段只用于响应，不写库）
+     */
+    private Role withPermissions(Role role) {
+        return Role.builder()
+                .id(role.getId())
+                .name(role.getName())
+                .code(role.getCode())
+                .description(role.getDescription())
+                .isSystem(role.getIsSystem())
+                .createdAt(role.getCreatedAt())
+                .updatedAt(role.getUpdatedAt())
+                .permissions(roleService.getRolePermissions(role.getId()))
+                .build();
     }
 
     @PreAuthorize("hasRole('ADMIN')")
 
     @PutMapping("/{id}")
-    @Operation(summary = "更新角色", description = "更新角色信息")
+    @Operation(summary = "更新角色", description = "更新角色信息；提交 permissionIds 时按目标集合覆盖式同步权限点")
     public ResponseEntity<ApiResponse<Role>> updateRole(
             @PathVariable UUID id,
-            @Valid @RequestBody Role role) {
+            @Valid @RequestBody RoleUpsertRequest request) {
         
-        log.info("更新角色: id={}", id);
+        log.info("更新角色: id={}, permissionCount={}",
+                id, request.getPermissionIds() == null ? 0 : request.getPermissionIds().size());
         
-        Role updatedRole = roleService.updateRole(id, role);
+        Role updatedRole = roleService.updateRole(id, Role.builder()
+                .name(request.getName())
+                .code(request.getCode())
+                .description(request.getDescription())
+                .build());
+
+        if (request.getPermissionIds() != null) {
+            roleService.syncPermissions(id, request.getPermissionIds());
+            updatedRole = withPermissions(roleService.findById(id).orElse(updatedRole));
+        }
+
         return ResponseEntity.ok(ApiResponse.success(updatedRole));
     }
 
@@ -92,7 +153,7 @@ public class RoleController {
     @PreAuthorize("hasRole('ADMIN')")
 
     @PostMapping("/{id}/permissions")
-    @Operation(summary = "分配权限给角色", description = "为角色分配权限")
+    @Operation(summary = "分配权限给角色", description = "为角色分配权限；已分配的权限点自动跳过（幂等）")
     public ResponseEntity<ApiResponse<Void>> assignPermissions(
             @PathVariable UUID id,
             @Parameter(description = "权限ID列表") @RequestBody List<UUID> permissionIds) {
@@ -101,6 +162,21 @@ public class RoleController {
         
         roleService.assignPermissions(id, permissionIds);
         return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    /**
+     * 获取角色已分配的权限点
+     *
+     * <p>供前端「角色权限分配」页回显勾选状态；与 POST /{id}/permissions 成对使用。
+     */
+    @GetMapping("/{id}/permissions")
+    @Operation(summary = "获取角色权限", description = "获取角色已分配的权限点列表")
+    public ResponseEntity<ApiResponse<List<com.vulnaudit.entity.Permission>>> getRolePermissions(
+            @PathVariable UUID id) {
+
+        log.debug("获取角色权限: roleId={}", id);
+
+        return ResponseEntity.ok(ApiResponse.success(roleService.getRolePermissions(id)));
     }
 
     @PreAuthorize("hasRole('ADMIN')")

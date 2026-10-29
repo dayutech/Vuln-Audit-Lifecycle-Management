@@ -1,12 +1,12 @@
 package com.vulnaudit.service.impl;
 
 import com.vulnaudit.dto.PageResponse;
-import com.vulnaudit.entity.Permission;
 import com.vulnaudit.entity.Role;
 import com.vulnaudit.entity.User;
 import com.vulnaudit.exception.BusinessException;
 import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.*;
+import com.vulnaudit.service.PermissionService;
 import com.vulnaudit.service.UserService;
 import com.vulnaudit.util.Paging;
 import lombok.RequiredArgsConstructor;
@@ -41,10 +41,8 @@ public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
-    private final PermissionRepository permissionRepository;
     private final UserRoleRepository userRoleRepository;
-    private final UserPermissionRepository userPermissionRepository;
-    private final RolePermissionRepository rolePermissionRepository;
+    private final PermissionService permissionService;
     private final PasswordEncoder passwordEncoder;
 
     /**
@@ -163,6 +161,11 @@ public class UserServiceImpl implements UserService {
 
     /**
      * 更新用户信息
+     *
+     * <p><b>不涉及密码</b>：{@code passwordHash} 始终保持原值（本方法不读写该字段）。
+     * 改密码只能走 {@link #changePassword(UUID, String, String)}（需原密码）或
+     * {@link #resetPassword(UUID, String, UUID)}（管理员重置），两者均经 {@code PasswordEncoder} 加密，
+     * 杜绝明文或 NULL 写入 {@code users.password_hash}。
      */
     @Override
     @Transactional
@@ -390,33 +393,14 @@ public class UserServiceImpl implements UserService {
 
     /**
      * 获取用户的所有权限代码
+     *
+     * <p>统一由 {@link com.vulnaudit.service.PermissionService} 计算（角色并集 + 用户单独授权，
+     * 已排除 {@code expires_at} 过期的直接授权），避免多处实现口径漂移。
      */
     @Override
     public List<String> getUserPermissionCodes(UUID userId) {
         log.debug("获取用户权限代码: userId={}", userId);
-        
-        Set<String> permissionCodes = new HashSet<>();
-        
-        // 获取直接授予用户的权限
-        List<UUID> directPermissionIds = userPermissionRepository.findValidPermissionIdsByUserId(userId, LocalDateTime.now());
-        if (!directPermissionIds.isEmpty()) {
-            permissionRepository.findAllById(directPermissionIds).stream()
-                    .map(Permission::getCode)
-                    .forEach(permissionCodes::add);
-        }
-        
-        // 获取通过角色获得的权限
-        List<UUID> roleIds = userRoleRepository.findRoleIdsByUserId(userId);
-        for (UUID roleId : roleIds) {
-            List<UUID> rolePermissionIds = rolePermissionRepository.findPermissionIdsByRoleId(roleId);
-            if (!rolePermissionIds.isEmpty()) {
-                permissionRepository.findAllById(rolePermissionIds).stream()
-                        .map(Permission::getCode)
-                        .forEach(permissionCodes::add);
-            }
-        }
-        
-        return new ArrayList<>(permissionCodes);
+        return permissionService.getUserPermissionCodes(userId);
     }
 
 }

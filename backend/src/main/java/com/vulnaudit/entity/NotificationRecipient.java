@@ -37,6 +37,39 @@ public class NotificationRecipient {
     @Column(name = "user_id", nullable = false)
     private UUID userId;
 
+    /**
+     * 接收人类型：leader/assignee/specific_user
+     */
+    @Column(name = "recipient_type", length = 20)
+    @Builder.Default
+    private String recipientType = "specific_user";
+
+    /**
+     * 实际投递渠道：in_app / email / webhook（多通道以逗号分隔）
+     */
+    @Column(name = "channel", length = 50)
+    @Builder.Default
+    private String channel = "in_app";
+
+    /**
+     * 发送状态：pending / sent / failed / partial
+     */
+    @Column(name = "send_status", length = 20)
+    @Builder.Default
+    private String sendStatus = "pending";
+
+    /**
+     * 外部通道发送完成时间
+     */
+    @Column(name = "sent_at")
+    private LocalDateTime sentAt;
+
+    /**
+     * 发送失败原因
+     */
+    @Column(name = "error_message", length = 500)
+    private String errorMessage;
+
     @Column(name = "is_read", nullable = false)
     @Builder.Default
     private Boolean isRead = false;
@@ -49,6 +82,15 @@ public class NotificationRecipient {
 
     @PrePersist
     protected void onCreate() {
+        if (recipientType == null) {
+            recipientType = "specific_user";
+        }
+        if (channel == null) {
+            channel = "in_app";
+        }
+        if (sendStatus == null) {
+            sendStatus = "pending";
+        }
         this.createdAt = LocalDateTime.now();
         log.debug("创建通知接收者: notificationId={}, userId={}", notificationId, userId);
     }

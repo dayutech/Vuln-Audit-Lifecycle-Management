@@ -86,3 +86,51 @@ springdoc:
   swagger-ui:
     enabled: true
     path: /swagger-ui.html
+
+# ==================== 通知通道配置 ====================
+# 默认全部关闭：不配置时通知行为与纯站内信一致，配置后自动启用对应外部通道。
+# 通道发送失败只会把 notification_recipients.send_status 置为 failed 并记录 error_message，
+# 站内信始终落库，不会因外部通道异常而失败。
+app:
+  # RBAC 基线数据初始化：启动时幂等写入权限点、内置角色与默认角色权限关联。
+  # 权限点是后续 ABAC 的基础数据；关闭后接口仍按 @PreAuthorize 角色轨鉴权。
+  rbac:
+    bootstrap-enabled: ${APP_RBAC_BOOTSTRAP_ENABLED:true}
+  # 审计日志：保留天数与每日清理时间（默认 180 天、每天 03:30，服务器本地时区）
+  audit:
+    retention-days: ${APP_AUDIT_RETENTION_DAYS:180}
+    cleanup-cron: ${APP_AUDIT_CLEANUP_CRON:0 30 3 * * *}
+  notify:
+    mail:
+      enabled: ${NOTIFY_MAIL_ENABLED:false}
+      host: ${NOTIFY_MAIL_HOST:}
+      port: ${NOTIFY_MAIL_PORT:25}
+      username: ${NOTIFY_MAIL_USERNAME:}
+      password: ${NOTIFY_MAIL_PASSWORD:}
+      from: ${NOTIFY_MAIL_FROM:}
+      from-name: ${NOTIFY_MAIL_FROM_NAME:漏洞审计平台}
+      ssl: ${NOTIFY_MAIL_SSL:false}
+      starttls: ${NOTIFY_MAIL_STARTTLS:false}
+      timeout-ms: ${NOTIFY_MAIL_TIMEOUT_MS:5000}
+    webhook:
+      enabled: ${NOTIFY_WEBHOOK_ENABLED:false}
+      url: ${NOTIFY_WEBHOOK_URL:}
+      secret: ${NOTIFY_WEBHOOK_SECRET:}
+      timeout-ms: ${NOTIFY_WEBHOOK_TIMEOUT_MS:3000}
+      max-retries: ${NOTIFY_WEBHOOK_MAX_RETRIES:3}
+      retry-backoff-ms: ${NOTIFY_WEBHOOK_RETRY_BACKOFF_MS:200}
+
+  # ==================== 环境部署（容器编排） ====================
+  # 默认自动探测：宿主机存在 Docker 守护进程（/var/run/docker.sock 或 DOCKER_HOST）
+  # 且 docker CLI 可用时，环境部署会真实创建/启停容器；否则退化为 Noop，
+  # 部署接口返回 503「当前部署未启用容器编排」，environment.status=failed。
+  env:
+    docker:
+      enabled: ${ENV_DOCKER_ENABLED:true}
+      command: ${ENV_DOCKER_COMMAND:docker}
+      command-timeout-ms: ${ENV_DOCKER_TIMEOUT_MS:10000}
+      availability-cache-ms: ${ENV_DOCKER_AVAILABILITY_CACHE_MS:30000}
+      default-image: ${ENV_DOCKER_DEFAULT_IMAGE:alpine:3.20}
+      name-prefix: ${ENV_DOCKER_NAME_PREFIX:vulnaudit-env-}
+      network: ${ENV_DOCKER_NETWORK:}
+      socket-path: ${ENV_DOCKER_SOCKET_PATH:}

@@ -68,4 +68,14 @@ public interface ToolService {
 
     @Nonnull
     ToolVersion uploadVersion(@Nullable UUID toolId, @Nullable String version, @Nullable String changelog, @Nullable MultipartFile file);
+
+    /**
+     * 按 工具ID + 版本ID 查询版本（下载前校验归属）
+     *
+     * @param toolId    工具ID
+     * @param versionId 版本ID
+     * @return 版本（不存在或不属于该工具时为空）
+     */
+    @Nonnull
+    java.util.Optional<ToolVersion> findVersion(@Nullable UUID toolId, @Nullable UUID versionId);
 }

@@ -3,6 +3,7 @@ package com.vulnaudit.service.impl;
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.Document;
 import com.vulnaudit.entity.DocumentAccess;
+import com.vulnaudit.entity.DocumentVersion;
 import com.vulnaudit.exception.BusinessException;
 import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.DocumentAccessRepository;
@@ -26,6 +27,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
+import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 
 /**
@@ -38,6 +40,11 @@ public class DocumentServiceImpl implements DocumentService {
 
     private final DocumentRepository documentRepository;
     private final DocumentAccessRepository documentAccessRepository;
+    private final com.vulnaudit.repository.DocumentVersionRepository documentVersionRepository;
+    private final org.springframework.transaction.PlatformTransactionManager transactionManager;
+
+    /** 文档版本号冲突的最大尝试次数（含首次） */
+    private static final int MAX_DOCUMENT_VERSION_ATTEMPTS = 3;
 
     @Override
     @Transactional
@@ -153,6 +160,195 @@ public class DocumentServiceImpl implements DocumentService {
         }
         String plain = content.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
         return plain.length();
+    }
+
+    /**
+     * 回滚到指定历史版本（写入一条新快照，历史不可变）
+     */
+    @Override
+    @Nonnull
+    public Document rollbackToVersion(@Nullable UUID id, @Nullable Integer version, @Nullable UUID operatorId) {
+        if (id == null) {
+            throw new BusinessException(ErrorCode.DOCUMENT_NOT_FOUND);
+        }
+        if (version == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "目标版本号不能为空");
+        }
+        log.info("文档回滚请求: id={}, targetVersion={}, operatorId={}", id, version, operatorId);
+
+        for (int attempt = 1; attempt <= MAX_DOCUMENT_VERSION_ATTEMPTS; attempt++) {
+            final int currentAttempt = attempt;
+            try {
+                Document rolledBack = transactionTemplate().execute(status ->
+                        applyRollbackOnce(id, version, operatorId, currentAttempt));
+                if (rolledBack != null) {
+                    return rolledBack;
+                }
+            } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                if (!com.vulnaudit.util.PersistenceErrors.isUniqueViolation(e)) {
+                    String detail = com.vulnaudit.util.PersistenceErrors.detail(e);
+                    log.warn("文档回滚数据完整性校验失败: id={}, detail={}", id, detail);
+                    throw new BusinessException(ErrorCode.BAD_REQUEST, "文档数据不完整或不符合约束: " + detail);
+                }
+                log.warn("文档回滚版本号冲突，准备重试: documentId={}, attempt={}/{}, cause={}",
+                        id, attempt, MAX_DOCUMENT_VERSION_ATTEMPTS,
+                        com.vulnaudit.util.PersistenceErrors.detail(e));
+                if (attempt < MAX_DOCUMENT_VERSION_ATTEMPTS) {
+                    backoffQuietly(attempt);
+                }
+            }
+        }
+
+        log.warn("文档回滚版本号冲突重试耗尽: documentId={}, attempts={}", id, MAX_DOCUMENT_VERSION_ATTEMPTS);
+        throw new BusinessException(ErrorCode.CONFLICT, "文档版本冲突，请重试");
+    }
+
+    /**
+     * 单次回滚尝试（独立事务）
+     *
+     * <p>行级锁串行化 → 读取目标历史版本（只读，不修改历史）→ 计算 max+1 →
+     * 更新 documents 当前内容与版本 → saveAndFlush → 写入新快照（冲突点）。
+     */
+    private Document applyRollbackOnce(UUID id, Integer targetVersion, UUID operatorId, int attempt) {
+        Document document = documentRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DOCUMENT_NOT_FOUND));
+
+        DocumentVersion target = documentVersionRepository.findByDocumentIdAndVersion(id, targetVersion)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
+                        "版本不存在: v" + targetVersion));
+
+        // 版本号以「历史最大版本 + 1」为基准，保证连续、不跳号
+        int maxVersion = documentVersionRepository.findLatestVersion(id)
+                .map(latest -> latest.getVersion() == null ? 0 : latest.getVersion())
+                .orElse(0);
+        int currentDocumentVersion = document.getVersion() == null ? 0 : document.getVersion();
+        int nextVersion = Math.max(maxVersion, currentDocumentVersion) + 1;
+
+        // 历史不可变：只读取 target 的内容，不回写 target 实体
+        document.setTitle(target.getTitle());
+        document.setSummary(target.getSummary());
+        document.setContent(target.getContent());
+        document.setWordCount(countContentLength(target.getContent()));
+        document.setVersion(nextVersion);
+
+        log.debug("执行文档回滚: id={}, fromVersion={}, newVersion={}, attempt={}",
+                id, targetVersion, nextVersion, attempt);
+
+        Document saved = documentRepository.saveAndFlush(Objects.requireNonNull(document));
+
+        documentVersionRepository.saveAndFlush(DocumentVersion.builder()
+                .documentId(id)
+                .version(nextVersion)
+                .title(target.getTitle())
+                .summary(target.getSummary())
+                .content(target.getContent())
+                // 追溯来源：who rollback to which version
+                .changelog("rollback from v" + targetVersion)
+                .createdBy(operatorId != null ? operatorId : saved.getAuthorId())
+                .build());
+
+        return saved;
+    }
+
+    @Override
+    @Nonnull
+    public Document updateDocumentWithSnapshot(@Nullable UUID id, @Nonnull Document patch, @Nullable UUID operatorId) {
+        if (id == null) {
+            throw new BusinessException(ErrorCode.DOCUMENT_NOT_FOUND);
+        }
+        log.info("更新文档（含版本快照）: id={}, operatorId={}", id, operatorId);
+
+        for (int attempt = 1; attempt <= MAX_DOCUMENT_VERSION_ATTEMPTS; attempt++) {
+            final int currentAttempt = attempt;
+            try {
+                Document updated = transactionTemplate().execute(status ->
+                        applyUpdateWithSnapshotOnce(id, patch, operatorId, currentAttempt));
+                if (updated != null) {
+                    return updated;
+                }
+            } catch (org.springframework.dao.DataIntegrityViolationException e) {
+                if (!com.vulnaudit.util.PersistenceErrors.isUniqueViolation(e)) {
+                    String detail = com.vulnaudit.util.PersistenceErrors.detail(e);
+                    log.warn("文档数据完整性校验失败: id={}, detail={}", id, detail);
+                    throw new BusinessException(ErrorCode.BAD_REQUEST, "文档数据不完整或不符合约束: " + detail);
+                }
+                log.warn("文档版本号冲突，准备重试: documentId={}, attempt={}/{}, cause={}",
+                        id, attempt, MAX_DOCUMENT_VERSION_ATTEMPTS,
+                        com.vulnaudit.util.PersistenceErrors.detail(e));
+                if (attempt < MAX_DOCUMENT_VERSION_ATTEMPTS) {
+                    backoffQuietly(attempt);
+                }
+            }
+        }
+
+        log.warn("文档版本号冲突重试耗尽: documentId={}, attempts={}", id, MAX_DOCUMENT_VERSION_ATTEMPTS);
+        throw new BusinessException(ErrorCode.CONFLICT, "文档版本冲突，请重试");
+    }
+
+    /**
+     * 单次尝试（独立事务）：行级锁 → 应用变更 → 递增版本号 → saveAndFlush → 写快照
+     *
+     * <p>{@code (document_id, version)} 唯一键冲突会在 {@code saveAndFlush} 时抛出，由外层有界重试处理。
+     */
+    private Document applyUpdateWithSnapshotOnce(UUID id, Document patch, UUID operatorId, int attempt) {
+        // 行级锁：同一文档的版本号分配串行化
+        Document existingDocument = documentRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.DOCUMENT_NOT_FOUND));
+
+        boolean contentChanged = patch.getContent() != null
+                && !Objects.equals(existingDocument.getContent(), patch.getContent());
+
+        if (patch.getTitle() != null) {
+            existingDocument.setTitle(patch.getTitle());
+        }
+        if (patch.getContent() != null) {
+            existingDocument.setContent(patch.getContent());
+            existingDocument.setWordCount(countContentLength(patch.getContent()));
+        }
+        if (patch.getSummary() != null) {
+            existingDocument.setSummary(patch.getSummary());
+        }
+        if (patch.getCategory() != null) {
+            existingDocument.setCategory(patch.getCategory());
+        }
+
+        int currentVersion = existingDocument.getVersion() == null ? 1 : existingDocument.getVersion();
+        if (contentChanged) {
+            existingDocument.setVersion(currentVersion + 1);
+        }
+
+        log.debug("尝试保存文档: id={}, willSnapshot={}, targetVersion={}, attempt={}",
+                id, contentChanged, existingDocument.getVersion(), attempt);
+
+        Document saved = documentRepository.saveAndFlush(Objects.requireNonNull(existingDocument));
+
+        if (contentChanged) {
+            UUID createdBy = operatorId != null ? operatorId : saved.getAuthorId();
+            documentVersionRepository.saveAndFlush(com.vulnaudit.entity.DocumentVersion.builder()
+                    .documentId(id)
+                    .version(saved.getVersion())
+                    .title(saved.getTitle())
+                    .summary(saved.getSummary())
+                    .content(saved.getContent())
+                    .changelog("编辑保存")
+                    .createdBy(createdBy)
+                    .build());
+        }
+
+        return saved;
+    }
+
+    private org.springframework.transaction.support.TransactionTemplate transactionTemplate() {
+        return new org.springframework.transaction.support.TransactionTemplate(transactionManager);
+    }
+
+    private void backoffQuietly(int attempt) {
+        long sleepMs = attempt * 15L + java.util.concurrent.ThreadLocalRandom.current().nextLong(20);
+        try {
+            Thread.sleep(sleepMs);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Override

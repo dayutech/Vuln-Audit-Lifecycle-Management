@@ -45,6 +45,24 @@ public interface ToolVersionRepository extends JpaRepository<ToolVersion, UUID> 
     boolean existsByToolIdAndVersion(UUID toolId, String version);
 
     /**
+     * 取同一工具下最大版本序号，用于自增
+     *
+     * @param toolId 工具ID
+     * @return 最新版本
+     */
+    Optional<ToolVersion> findFirstByToolIdOrderByVersionNoDesc(UUID toolId);
+
+    /**
+     * 检查同一工具下版本序号是否存在（并发冲突预检）
+     */
+    boolean existsByToolIdAndVersionNo(UUID toolId, Integer versionNo);
+
+    /**
+     * 按版本ID + 工具ID查询（下载时校验归属）
+     */
+    Optional<ToolVersion> findByIdAndToolId(UUID id, UUID toolId);
+
+    /**
      * 统计工具版本数量
      * 
      * @param toolId 工具ID

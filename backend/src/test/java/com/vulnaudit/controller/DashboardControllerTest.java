@@ -103,26 +103,34 @@ public class DashboardControllerTest extends BaseTest {
     class VulnerabilityStatsTests {
 
         @Test
-        @DisplayName("获取漏洞统计 - 成功")
+        @DisplayName("获取漏洞统计 - 成功（管理类角色）")
         void getVulnerabilityStats_Success() throws Exception {
             mockMvc.perform(get("/api/v1/dashboard/vulnerabilities/stats")
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", leaderToken))
                     .andExpect(status().isOk());
         }
 
         @Test
-        @DisplayName("获取漏洞严重程度分布 - 成功")
+        @DisplayName("获取漏洞统计 - 工程师 403（权限矩阵 2.13）")
+        void getVulnerabilityStats_ForbiddenForEngineer() throws Exception {
+            mockMvc.perform(get("/api/v1/dashboard/vulnerabilities/stats")
+                    .header("Authorization", engineerToken))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
+        @DisplayName("获取漏洞严重程度分布 - 成功（管理类角色）")
         void getVulnerabilitySeverityDistribution_Success() throws Exception {
             mockMvc.perform(get("/api/v1/dashboard/vulnerabilities/stats/severity")
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", leaderToken))
                     .andExpect(status().isOk());
         }
 
         @Test
-        @DisplayName("获取漏洞状态分布 - 成功")
+        @DisplayName("获取漏洞状态分布 - 成功（管理类角色）")
         void getVulnerabilityStatusDistribution_Success() throws Exception {
             mockMvc.perform(get("/api/v1/dashboard/vulnerabilities/stats/workflow-status")
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", leaderToken))
                     .andExpect(status().isOk());
         }
 

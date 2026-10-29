@@ -3,6 +3,7 @@ package com.vulnaudit.service;
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.Environment;
 import com.vulnaudit.entity.EnvironmentSnapshot;
+import com.vulnaudit.service.env.EnvironmentProvisionerInfo;
 
 import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
@@ -13,7 +14,8 @@ import java.util.UUID;
 /**
  * 环境服务接口
  *
- * 注意：此模块为空实现，待后续需求明确后再实现
+ * <p>部署/启动/停止会调用可插拔的 {@code EnvironmentProvisioner}：
+ * 容器编排不可用时状态写为 {@code failed} 并抛出业务异常（503），不再伪装成功。
  */
 public interface EnvironmentService {
 
@@ -34,7 +36,14 @@ public interface EnvironmentService {
 
     void stopEnvironment(@Nullable UUID id);
 
-    void createSnapshot(@Nullable UUID id, @Nullable String name);
+    /**
+     * 创建快照
+     *
+     * @param id         环境ID
+     * @param name       快照名称
+     * @param operatorId 操作者ID（真实当前用户，用于 created_by）
+     */
+    void createSnapshot(@Nullable UUID id, @Nullable String name, @Nullable UUID operatorId);
 
     void deployEnvironment(@Nullable UUID id);
 
@@ -42,4 +51,10 @@ public interface EnvironmentService {
     List<EnvironmentSnapshot> getSnapshots(@Nullable UUID id);
 
     void rollbackSnapshot(@Nullable UUID id, @Nullable UUID snapshotId);
+
+    /**
+     * 当前生效的部署器类型与可用性，供详情接口返回给前端提示
+     */
+    @Nonnull
+    EnvironmentProvisionerInfo provisionerInfo();
 }

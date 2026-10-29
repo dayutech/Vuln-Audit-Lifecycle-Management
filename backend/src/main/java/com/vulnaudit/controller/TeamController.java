@@ -29,12 +29,23 @@ import java.util.UUID;
 public class TeamController {
 
     private final TeamService teamService;
+    private final com.vulnaudit.security.CurrentUserProvider currentUserProvider;
 
     @PostMapping
-    @Operation(summary = "创建团队", description = "创建新的团队")
+    @Operation(summary = "创建团队", description = "创建新的团队；createdBy 缺省时取当前登录用户")
     public ResponseEntity<ApiResponse<Team>> createTeam(@Valid @RequestBody Team team) {
         log.info("创建团队: name={}", team.getName());
-        
+
+        // teams.created_by 为 NOT NULL：未传时补当前用户，避免落库 500
+        if (team.getCreatedBy() == null) {
+            UUID createdBy = currentUserProvider.currentUserId().orElse(null);
+            if (createdBy == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.error(401, "未授权"));
+            }
+            team.setCreatedBy(createdBy);
+        }
+
         Team createdTeam = teamService.createTeam(team);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(createdTeam));

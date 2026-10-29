@@ -6,6 +6,7 @@ import com.vulnaudit.entity.NotificationSetting;
 import com.vulnaudit.entity.SystemAnnouncement;
 import com.vulnaudit.service.NotificationService;
 import com.vulnaudit.service.UserService;
+import com.vulnaudit.service.notify.NotificationTypes;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -117,14 +118,15 @@ public class NotificationController {
      * 发送漏洞通知
      */
     @PostMapping("/vulnerability-discovered")
-    @Operation(summary = "发送漏洞通知", description = "发送漏洞发现通知给相关用户")
+    @Operation(summary = "发送漏洞通知", description = "发送漏洞发现通知给相关用户；type 缺省为 vulnerability_discovered（最长 50 字符）")
     public ResponseEntity<ApiResponse<Void>> sendVulnerabilityNotification(
             @Parameter(description = "漏洞ID") @RequestParam UUID vulnerabilityId,
-            @Parameter(description = "通知类型") @RequestParam(defaultValue = "vulnerability_discovered") String type,
+            @Parameter(description = "通知类型，最长 50 字符")
+            @RequestParam(defaultValue = NotificationTypes.VULNERABILITY_DISCOVERED) String type,
             @Parameter(description = "接收者ID列表") @RequestParam(required = false) List<UUID> recipientIds) {
-        
+
         log.info("发送漏洞通知: vulnerabilityId={}, type={}", vulnerabilityId, type);
-        
+
         notificationService.sendVulnerabilityNotification(vulnerabilityId, type, recipientIds);
         return ResponseEntity.ok(ApiResponse.success(null));
     }

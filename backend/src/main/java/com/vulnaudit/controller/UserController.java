@@ -31,6 +31,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -46,6 +47,18 @@ import jakarta.annotation.Nullable;
  * - 处理用户管理相关请求
  * - 提供用户CRUD接口
  * - 提供用户状态管理接口
+ * - 提供用户角色/权限分配接口与「我的权限」查询
+ *
+ * <p><b>双轨说明</b>：接口准入仍由 {@code @PreAuthorize("hasRole(...)")} 做角色校验（语义未变）；
+ * 角色与用户单独授权共同产出的权限码集合（{@code /users/me/permissions}）是后续 ABAC 落地的
+ * 基础数据，用于按「资源:操作」而非角色名做细粒度判定。
+ *
+ * <p><b>密码字段约定</b>：响应里「不返回密码哈希」由实体上的
+ * {@code @JsonIgnore}（见 {@link User#getPasswordHash()}）保证，<b>不再通过把受管实体的
+ * {@code passwordHash} 置 null 来表达</b>——那种写法会污染持久化上下文，在单事务/长会话下把
+ * NULL 刷进 {@code users.password_hash}（NOT NULL）导致 500。改密码统一走
+ * {@code POST /auth/change-password}（自助）与 {@code POST /users/{id}/reset-password}（管理员），
+ * 两者都经 {@code PasswordEncoder} 加密。
  */
 @Slf4j
 @RestController
@@ -90,7 +103,6 @@ public class UserController {
                 .build();
         
         User createdUser = userService.createUser(user);
-        createdUser.setPasswordHash(null);
         
         log.info("用户创建成功: id={}", createdUser.getId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(createdUser));
@@ -113,7 +125,6 @@ public class UserController {
         User user = userService.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         
-        user.setPasswordHash(null);
         return ApiResponse.success(user);
     }
 
@@ -134,7 +145,6 @@ public class UserController {
         log.debug("查询用户列表: page={}, size={}, keyword={}, status={}", page, size, keyword, status);
         
         PageResponse<User> userPage = userService.findAll(page, size, keyword, status);
-        userPage.getContent().forEach(user -> user.setPasswordHash(null));
         
         return ApiResponse.success(userPage);
     }
@@ -178,7 +188,6 @@ public class UserController {
                 .build();
         
         User updatedUser = userService.updateUser(id, user);
-        updatedUser.setPasswordHash(null);
         
         log.info("用户更新成功: id={}", updatedUser.getId());
         return ApiResponse.success(updatedUser);
@@ -208,7 +217,6 @@ public class UserController {
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
         
         User updatedUser = userService.updateStatus(id, status, currentUser.getId());
-        updatedUser.setPasswordHash(null);
         
         log.info("用户状态更新成功: id={}, status={}", updatedUser.getId(), status);
         return ApiResponse.success(updatedUser);
@@ -339,10 +347,13 @@ public class UserController {
 
     /**
      * 为用户分配角色
+     *
+     * <p>幂等：重复分配不产生重复行，仍返回 200 与现有角色关联；
+     * 存在性：用户或角色不存在返回 404。
      */
     @PostMapping("/{id}/roles")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "分配角色给用户", description = "管理员为用户分配角色，支持一个用户多个角色")
+    @Operation(summary = "分配角色给用户", description = "管理员为用户分配角色，支持一个用户多个角色；重复分配幂等")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "分配成功"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "角色不存在"),
@@ -354,38 +365,31 @@ public class UserController {
             @Parameter(description = "用户ID", required = true) @PathVariable UUID id,
             @Parameter(description = "角色ID", required = true) @RequestParam UUID roleId) {
         log.info("为用户分配角色: userId={}, roleId={}", id, roleId);
-        
+
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String currentUsername = authentication.getName();
         User currentUser = userService.findByUsername(currentUsername)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-        
-        roleService.findById(roleId)
+
+        boolean created = roleService.assignRoleToUser(id, roleId, Objects.requireNonNull(currentUser.getId()));
+
+        UserRole userRole = userRoleRepository.findByUserIdAndRoleId(id, roleId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ROLE_NOT_FOUND));
 
-        if (userRoleRepository.existsByUserIdAndRoleId(id, roleId)) {
-            return ApiResponse.error("用户已拥有该角色");
+        if (!created) {
+            log.info("用户已拥有该角色，返回现有关联: userId={}, roleId={}", id, roleId);
         }
-        
-        UserRole userRole = UserRole.builder()
-                .userId(id)
-                .roleId(roleId)
-                .assignedBy(Objects.requireNonNull(currentUser.getId()))
-                .assignedAt(LocalDateTime.now())
-                .build();
-        
-        UserRole savedUserRole = userRoleRepository.save(Objects.requireNonNull(userRole));
-        log.info("角色分配成功: userId={}, roleId={}", id, roleId);
-
-        return ApiResponse.success(savedUserRole);
+        return ApiResponse.success(userRole);
     }
 
     /**
      * 撤销用户角色
+     *
+     * <p>幂等：未分配时同样返回 200，避免重复调用报错。
      */
     @DeleteMapping("/{id}/roles/{roleId}")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "撤销用户角色", description = "管理员撤销用户的某个角色")
+    @Operation(summary = "撤销用户角色", description = "管理员撤销用户的某个角色；重复撤销幂等")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "撤销成功"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "未授权"),
@@ -400,13 +404,12 @@ public class UserController {
         if (id == null || roleId == null) {
             return ApiResponse.error("用户ID和角色ID不能为空");
         }
-        
-        UserRole userRole = userRoleRepository.findByUserIdAndRoleId(id, roleId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_ROLE_EXISTS));
-        
-        userRoleRepository.delete(Objects.requireNonNull(userRole));
-        log.info("角色撤销成功: userId={}, roleId={}", id, roleId);
-        
+
+        boolean removed = roleService.removeRoleFromUser(id, roleId);
+        if (!removed) {
+            log.info("用户未拥有该角色，视为已撤销: userId={}, roleId={}", id, roleId);
+        }
+
         return ApiResponse.success(null);
     }
 
@@ -414,10 +417,13 @@ public class UserController {
 
     /**
      * 直接分配权限给用户
+     *
+     * <p>幂等：已授予且未过期时保持原样（不续期、不重复插入）；已过期则重新激活。
+     * 存在性：用户或权限点不存在返回 404/400。
      */
     @PostMapping("/{id}/permissions")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "直接分配权限给用户", description = "管理员直接分配特定权限给用户（可设置过期时间）")
+    @Operation(summary = "直接分配权限给用户", description = "管理员直接分配特定权限给用户（可设置过期时间）；重复分配幂等")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "分配成功"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "权限不存在"),
@@ -430,39 +436,32 @@ public class UserController {
             @Parameter(description = "权限ID", required = true) @RequestParam UUID permissionId,
             @Parameter(description = "过期时间（可选）") @RequestParam(required = false) LocalDateTime expiresAt) {
         log.info("为用户分配权限: userId={}, permissionId={}, expiresAt={}", id, permissionId, expiresAt);
-        
+
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String currentUsername = authentication.getName();
         User currentUser = userService.findByUsername(currentUsername)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-        
-        permissionService.findById(permissionId)
+
+        boolean changed = permissionService.assignPermissionToUser(
+                id, permissionId, Objects.requireNonNull(currentUser.getId()), expiresAt);
+
+        UserPermission userPermission = userPermissionRepository.findByUserIdAndPermissionId(id, permissionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PERMISSION_NOT_FOUND));
 
-        if (userPermissionRepository.existsByUserIdAndPermissionId(id, permissionId)) {
-            return ApiResponse.error("用户已拥有该权限");
+        if (!changed) {
+            log.info("用户已拥有该权限，返回现有授权: userId={}, permissionId={}", id, permissionId);
         }
-        
-        UserPermission userPermission = UserPermission.builder()
-                .userId(id)
-                .permissionId(permissionId)
-                .grantedBy(Objects.requireNonNull(currentUser.getId()))
-                .grantedAt(LocalDateTime.now())
-                .expiresAt(expiresAt)
-                .build();
-        
-        UserPermission savedUserPermission = userPermissionRepository.save(Objects.requireNonNull(userPermission));
-        log.info("权限分配成功: userId={}, permissionId={}", id, permissionId);
-
-        return ApiResponse.success(savedUserPermission);
+        return ApiResponse.success(userPermission);
     }
 
     /**
      * 撤销用户权限
+     *
+     * <p>幂等：未直接授权时同样返回 200。
      */
     @DeleteMapping("/{id}/permissions/{permissionId}")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "撤销用户权限", description = "管理员撤销直接分配给用户的权限")
+    @Operation(summary = "撤销用户权限", description = "管理员撤销直接分配给用户的权限；重复撤销幂等")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "撤销成功"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "未授权"),
@@ -477,18 +476,23 @@ public class UserController {
         if (id == null || permissionId == null) {
             return ApiResponse.error("用户ID和权限ID不能为空");
         }
-        
-        UserPermission userPermission = userPermissionRepository.findByUserIdAndPermissionId(id, permissionId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.USER_PERMISSION_EXISTS));
-        
-        userPermissionRepository.delete(Objects.requireNonNull(userPermission));
-        log.info("权限撤销成功: userId={}, permissionId={}", id, permissionId);
-        
+
+        boolean removed = permissionService.removePermissionFromUser(id, permissionId);
+        if (!removed) {
+            log.info("用户未直接拥有该权限，视为已撤销: userId={}, permissionId={}", id, permissionId);
+        }
+
         return ApiResponse.success(null);
     }
 
     /**
      * 获取当前用户权限
+     *
+     * <p>返回当前登录用户的真实权限码集合：角色并集 + 用户单独授权（已排除 {@code expires_at} 过期项），
+     * 由 {@link PermissionService#getUserPermissionCodes(UUID)} 统一计算并排序。
+     *
+     * <p>权限点是后续 ABAC 的基础；当前接口准入仍由各控制器的
+     * {@code @PreAuthorize("hasRole(...)")} 负责（双轨并存，语义未变）。
      */
     @GetMapping("/me/permissions")
     @Operation(summary = "获取当前用户权限", description = "获取当前登录用户的权限列表（角色权限+直接分配权限的并集）")
@@ -498,25 +502,25 @@ public class UserController {
     })
     public ApiResponse<Map<String, Object>> getCurrentUserPermissions() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null) {
+        if (authentication == null || authentication.getName() == null) {
             log.warn("未找到认证信息");
             return ApiResponse.error("未授权");
         }
-        
+
         String username = authentication.getName();
         User user = userService.findByUsername(username)
                 .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
-        
+
         List<String> roleCodes = userService.getUserRoleCodes(user.getId());
-        List<String> permissionCodes = userService.getUserPermissionCodes(user.getId());
-        
-        Map<String, Object> result = Map.of(
-                "userId", user.getId(),
-                "username", user.getUsername(),
-                "roles", roleCodes,
-                "permissions", permissionCodes
-        );
-        
+        List<String> permissionCodes = permissionService.getUserPermissionCodes(user.getId());
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("userId", user.getId());
+        result.put("username", user.getUsername());
+        result.put("roles", roleCodes);
+        result.put("permissions", permissionCodes);
+        result.put("permissionCount", permissionCodes.size());
+
         return ApiResponse.success(result);
     }
 

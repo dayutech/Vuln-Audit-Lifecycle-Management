@@ -19,6 +19,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -138,6 +139,7 @@ public class AssetGroupController {
 
     @DeleteMapping("/{id}")
     @Operation(summary = "删除分组", description = "删除资产分组")
+    @Transactional
     public ResponseEntity<ApiResponse<Void>> deleteGroup(@PathVariable @Nullable UUID id) {
         log.info("删除资产分组: id={}", id);
 
@@ -192,6 +194,7 @@ public class AssetGroupController {
 
     @DeleteMapping("/{groupId}/assets/{assetId}")
     @Operation(summary = "从分组移除资产", description = "将资产从分组中移除")
+    @Transactional
     public ResponseEntity<ApiResponse<Void>> removeAssetFromGroup(
             @PathVariable @Nullable UUID groupId,
             @PathVariable @Nullable UUID assetId) {

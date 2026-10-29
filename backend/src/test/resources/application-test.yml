@@ -47,6 +47,24 @@ jwt:
   expiration: 3600000
   refresh-expiration: 86400000
 
+# 通知通道：测试环境默认全部关闭，验证“未配置时降级为仅站内”的基线行为
+app:
+  # RBAC 启动初始化在测试环境关闭：BaseTest 每个用例都会清库重建角色，
+  # 自动种子只会污染用例数据；RBAC 相关用例改为显式调用 PermissionBootstrapService。
+  rbac:
+    bootstrap-enabled: false
+  notify:
+    mail:
+      enabled: false
+    webhook:
+      enabled: false
+  # 环境部署：测试环境强制关闭容器编排，环境部署一律走 Noop 路径（断言返回失败）
+  env:
+    docker:
+      enabled: false
+      command: definitely-not-a-real-docker-cli
+      availability-cache-ms: 0
+
 # 日志配置
 logging:
   level:

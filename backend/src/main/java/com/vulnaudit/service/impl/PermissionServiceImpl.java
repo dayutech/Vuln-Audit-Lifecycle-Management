@@ -2,11 +2,13 @@ package com.vulnaudit.service.impl;
 
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.Permission;
+import com.vulnaudit.entity.UserPermission;
 import com.vulnaudit.exception.BusinessException;
 import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.PermissionRepository;
 import com.vulnaudit.repository.RolePermissionRepository;
 import com.vulnaudit.repository.UserPermissionRepository;
+import com.vulnaudit.repository.UserRepository;
 import com.vulnaudit.repository.UserRoleRepository;
 import com.vulnaudit.service.PermissionService;
 import com.vulnaudit.util.Paging;
@@ -29,6 +31,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 
 /**
@@ -37,7 +40,13 @@ import java.util.UUID;
  * 功能说明：
  * - 实现权限管理的业务逻辑
  * - 提供权限CRUD操作
- * - 提供权限验证
+ * - 提供权限验证与用户直接授权（含过期时间）
+ *
+ * <p><b>双轨说明</b>：控制器仍以 {@code @PreAuthorize("hasRole(...)")} 做粗粒度准入，
+ * 本实现只维护「权限点轨」的数据与判定能力（{@link #getUserPermissionCodes(UUID)}、
+ * {@link #hasPermission(UUID, String, String)}）。权限点是后续 ABAC 的基础：
+ * 后续可按 {@code (apiPath, httpMethod)} 反查所需权限编码，再比对用户有效权限集合，
+ * 即可在不改动既有角色注解语义的情况下渐进替换硬编码角色名。
  */
 @Slf4j
 @Service
@@ -48,6 +57,7 @@ public class PermissionServiceImpl implements PermissionService {
     private final RolePermissionRepository rolePermissionRepository;
     private final UserPermissionRepository userPermissionRepository;
     private final UserRoleRepository userRoleRepository;
+    private final UserRepository userRepository;
 
     /**
      * 创建权限
@@ -229,40 +239,155 @@ public class PermissionServiceImpl implements PermissionService {
     }
 
     /**
-     * 获取用户的所有权限代码
+     * 获取用户的所有有效权限代码（角色并集 + 用户单独授权）
+     *
+     * <p>直接授权按 {@code expires_at} 过滤（{@code NULL} 表示永久有效）；
+     * 角色授权不设过期时间。返回结果去重并排序，保证同一用户多次调用结果稳定。
      */
     @Override
     @Nonnull
     public List<String> getUserPermissionCodes(@Nullable UUID userId) {
         log.debug("获取用户权限代码: userId={}", userId);
 
-        Set<String> permissionCodes = new HashSet<>();
+        if (userId == null) {
+            return new ArrayList<>();
+        }
 
-        // 获取直接授予用户的权限（有效权限）
-        List<UUID> directPermissionIds = userPermissionRepository.findValidPermissionIdsByUserId(userId, LocalDateTime.now());
+        Set<String> permissionCodes = new TreeSet<>();
+
+        // 1) 直接授予用户的权限（排除已过期）
+        List<UUID> directPermissionIds = userPermissionRepository
+                .findValidPermissionIdsByUserId(userId, LocalDateTime.now());
         if (directPermissionIds != null && !directPermissionIds.isEmpty()) {
-            List<Permission> directPermissions = permissionRepository.findAllById(directPermissionIds);
-            if (directPermissions != null) {
-                directPermissions.stream()
+            permissionRepository.findAllById(directPermissionIds).stream()
+                    .map(Permission::getCode)
+                    .filter(Objects::nonNull)
+                    .forEach(permissionCodes::add);
+        }
+
+        // 2) 通过角色继承的权限（多角色取并集）
+        List<UUID> roleIds = userRoleRepository.findRoleIdsByUserId(userId);
+        if (roleIds != null && !roleIds.isEmpty()) {
+            Set<UUID> rolePermissionIds = new HashSet<>();
+            for (UUID roleId : roleIds) {
+                rolePermissionIds.addAll(rolePermissionRepository.findPermissionIdsByRoleId(roleId));
+            }
+            if (!rolePermissionIds.isEmpty()) {
+                permissionRepository.findAllById(rolePermissionIds).stream()
                         .map(Permission::getCode)
+                        .filter(Objects::nonNull)
                         .forEach(permissionCodes::add);
             }
         }
 
-        // 获取通过角色获得的权限
-        List<UUID> roleIds = userRoleRepository.findRoleIdsByUserId(userId);
-        if (roleIds != null) {
-            for (UUID roleId : roleIds) {
-                List<UUID> rolePermissionIds = rolePermissionRepository.findPermissionIdsByRoleId(roleId);
-                if (rolePermissionIds != null && !rolePermissionIds.isEmpty()) {
-                    permissionRepository.findAllById(rolePermissionIds).stream()
-                            .map(Permission::getCode)
-                            .forEach(permissionCodes::add);
-                }
-            }
+        return new ArrayList<>(permissionCodes);
+    }
+
+    /**
+     * 直接授予用户权限点（幂等）
+     */
+    @Override
+    @Transactional
+    public boolean assignPermissionToUser(@Nullable UUID userId,
+                                          @Nullable UUID permissionId,
+                                          @Nullable UUID grantedBy,
+                                          @Nullable LocalDateTime expiresAt) {
+        log.info("为用户分配权限: userId={}, permissionId={}, expiresAt={}", userId, permissionId, expiresAt);
+
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
+        if (permissionId == null) {
+            throw new BusinessException(ErrorCode.PERMISSION_NOT_FOUND);
+        }
+        // 存在性校验：用户
+        if (!userRepository.existsById(userId)) {
+            log.warn("用户不存在: userId={}", userId);
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
+        // 存在性校验：权限点
+        permissionRepository.findById(permissionId)
+                .orElseThrow(() -> {
+                    log.warn("权限点不存在: permissionId={}", permissionId);
+                    return new BusinessException(ErrorCode.PERMISSION_NOT_FOUND);
+                });
+
+        UserPermission existing = userPermissionRepository
+                .findByUserIdAndPermissionId(userId, permissionId)
+                .orElse(null);
+
+        if (existing == null) {
+            userPermissionRepository.save(Objects.requireNonNull(UserPermission.builder()
+                    .userId(userId)
+                    .permissionId(permissionId)
+                    .grantedBy(grantedBy != null ? grantedBy : userId)
+                    .expiresAt(expiresAt)
+                    .build()));
+            log.info("权限分配成功: userId={}, permissionId={}", userId, permissionId);
+            return true;
         }
 
-        return new ArrayList<>(permissionCodes);
+        if (!existing.isExpired()) {
+            // 幂等：已生效的授权保持不变，不因重复调用续期或重复插入
+            log.info("用户已拥有该权限，跳过: userId={}, permissionId={}", userId, permissionId);
+            return false;
+        }
+
+        // 过期授权：复用同一行重新激活，避免唯一键冲突
+        existing.setExpiresAt(expiresAt);
+        existing.setGrantedBy(grantedBy != null ? grantedBy : userId);
+        userPermissionRepository.save(existing);
+        log.info("已过期的用户权限重新激活: userId={}, permissionId={}, expiresAt={}",
+                userId, permissionId, expiresAt);
+        return true;
+    }
+
+    /**
+     * 撤销用户直接授权的权限点（幂等）
+     */
+    @Override
+    @Transactional
+    public boolean removePermissionFromUser(@Nullable UUID userId, @Nullable UUID permissionId) {
+        log.info("撤销用户权限: userId={}, permissionId={}", userId, permissionId);
+
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
+        if (permissionId == null) {
+            throw new BusinessException(ErrorCode.PERMISSION_NOT_FOUND);
+        }
+        if (!userRepository.existsById(userId)) {
+            log.warn("用户不存在: userId={}", userId);
+            throw new BusinessException(ErrorCode.USER_NOT_FOUND);
+        }
+        permissionRepository.findById(permissionId)
+                .orElseThrow(() -> {
+                    log.warn("权限点不存在: permissionId={}", permissionId);
+                    return new BusinessException(ErrorCode.PERMISSION_NOT_FOUND);
+                });
+
+        return userPermissionRepository.findByUserIdAndPermissionId(userId, permissionId)
+                .map(userPermission -> {
+                    userPermissionRepository.delete(userPermission);
+                    log.info("权限撤销成功: userId={}, permissionId={}", userId, permissionId);
+                    return true;
+                })
+                .orElseGet(() -> {
+                    log.info("用户未直接拥有该权限，跳过: userId={}, permissionId={}", userId, permissionId);
+                    return false;
+                });
+    }
+
+    /**
+     * 查询用户当前生效的直接授权
+     */
+    @Override
+    @Nonnull
+    public List<UserPermission> getUserDirectPermissions(@Nullable UUID userId) {
+        if (userId == null) {
+            return new ArrayList<>();
+        }
+        return userPermissionRepository.findValidPermissionsByUserId(userId, LocalDateTime.now());
     }
 
 }

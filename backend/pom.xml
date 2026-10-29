@@ -64,6 +64,12 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
+        <!-- Spring Boot Mail Starter: 提供 JavaMailSender（SMTP 邮件通知通道） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+
         <!-- MariaDB JDBC Driver: MariaDB数据库驱动，用于连接MariaDB数据库 -->
         <dependency>
             <groupId>org.mariadb.jdbc</groupId>

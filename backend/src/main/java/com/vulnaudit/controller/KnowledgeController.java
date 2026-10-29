@@ -33,12 +33,23 @@ public class KnowledgeController {
 
     private final KnowledgeService knowledgeService;
     private final UserService userService;
+    private final com.vulnaudit.security.CurrentUserProvider currentUserProvider;
 
     @PostMapping
-    @Operation(summary = "创建知识文章", description = "创建新知识文章")
+    @Operation(summary = "创建知识文章", description = "创建新知识文章；authorId 缺省时取当前登录用户")
     public ResponseEntity<ApiResponse<KnowledgeArticle>> createArticle(@Valid @RequestBody KnowledgeArticle article) {
         log.info("创建知识文章: title={}", article.getTitle());
-        
+
+        // knowledge_articles.author_id 为 NOT NULL：客户端未传时补当前用户，避免落库 500
+        if (article.getAuthorId() == null) {
+            UUID authorId = currentUserProvider.currentUserId().orElse(null);
+            if (authorId == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.error(401, "未授权"));
+            }
+            article.setAuthorId(authorId);
+        }
+
         KnowledgeArticle createdArticle = knowledgeService.createArticle(article);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(createdArticle));
@@ -140,8 +151,14 @@ public class KnowledgeController {
             @Parameter(description = "评论内容") @RequestParam String content) {
         
         log.info("添加文章评论: articleId={}", id);
-        
-        knowledgeService.addComment(id, getCurrentUserId(), content);
+
+        // knowledge_comments.user_id 为 NOT NULL：未登录直接 401，而不是 null 落库 500
+        UUID userId = currentUserProvider.currentUserId().orElse(null);
+        if (userId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
+        knowledgeService.addComment(id, userId, content);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 

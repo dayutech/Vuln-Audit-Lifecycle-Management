@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -18,6 +19,10 @@ import java.util.UUID;
 
 /**
  * 权限管理控制器
+ *
+ * <p><b>双轨说明</b>：本控制器仍按角色准入（权限矩阵 2.11：查询对 admin/project_leader 开放，
+ * 增删改仅 admin）。权限点本身是后续 ABAC 的基础——角色→权限点→API 的三段映射落地后，
+ * 可把这里的 {@code hasRole} 换成 {@code hasAuthority('permission:read')} 而无需改动业务代码。
  */
 @Slf4j
 @RestController
@@ -25,11 +30,13 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Tag(name = "权限管理", description = "权限CRUD接口")
 @SecurityRequirement(name = "bearerAuth")
+@PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
 public class PermissionController {
 
     private final PermissionService permissionService;
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "创建权限", description = "创建新权限")
     public ResponseEntity<ApiResponse<Permission>> createPermission(@Valid @RequestBody Permission permission) {
         log.info("创建权限: code={}", permission.getCode());
@@ -60,6 +67,7 @@ public class PermissionController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "更新权限", description = "更新权限信息")
     public ResponseEntity<ApiResponse<Permission>> updatePermission(
             @PathVariable UUID id,
@@ -72,6 +80,7 @@ public class PermissionController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "删除权限", description = "删除权限")
     public ResponseEntity<ApiResponse<Void>> deletePermission(@PathVariable UUID id) {
         log.info("删除权限: id={}", id);

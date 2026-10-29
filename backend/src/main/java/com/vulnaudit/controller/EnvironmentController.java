@@ -5,6 +5,8 @@ import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.Environment;
 import com.vulnaudit.entity.EnvironmentSnapshot;
 import com.vulnaudit.service.EnvironmentService;
+import com.vulnaudit.service.UserService;
+import com.vulnaudit.service.env.EnvironmentProvisionerInfo;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -13,43 +15,70 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
 
 /**
  * 环境管理控制器
- * 
- * 注意：此模块为空实现，待后续需求明确后再实现
+ *
+ * <p>部署/启停会真实调用容器编排；宿主机未启用容器编排时接口返回 503 且
+ * {@code environment.status=failed}，失败原因见 {@code failReason}。
  */
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/environments")
 @RequiredArgsConstructor
-@Tag(name = "环境管理", description = "环境管理接口（暂未实现）")
+@Tag(name = "环境管理", description = "环境 CRUD、部署/启停、快照接口")
 @SecurityRequirement(name = "bearerAuth")
 public class EnvironmentController {
 
     private final EnvironmentService environmentService;
+    private final UserService userService;
+    private final com.vulnaudit.security.CurrentUserProvider currentUserProvider;
 
     @PostMapping
-    @Operation(summary = "创建环境", description = "创建新环境")
+    @Operation(summary = "创建环境", description = "创建新环境；createdBy 缺省时取当前登录用户")
     public ResponseEntity<ApiResponse<Environment>> createEnvironment(@RequestBody Environment environment) {
         log.info("创建环境: name={}", environment.getName());
-        
+
+        // environments.created_by 为 NOT NULL：未传时补当前用户，避免落库 500
+        if (environment.getCreatedBy() == null) {
+            UUID createdBy = currentUserProvider.currentUserId().orElse(null);
+            if (createdBy == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error(401, "未授权"));
+            }
+            environment.setCreatedBy(createdBy);
+        }
+
         Environment createdEnvironment = environmentService.createEnvironment(environment);
         return ResponseEntity.ok(ApiResponse.success(createdEnvironment));
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "获取环境详情", description = "根据ID获取环境详细信息")
+    @Operation(summary = "获取环境详情", description = "返回环境详情，并附带当前部署器类型与可用性")
     public ResponseEntity<ApiResponse<Environment>> getEnvironment(@PathVariable UUID id) {
         log.info("获取环境详情: id={}", id);
-        
+
         return environmentService.findById(id)
-                .map(env -> ResponseEntity.ok(ApiResponse.success(env)))
+                .map(environment -> {
+                    applyProvisionerInfo(environment);
+                    return ResponseEntity.ok(ApiResponse.success(environment));
+                })
                 .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(ApiResponse.error(404, "环境不存在")));
+    }
+
+    /**
+     * 填充部署器信息（transient 字段，仅用于接口展示）
+     */
+    private void applyProvisionerInfo(Environment environment) {
+        EnvironmentProvisionerInfo info = environmentService.provisionerInfo();
+        environment.setProvisioner(info.type());
+        environment.setProvisionerAvailable(info.available());
+        environment.setProvisionerMessage(info.message());
     }
 
     @GetMapping
@@ -115,14 +144,19 @@ public class EnvironmentController {
     }
 
     @PostMapping("/{id}/snapshots")
-    @Operation(summary = "创建快照", description = "为环境创建快照")
+    @Operation(summary = "创建快照", description = "为环境创建快照，created_by 记录真实当前用户")
     public ResponseEntity<ApiResponse<Void>> createSnapshot(
             @PathVariable UUID id,
             @Parameter(description = "快照名称") @RequestParam String name) {
-        
+
         log.info("创建快照: environmentId={}, name={}", id, name);
-        
-        environmentService.createSnapshot(id, name);
+
+        UUID operatorId = getCurrentUserId();
+        if (operatorId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error(401, "未授权"));
+        }
+
+        environmentService.createSnapshot(id, name, operatorId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
@@ -141,5 +175,16 @@ public class EnvironmentController {
         log.info("回滚快照: environmentId={}, snapshotId={}", id, snapshotId);
         environmentService.rollbackSnapshot(id, snapshotId);
         return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    private UUID getCurrentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || authentication.getName() == null
+                || "anonymousUser".equals(authentication.getName())) {
+            return null;
+        }
+        return userService.findByUsername(authentication.getName())
+                .map(user -> user.getId())
+                .orElse(null);
     }
 }

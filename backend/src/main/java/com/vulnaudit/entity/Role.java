@@ -1,5 +1,6 @@
 package com.vulnaudit.entity;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -7,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -84,6 +86,17 @@ public class Role {
      */
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    /**
+     * 角色已分配的权限点（非持久化字段）
+     *
+     * <p>仅在 {@code GET /api/v1/roles?includePermissions=true} 等显式要求的场景填充，
+     * 用于前端「角色权限分配」页回显勾选状态；其余接口返回时该字段为 {@code null}，
+     * 通过 {@link JsonInclude} 从 JSON 中省略，保持原有响应结构不变。
+     */
+    @Transient
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private List<Permission> permissions;
 
     /**
      * 实体持久化前的回调方法

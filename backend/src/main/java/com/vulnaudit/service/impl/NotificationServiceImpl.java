@@ -14,6 +14,8 @@ import com.vulnaudit.repository.NotificationSettingRepository;
 import com.vulnaudit.repository.SystemAnnouncementRepository;
 import com.vulnaudit.repository.AssetSubscriptionRepository;
 import com.vulnaudit.service.NotificationService;
+import com.vulnaudit.service.notify.NotificationDispatchService;
+import com.vulnaudit.service.notify.NotificationTypes;
 import com.vulnaudit.util.Paging;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -47,11 +49,14 @@ public class NotificationServiceImpl implements NotificationService {
     private final NotificationSettingRepository notificationSettingRepository;
     private final SystemAnnouncementRepository systemAnnouncementRepository;
     private final AssetSubscriptionRepository assetSubscriptionRepository;
+    private final NotificationDispatchService notificationDispatchService;
 
     @Override
     @Transactional
     @Nonnull
     public Notification createNotification(@Nonnull Notification notification) {
+        // 统一校验类型长度，避免超长值触发数据库约束异常（500）
+        notification.setType(NotificationTypes.requireValid(notification.getType()));
         log.info("创建通知: type={}, title={}", notification.getType(), notification.getTitle());
         return notificationRepository.save(notification);
     }
@@ -149,12 +154,15 @@ public class NotificationServiceImpl implements NotificationService {
     public void sendNotification(@Nullable UUID userId, @Nullable String type, @Nullable String title, @Nullable String content) {
         log.info("发送通知: userId={}, type={}, title={}", userId, type, title);
 
+        // 先校验类型（超长 → 400），再判断接收人，保证调用方立即得到明确错误
+        String notificationType = NotificationTypes.requireValid(type);
+
         if (userId == null) {
             return;
         }
 
         Notification notification = Notification.builder()
-                .type(type)
+                .type(notificationType)
                 .title(title)
                 .content(content)
                 .build();
@@ -165,7 +173,11 @@ public class NotificationServiceImpl implements NotificationService {
                 .userId(userId)
                 .isRead(false)
                 .build();
-        notificationRecipientRepository.save(Objects.requireNonNull(recipient));
+        NotificationRecipient savedRecipient = notificationRecipientRepository.save(Objects.requireNonNull(recipient));
+
+        // 外部通道（邮件/Webhook）按用户通知设置异步能力受限，此处同步投递并回写发送状态；
+        // 通道未配置时自动降级为仅站内，不抛异常。
+        dispatchSafely(savedNotification, List.of(savedRecipient));
     }
 
     @Override
@@ -173,12 +185,14 @@ public class NotificationServiceImpl implements NotificationService {
     public void sendBulkNotification(@Nullable List<UUID> userIds, @Nullable String type, @Nullable String title, @Nullable String content) {
         log.info("批量发送通知: userCount={}, type={}, title={}", userIds != null ? userIds.size() : 0, type, title);
 
+        String notificationType = NotificationTypes.requireValid(type);
+
         if (userIds == null || userIds.isEmpty()) {
             return;
         }
 
         Notification notification = Notification.builder()
-                .type(type)
+                .type(notificationType)
                 .title(title)
                 .content(content)
                 .build();
@@ -194,6 +208,20 @@ public class NotificationServiceImpl implements NotificationService {
                     .build());
         }
         notificationRecipientRepository.saveAll(Objects.requireNonNull(recipients));
+
+        dispatchSafely(savedNotification, recipients);
+    }
+
+    /**
+     * 执行外部通道分发，任何异常都只记录日志，不影响站内信主流程
+     */
+    private void dispatchSafely(Notification notification, List<NotificationRecipient> recipients) {
+        try {
+            notificationDispatchService.dispatch(notification, recipients);
+        } catch (RuntimeException e) {
+            log.warn("外部通知通道分发失败，已降级为仅站内: notificationId={}, error={}",
+                    notification.getId(), e.getMessage(), e);
+        }
     }
 
     /**

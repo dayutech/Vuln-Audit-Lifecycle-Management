@@ -1,5 +1,6 @@
 package com.vulnaudit.entity;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -52,6 +53,12 @@ public class Environment {
     @Column(name = "container_id", length = 100)
     private String containerId;
 
+    /**
+     * 部署失败原因（status=failed 时填写）
+     */
+    @Column(name = "fail_reason", length = 500)
+    private String failReason;
+
     @Column(name = "created_by", nullable = false)
     private UUID createdBy;
 
@@ -60,6 +67,27 @@ public class Environment {
 
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    /**
+     * 当前生效的部署器类型（docker / noop），仅接口返回时填充，不落库
+     */
+    @Transient
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String provisioner;
+
+    /**
+     * 部署器是否可用，仅接口返回时填充，不落库
+     */
+    @Transient
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Boolean provisionerAvailable;
+
+    /**
+     * 部署器说明，仅接口返回时填充，不落库
+     */
+    @Transient
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String provisionerMessage;
 
     @PrePersist
     protected void onCreate() {

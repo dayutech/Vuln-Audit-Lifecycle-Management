@@ -2,8 +2,10 @@ package com.vulnaudit.controller;
 
 import com.vulnaudit.entity.Environment;
 import com.vulnaudit.entity.AssetVersion;
+import com.vulnaudit.entity.EnvironmentSnapshot;
 import com.vulnaudit.repository.AssetVersionRepository;
 import com.vulnaudit.repository.EnvironmentRepository;
+import com.vulnaudit.repository.EnvironmentSnapshotRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -11,9 +13,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -27,6 +35,8 @@ public class EnvironmentControllerTest extends BaseTest {
     private EnvironmentRepository environmentRepository;
     @Autowired
     private AssetVersionRepository assetVersionRepository;
+    @Autowired
+    private EnvironmentSnapshotRepository environmentSnapshotRepository;
 
     private Environment testEnvironment;
     private UUID testAssetId;
@@ -82,11 +92,14 @@ public class EnvironmentControllerTest extends BaseTest {
     class GetEnvironmentTests {
 
         @Test
-        @DisplayName("获取环境详情 - 成功")
+        @DisplayName("获取环境详情 - 成功，并返回部署器类型与可用性")
         void getEnvironment_Success() throws Exception {
             mockMvc.perform(get("/api/v1/environments/" + testEnvironment.getId())
                     .header("Authorization", engineerToken))
-                    .andExpect(status().isOk());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.provisioner").value("noop"))
+                    .andExpect(jsonPath("$.data.provisionerAvailable").value(false))
+                    .andExpect(jsonPath("$.data.provisionerMessage", containsString("当前部署未启用容器编排")));
         }
 
         @Test
@@ -162,28 +175,57 @@ public class EnvironmentControllerTest extends BaseTest {
     class EnvironmentOperationTests {
 
         @Test
-        @DisplayName("启动环境 - 成功")
-        void startEnvironment_Success() throws Exception {
+        @DisplayName("部署环境 - 未启用容器编排时返回503，状态写failed且给出原因")
+        void deployEnvironment_WithoutOrchestration_Returns503() throws Exception {
+            mockMvc.perform(post("/api/v1/environments/" + testEnvironment.getId() + "/deploy")
+                            .header("Authorization", engineerToken))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.success").value(false))
+                    .andExpect(jsonPath("$.message").value("当前部署未启用容器编排"));
+
+            Environment reloaded = environmentRepository.findById(testEnvironment.getId()).orElseThrow();
+            assertEquals("failed", reloaded.getStatus());
+            assertNotNull(reloaded.getFailReason());
+            assertTrue(reloaded.getFailReason().startsWith("当前部署未启用容器编排"));
+            assertEquals(null, reloaded.getContainerId());
+        }
+
+        @Test
+        @DisplayName("启动环境 - 未启用容器编排时返回503，不再伪装 running")
+        void startEnvironment_WithoutOrchestration_Returns503() throws Exception {
             mockMvc.perform(post("/api/v1/environments/" + testEnvironment.getId() + "/start")
-                    .header("Authorization", engineerToken))
-                    .andExpect(status().isOk());
+                            .header("Authorization", engineerToken))
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.message").value("当前部署未启用容器编排"));
+
+            Environment reloaded = environmentRepository.findById(testEnvironment.getId()).orElseThrow();
+            assertEquals("failed", reloaded.getStatus());
         }
 
         @Test
-        @DisplayName("停止环境 - 成功")
-        void stopEnvironment_Success() throws Exception {
+        @DisplayName("停止环境 - 未启用容器编排时返回503")
+        void stopEnvironment_WithoutOrchestration_Returns503() throws Exception {
             mockMvc.perform(post("/api/v1/environments/" + testEnvironment.getId() + "/stop")
-                    .header("Authorization", engineerToken))
-                    .andExpect(status().isOk());
+                            .header("Authorization", engineerToken))
+                    .andExpect(status().isServiceUnavailable());
+
+            Environment reloaded = environmentRepository.findById(testEnvironment.getId()).orElseThrow();
+            assertEquals("failed", reloaded.getStatus());
         }
 
         @Test
-        @DisplayName("创建快照 - 成功")
+        @DisplayName("创建快照 - createdBy 记录真实当前用户")
         void createSnapshot_Success() throws Exception {
             mockMvc.perform(post("/api/v1/environments/" + testEnvironment.getId() + "/snapshots")
-                    .header("Authorization", engineerToken)
-                    .param("name", "测试快照"))
+                            .header("Authorization", engineerToken)
+                            .param("name", "测试快照"))
                     .andExpect(status().isOk());
+
+            List<EnvironmentSnapshot> snapshots =
+                    environmentSnapshotRepository.findByEnvironmentIdOrderByVersionDesc(testEnvironment.getId());
+            assertEquals(1, snapshots.size());
+            assertEquals(engineerUserId, snapshots.get(0).getCreatedBy());
+            assertFalse(snapshots.get(0).getCreatedBy().equals(testUserId));
         }
     }
 

@@ -88,7 +88,20 @@ public class AssetServiceImpl implements AssetService {
         asset.setCode(generateAssetCode());
         log.info("创建资产: code={}, name={}", asset.getCode(), asset.getName());
 
-        Asset savedAsset = assetRepository.save(asset);
+        Asset savedAsset;
+        try {
+            // saveAndFlush：让 assets.code 唯一键冲突在可控范围内抛出（编号为随机生成，碰撞概率极低）
+            savedAsset = assetRepository.saveAndFlush(asset);
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            if (com.vulnaudit.util.PersistenceErrors.isUniqueViolation(e)) {
+                log.warn("资产编号冲突: code={}, detail={}", asset.getCode(),
+                        com.vulnaudit.util.PersistenceErrors.detail(e));
+                throw new BusinessException(ErrorCode.CONFLICT, "资产编号冲突，请重试");
+            }
+            String detail = com.vulnaudit.util.PersistenceErrors.detail(e);
+            log.warn("资产数据完整性校验失败: name={}, detail={}", asset.getName(), detail);
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "资产数据不完整或不符合约束: " + detail);
+        }
         log.info("资产创建成功: id={}, code={}", savedAsset.getId(), savedAsset.getCode());
 
         return savedAsset;

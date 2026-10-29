@@ -14,6 +14,7 @@ import com.vulnaudit.repository.TaskCollaboratorRepository;
 import com.vulnaudit.repository.TaskRepository;
 import com.vulnaudit.repository.TeamRepository;
 import com.vulnaudit.repository.UserRepository;
+import com.vulnaudit.repository.VulnerabilityRepository;
 import com.vulnaudit.security.RoleAuthority;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -56,6 +57,7 @@ public class AccessGuard {
     private final TaskRepository taskRepository;
     private final TaskCollaboratorRepository taskCollaboratorRepository;
     private final TeamRepository teamRepository;
+    private final VulnerabilityRepository vulnerabilityRepository;
 
     // ------------------------------------------------------------------ 角色
 
@@ -225,6 +227,48 @@ public class AccessGuard {
         }
         return assetDeliverableRepository.findById(deliverableId)
                 .map(deliverable -> canWriteAsset(deliverable.getAssetId(), authentication))
+                .orElse(false);
+    }
+
+    // ------------------------------------------------------------------ 漏洞
+
+    /**
+     * 以漏洞 ID 判断其所属资产是否可读。
+     *
+     * <p>用于漏洞从属资源（附件、POC 等）的下载/查看授权：先由 vulnerabilityId 反查 assetId，
+     * 再复用 {@link #canReadAsset(UUID, Authentication)} 的口径（管理员/项目负责人全局可见，
+     * 小组长看本团队资产，成员看自己负责或已获批访问的资产）。
+     */
+    public boolean canReadVulnerability(UUID vulnerabilityId, Authentication authentication) {
+        if (vulnerabilityId == null) {
+            return false;
+        }
+        // 管理层先放行：不存在的漏洞交由控制器返回 404，而不是 403
+        if (isGlobalReader(authentication)) {
+            return true;
+        }
+        return vulnerabilityRepository.findById(vulnerabilityId)
+                .map(vulnerability -> canReadAsset(vulnerability.getAssetId(), authentication))
+                .orElse(false);
+    }
+
+    /**
+     * 以漏洞 ID 判断其所属资产是否可写。
+     *
+     * <p>用于漏洞的修改、状态流转、标签与附件维护——**不能用只读口径代替**，
+     * 否则「能改别人资产的漏洞状态」会与「看不到该漏洞」并存。
+     * 判定复用 {@link #canWriteAsset(UUID, Authentication)}：管理层（admin/project_leader/team_leader）
+     * 放行；其余用户需为漏洞所属资产的负责人。
+     */
+    public boolean canWriteVulnerability(UUID vulnerabilityId, Authentication authentication) {
+        if (vulnerabilityId == null) {
+            return false;
+        }
+        if (isManager(authentication)) {
+            return true;
+        }
+        return vulnerabilityRepository.findById(vulnerabilityId)
+                .map(vulnerability -> canWriteAsset(vulnerability.getAssetId(), authentication))
                 .orElse(false);
     }
 

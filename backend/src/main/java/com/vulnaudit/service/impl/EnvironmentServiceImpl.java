@@ -10,7 +10,13 @@ import com.vulnaudit.repository.AssetVersionRepository;
 import com.vulnaudit.repository.EnvironmentRepository;
 import com.vulnaudit.repository.EnvironmentSnapshotRepository;
 import com.vulnaudit.service.EnvironmentService;
+import com.vulnaudit.service.env.EnvironmentProvisioner;
+import com.vulnaudit.service.env.EnvironmentProvisionerInfo;
+import com.vulnaudit.service.env.EnvironmentProvisionerSelector;
+import com.vulnaudit.service.env.EnvironmentStateService;
+import com.vulnaudit.service.env.ProvisionResult;
 import com.vulnaudit.util.Paging;
+import jakarta.annotation.Nonnull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -35,6 +41,8 @@ public class EnvironmentServiceImpl implements EnvironmentService {
     private final EnvironmentRepository environmentRepository;
     private final EnvironmentSnapshotRepository environmentSnapshotRepository;
     private final AssetVersionRepository assetVersionRepository;
+    private final EnvironmentProvisionerSelector provisionerSelector;
+    private final EnvironmentStateService environmentStateService;
 
     @Override
     @Transactional
@@ -134,100 +142,131 @@ public class EnvironmentServiceImpl implements EnvironmentService {
     public void deleteEnvironment(UUID id) {
         UUID requiredId = Objects.requireNonNull(id, "id must not be null");
         log.info("删除环境: id={}", requiredId);
+
+        // 尽力清理容器，失败不影响环境记录删除
+        environmentRepository.findById(requiredId)
+                .filter(environment -> environment.getContainerId() != null && !environment.getContainerId().isBlank())
+                .ifPresent(environment -> {
+                    try {
+                        ProvisionResult result = provisionerSelector.active().remove(environment);
+                        if (!result.success()) {
+                            log.warn("删除环境时清理容器未成功: id={}, reason={}", requiredId, result.message());
+                        }
+                    } catch (RuntimeException e) {
+                        log.warn("删除环境时清理容器异常: id={}, error={}", requiredId, e.getMessage());
+                    }
+                });
+
         environmentRepository.deleteById(requiredId);
     }
 
     @Override
-    @Transactional
     public void startEnvironment(UUID id) {
         UUID requiredId = Objects.requireNonNull(id, "id must not be null");
         log.info("启动环境: id={}", requiredId);
 
-        Environment environment = environmentRepository.findById(requiredId)
+        Environment environment = environmentStateService.find(requiredId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
 
-        environment.setStatus("running");
-        environment.setContainerId("container-" + requiredId.toString().substring(0, 8));
-        environmentRepository.save(Objects.requireNonNull(environment));
+        EnvironmentProvisioner provisioner = provisionerSelector.active();
+        ProvisionResult result = provisioner.start(environment);
+        if (!result.success()) {
+            String reason = result.message() == null ? "环境启动失败" : result.message();
+            environmentStateService.markFailed(requiredId, reason);
+            log.warn("环境启动失败: id={}, provisioner={}, reason={}", requiredId, provisioner.type(), reason);
+            ErrorCode code = result.unavailable() ? ErrorCode.SERVICE_UNAVAILABLE : ErrorCode.BAD_REQUEST;
+            throw new BusinessException(code, result.unavailable() ? EnvironmentProvisioner.UNAVAILABLE_MESSAGE : reason);
+        }
+
+        String containerId = result.containerId() != null ? result.containerId() : environment.getContainerId();
+        environmentStateService.markRunning(requiredId, containerId);
+        log.info("环境启动成功: id={}, containerId={}", requiredId, containerId);
     }
 
     @Override
-    @Transactional
     public void stopEnvironment(UUID id) {
         UUID requiredId = Objects.requireNonNull(id, "id must not be null");
         log.info("停止环境: id={}", requiredId);
 
-        Environment environment = environmentRepository.findById(requiredId)
+        Environment environment = environmentStateService.find(requiredId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
 
-        environment.setStatus("stopped");
-        environmentRepository.save(Objects.requireNonNull(environment));
+        EnvironmentProvisioner provisioner = provisionerSelector.active();
+        ProvisionResult result = provisioner.stop(environment);
+        if (!result.success()) {
+            String reason = result.message() == null ? "环境停止失败" : result.message();
+            environmentStateService.markFailed(requiredId, reason);
+            log.warn("环境停止失败: id={}, provisioner={}, reason={}", requiredId, provisioner.type(), reason);
+            ErrorCode code = result.unavailable() ? ErrorCode.SERVICE_UNAVAILABLE : ErrorCode.BAD_REQUEST;
+            throw new BusinessException(code, result.unavailable() ? EnvironmentProvisioner.UNAVAILABLE_MESSAGE : reason);
+        }
+
+        environmentStateService.markStopped(requiredId);
+        log.info("环境停止成功: id={}", requiredId);
     }
 
     @Override
     @Transactional
-    public void createSnapshot(UUID id, String name) {
+    public void createSnapshot(UUID id, String name, UUID operatorId) {
         UUID requiredId = Objects.requireNonNull(id, "id must not be null");
         String requiredName = Objects.requireNonNull(name, "name must not be null");
-        log.info("创建快照: id={}, name={}", requiredId, requiredName);
+        log.info("创建快照: id={}, name={}, operatorId={}", requiredId, requiredName, operatorId);
 
         Environment environment = environmentRepository.findById(requiredId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
 
+        UUID createdBy = operatorId != null ? operatorId : environment.getCreatedBy();
+        if (createdBy == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "无法确定快照创建人，请重新登录后重试");
+        }
+
         environment.setVersion(environment.getVersion() + 1);
         environmentRepository.save(Objects.requireNonNull(environment));
-        
+
         EnvironmentSnapshot snapshot = new EnvironmentSnapshot();
         snapshot.setEnvironmentId(requiredId);
         snapshot.setVersion(environment.getVersion());
         snapshot.setDescription(requiredName);
         snapshot.setConfigSnapshot(environment.getConfig() != null ? environment.getConfig() : "{}");
-        // Using a dummy user id for now as context is empty
-        snapshot.setCreatedBy(UUID.randomUUID());
+        // 使用真实当前用户，修复此前 UUID.randomUUID() 产生的脏数据
+        snapshot.setCreatedBy(createdBy);
         environmentSnapshotRepository.save(snapshot);
     }
 
     @Override
-    @Transactional
     public void deployEnvironment(UUID id) {
         UUID requiredId = Objects.requireNonNull(id, "id must not be null");
         log.info("部署环境: id={}", requiredId);
-        Environment environment = environmentRepository.findById(requiredId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
-        
-        try {
-            // Update status to deploying
-            environment.setStatus("deploying");
-            environmentRepository.saveAndFlush(Objects.requireNonNull(environment));
-            
-            // Validate configuration before deployment
-            if (environment.getConfig() == null || environment.getConfig().trim().isEmpty()) {
-                throw new BusinessException(ErrorCode.BAD_REQUEST, "环境配置不能为空");
-            }
-            
-            // Simulate deployment process logic
-            log.info("开始部署环境过程, 环境ID: {}", requiredId);
-            
-            // Assign container id if not present
-            if (environment.getContainerId() == null || environment.getContainerId().isEmpty()) {
-                environment.setContainerId("container-" + UUID.randomUUID().toString().substring(0, 8));
-            }
-            
-            // Update status to running upon successful deployment
-            environment.setStatus("running");
-            environmentRepository.save(Objects.requireNonNull(environment));
-            log.info("环境部署成功: id={}", requiredId);
-        } catch (Exception e) {
-            log.error("环境部署失败: id={}, error={}", requiredId, e.getMessage());
-            // Update status to failed on error
-            environment.setStatus("failed");
-            environmentRepository.save(Objects.requireNonNull(environment));
-            
-            if (e instanceof BusinessException) {
-                throw e;
-            }
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "环境部署失败: " + e.getMessage());
+
+        Environment environment = environmentStateService.markProvisioning(requiredId);
+
+        if (environment.getConfig() == null || environment.getConfig().trim().isEmpty()) {
+            environmentStateService.markFailed(requiredId, "环境配置不能为空");
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "环境配置不能为空");
         }
+
+        EnvironmentProvisioner provisioner = provisionerSelector.active();
+        ProvisionResult result = provisioner.provision(environment);
+        if (!result.success()) {
+            String reason = result.message() == null ? "环境部署失败" : result.message();
+            environmentStateService.markFailed(requiredId, reason);
+            log.warn("环境部署失败: id={}, provisioner={}, reason={}", requiredId, provisioner.type(), reason);
+            if (result.unavailable()) {
+                // 明确告知前端未启用容器编排，绝不返回成功
+                throw new BusinessException(ErrorCode.SERVICE_UNAVAILABLE, EnvironmentProvisioner.UNAVAILABLE_MESSAGE);
+            }
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, reason);
+        }
+
+        environmentStateService.markRunning(requiredId, result.containerId());
+        log.info("环境部署成功: id={}, provisioner={}, containerId={}",
+                requiredId, provisioner.type(), result.containerId());
+    }
+
+    @Override
+    @Nonnull
+    public EnvironmentProvisionerInfo provisionerInfo() {
+        return provisionerSelector.info();
     }
 
     @Override
@@ -257,3 +296,4 @@ public class EnvironmentServiceImpl implements EnvironmentService {
         environmentRepository.save(Objects.requireNonNull(environment));
     }
 }
+

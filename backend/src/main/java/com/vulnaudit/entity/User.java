@@ -1,5 +1,6 @@
 package com.vulnaudit.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -63,7 +64,12 @@ public class User {
      * 密码哈希值
      * 使用BCrypt算法加密存储
      * 最大长度255字符
+     *
+     * <p><b>安全约定</b>：该字段永不参与 JSON 序列化/反序列化（{@link JsonIgnore}）。
+     * 需要「不返回密码」时不要修改实体的字段值（那会污染受管实体并触发 NOT NULL 约束），
+     * 而是靠这里的序列化忽略；如需自定义响应结构请用 DTO。
      */
+    @JsonIgnore
     @Column(name = "password_hash", length = 255, nullable = false)
     private String passwordHash;
 

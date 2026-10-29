@@ -4,6 +4,7 @@ import com.vulnaudit.entity.AssetAccess;
 import com.vulnaudit.repository.AssetAccessRepository;
 import com.vulnaudit.repository.UserRoleRepository;
 import com.vulnaudit.repository.RoleRepository;
+import com.vulnaudit.service.notify.NotificationTypes;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -95,7 +96,7 @@ public class ApprovalReminderJob {
         String title = "访问申请待审批提醒";
         String content = String.format("你有 1 条资产访问申请已等待 %d 小时仍未审批（申请ID: %s，资产ID: %s）。",
                 age.toHours(), access.getId(), access.getAssetId());
-        notificationService.sendNotification(approverId, "access_reminder", title, content);
+        notificationService.sendNotification(approverId, NotificationTypes.ACCESS_REMINDER, title, content);
         log.info("审批超时提醒: requestId={}, approverId={}, hours={}", access.getId(), approverId, age.toHours());
         return 1;
     }
@@ -112,9 +113,9 @@ public class ApprovalReminderJob {
 
         String content = String.format("访问申请（申请ID: %s，资产ID: %s）超过 %d 天未审批，已自动升级给你处理。",
                 access.getId(), access.getAssetId(), escalateAfterDays);
-        notificationService.sendNotification(superior, "access_escalated", "访问申请已升级", content);
+        notificationService.sendNotification(superior, NotificationTypes.ACCESS_ESCALATED, "访问申请已升级", content);
         if (currentApprover != null) {
-            notificationService.sendNotification(currentApprover, "access_escalated",
+            notificationService.sendNotification(currentApprover, NotificationTypes.ACCESS_ESCALATED,
                     "访问申请已升级", "你有一条申请超时未处理，已自动升级至上级审批。");
         }
         log.info("审批自动升级: requestId={}, from={}, to={}", access.getId(), currentApprover, superior);

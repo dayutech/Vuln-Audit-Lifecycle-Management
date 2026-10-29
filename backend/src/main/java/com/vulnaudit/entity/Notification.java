@@ -37,7 +37,13 @@ public class Notification {
     @Column(name = "content", columnDefinition = "TEXT", nullable = false)
     private String content;
 
-    @Column(name = "type", length = 20, nullable = false)
+    /**
+     * 通知类型
+     *
+     * <p>列宽与 {@code com.vulnaudit.service.notify.NotificationTypes#MAX_LENGTH} 保持一致（50）；
+     * 历史上此处为 20，导致默认值 vulnerability_discovered（23 字符）落库失败。
+     */
+    @Column(name = "type", length = 50, nullable = false)
     private String type;
 
     @Column(name = "priority", length = 10, nullable = false)

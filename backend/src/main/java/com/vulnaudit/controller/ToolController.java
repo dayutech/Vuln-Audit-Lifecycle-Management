@@ -3,6 +3,7 @@ package com.vulnaudit.controller;
 import com.vulnaudit.dto.*;
 import com.vulnaudit.entity.Tool;
 import com.vulnaudit.entity.ToolVersion;
+import com.vulnaudit.security.CurrentUserProvider;
 import com.vulnaudit.service.ToolService;
 import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -35,6 +36,7 @@ public class ToolController {
 
     private final ToolService toolService;
     private final UserService userService;
+    private final CurrentUserProvider currentUserProvider;
 
     @PostMapping
     @Operation(summary = "创建工具", description = "创建新工具")
@@ -244,26 +246,68 @@ public class ToolController {
      * 上传新版本
      */
     @PostMapping("/{id}/versions")
-    @Operation(summary = "上传新版本", description = "为工具上传新版本")
+    @Operation(summary = "上传新版本", description = "为工具上传新版本；不带文件时创建「仅元数据」版本（hasFile=false）")
     public ResponseEntity<ApiResponse<ToolVersion>> uploadVersion(
             @PathVariable UUID id,
-            @Parameter(description = "版本号") @RequestParam String version,
+            @Parameter(description = "版本号（留空自动生成 vN）") @RequestParam(required = false) String version,
             @Parameter(description = "变更说明") @RequestParam(required = false) String changelog,
             @Parameter(description = "文件") @RequestParam(value = "file", required = false) MultipartFile file) {
-        
+
         log.info("上传工具新版本: toolId={}, version={}", id, version);
-        
+
         ToolVersion toolVersion = toolService.uploadVersion(id, version, changelog, file);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(toolVersion));
     }
 
-    private UUID getCurrentUserId(Authentication authentication) {
-        if (authentication == null || authentication.getName() == null || "anonymousUser".equals(authentication.getName())) {
-            return null;
+    /**
+     * 下载指定版本的文件
+     *
+     * <p>与 t15 的漏洞附件下载口径一致：版本必须属于该工具（否则 404），
+     * 文件缺失/仅元数据版本 404 并给出明确 message，响应头含 RFC 5987 文件名。
+     */
+    @GetMapping("/{id}/versions/{versionId}/download")
+    @Operation(summary = "下载工具版本文件", description = "下载指定版本的文件；版本必须属于该工具")
+    public ResponseEntity<?> downloadVersion(
+            @PathVariable UUID id,
+            @Parameter(description = "版本ID") @PathVariable UUID versionId) {
+
+        log.info("下载工具版本: toolId={}, versionId={}", id, versionId);
+
+        ToolVersion version = toolService.findVersion(id, versionId)
+                .orElseThrow(() -> new com.vulnaudit.exception.BusinessException(
+                        com.vulnaudit.exception.ErrorCode.NOT_FOUND, "版本不存在或不属于该工具"));
+
+        if (!version.isHasFile()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error(404, "该版本为仅元数据版本，没有可下载的文件"));
         }
-        return userService.findByUsername(authentication.getName())
-                .map(user -> user.getId())
-                .orElse(null);
+
+        java.nio.file.Path path = java.nio.file.Paths.get(version.getFilePath());
+        if (!java.nio.file.Files.isRegularFile(path) || !java.nio.file.Files.isReadable(path)) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error(404, "版本文件不存在或已被移除"));
+        }
+
+        try {
+            org.springframework.core.io.Resource resource = new org.springframework.core.io.UrlResource(path.toUri());
+            long contentLength = java.nio.file.Files.size(path);
+            String fileName = version.getFileName() == null || version.getFileName().isBlank()
+                    ? "tool-version-" + versionId : version.getFileName();
+            return ResponseEntity.ok()
+                    .contentType(org.springframework.http.MediaType.APPLICATION_OCTET_STREAM)
+                    .contentLength(contentLength)
+                    .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                            com.vulnaudit.util.DownloadHeaders.attachment(fileName))
+                    .body(resource);
+        } catch (java.io.IOException e) {
+            throw new com.vulnaudit.exception.BusinessException(
+                    com.vulnaudit.exception.ErrorCode.NOT_FOUND, "版本文件无法读取: " + e.getMessage());
+        }
+    }
+
+    private UUID getCurrentUserId(Authentication authentication) {
+        // 统一走 CurrentUserProvider，避免每个控制器各写一份而漏掉审计字段
+        return currentUserProvider.currentUserId().orElse(null);
     }
 }

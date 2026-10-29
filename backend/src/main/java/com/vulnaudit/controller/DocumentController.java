@@ -136,31 +136,21 @@ public class DocumentController {
         
         log.info("更新文档: id={}", id);
         UUID currentUserId = getCurrentUserId();
+        if (currentUserId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
 
-        // 先取出旧内容（OSIV 下实体被就地更新，必须提前快照成字符串）
-        String oldContent = documentService.findById(id).map(Document::getContent).orElse(null);
-
-        Document document = Document.builder()
+        Document patch = Document.builder()
                 .title(request.getTitle())
                 .category(request.getCategory())
                 .summary(request.getSummary())
                 .content(request.getContent())
                 .build();
-        
-        Document updatedDocument = documentService.updateDocument(id, document);
 
-        // 内容确实变化时，把新版本写入 document_versions，版本号与文档实体版本保持一致
-        if (request.getContent() != null && !Objects.equals(oldContent, updatedDocument.getContent())) {
-            documentVersionRepository.save(DocumentVersion.builder()
-                    .documentId(id)
-                    .version(updatedDocument.getVersion() == null ? 1 : updatedDocument.getVersion())
-                    .title(updatedDocument.getTitle())
-                    .summary(updatedDocument.getSummary())
-                    .content(updatedDocument.getContent())
-                    .changelog("编辑保存")
-                    .createdBy(currentUserId)
-                    .build());
-        }
+        // 正文变化时在服务层原子写版本快照：行级锁 + saveAndFlush + 有界重试，
+        // 并发保存不会产生重复 version，冲突耗尽返回 409「文档版本冲突，请重试」
+        Document updatedDocument = documentService.updateDocumentWithSnapshot(id, patch, currentUserId);
 
         return ResponseEntity.ok(ApiResponse.success(updatedDocument));
     }
@@ -292,25 +282,24 @@ public class DocumentController {
      */
     @PostMapping("/{id}/versions/{version}/rollback")
     @PreAuthorize("@accessGuard.canWriteDocument(#id, authentication)")
-    @Operation(summary = "回滚到指定版本", description = "将文档内容回滚到指定版本")
+    @Operation(summary = "回滚到指定版本",
+            description = "将文档内容回滚到指定历史版本；历史版本本身不变，回滚会新增一条快照（changelog 标注 rollback from vN）")
     public ResponseEntity<ApiResponse<Document>> rollbackDocumentVersion(
             @PathVariable UUID id,
             @PathVariable Integer version) {
         log.info("回滚文档版本: documentId={}, version={}", id, version);
-        
-        DocumentVersion docVersion = documentVersionRepository.findByDocumentIdAndVersion(id, version)
-                .orElseThrow(() -> new RuntimeException("版本不存在"));
-        
-        Document document = documentService.findById(id)
-                .orElseThrow(() -> new RuntimeException("文档不存在"));
-        
-        document.setTitle(docVersion.getTitle());
-        document.setContent(docVersion.getContent());
-        document.setSummary(docVersion.getSummary());
-        
-        Document updatedDocument = documentService.updateDocument(id, document);
-        log.info("文档版本回滚成功: documentId={}, version={}", id, version);
-        
+
+        UUID currentUserId = getCurrentUserId();
+        if (currentUserId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
+
+        // 复用 t32 的版本号分配语义（行级锁 + saveAndFlush + 有界重试），并写入新快照避免审计断链
+        Document updatedDocument = documentService.rollbackToVersion(id, version, currentUserId);
+        log.info("文档版本回滚成功: documentId={}, targetVersion={}, newVersion={}",
+                id, version, updatedDocument.getVersion());
+
         return ResponseEntity.ok(ApiResponse.success(updatedDocument));
     }
 

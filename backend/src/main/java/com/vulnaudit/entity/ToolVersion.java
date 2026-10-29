@@ -23,7 +23,9 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "tool_versions")
+@Table(name = "tool_versions", uniqueConstraints = {
+        @UniqueConstraint(name = "uk_tool_versions_tool_version_no", columnNames = {"tool_id", "version_no"})
+})
 public class ToolVersion {
 
     /**
@@ -41,16 +43,34 @@ public class ToolVersion {
     private UUID toolId;
 
     /**
-     * 版本号
+     * 版本号（人类可读标签，如 v1 / 1.2.0）
      */
     @Column(name = "version", nullable = false, length = 50)
     private String version;
 
     /**
-     * 文件存储路径
+     * 版本序号（同工具下自增，1 起），配合 (tool_id, version_no) 唯一约束防并发重复
+     */
+    @Column(name = "version_no", nullable = false)
+    private Integer versionNo;
+
+    /**
+     * 原始文件名（仅元数据版本为空）
+     */
+    @Column(name = "file_name", length = 255)
+    private String fileName;
+
+    /**
+     * 文件存储路径（仅元数据版本为空串）
      */
     @Column(name = "file_path", nullable = false, length = 500)
     private String filePath;
+
+    /**
+     * 文件大小（字节）
+     */
+    @Column(name = "file_size")
+    private Long fileSize;
 
     /**
      * 变更说明
@@ -71,6 +91,16 @@ public class ToolVersion {
     private LocalDateTime createdAt;
 
     /**
+     * 是否包含文件（仅元数据版本返回 false）
+     *
+     * <p>派生属性，不落库。
+     */
+    @jakarta.persistence.Transient
+    public boolean isHasFile() {
+        return filePath != null && !filePath.isBlank();
+    }
+
+    /**
      * 持久化前的生命周期回调
      * 自动设置创建时间
      */
@@ -79,6 +109,9 @@ public class ToolVersion {
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
         }
-        log.debug("创建工具版本记录: toolId={}, version={}", toolId, version);
+        if (filePath == null) {
+            filePath = "";
+        }
+        log.debug("创建工具版本记录: toolId={}, version={}, versionNo={}", toolId, version, versionNo);
     }
 }

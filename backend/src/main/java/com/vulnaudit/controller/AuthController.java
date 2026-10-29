@@ -163,7 +163,6 @@ public class AuthController {
                     .body(ApiResponse.error(404, "用户不存在"));
         }
 
-        user.setPasswordHash(null);
         return ResponseEntity.ok(ApiResponse.success(user));
     }
 
