@@ -40,7 +40,17 @@ public class ToolController {
     @Operation(summary = "创建工具", description = "创建新工具")
     public ResponseEntity<ApiResponse<Tool>> createTool(@Valid @RequestBody Tool tool) {
         log.info("创建工具: name={}", tool.getName());
-        
+
+        // tools.created_by 为 NOT NULL，此前未赋值导致创建接口稳定 500
+        UUID currentUserId = getCurrentUserId(SecurityContextHolder.getContext().getAuthentication());
+        if (currentUserId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(ApiResponse.error(401, "未授权"));
+        }
+        if (tool.getCreatedBy() == null) {
+            tool.setCreatedBy(currentUserId);
+        }
+
         Tool createdTool = toolService.createTool(tool);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(createdTool));
@@ -121,6 +131,57 @@ public class ToolController {
         UUID currentUserId = getCurrentUserId(authentication);
         toolService.recordDownload(id, currentUserId);
         return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    /**
+     * 上传工具包。
+     *
+     * <p>SRS 3.5.3 的 Tool 模型包含 file_path，但实体此前缺失该字段，
+     * 导致「工具资源库」只能存外链、无法真正分发工具包。
+     */
+    @PostMapping("/{id}/file")
+    @Operation(summary = "上传工具包", description = "为工具上传可执行包/压缩包")
+    public ResponseEntity<ApiResponse<Tool>> uploadToolFile(@PathVariable UUID id,
+                                                           @RequestParam("file") MultipartFile file) {
+        log.info("上传工具包: toolId={}, fileName={}, size={}", id,
+                file.getOriginalFilename(), file.getSize());
+        Tool updated = toolService.storeToolFile(id, file, getCurrentUserId(SecurityContextHolder.getContext().getAuthentication()));
+        return ResponseEntity.ok(ApiResponse.success(updated));
+    }
+
+    /**
+     * 下载工具包：真实文件流 + 下载计数。
+     */
+    @GetMapping("/{id}/download")
+    @Operation(summary = "下载工具包", description = "下载工具包文件，并累加下载次数")
+    public ResponseEntity<org.springframework.core.io.Resource> downloadToolFile(@PathVariable UUID id) {
+        UUID currentUserId = getCurrentUserId(SecurityContextHolder.getContext().getAuthentication());
+        Tool tool = toolService.findById(id)
+                .orElseThrow(() -> new com.vulnaudit.exception.BusinessException(
+                        com.vulnaudit.exception.ErrorCode.TOOL_NOT_FOUND));
+        if (tool.getFilePath() == null || tool.getFilePath().isBlank()) {
+            throw new com.vulnaudit.exception.BusinessException(
+                    com.vulnaudit.exception.ErrorCode.NOT_FOUND, "该工具未上传工具包，请查看仓库地址或安装命令");
+        }
+        java.nio.file.Path path = java.nio.file.Paths.get(tool.getFilePath());
+        org.springframework.core.io.Resource resource;
+        try {
+            resource = new org.springframework.core.io.UrlResource(path.toUri());
+            if (!resource.exists() || !resource.isReadable()) {
+                throw new com.vulnaudit.exception.BusinessException(
+                        com.vulnaudit.exception.ErrorCode.NOT_FOUND, "工具包文件不存在或不可读");
+            }
+        } catch (java.net.MalformedURLException e) {
+            throw new com.vulnaudit.exception.BusinessException(
+                    com.vulnaudit.exception.ErrorCode.INTERNAL_ERROR, "工具包路径非法");
+        }
+        toolService.recordDownload(id, currentUserId);
+        String fileName = tool.getFileName() == null ? ("tool-" + id) : tool.getFileName();
+        return ResponseEntity.ok()
+                .contentType(org.springframework.http.MediaType.APPLICATION_OCTET_STREAM)
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + fileName + "\"")
+                .body(resource);
     }
 
     @GetMapping("/{id}/download-count")

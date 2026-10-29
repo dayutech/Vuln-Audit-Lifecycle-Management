@@ -50,6 +50,18 @@ public class Tool {
     @Column(name = "tags", length = 500)
     private String tags;
 
+    /** 工具包文件名（SRS 3.5.3 中的 file_path 字段的配套信息） */
+    @Column(name = "file_name", length = 300)
+    private String fileName;
+
+    /** 工具包存储路径，为空表示该工具仅有外链 */
+    @Column(name = "file_path", length = 1000)
+    private String filePath;
+
+    /** 工具包大小（字节） */
+    @Column(name = "file_size")
+    private Long fileSize;
+
     @Column(name = "is_official", nullable = false)
     @Builder.Default
     private Boolean isOfficial = false;

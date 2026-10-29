@@ -42,6 +42,18 @@ public interface ToolService {
 
     void recordDownload(@Nullable UUID toolId, @Nullable UUID userId);
 
+    /**
+     * 保存工具包文件并更新工具的 fileName / filePath / fileSize。
+     *
+     * @param toolId    工具ID
+     * @param file      上传的文件
+     * @param operatorId 操作人
+     * @return 更新后的工具
+     */
+    Tool storeToolFile(@Nullable UUID toolId,
+                       org.springframework.web.multipart.MultipartFile file,
+                       @Nullable UUID operatorId);
+
     long getDownloadCount(@Nullable UUID toolId);
 
     @Nonnull

@@ -181,6 +181,53 @@ public class ToolServiceImpl implements ToolService {
         return toolDownloadRepository.countByToolId(toolId);
     }
 
+    /**
+     * 保存工具包文件。
+     *
+     * <p>文件落在 ./uploads/tools/{toolId}/ 下，文件名加随机前缀避免覆盖与路径穿越。
+     */
+    @Override
+    @Transactional
+    public Tool storeToolFile(UUID toolId, org.springframework.web.multipart.MultipartFile file, UUID operatorId) {
+        if (toolId == null) {
+            throw new BusinessException(ErrorCode.TOOL_NOT_FOUND);
+        }
+        if (file == null || file.isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "上传文件不能为空");
+        }
+        Tool tool = toolRepository.findById(toolId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.TOOL_NOT_FOUND));
+
+        String originalName = file.getOriginalFilename();
+        if (originalName == null || originalName.isBlank()) {
+            originalName = "tool-package.bin";
+        }
+        // 只保留文件名部分，去掉任何目录成分，防止路径穿越
+        originalName = originalName.replace("\\", "/");
+        int slash = originalName.lastIndexOf('/');
+        if (slash >= 0) {
+            originalName = originalName.substring(slash + 1);
+        }
+        String storedName = UUID.randomUUID().toString().substring(0, 8) + "_" + originalName;
+
+        try {
+            java.nio.file.Path dir = java.nio.file.Paths.get("./uploads/tools/" + toolId);
+            java.nio.file.Files.createDirectories(dir);
+            java.nio.file.Path target = dir.resolve(storedName);
+            java.nio.file.Files.copy(file.getInputStream(), target,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+
+            tool.setFileName(originalName);
+            tool.setFilePath(target.toString());
+            tool.setFileSize(file.getSize());
+            log.info("工具包已保存: toolId={}, path={}, size={}", toolId, target, file.getSize());
+            return toolRepository.save(tool);
+        } catch (java.io.IOException e) {
+            log.error("保存工具包失败: toolId={}", toolId, e);
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "保存工具包失败: " + e.getMessage());
+        }
+    }
+
     @Override
     public List<String> getTags(UUID toolId) {
         if (toolId == null) {
