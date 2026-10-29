@@ -235,3 +235,367 @@ index.html 引用 `/static/index-*.js|css` 且资源可 200 加载。
 前端新增 API 封装：`createAssetAccessRequest`、`getMyAccessRequests`、`getAssetAccessRequests`、`getMyAccessApprovalRequests`、`reviewAssetAccessRequest`、`createAssetClaim`、`getMyClaims`、`getAssetClaims`、`reviewAssetClaim`、`completeAssetClaim`、`abandonAssetClaim`。
 
 构建产物校验：`/static/index-*.js` 中「申请访问」「认领资产」「审批中心」「访问申请待审批」等文案均已包含；`/`、`/assets`、`/approvals` 均返回 200。
+
+---
+
+## 13. 第五轮完善（漏洞附件下载端点）
+
+此前 `GET /api/v1/vulnerabilities/{id}/attachments` 只返回附件元数据（含 `filePath`），
+没有真正的文件流端点，前端「下载附件」只能降级提示。本轮补齐：
+
+| 类别 | 内容 |
+|---|---|
+| 新端点 | `GET /api/v1/vulnerabilities/{id}/attachments/{attachmentId}/download` |
+| 响应 | `Content-Type: application/octet-stream`，`Content-Length` 为真实字节数，`Content-Disposition: attachment; filename="原始文件名"; filename*=UTF-8''<RFC5987编码>`（ASCII 兜底 + 中文文件名编码，浏览器/下载工具均可正确落盘） |
+| 归属校验 | `attachmentId` 必须属于路径中的 `{id}`，否则 **404** `附件不存在或不属于该漏洞` |
+| 文件缺失 | 库中有记录但磁盘文件不存在/不可读 → **404** `附件文件不存在或已被移除`（不再是 500） |
+| 数据级授权 | 方法级 `@PreAuthorize("@accessGuard.canReadVulnerability(#id, authentication)")`：按 vulnerabilityId → assetId 复用资产可见性口径（admin/project_leader 全局可见；team_leader 限本团队资产；普通成员限本人负责或已获 approved 授权的资产），无权返回 **403** |
+
+验证（curl，`$TOKEN` 为登录后的 Bearer Token）：
+
+```bash
+# 1) 上传
+curl -s -X POST "http://192.168.188.200:8089/api/v1/vulnerabilities/$VULN_ID/attachments" \
+  -H "Authorization: Bearer $TOKEN" -F "file=@poc.zip"
+
+# 2) 下载并比对字节数
+curl -s -D /tmp/h.txt -o /tmp/poc.zip \
+  "http://192.168.188.200:8089/api/v1/vulnerabilities/$VULN_ID/attachments/$ATTACHMENT_ID/download" \
+  -H "Authorization: Bearer $TOKEN"
+grep -i content-disposition /tmp/h.txt   # attachment; filename="poc.zip"; filename*=UTF-8''poc.zip
+cmp poc.zip /tmp/poc.zip && echo "字节一致"
+
+# 3) 异常用例
+curl -s -o /dev/null -w '%{http_code}\n' \
+  "http://192.168.188.200:8089/api/v1/vulnerabilities/$OTHER_VULN_ID/attachments/$ATTACHMENT_ID/download" \
+  -H "Authorization: Bearer $TOKEN"   # 404（跨漏洞）
+curl -s -o /dev/null -w '%{http_code}\n' \
+  "http://192.168.188.200:8089/api/v1/vulnerabilities/$FOREIGN_VULN_ID/attachments/$FOREIGN_ATTACHMENT_ID/download" \
+  -H "Authorization: Bearer $ENGINEER_TOKEN"   # 403（无数据级权限）
+```
+
+后端单测：`cd backend && mvn -B test -Dtest=VulnerabilityAttachmentDownloadTest`
+（7 个用例：正常下载字节一致 + Content-Disposition、中文文件名 RFC5987 编码、跨漏洞 404、
+无权限 403、管理员放行、文件缺失 404、附件不存在 404）。
+
+前端无需改动（t9 已按该路径调用，仅需后端提供文件流即可从「降级提示」切换为真实下载）。
+
+---
+
+## 14. 第六轮完善（漏洞子资源数据级授权补齐）
+
+此前 `VulnerabilityController` 只有 `DELETE /{id}`（ADMIN）与新加的附件下载端点受保护，**其余端点只要知道 UUID 就能读写**：
+任意登录用户可读他人资产漏洞的详情/标签/历史/附件列表，并可上传/删除附件、增删标签、改状态。
+本轮按资产口径补齐子资源授权，与 `AssetController` 的数据级授权保持一致。
+
+### 14.1 授权矩阵（漏洞域）
+
+判定入口：`AccessGuard`，均以 `vulnerabilityId → assetId` 反查后复用资产口径。
+口径：admin / project_leader 全局；team_leader 限本团队资产；普通成员限本人负责（`assets.owner_id`）或已获 `approved` 授权的资产。
+
+| 方法级守卫 | 语义 | 覆盖端点 |
+|---|---|---|
+| `@accessGuard.canReadVulnerability(#id, authentication)` | 可读：管理层 / 资产负责人 / 已获批访问 / 所属团队负责人 | `GET /{id}`、`GET /{id}/tags`、`GET /{id}/history`、`GET /{id}/attachments`、`GET /{id}/attachments/{attachmentId}/download` |
+| `@accessGuard.canWriteVulnerability(#id, authentication)` | **可写**：管理层 / 资产负责人（不是只读的降级） | `PUT /{id}`、`PATCH /{id}/(workflow-status\|customer-status\|disclosure-status\|exploit-stage\|vendor-fix)`、`POST /{id}/assign`、`POST /{id}/deliver`、`POST /{id}/tags`、`DELETE /{vulnerabilityId}/tags/{tagId}`、`POST /{id}/attachments`、`DELETE /{vulnerabilityId}/attachments/{attachmentId}` |
+| `@accessGuard.canWriteAsset(#vulnerability.assetId, authentication)` | **可写资产**才能建漏洞：管理层 / 资产负责人（方法体内再校验一次，防 TOCTOU） | `POST /`（创建漏洞） |
+| `@accessGuard.canReadAsset(#assetId, authentication)` | 可读：按资产可见性 | `GET /by-asset/{assetId}` |
+| `hasRole('ADMIN')` | 仅管理员 | `DELETE /{id}`（保持原有角色轨，未降级为数据级） |
+
+### 14.2 统计端点的数据边界（t27 补齐）
+
+| 端点 | 收敛方式 |
+|---|---|
+| `GET /statistics/workflow-status` | 先取 `AccessGuard.visibleAssetIds(authentication)`：`null`（admin/project_leader）→ 全量 group by；否则只统计 `asset_id ∈ 可见集合`（负责人 ∪ `approved` 授权 ∪ 所带团队），与列表接口共用同一个 Specification 判定 |
+| `GET /statistics/severity` | 同上 |
+
+> 口径一致性：列表、统计共用 `VulnerabilityServiceImpl.buildSpec(...)`，不存在第二套可见性判定；
+> 越权创建漏洞（`POST /` 指向他人资产）在执行方法级守卫时即 403，库中不会留下记录。
+
+### 14.2.1 仪表盘统计的授权与边界（t29 补齐）
+
+仪表盘侧的漏洞统计此前既无角色门槛、也未收敛范围（任何登录用户可读全量分布）。现改为「角色门槛 + 可见范围收敛」两层：
+
+| 端点 | 角色门槛（权限矩阵 2.13） | 数据收敛 |
+|---|---|---|
+| `GET /api/v1/dashboard/vulnerabilities/stats` | `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')` | `visibleAssetIds`：admin/project_leader 全量，team_leader 仅本团队可见资产 |
+| `GET /api/v1/dashboard/vulnerabilities/stats/workflow-status` | 同上 | 同上（委托 `VulnerabilityService.countByWorkflowStatus(scoped)`） |
+| `GET /api/v1/dashboard/vulnerabilities/stats/severity` | 同上 | 同上（委托 `countBySeverity(scoped)`） |
+| `GET /api/v1/dashboard/assets/stats`、`/status`、`/type`、`/priority` | **不加门槛**（首屏对所有角色展示） | 按 `visibleAssetIds` 收敛：工程师/普通成员只统计自己负责或已获批的资产 |
+| `GET /api/v1/dashboard/overview`、`/my` | 不加门槛 | 概览内的资产与漏洞统计均按 `visibleAssetIds` 收敛（避免成为绕过通道） |
+
+口径来源统一：控制器 `currentVisibleAssets()` → `AccessGuard.visibleAssetIds(authentication)`；
+漏洞分组计数委托 `VulnerabilityService` 的同名重载（与 `/vulnerabilities/statistics/*` 完全同一判定），
+仪表盘不另写过滤规则。`severity` 在库中为大写，响应仍归一为小写 key（`critical/high/medium/low/info`），保持既有前端结构。
+
+### 14.2.2 导出/下载类端点授权清单（t31 审计）
+
+`GET /api/v1/dashboard/export` 此前只要求登录，任何用户都能一次性导出**全量**资产/漏洞明细 CSV。
+现按权限矩阵 2.13 收紧为 admin / project_leader，并对全部「导出/下载/模板」类端点做了一轮复核：
+
+| 端点 | 当前校验 | 结论 |
+|---|---|---|
+| `GET /api/v1/dashboard/export` | `@PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")`（**t31 新增**） | ✅ 已修复。导出内容为**全量**，仅管理层可用；**若日后放开给 team_leader，必须按 `visibleAssetIds` 收敛导出范围**（方法注释已写明） |
+| `GET /api/v1/audit-logs/export` | 方法级 + 类级 `hasAnyRole('ADMIN','PROJECT_LEADER')` | ✅ 恰当 |
+| `GET /api/v1/import/templates/{type}` | 仅登录 | ✅ 可接受：只返回 CSV 表头模板，无业务数据。⚠️ 但同控制器 `POST /import/assets|vulnerabilities` 同样**无角色/数据级校验**，任何登录用户可批量写入——建议单开任务收紧 |
+| `GET /api/v1/asset-deliverables/{id}/download` | `@accessGuard.canReadDeliverable(#id)` | ✅ 数据级授权 |
+| `GET /api/v1/asset-files/{id}/download` | `@accessGuard.canReadAssetFile(#id)` | ✅ 数据级授权 |
+| `GET /api/v1/asset-files/{fileId}/versions/{version}` | `@accessGuard.canReadAssetFile(#fileId)` | ✅ 数据级授权 |
+| `GET /api/v1/vulnerabilities/{id}/attachments/{attachmentId}/download` | `@accessGuard.canReadVulnerability(#id)` + 附件归属校验 | ✅ 数据级授权 |
+| `GET/POST /api/v1/tools/{id}/download`、`/assets…` 见上、`GET /api/v1/tools/{id}/versions/{versionId}/download` | 仅登录 | ✅ 符合矩阵 2.8（工具库下载对所有角色开放）；版本必须属于该工具（跨工具 404），无越权资源 |
+| `GET /api/v1/tools/{id}/download-count` | 仅登录 | ✅ 仅返回计数，无明细 |
+
+> 结论：需要的只有 `/dashboard/export` 一处缺门槛，已修复；其余导出/下载端点要么走数据级授权，要么按矩阵本来就对所有角色开放。
+> 唯一新增的遗留项是 `POST /api/v1/import/*`（批量写入无授权收口），已在上表标注。
+
+
+### 14.3 状态码约定
+
+| 场景 | 状态码 |
+|---|---|
+| 非管理层访问他人资产的漏洞（读/写） | **403** |
+| 非管理层在他人资产下创建漏洞 | **403**（且库中无新增） |
+| 创建漏洞未传 `assetId` | **400** |
+| 管理层访问不存在的漏洞 | **404**（先放行，再由控制器判定资源存在性） |
+| 非管理层访问不存在的漏洞 | **403**（与资产口径一致，避免用状态码枚举资源） |
+| 工程师调用 `DELETE /{id}` | **403**（角色轨拦截，管理员 200） |
+
+### 14.4 验证
+
+```bash
+# 后端用例（交叉访问 + 子资源读写 + 创建边界 + 统计边界 + 管理员删除）
+cd backend && mvn -B test -Dtest=VulnerabilityAuthorizationTest
+cd backend && mvn -B test -Dtest=VulnerabilityControllerTest
+```
+
+两个不同资产的负责人互相访问对方漏洞时，读与写均返回 403：
+工程师令牌访问 `$FOREIGN_VULN_ID` 的 `GET /{id}`、`POST /{id}/tags`、`POST /{id}/attachments` → 全部 403；
+反向（对方访问工程师资产漏洞）同样 403。
+
+统计边界示例（两账号交叉）：工程师账号 `GET /vulnerabilities/statistics/severity` 只含自己资产的数据，
+管理员账号同端点返回全量；两者总数差即为他人资产漏洞数。
+
+仪表盘统计的验证：
+
+```bash
+cd backend && mvn -B test -Dtest=DashboardStatsAuthorizationTest
+cd backend && mvn -B test -Dtest=DashboardControllerTest
+```
+
+工程师令牌访问 `/dashboard/vulnerabilities/stats`、`/stats/workflow-status`、`/stats/severity` → 三个都 **403**；
+小组长令牌看到的漏洞总数小于管理员（差值即其不可见团队的漏洞数）；资产统计与概览同样按可见范围收敛。
+
+导出授权的验证：
+
+```bash
+cd backend && mvn -B test -Dtest=DashboardExportAuthorizationTest
+```
+
+工程师与小组长访问 `GET /api/v1/dashboard/export?type=assets` → 均 **403**；admin / project_leader → **200** 且返回带 BOM 的非空 CSV。
+
+---
+
+## 15. 第七轮完善（工具版本并发唯一键冲突：409 语义）
+
+**问题**：并发上传同一工具的版本时，`(tool_id, version_no)` 唯一索引冲突发生在**事务提交**阶段，
+原实现把 `DataIntegrityViolationException` 的捕获放在 `save()` 外层，异常逃逸到全局处理器 → 记为「系统异常」返回 **500**。
+实测 10 并发：`201×5 + 500×5, 409=0`，前端「409 后自动重试一次」的契约从未生效。
+
+**修复（三层）**：
+1. `saveAndFlush(...)`：把 flush 提前到受控代码块内，唯一键冲突在 `try` 内抛出；
+2. **乐观重试 + 退避抖动**：捕获后在新事务中重算 `versionNo = max + 1`，最多 3 次（含首次），
+   每次失败后等待 `n×15ms + 0~20ms`；仍失败返回 **409**「版本号冲突，请重试」；
+3. **行级锁串行化**（关键）：同一工具的版本号分配在 `SELECT ... FOR UPDATE`（`ToolRepository#findByIdForUpdate`）
+   下完成，从根上避免并发线程算出相同 `version_no`；重试作为跨库/极端情况兜底。
+
+**接口契约**：
+
+| 场景 | HTTP | 说明 |
+|---|---|---|
+| 上传成功（含并发排队成功） | **201** | 返回 `versionNo`、`createdBy`、`hasFile`、`fileName/fileSize` |
+| 3 次重试仍撞唯一键 | **409** | `{"success":false,"message":"版本号冲突，请重试"}`，前端应重试一次 |
+| 工具不存在 | 404 | `工具不存在` |
+| 未登录 / 用户不存在 | 401 | 审计字段 `created_by` 必填，不再 500 |
+| 跨工具下载版本 | 404 | `版本不存在或不属于该工具` |
+
+**验收命令（并发压测）**：
+
+```bash
+# 8 并发上传同一工具版本，统计 201/409/500
+for i in $(seq 1 8); do
+  curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+    "http://192.168.188.200:8089/api/v1/tools/$TOOL_ID/versions" \
+    -H "Authorization: Bearer $TOKEN" \
+    -F "file=@poc.zip" -F "changelog=concurrent-$i" &
+done | sort | uniq -c
+# 期望：201=8, 409=0, 500=0（高竞争下允许少量 409，绝不允许 500）
+mysql -e "SELECT tool_id, version_no, COUNT(*) c FROM tool_versions GROUP BY tool_id, version_no HAVING c > 1;" vuln_audit
+# 期望：Empty set
+```
+
+后端自动化用例：`cd backend && mvn -B test -Dtest=ToolVersionConcurrencyTest`
+（8 线程并发上传 → 输出 `并发上传结果: 201=N, 409=M, 500=0`，断言 versionNo 唯一；另测重试耗尽 → 409）。
+
+**同类收敛**（“先查 max/count 再插入唯一键”）：
+- 漏洞编号 `vulnerability_no`（count+1 生成）：`saveAndFlush` + 冲突转 **409「漏洞编号冲突，请重试」**；
+- 资产编号 `assets.code`（6 位随机 + 20 次预检）：`saveAndFlush` + 冲突转 **409「资产编号冲突，请重试」**；
+- 资产版本号 `(asset_id, version_no)`：`saveAndFlush` + 冲突转 **409「资产版本号冲突，请重试」**；
+- 文档版本号 `(document_id, version)`：**已收敛（t32 推翻此处此前的“不改”结论）**——版本号重复是数据正确性缺陷：
+  两份内容不同的修订拿到同一 `version` 后，历史排序、回滚、审计追溯全部失真且不可逆（无法事后判断哪份才是真正的 vN）。因此：
+  - **V17 迁移** 加唯一索引 `uk_document_versions_document_version`；迁移前用「自连接 + GROUP BY」按 `(created_at, id)`
+    重排冲突文档的版本号（兼容 MariaDB 10.0/10.1，不依赖窗口函数；语句幂等可重复执行）；
+  - 版本分配沿用三层方案：`DocumentRepository#findByIdForUpdate` 行级锁串行化 + `saveAndFlush` 提前暴露冲突 +
+    有界重试（新事务重算 `version = max + 1`，最多 3 次）；
+  - 冲突耗尽 → **409「文档版本冲突，请重试」**，其他完整性错误 → 400；
+  - 实测 8 并发更新同一文档：`200=8, 409=0, 500=0`，`document_versions.version` 唯一且连续（1..N），
+    `documents.version` 与最新快照保持一致；
+  - 后端用例：`cd backend && mvn -B test -Dtest=DocumentVersionConcurrencyTest`。
+
+---
+
+## 16. 第八轮完善（批量导入的写侧授权与逐行数据边界）
+
+**问题**：`POST /api/v1/import/assets` 与 `POST /api/v1/import/vulnerabilities` 此前**没有任何角色或数据级校验**——
+任何登录用户都能批量写入资产与漏洞。相比导出（读泄漏），导入是**写**越权，可造成大规模数据污染。
+同控制器 `POST /import/users` 早已限定 ADMIN，说明接口设计本来就该分级。
+
+### 16.1 授权矩阵（导入域）
+
+| 端点 | 角色门槛 | 数据级校验 |
+|---|---|---|
+| `POST /api/v1/import/assets` | `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')` | admin / project_leader 不限团队；team_leader 每行 `teamId`/`teamCode` 必须属于「自己领导的团队 ∪ 自己所属的团队」，否则该行 failed 且不落库 |
+| `POST /api/v1/import/vulnerabilities` | 所有登录用户可用（逐行判定） | 每行按目标资产 `accessGuard.canWriteAsset(assetId)`；无权行 failed 且**不产生任何写入**（含不会自动创建资产版本） |
+| `POST /api/v1/import/users` | `hasRole('ADMIN')`（原有） | — |
+| `GET /api/v1/import/templates/{type}` | 仅登录 | 仅返回 CSV 表头模板，无业务数据 |
+
+**fail-closed**：团队范围解析不到用户/权限时返回空集合（一律拒绝）；资产可写判定抛异常时按拒绝处理。
+不存在「未指定团队 → 默认放行」的分支。
+
+### 16.2 失败原因分类（同为 failedRows，文案可区分）
+
+| 类别 | 示例 reason |
+|---|---|
+| 校验失败 | `无效的优先级: P9，可选值 P0/P1/P2/P3`、`缺少 teamId 或 teamCode（二者填其一）`、`资产编号不存在: XXX` |
+| 权限拒绝 | `权限拒绝：无权导入该团队（teamId=...）`、`权限拒绝：无权在该资产下创建漏洞（assetCode=...）` |
+
+响应结构不变：`{totalRows, successRows, failedRows:[{line, reason}]}`，逐行独立，部分成功不影响其他行。
+
+### 16.3 验证
+
+```bash
+cd backend && mvn -B test -Dtest=ImportAuthorizationTest
+cd backend && mvn -B test -Dtest=ImportControllerTest
+```
+
+三账号交叉验证：
+- 工程师 `POST /import/assets` → **403**（整单拒绝，库中无新增）；
+- 小组长导入含「本团队 + 他人团队」两行 → 成功 1 行、失败 1 行（`权限拒绝：无权导入该团队`），他人团队资产未落库；
+- 工程师导入漏洞到「自己负责资产 + 他人资产」两行 → 成功 1 行、失败 1 行（`权限拒绝：无权在该资产下创建漏洞`），他人资产下无漏洞、无版本；
+- admin 导入同一份文件 → 全部成功。
+
+---
+
+## 17. 第九轮完善（文档回滚写快照：修复审计断链与版本跳号）
+
+**问题**：`POST /api/v1/documents/{id}/versions/{version}/rollback` 此前只把目标版本内容拷进 `documents`，
+**不写 `document_versions` 快照**，导致两个后果：
+1) 历史里查不到「谁在何时回滚到哪个版本」，审计追溯断链；
+2) 回滚后 `documents.version` 与历史序列脱节，下一次编辑的版本号出现跳号/悬空。
+
+**修复**（`DocumentService#rollbackToVersion`，与 t32 的编辑保存共用同一套并发语义）：
+
+| 行为 | 说明 |
+|---|---|
+| 新增快照 | `version = max(历史最大版本, documents.version) + 1`，内容取目标版本（title/summary/content） |
+| 历史不可变 | 只读取目标版本快照，**不 UPDATE 任何历史行** |
+| 审计可追溯 | 新快照 `changelog = "rollback from v{目标版本}"`，`created_by = 操作者` |
+| 并发安全 | `DocumentRepository#findByIdForUpdate` 行级锁 + `saveAndFlush` + 有界重试（3 次，退避抖动） |
+| 状态码 | 成功 **200**；目标版本不存在 **404**「版本不存在: vN」；重试耗尽 **409**「文档版本冲突，请重试」；其他完整性错误 **400** |
+
+**等价 SQL 校验（回滚后）**：
+
+```sql
+-- 版本号连续、无重复
+SELECT version, COUNT(*) c FROM document_versions WHERE document_id = ? GROUP BY version HAVING c > 1;
+-- 最新快照的 changelog 应能看到回滚来源
+SELECT version, changelog, created_by, created_at FROM document_versions
+ WHERE document_id = ? ORDER BY version DESC LIMIT 3;
+```
+
+**验证**：
+
+```bash
+cd backend && mvn -B test -Dtest=DocumentRollbackSnapshotTest
+# 输出「文档并发回滚/编辑结果: 200=8, 409=0, 500=0」，且版本号连续、无重复
+```
+
+
+## 18. 第十轮：部署验证与数据清理（t13）
+
+本节记录 2026-10-29 这次**部署验收**的执行方式、结果与重置方法，完整原始输出见 `deploy/smoke-result.txt`。
+
+### 18.1 部署动作（按顺序）
+
+1. **前端构建**：`cd frontend && npm install --legacy-peer-deps && npm run build`；产物 `dist/`（index.html + static/index-*.js/css）。
+2. **后端构建**（在部署主机上执行，避免 72MB 包上传）：
+   `cd ~/apps/vuln-audit/backend && ~/opt/apache-maven-3.9.9/bin/mvn -B -DskipTests package`
+   → `target/vuln-audit-backend-1.0.0-SNAPSHOT.jar`（本次 72,869,597 B）。构建前先把旧 jar 与旧 src 备份到 `~/backups/`。
+3. **手工 DDL**：`MYSQL_PWD=<pwd> mariadb -uvulnapp vuln_audit < deploy/manual-ddl.sql`
+   （三段：notifications.type 扩宽；tool_versions 版本号/文件字段 + 唯一索引；document_versions 唯一索引）。
+   执行前 `mysqldump` 备份（本次 38 KB）。
+4. **时区**：`~/.config/systemd/user/vuln-audit-backend.service` 的 `[Service]` 段加
+   `Environment=TZ=Asia/Shanghai` → `systemctl --user daemon-reload && systemctl --user restart vuln-audit-backend`。
+   验证：`Started VulnAuditApplication` 日志时间戳由 UTC 变为 `+08:00`。
+5. **静态资源**：`SUDO_PASS='<sudo 口令>' bash deploy/sync-dist.sh`。
+   **只同步前端 dist 不会生效**，后端 jar 必须重新构建并重启。
+6. **RBAC**：首次启动日志出现
+   `RBAC 权限点初始化完成: 新增权限点=90, 刷新权限点=0, 新增角色=0, 新增角色权限=261, 权限点总数=90`；
+   连续重启两次 `permissions=90 / role_permissions=261 / roles=4` 不变（幂等）。
+
+### 18.2 本次结果
+
+| 项 | 结果 |
+|---|---|
+| 冒烟 `scripts/smoke.sh`（92 例） | **92 PASS / 0 FAIL / 0 SKIP** |
+| 前轮核对项 11a~11k | **13/13 PASS**（recipients 字段、type 50/51、TZ、环境 503、分组删除、审计 403/筛选/BOM、页面产物、排行趋势、工具版本） |
+| 数据清理 | 20 个残留分组（13 回归/调试/诊断/空分组 + 7 冒烟）逐个 DELETE 均 200；8 个冒烟/乱码资产清理；notification_settings 3→0；演练审批范围 1 条；资产表剩 3 条示例 |
+
+### 18.3 已知偏离
+
+1. **未引入 spring-boot-starter-actuator**：`/actuator/health` 返回 500（`NoResourceFoundException`）。
+   健康检查请用 `curl -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/v3/api-docs`（期望 200）或直接调登录接口。
+2. **工具版本并发 409 难以自然触发**：t28 的行级锁把版本号分配串行化，实测 3 并发上传得到 201/201/201
+   且 versionNo 唯一（无 500）；409 语义由 `ToolVersionConcurrencyTest` 单测覆盖。
+3. **`DELETE /api/v1/assets/{id}` 是软删除**（置 archived），要真正移除需按 id 清理关联表后再删主表。
+
+### 18.4 重置方式
+
+```bash
+# A. 恢复到本次部署前（有备份时）
+ls ~/backups/                       # vuln_audit_pre_t13_*.sql.gz / backend_*.jar / backend_src_*.tar.gz
+gunzip -c ~/backups/vuln_audit_pre_t13_*.sql.gz | MYSQL_PWD='<pwd>' mariadb -uvulnapp vuln_audit
+systemctl --user restart vuln-audit-backend
+
+# B. 只清业务数据（保留 users/roles/permissions/role_permissions）
+export MYSQL_PWD='<pwd>'
+mariadb -uvulnapp vuln_audit <<'SQL'
+SET FOREIGN_KEY_CHECKS=0;
+TRUNCATE TABLE vulnerabilities; TRUNCATE TABLE vulnerability_tags; TRUNCATE TABLE vulnerability_history;
+TRUNCATE TABLE vulnerability_attachments; TRUNCATE TABLE asset_tags; TRUNCATE TABLE asset_groups;
+TRUNCATE TABLE asset_group_relations; TRUNCATE TABLE asset_access; TRUNCATE TABLE asset_claims;
+TRUNCATE TABLE audit_logs;
+SET FOREIGN_KEY_CHECKS=1;
+SQL
+
+# C. 重建初始演示数据（团队 + 3 个示例资产）
+cd ~/apps/vuln-audit && python3 deploy/seed.py
+
+# D. 前端重新发布（改了前端代码后）
+cd frontend && npm run build && SUDO_PASS='<sudo 口令>' bash ../deploy/sync-dist.sh
+```
+
+### 18.5 复跑验收
+
+```bash
+cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh
+# 期望：TOTAL=92 PASS=92 FAIL=0 SKIP=0；有 FAIL 时脚本退出码为 1 并列出失败用例名
+```

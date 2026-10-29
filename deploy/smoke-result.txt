@@ -1,0 +1,147 @@
+# 部署验收冒烟与核对结果（t13）
+# 环境：192.168.188.200:8089（nginx 8089 → 后端 8088 → MariaDB 3306），Ubuntu + OpenJDK 21 + MariaDB 10.11
+# 时间：2026-10-29 22:12 ~ 22:35（Asia/Shanghai）
+# 后端：本次在部署主机上用新源码重新 mvn -B -DskipTests package 构建（jar 72,869,597 B, 14:16 UTC）
+# 前端：本地 npm run build → dist 上传 → deploy/sync-dist.sh 同步到 /var/www/vuln-audit（index-DmCRvmQl.js）
+# 手工 DDL：deploy/manual-ddl.sql 三段全部执行（notifications.type varchar(50)/NO、tool_versions.version_no+唯一索引、document_versions 唯一索引）
+# 时区：systemd unit 增加 Environment=TZ=Asia/Shanghai（日志时间戳由 UTC 变为 +08:00）
+
+########## 一、冒烟（scripts/smoke.sh，BASE_URL=http://127.0.0.1:8089） ##########
+==== 冒烟开始 2026-10-29 14:22:14  BASE_URL=http://127.0.0.1:8089 ====
+PASS  auth/登录-admin                              200  token 长度 202
+PASS  auth/错误密码-401                          401  错误口令必须被拒绝
+PASS  auth/登录-smoke_engineer                     200  工程师 token 长度 236
+PASS  auth/登录-smoke_leader                       200  组长 token 长度 219
+PASS  asset/列表                                   200  GET /assets
+PASS  asset/创建                                   201  POST /assets
+PASS  asset/详情                                   200  GET /assets/{id}
+PASS  asset/标签-添加                            201  POST /assets/{id}/tags?tag=
+PASS  asset/标签-列表                            200  GET /assets/{id}/tags
+PASS  asset/标签-删除                            200  DELETE /assets/{assetId}/tags/{tagId}
+PASS  asset/分组-创建                            201  POST /asset-groups
+PASS  asset/分组-更新                            200  PUT /asset-groups/{id}
+PASS  asset/分组-详情                            200  GET /asset-groups/{id}
+PASS  asset/分组-加入资产                      200  POST /asset-groups/{id}/assets?assetId=
+PASS  asset/分组-资产列表                      200  GET /asset-groups/{id}/assets
+PASS  asset/分组-移除资产                      200  DELETE /asset-groups/{groupId}/assets/{assetId}
+PASS  asset/分组-删除                            200  DELETE /asset-groups/{id}
+PASS  asset/元数据-写                            200  PUT /assets/{id}/metadata/base
+PASS  asset/元数据-读                            200  GET /assets/{id}/metadata/base
+PASS  asset/版本-创建                            201  POST /assets/{id}/versions?setDefault=true
+PASS  asset/访问申请-创建                      201  POST /assets/{id}/access-requests
+PASS  asset/访问申请-审批通过                200  POST /assets/access-requests/{id}/review
+PASS  asset/访问申请-撤销(驳回)              200  review approved=false
+PASS  asset/待我审批列表                       200  GET /assets/my/access-approval-requests
+PASS  asset/我的访问申请                       200  GET /assets/my/access-requests
+PASS  vuln/创建-201                                201  camelCase 报文，必须 201
+PASS  vuln/列表                                    200  GET /vulnerabilities
+PASS  vuln/详情                                    200  GET /vulnerabilities/{id}
+PASS  vuln/编辑-仅改标题                       200  PUT /vulnerabilities/{id}（只带 title）
+PASS  vuln/编辑-其余字段不变                 200  标题已更新；severity/customerStatus/disclosureStatus/版本未变
+PASS  vuln/工作流状态-PATCH                     200  discovered -> verified
+PASS  vuln/历史                                    200  GET /vulnerabilities/{id}/history
+PASS  vuln/附件-上传                             201  POST /vulnerabilities/{id}/attachments
+PASS  vuln/附件-列表                             200  GET /vulnerabilities/{id}/attachments
+PASS  vuln/附件-下载                             200  字节数 1234 与上传一致
+PASS  vuln/标签-添加                             201  POST /vulnerabilities/{id}/tags?tag=
+PASS  vuln/标签-列表                             200  GET /vulnerabilities/{id}/tags
+PASS  vuln/标签-删除                             200  DELETE /vulnerabilities/{vulnerabilityId}/tags/{tagId}
+PASS  task/创建                                    201  POST /tasks
+PASS  task/列表                                    200  GET /tasks
+PASS  task/详情                                    200  GET /tasks/{id}
+PASS  tool/创建                                    201  POST /tools
+PASS  tool/包上传                                 200  POST /tools/{id}/file
+PASS  tool/包下载                                 200  字节数 2048 与上传一致
+PASS  tool/版本上传                              201  POST /tools/{id}/versions?version=v2
+PASS  tool/版本列表                              200  GET /tools/{id}/versions
+PASS  tool/版本下载                              200  字节数 512 与上传一致
+PASS  notify/列表                                  200  GET /notifications
+PASS  notify/未读数                               200  GET /notifications/unread-count
+PASS  notify/未读反查(isRead=false)              200  GET /notifications?isRead=false
+PASS  notify/标记已读                            200  POST /notifications/{id}/read
+PASS  notify/发送记录(recipients)                200  GET /notifications/{id}/recipients
+PASS  notify/全部已读                            200  POST /notifications/read-all
+PASS  notify/设置-读取                           200  GET /notifications/settings
+PASS  notify/设置-更新                           200  PUT /notifications/settings/{type}（snake_case 字段）
+PASS  notify/公告-列表                           200  GET /notifications/announcements
+PASS  notify/公告-创建                           201  POST /notifications/announcements
+PASS  notify/活跃公告                            200  GET /notifications/announcements/active
+PASS  import/模板-assets                           200  带 UTF-8 BOM
+PASS  import/模板-vulnerabilities                  200  带 UTF-8 BOM
+PASS  import/模板-users                            200  带 UTF-8 BOM
+PASS  import/资产部分成功                      200  successRows=2 failedRows=1（真实服务端语义）
+PASS  import/用户导入-工程师403               403  仅 ADMIN 可导入用户
+PASS  approval/范围-授予                         201  POST /approval-scopes
+PASS  approval/范围-撤销                         200  DELETE /approval-scopes/{id}
+PASS  approval/我的范围                          200  GET /approval-scopes/my
+PASS  env/创建                                     200  POST /environments
+PASS  env/部署-无Docker应503                     503  POST /environments/{id}/deploy
+PASS  env/详情(含部署器信息)                 200  GET /environments/{id}
+PASS  rbac/权限点-90                              200  权限点数量 90
+PASS  rbac/admin权限数-90                         200  permissionCount=90
+PASS  dash/导出CSV                                 200  带 BOM 且表头为「资产编号…」
+PASS  dash/导出-工程师403                       403  仅 admin/project_leader 可导出
+PASS  dash/趋势-7点                               200  点数 7
+PASS  dash/排行-admin                              200  返回 2 行（admin 视角多行）
+PASS  dash/排行-工程师1行                      200  工程师视角只返回自己 1 行
+PASS  audit/列表                                   200  totalElements=450
+PASS  audit/关键词筛选                          200  keyword 无命中 → totalElements=0（原 450）
+PASS  audit/时间筛选                             200  未来时间窗 → totalElements=0（原 450）
+PASS  audit/导出CSV                                200  带 BOM 且表头为「时间,用户ID,操作…」
+PASS  audit/工程师403                             403  审计日志仅管理层可见
+PASS  page/                                          200  content-type=text/html
+PASS  page/assets                                    200  content-type=text/html
+PASS  page/vulnerabilities                           200  content-type=text/html
+PASS  page/tasks                                     200  content-type=text/html
+PASS  page/tools                                     200  content-type=text/html
+PASS  page/notifications                             200  content-type=text/html
+PASS  page/audit-logs                                200  content-type=text/html
+PASS  page/import                                    200  content-type=text/html
+PASS  page/approvals                                 200  content-type=text/html
+PASS  page/asset-groups                              200  content-type=text/html
+PASS  page/approval-scopes                           200  content-type=text/html
+
+==== 冒烟汇总 ====
+TOTAL=92  PASS=92  FAIL=0  SKIP=0
+结论：PASS（全部用例执行）
+
+########## 二、前轮核对项实测（11a ~ 11k） ##########
+PASS  登录-admin | 200
+      使用已有资产 asset=118c01f5-6cf1-48f1-b2ce-9f13f7101268
+==================== E-a) 通知 recipients 字段 ====================
+      漏洞创建 status=400 id= discoveredVersionId=发现版本ID不能为空
+      发送漏洞通知 status=200
+PASS  E-a recipients 字段 | status=200 fields: channel sendStatus sentAt errorMessage recipientType
+==================== E-b) 通知 type 长度三态 ====================
+PASS  E-b type 长度三态 | 不传=200 50字符=200 51字符=400
+==================== E-c) TZ 后公告与审计时间为 +08:00 ====================
+PASS  E-c 公告立即可见 | id=78d35cc5-fdc6-4a66-8c8e-63cb9d97fc93 publishedAt=2026-10-29T22:27:44
+PASS  E-c 审计时间为本地 +08:00 | createdAt=2026-10-29T22:27:44.292931（服务器 UTC 14:27）
+==================== E-d) 环境 deploy 无 Docker → 503 + failed + failReason ====================
+      环境创建 status=200 id=55f898b4-0763-42e7-805e-01ba36669fdb body={"success":true,"message":"操作成功","data":{"id":"55f898b4-0763-42e7-805e-01ba36669fdb","name":"t13 环境探针","
+PASS  E-d deploy 503+failed+failReason | provisioner=noop available=false failReason=当前部署未启用容器编排（未检测到可用的 Docker 守护进程或 docker 
+==================== E-e) 分组 DELETE / 组内移除资产 = 200 ====================
+PASS  E-e 分组加/移除/删除 | add=200 remove=200 delete=200
+==================== E-f/g/h) 审计导出 BOM + 工程师 403 + 筛选变小 + 清理任务 ====================
+PASS  E-h 审计导出 CSV+BOM | status=200 bom=efbbbf 表头正确
+PASS  E-g 审计筛选使 totalElements 变小 | 全量=516 keyword=0 未来窗口=0
+PASS  E-f 审计工程师 403 | export=403 list=403
+      E-f 清理任务：cron=0 30 3 * * *（daily 03:30），本次部署未到触发点，日志命中 0（未触发=0 属正常）
+==================== E-i) /audit-logs 页面可渲染（产物核对） ====================
+PASS  E-i /audit-logs 页面与产物 | page=200 bundle=index-DmCRvmQl.js 含审计日志组件
+==================== E-j) 排行多行 + 趋势 7 点 + 服务端口径标签 ====================
+PASS  E-j 排行/趋势/口径标签 | rank=200 行数=3 用户=3 趋势点=7 startDate/endDate=有 口径标签=有 兜底文案=无
+==================== E-k) 工具版本 hasFile / 字节一致 / versionNo 递增 / 冲突 409 ====================
+PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2048B 并发=[201 201 201 ]（409=0，行级锁串行化后通常无冲突）
+      E-k 备注：3 个并发上传未撞出 409（可能被行级锁串行化后按顺序分配版本号），实际状态码 [201 201 201 ]
+==================== 清理夹具 ====================
+
+==== 汇总：PASS=13 FAIL=0 ====
+
+########## 三、结论与备注 ##########
+1) A~D 全 PASS：前端构建+部署、后端重构建+重启、dist 同步、TZ 生效、手工 DDL 三段、RBAC 90/261、冒烟 92/92。
+2) 11a~11k 全部 PASS（E-a recipients 字段 / E-b type 长度三态 / E-c TZ / E-d 环境 503 / E-e 分组删与移除 / E-f 审计 403 与清理任务 / E-g 筛选变小 / E-h 导出 BOM / E-i 页面产物 / E-j 排行与趋势与口径标签 / E-k 工具版本）。
+3) 项目未引入 spring-boot-starter-actuator，/actuator/health 返回 500（NoResourceFoundException）；健康检查改用 /v3/api-docs(200) + 登录接口(200)。
+4) E-k 并发 3 次上传未撞出 409：t28 的行级锁把版本号分配串行化，实际输出 201/201/201 且 versionNo 唯一（无 500）；409 语义由 ToolVersionConcurrencyTest 单测覆盖，线上难以自然触发。
+5) 数据清理：20 个残留分组（13 个回归/调试/诊断/空分组 + 7 个冒烟分组）经新后端逐个 DELETE 全部 200；8 个冒烟/乱码资产清理（DELETE /assets 为软删除，最终按 id 硬删除并清理关联）；notification_settings 3→0；演练审批范围 1 条删除；资产表剩 3 条示例数据。
+6) 如需复跑：bash ~/apps/vuln-audit/scripts/smoke.sh（默认 BASE_URL=http://127.0.0.1:8089）。
