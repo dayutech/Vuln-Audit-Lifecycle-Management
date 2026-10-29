@@ -205,3 +205,17 @@ nginx 的 `try_files $uri $uri/ /index.html` 命中同名目录 → 301 到 `/as
 
 验证：`/`、`/assets`、`/assets/{id}`、`/tasks/{id}`、`/vulnerabilities` 均 200；
 index.html 引用 `/static/index-*.js|css` 且资源可 200 加载。
+---
+
+## 11. 第三轮完善（审批链路 + 报表导出）
+
+| 类别 | 内容 | 验证 |
+|---|---|---|
+| 业务核心 | **审批范围与审批路由落地**（SRS 3.7.3）：申请按「直属领导（须具备覆盖该资产的审批范围）→ 项目负责人 → 管理员」自动路由，`asset_access.approver_id` 落库 | 线上实测：授权范围 201 → 申请 approver=组长 → 组长待办 1 条 → 审批后工程师访问资产 200 |
+| 安全 | 审批权限校验：仅路由到的审批人、覆盖范围的团队负责人或 admin/project_leader 可审批；认领审批同样校验 | 单测：工程师审批自己的申请 → 403 |
+| 安全 | 待审批列表按路由过滤（此前返回系统内全部待审申请，任何登录用户可见他人申请） | 单测：工程师 0 条 / 管理员 1 条 |
+| 能力补齐 | 新增 `approval_scopes` 管理接口（授予/查询/撤销/我的范围） | `POST /api/v1/approval-scopes` → 201 |
+| 缺陷修复 | 访问申请未传 `canViewDocuments/Environments/Files` 时写入 NULL 触发 NOT NULL 约束 → 500 | 单测覆盖 |
+| 能力补齐 | **报表导出真实可用**：`GET /api/v1/dashboard/export?type=assets\|vulnerabilities\|workload` 输出 UTF-8 BOM CSV，xlsx 返回 400 | 实测 assets 633B/5 行、workload 97B/2 行、BOM 正确 |
+
+回归：`mvn test` **235 个用例全绿**（新增 3 个审批用例 + 3 个导出用例）。

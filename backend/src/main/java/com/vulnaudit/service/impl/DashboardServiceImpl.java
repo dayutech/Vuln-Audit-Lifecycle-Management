@@ -270,10 +270,109 @@ public class DashboardServiceImpl implements DashboardService {
         return dashboard;
     }
 
+    /**
+     * 导出统计数据（CSV）。
+     *
+     * <p>此前该方法直接返回空字节数组，前端下载到的是 0 字节文件。
+     * 现按类型输出 UTF-8（含 BOM，Excel 可直接打开）的 CSV：
+     * <ul>
+     *   <li>{@code assets}：资产清单</li>
+     *   <li>{@code vulnerabilities}：漏洞清单</li>
+     *   <li>{@code workload}：工作量（按负责人聚合任务数与工时）</li>
+     * </ul>
+     *
+     * @param type   导出类型
+     * @param format 仅支持 csv（xlsx 需引入 POI，暂不提供）
+     */
     @Override
     public byte[] exportStats(String type, String format) {
         log.info("导出统计: type={}, format={}", type, format);
-        // 简化实现
-        return new byte[0];
+        String fmt = format == null ? "csv" : format.trim().toLowerCase(java.util.Locale.ROOT);
+        if (!"csv".equals(fmt)) {
+            throw new com.vulnaudit.exception.BusinessException(
+                    com.vulnaudit.exception.ErrorCode.BAD_REQUEST,
+                    "暂只支持 csv 格式导出（收到: " + format + "）");
+        }
+
+        StringBuilder sb = new StringBuilder();
+        switch (type == null ? "" : type.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "assets" -> {
+                sb.append("资产编号,资产名称,目标类型,目标来源,优先级,状态,负责人,创建时间\n");
+                for (var asset : assetRepository.findAll()) {
+                    sb.append(csv(asset.getCode())).append(',')
+                            .append(csv(asset.getName())).append(',')
+                            .append(csv(asset.getTargetType())).append(',')
+                            .append(csv(asset.getTargetSource())).append(',')
+                            .append(csv(asset.getPriority())).append(',')
+                            .append(csv(asset.getStatus())).append(',')
+                            .append(csv(String.valueOf(asset.getOwnerId()))).append(',')
+                            .append(csv(String.valueOf(asset.getCreatedAt()))).append('\n');
+                }
+            }
+            case "vulnerabilities" -> {
+                sb.append("漏洞编号,标题,CVE,类型,严重程度,CVSS,工作流状态,客户确认,披露状态,资产ID,发现时间\n");
+                for (var vuln : vulnerabilityRepository.findAll()) {
+                    sb.append(csv(vuln.getVulnerabilityNo())).append(',')
+                            .append(csv(vuln.getTitle())).append(',')
+                            .append(csv(vuln.getCveId())).append(',')
+                            .append(csv(vuln.getType())).append(',')
+                            .append(csv(vuln.getSeverity())).append(',')
+                            .append(csv(vuln.getCvssScore() == null ? null : vuln.getCvssScore().toPlainString())).append(',')
+                            .append(csv(vuln.getWorkflowStatus())).append(',')
+                            .append(csv(vuln.getCustomerStatus())).append(',')
+                            .append(csv(vuln.getDisclosureStatus())).append(',')
+                            .append(csv(String.valueOf(vuln.getAssetId()))).append(',')
+                            .append(csv(String.valueOf(vuln.getCreatedAt()))).append('\n');
+                }
+            }
+            case "workload" -> {
+                sb.append("负责人ID,任务数,预估工时,实际工时\n");
+                java.util.Map<UUID, long[]> taskCount = new java.util.HashMap<>();
+                java.util.Map<UUID, java.math.BigDecimal> estimated = new java.util.HashMap<>();
+                java.util.Map<UUID, java.math.BigDecimal> actual = new java.util.HashMap<>();
+                for (var task : taskRepository.findAll()) {
+                    UUID uid = task.getAssignedTo();
+                    if (uid == null) {
+                        continue;
+                    }
+                    taskCount.computeIfAbsent(uid, k -> new long[1])[0]++;
+                    if (task.getEstimatedHours() != null) {
+                        estimated.merge(uid, task.getEstimatedHours(), java.math.BigDecimal::add);
+                    }
+                    if (task.getActualHours() != null) {
+                        actual.merge(uid, task.getActualHours(), java.math.BigDecimal::add);
+                    }
+                }
+                for (var entry : taskCount.entrySet()) {
+                    sb.append(csv(String.valueOf(entry.getKey()))).append(',')
+                            .append(entry.getValue()[0]).append(',')
+                            .append(csv(String.valueOf(estimated.getOrDefault(entry.getKey(), java.math.BigDecimal.ZERO)))).append(',')
+                            .append(csv(String.valueOf(actual.getOrDefault(entry.getKey(), java.math.BigDecimal.ZERO)))).append('\n');
+                }
+            }
+            default -> throw new com.vulnaudit.exception.BusinessException(
+                    com.vulnaudit.exception.ErrorCode.BAD_REQUEST,
+                    "不支持的导出类型: " + type + "（支持 assets / vulnerabilities / workload）");
+        }
+
+        byte[] bom = new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
+        byte[] body = sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] result = new byte[bom.length + body.length];
+        System.arraycopy(bom, 0, result, 0, bom.length);
+        System.arraycopy(body, 0, result, bom.length, body.length);
+        log.info("导出完成: type={}, rows≈{}", type, sb.toString().split("\n").length - 1);
+        return result;
+    }
+
+    /** CSV 字段转义：包含逗号/引号/换行时用双引号包裹并转义内部引号 */
+    private String csv(String value) {
+        if (value == null) {
+            return "";
+        }
+        String cleaned = value.replace("\r", " ").replace("\n", " ");
+        if (cleaned.contains(",") || cleaned.contains("\"")) {
+            return "\"" + cleaned.replace("\"", "\"\"") + "\"";
+        }
+        return cleaned;
     }
 }

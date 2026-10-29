@@ -262,16 +262,18 @@ public class DashboardController {
     }
 
     @GetMapping("/export")
-    @Operation(summary = "导出统计数据", description = "导出统计数据")
+    @Operation(summary = "导出统计数据", description = "导出统计数据为 CSV（支持 assets / vulnerabilities / workload）")
     public ResponseEntity<byte[]> exportStats(
             @Parameter(description = "统计类型") @RequestParam String type,
-            @Parameter(description = "导出格式") @RequestParam(defaultValue = "xlsx") String format) {
+            @Parameter(description = "导出格式，目前支持 csv") @RequestParam(defaultValue = "csv") String format) {
         
         log.info("导出统计数据: type={}, format={}", type, format);
         
         byte[] data = dashboardService.exportStats(type, format);
+        String filename = type + "." + (format == null ? "csv" : format.toLowerCase());
         return ResponseEntity.ok()
-                .header("Content-Disposition", "attachment; filename=" + type + "." + format)
+                .contentType(org.springframework.http.MediaType.parseMediaType("text/csv; charset=UTF-8"))
+                .header("Content-Disposition", "attachment; filename=\"" + filename + "\"")
                 .body(data);
     }
 

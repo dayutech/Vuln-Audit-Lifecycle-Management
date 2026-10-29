@@ -19,6 +19,44 @@ public class DashboardControllerTest extends BaseTest {
     private MockMvc mockMvc;
 
     @Nested
+    @DisplayName("统计导出测试")
+    class ExportTests {
+
+        @Test
+        @DisplayName("导出资产清单 - 返回 CSV 且带 BOM")
+        void exportAssets_ReturnsCsv() throws Exception {
+            mockMvc.perform(get("/api/v1/dashboard/export")
+                            .header("Authorization", adminToken)
+                            .param("type", "assets")
+                            .param("format", "csv"))
+                    .andExpect(status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                            .content().contentTypeCompatibleWith("text/csv"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                            .content().string(org.hamcrest.Matchers.startsWith("\uFEFF资产编号")));
+        }
+
+        @Test
+        @DisplayName("导出漏洞清单 - 返回 CSV")
+        void exportVulnerabilities_ReturnsCsv() throws Exception {
+            mockMvc.perform(get("/api/v1/dashboard/export")
+                            .header("Authorization", adminToken)
+                            .param("type", "vulnerabilities"))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("导出不支持的格式 - 400")
+        void exportUnsupportedFormat_Returns400() throws Exception {
+            mockMvc.perform(get("/api/v1/dashboard/export")
+                            .header("Authorization", adminToken)
+                            .param("type", "assets")
+                            .param("format", "xlsx"))
+                    .andExpect(status().isBadRequest());
+        }
+    }
+
+    @Nested
     @DisplayName("仪表盘概览测试")
     class DashboardOverviewTests {
 
