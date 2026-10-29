@@ -6,8 +6,10 @@ import com.vulnaudit.dto.ChangePasswordRequest;
 import com.vulnaudit.dto.LoginRequest;
 import com.vulnaudit.dto.LoginResponse;
 import com.vulnaudit.entity.User;
+import com.vulnaudit.exception.TooManyRequestsException;
 import com.vulnaudit.security.JwtUtils;
 import com.vulnaudit.security.RoleAuthority;
+import com.vulnaudit.service.LoginAttemptService;
 import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -48,6 +50,16 @@ public class AuthController {
     private final UserService userService;
     private final JwtUtils jwtUtils;
     private final JwtProperties jwtProperties;
+    private final LoginAttemptService loginAttemptService;
+
+    /** 取真实客户端 IP：反向代理场景优先使用 X-Forwarded-For 首个地址 */
+    private String resolveClientIp(jakarta.servlet.http.HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        return request.getRemoteAddr();
+    }
 
     /**
      * 用户登录
@@ -62,10 +74,26 @@ public class AuthController {
     })
     public ApiResponse<LoginResponse> login(
             @Parameter(description = "登录请求", required = true)
-            @Valid @RequestBody LoginRequest request) {
+            @Valid @RequestBody LoginRequest request,
+            jakarta.servlet.http.HttpServletRequest httpRequest) {
         log.info("用户登录请求: username={}", request.getUsername());
 
-        User user = userService.authenticate(request.getUsername(), request.getPassword());
+        // 登录失败限流：同一 用户名+客户端IP 连续失败达到阈值后临时锁定
+        String attemptKey = LoginAttemptService.key(request.getUsername(), resolveClientIp(httpRequest));
+        if (loginAttemptService.isLocked(attemptKey)) {
+            long retryAfter = loginAttemptService.retryAfterSeconds(attemptKey);
+            log.warn("登录被限流: username={}, retryAfter={}s", request.getUsername(), retryAfter);
+            throw new TooManyRequestsException("登录失败次数过多，请 " + retryAfter + " 秒后重试", retryAfter);
+        }
+
+        User user;
+        try {
+            user = userService.authenticate(request.getUsername(), request.getPassword());
+        } catch (RuntimeException ex) {
+            loginAttemptService.onFailure(attemptKey);
+            throw ex;
+        }
+        loginAttemptService.onSuccess(attemptKey);
         userService.updateLastLogin(user.getId());
 
         List<String> roles = userService.getUserRoleCodes(user.getId());

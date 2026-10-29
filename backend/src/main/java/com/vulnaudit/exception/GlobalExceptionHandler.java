@@ -249,6 +249,18 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 处理限流异常（登录失败次数超限等），返回 429 并附 Retry-After 头。
+     */
+    @ExceptionHandler(TooManyRequestsException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTooManyRequests(TooManyRequestsException e) {
+        log.warn("请求被限流: {}", e.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(e.getRetryAfterSeconds()))
+                .body(ApiResponse.error(e.getMessage()));
+    }
+
+    /**
      * 处理404异常
      * 
      * @param e 404异常
