@@ -265,6 +265,10 @@ public class TaskServiceImpl implements TaskService {
         if (!"review_pending".equals(normalizeStatus(task.getStatus()))) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "仅待审核任务可通过");
         }
+        // 禁止自审自批：审核人不能是任务负责人
+        if (operatorId.equals(task.getAssignedTo())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "不能审核自己负责的任务，请由其他管理人员审核");
+        }
         task.setStatus("completed");
         task.setCompletedAt(LocalDateTime.now());
         task.setReviewedBy(operatorId);
@@ -284,6 +288,10 @@ public class TaskServiceImpl implements TaskService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
         if (!"review_pending".equals(normalizeStatus(task.getStatus()))) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "仅待审核任务可驳回");
+        }
+        // 禁止自审自驳
+        if (operatorId.equals(task.getAssignedTo())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "不能驳回自己负责的任务，请由其他管理人员审核");
         }
         task.setStatus("in_progress");
         task.setReviewedBy(operatorId);
