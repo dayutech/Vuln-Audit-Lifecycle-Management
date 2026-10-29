@@ -201,6 +201,23 @@ public class TaskControllerTest extends BaseTest {
         }
 
         @Test
+        @DisplayName("审核通过 - 自己负责的任务不可自审")
+        void approveReview_ByAssignee_Forbidden() throws Exception {
+            // 组长既是任务负责人又是审核人：必须被拒绝，避免自审自批
+            testTask.setAssignedTo(leaderUserId);
+            testTask.setAssignedBy(adminUserId);
+            testTask.setStatus("review_pending");
+            testTask.setAuditConclusion("自审测试");
+            taskRepository.save(Objects.requireNonNull(testTask));
+
+            mockMvc.perform(post("/api/v1/tasks/" + testTask.getId() + "/approve")
+                            .header("Authorization", leaderToken)
+                            .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                            .content("{\"signature\":\"自签\",\"comment\":\"自己批自己\"}"))
+                    .andExpect(status().isForbidden());
+        }
+
+        @Test
         @DisplayName("审核通过 - 组长成功")
         void approveReview_ByLeader_Success() throws Exception {
             testTask.setAssignedTo(engineerUserId);

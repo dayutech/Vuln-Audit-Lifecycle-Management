@@ -98,6 +98,37 @@ public class AuthControllerTest extends BaseTest {
         }
 
         @Test
+        @DisplayName("登录失败 - 连续失败触发限流 429")
+        void login_Fail_TooManyAttempts() throws Exception {
+            User user = User.builder()
+                    .username("lockuser")
+                    .passwordHash(passwordEncoder.encode("correctpassword"))
+                    .email("lock@example.com")
+                    .fullName("限流测试用户")
+                    .status("active")
+                    .build();
+            userRepository.save(Objects.requireNonNull(user));
+
+            LoginRequest request = new LoginRequest();
+            request.setUsername("lockuser");
+            request.setPassword("wrongpassword");
+            String body = Objects.requireNonNull(objectMapper.writeValueAsString(request));
+
+            // 默认阈值 5 次：前 5 次 401，第 6 次返回 429 并带 Retry-After
+            for (int i = 0; i < 5; i++) {
+                mockMvc.perform(post("/api/v1/auth/login")
+                                .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                                .content(body))
+                        .andExpect(status().isUnauthorized());
+            }
+            mockMvc.perform(post("/api/v1/auth/login")
+                            .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
+                            .content(body))
+                    .andExpect(status().isTooManyRequests())
+                    .andExpect(header().exists("Retry-After"));
+        }
+
+        @Test
         @DisplayName("登录失败 - 用户已禁用")
         void login_Fail_UserDisabled() throws Exception {
             // 准备测试数据 - 用户状态为inactive
