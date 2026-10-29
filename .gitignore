@@ -88,3 +88,6 @@ application-local.properties
 
 # Uploads directory
 uploads/
+
+# AgentTeams 运行时状态（不纳入版本管理）
+.agent-teams/
