@@ -190,3 +190,18 @@ Spring 判定为跨域；此时白名单为空 → 直接拒绝。
 | 缺陷修复 | `POST /tools` 此前稳定 500（`created_by` 未赋值，违反 NOT NULL） | `ToolController.createTool` | 创建返回 200 并带 ID |
 
 回归：`mvn test` 229 个用例全绿（新增 3 个：登录限流、自审拒绝、漏洞范围过滤）。
+### 10.1 前端产物目录与 SPA 路由冲突（资产中心打不开）
+
+现象：浏览器访问 `/assets`（资产中心）返回 **301** 跳转，页面空白。
+
+原因：Vite 默认把构建产物输出到 `dist/assets/`，而前端路由里 `/assets` 正是资产中心。
+nginx 的 `try_files $uri $uri/ /index.html` 命中同名目录 → 301 到 `/assets/` → 目录无 index → 403/异常。
+
+处置：
+1. `vite.config.ts` 设置 `build.assetsDir: 'static'`，产物改到 `/static/`，从根源消除同名；
+2. nginx 增加 `location = /assets` 与 `location = /assets/` 兜底直出 `index.html`；
+3. `sync-dist.sh` 支持 `SUDO_PASS` 环境变量，便于非交互同步（此前在 ssh 非交互 shell 里
+   因拿不到 sudo 口令而**静默使用旧产物**）。
+
+验证：`/`、`/assets`、`/assets/{id}`、`/tasks/{id}`、`/vulnerabilities` 均 200；
+index.html 引用 `/static/index-*.js|css` 且资源可 200 加载。
