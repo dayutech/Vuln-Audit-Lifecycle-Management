@@ -100,6 +100,43 @@ public class AccessGuard {
                 .anyMatch(team -> teamId.equals(team.getId()));
     }
 
+    /**
+     * 当前用户可见的资产 ID 集合。
+     *
+     * <p>用于列表类接口做范围过滤（漏洞、文档等以资产为归属的资源）。
+     *
+     * @return null 表示不限制（admin / project_leader）；否则为可见资产集合，可能为空
+     */
+    public Set<UUID> visibleAssetIds(Authentication authentication) {
+        if (isGlobalReader(authentication)) {
+            return null;
+        }
+        UUID userId = currentUserId(authentication);
+        if (userId == null) {
+            return Set.of();
+        }
+        Set<UUID> ids = new java.util.HashSet<>();
+        // 1) 自己负责的资产
+        assetRepository.findByOwnerId(userId).stream()
+                .map(Asset::getId)
+                .filter(java.util.Objects::nonNull)
+                .forEach(ids::add);
+        // 2) 已批准访问的资产
+        assetAccessRepository.findByUserIdAndStatus(userId, "approved").stream()
+                .map(access -> access.getAssetId())
+                .filter(java.util.Objects::nonNull)
+                .forEach(ids::add);
+        // 3) 自己作为负责人的团队下的资产
+        teamRepository.findByLeaderId(userId).stream()
+                .map(team -> team.getId())
+                .filter(java.util.Objects::nonNull)
+                .forEach(teamId -> assetRepository.findByTeamId(teamId).stream()
+                        .map(Asset::getId)
+                        .filter(java.util.Objects::nonNull)
+                        .forEach(ids::add));
+        return ids;
+    }
+
     // ------------------------------------------------------------------ 资产
 
     /** 是否可读取资产及其从属资源（元数据 / 文件 / 交付物 / 环境） */
