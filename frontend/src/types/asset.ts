@@ -6,6 +6,34 @@ export interface AssetGroup {
   name: string;
 }
 
+/** 资产分组（后端 /asset-groups，type 用于区分客户/项目等归类维度） */
+export interface AssetGroupVO {
+  id: string;
+  name: string;
+  type: string;
+  description?: string;
+  createdAt?: string;
+  created_at?: string;
+}
+
+export interface CreateAssetGroupRequest {
+  name: string;
+  type: string;
+  description?: string;
+}
+
+/** 资产标签（后端 /assets/{id}/tags） */
+export interface AssetTagVO {
+  id: string;
+  assetId?: string;
+  asset_id?: string;
+  tag: string;
+  createdBy?: string | null;
+  created_by?: string | null;
+  createdAt?: string;
+  created_at?: string;
+}
+
 export interface AssetVO {
   id: string;
   name: string;
@@ -117,12 +145,21 @@ export interface EnvironmentVO {
   assetVersionId?: string;
   templateId: string;
   config: string;
+  /** created / provisioning / running / stopped / failed */
   status: string;
+  /** 部署/启停失败原因（后端 markFailed 写入） */
+  failReason?: string | null;
   version?: number;
   containerId?: string;
   createdBy?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** 当前生效部署器类型：docker / noop（仅详情接口返回） */
+  provisioner?: string;
+  /** 部署器是否可用（false 时部署/启停一律 503） */
+  provisionerAvailable?: boolean;
+  /** 部署器说明（不可用时含原因） */
+  provisionerMessage?: string;
 }
 
 export interface CreateEnvironmentRequest {

@@ -13,6 +13,9 @@ import type {
   AssetAccessVO,
   AssetClaimVO,
   CreateAssetAccessRequest,
+  AssetTagVO,
+  AssetGroupVO,
+  CreateAssetGroupRequest,
 } from '@/types/asset';
 import type { PaginationParams } from '@/types/common';
 
@@ -230,19 +233,26 @@ export const setLatestAssetVersion = (assetId: string, versionId: string): Promi
 };
 
 export const deleteEnvironment = (id: string): Promise<any> => {
-  return request.delete(`/environments/${id}`);
+  return request.delete(`/environments/${id}`, { silent: true });
 };
 
+/**
+ * 部署 / 启动 / 停止环境。
+ *
+ * 宿主机未启用容器编排时后端返回 503（message=当前部署未启用容器编排），
+ * 并把 environment.status 置为 failed、写入 failReason；这里统一 silent，
+ * 由页面按状态码展示后端 message + 失败原因，避免被全局提示吞成「服务器内部错误」。
+ */
 export const deployEnvironment = (id: string): Promise<any> => {
-  return request.post(`/environments/${id}/deploy`);
+  return request.post(`/environments/${id}/deploy`, null, { silent: true });
 };
 
 export const startEnvironment = (id: string): Promise<any> => {
-  return request.post(`/environments/${id}/start`);
+  return request.post(`/environments/${id}/start`, null, { silent: true });
 };
 
 export const stopEnvironment = (id: string): Promise<any> => {
-  return request.post(`/environments/${id}/stop`);
+  return request.post(`/environments/${id}/stop`, null, { silent: true });
 };
 
 export const createEnvironmentSnapshot = (id: string, name: string): Promise<any> => {
@@ -357,4 +367,80 @@ export const completeAssetClaim = (claimId: string): Promise<any> => {
 /** 放弃认领 */
 export const abandonAssetClaim = (claimId: string, note?: string): Promise<any> => {
   return request.post(`/assets/claims/${claimId}/abandon`, null, { params: { note } });
+};
+
+// ==================== 资产标签 ====================
+
+/** 资产标签列表（GET /assets/{id}/tags） */
+export const getAssetTags = (assetId: string): Promise<AssetTagVO[]> => {
+  return request.get(`/assets/${assetId}/tags`);
+};
+
+/** 添加资产标签（POST /assets/{id}/tags?tag=） */
+export const addAssetTag = (assetId: string, tag: string): Promise<AssetTagVO> => {
+  return request.post(`/assets/${assetId}/tags`, null, { params: { tag } });
+};
+
+/** 移除资产标签（DELETE /assets/{assetId}/tags/{tagId}） */
+export const deleteAssetTag = (assetId: string, tagId: string): Promise<any> => {
+  return request.delete(`/assets/${assetId}/tags/${tagId}`);
+};
+
+// ==================== 资产分组 ====================
+
+export interface AssetGroupQueryParams {
+  page?: number;
+  page_size?: number;
+  type?: string;
+}
+
+/** 分组分页列表（GET /asset-groups?page&size&type） */
+export const getAssetGroupList = (params?: AssetGroupQueryParams): Promise<any> => {
+  return request.get('/asset-groups', {
+    params: {
+      page: Math.max((params?.page ?? 1) - 1, 0),
+      size: params?.page_size ?? 50,
+      type: params?.type,
+    },
+  });
+};
+
+/** 按类型获取分组（GET /asset-groups/type/{type}） */
+export const getAssetGroupsByType = (type: string): Promise<AssetGroupVO[]> => {
+  return request.get(`/asset-groups/type/${encodeURIComponent(type)}`);
+};
+
+/** 分组详情（GET /asset-groups/{id}） */
+export const getAssetGroupDetail = (id: string): Promise<AssetGroupVO> => {
+  return request.get(`/asset-groups/${id}`);
+};
+
+/** 创建分组（POST /asset-groups） */
+export const createAssetGroup = (data: CreateAssetGroupRequest): Promise<AssetGroupVO> => {
+  return request.post('/asset-groups', data);
+};
+
+/** 更新分组（PUT /asset-groups/{id}） */
+export const updateAssetGroup = (id: string, data: CreateAssetGroupRequest): Promise<AssetGroupVO> => {
+  return request.put(`/asset-groups/${id}`, data);
+};
+
+/** 删除分组（DELETE /asset-groups/{id}） */
+export const deleteAssetGroup = (id: string): Promise<any> => {
+  return request.delete(`/asset-groups/${id}`);
+};
+
+/** 分组内资产 ID 列表（GET /asset-groups/{id}/assets） */
+export const getAssetGroupAssets = (groupId: string): Promise<string[]> => {
+  return request.get(`/asset-groups/${groupId}/assets`);
+};
+
+/** 添加资产到分组（POST /asset-groups/{id}/assets?assetId=） */
+export const addAssetToGroup = (groupId: string, assetId: string): Promise<any> => {
+  return request.post(`/asset-groups/${groupId}/assets`, null, { params: { assetId } });
+};
+
+/** 从分组移除资产（DELETE /asset-groups/{groupId}/assets/{assetId}） */
+export const removeAssetFromGroup = (groupId: string, assetId: string): Promise<any> => {
+  return request.delete(`/asset-groups/${groupId}/assets/${assetId}`);
 };

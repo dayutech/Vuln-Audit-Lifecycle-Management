@@ -15,6 +15,10 @@ import Notifications from '@/pages/notifications/index';
 import Knowledge from '@/pages/knowledge/index';
 import Tasks from '@/pages/tasks/index';
 import Approvals from '@/pages/approvals/index';
+import AssetGroups from '@/pages/asset-groups/index';
+import ApprovalScopes from '@/pages/approval-scopes/index';
+import AuditLogs from '@/pages/audit-logs/index';
+import ImportPage from '@/pages/import/index';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const token = localStorage.getItem('access_token');
@@ -49,6 +53,10 @@ const router = createBrowserRouter([
       {
         path: '/assets/:id',
         element: <AssetDetail />,
+      },
+      {
+        path: '/asset-groups',
+        element: <AssetGroups />,
       },
       {
         path: '/vulnerabilities',
@@ -91,6 +99,10 @@ const router = createBrowserRouter([
         element: <Teams />,
       },
       {
+        path: '/approval-scopes',
+        element: <ApprovalScopes />,
+      },
+      {
         path: '/roles',
         element: <Roles />,
       },
@@ -101,6 +113,14 @@ const router = createBrowserRouter([
       {
         path: '/notifications',
         element: <Notifications />,
+      },
+      {
+        path: '/audit-logs',
+        element: <AuditLogs />,
+      },
+      {
+        path: '/import',
+        element: <ImportPage />,
       },
     ],
   },

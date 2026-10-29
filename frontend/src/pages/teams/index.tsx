@@ -1,124 +1,494 @@
-import React, { useEffect, useState } from 'react';
-import { Table, Button, Space, Card, Modal, Form, Input, message } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
-import { getTeamList, createTeam, deleteTeam } from '@/api/team';
-import type { TeamVO, CreateTeamRequest } from '@/types/team';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Button,
+  Card,
+  Col,
+  Descriptions,
+  Empty,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Row,
+  Select,
+  Space,
+  Spin,
+  Table,
+  Tag,
+  Tree,
+  Typography,
+  message,
+} from 'antd';
+import { PlusOutlined, ReloadOutlined, TeamOutlined, UserAddOutlined } from '@ant-design/icons';
+import type { TableColumnsType } from 'antd';
+import {
+  addTeamMember,
+  createTeam,
+  deleteTeam,
+  getAllTeams,
+  getTeamMembers,
+  removeTeamMember,
+  updateTeam,
+} from '@/api/team';
+import type { TeamVO } from '@/types/team';
+import { getUserList } from '@/api/user';
+import type { UserVO } from '@/types/user';
 
 const { TextArea } = Input;
 
+interface TeamTreeNode {
+  key: string;
+  title: React.ReactNode;
+  children: TeamTreeNode[];
+}
+
+interface TeamMemberRow {
+  userId: string;
+  name: string;
+  username: string;
+  isLeader: boolean;
+}
+
+const getPayload = (res: unknown) => ((res as any)?.data ?? res);
+
+const userName = (user?: UserVO | null) =>
+  user ? (user.full_name || (user as any).fullName || user.username) : '';
+
 const Teams: React.FC = () => {
-  const [data, setData] = useState<TeamVO[]>([]);
+  const [teams, setTeams] = useState<TeamVO[]>([]);
+  const [users, setUsers] = useState<UserVO[]>([]);
   const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState(0);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [memberIds, setMemberIds] = useState<string[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
 
-  // Modal states
-  const [isModalVisible, setIsModalVisible] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [editingTeam, setEditingTeam] = useState<TeamVO | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
+  const [memberForm] = Form.useForm();
+  const [memberSubmitting, setMemberSubmitting] = useState(false);
 
-  const fetchData = async () => {
+  const userMap = useMemo(() => {
+    const map = new Map<string, UserVO>();
+    users.forEach((user) => map.set(user.id, user));
+    return map;
+  }, [users]);
+
+  const userLabel = useCallback(
+    (id?: string | null) => {
+      if (!id) {
+        return '-';
+      }
+      const user = userMap.get(id);
+      return user ? `${userName(user)}${user.username ? `（${user.username}）` : ''}` : `${id.slice(0, 8)}…`;
+    },
+    [userMap],
+  );
+
+  const fetchTeams = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await getTeamList();
-      const payload = res.data || (res as any);
-      const items = payload.content || payload.items || [];
-      const totalCount = payload.totalElements || payload.total || 0;
-      setData(items);
-      setTotal(totalCount);
+      const res = await getAllTeams();
+      const payload = getPayload(res);
+      const list: TeamVO[] = Array.isArray(payload) ? payload : [];
+      setTeams(list);
+      setSelectedId((prev) => {
+        if (prev && list.some((team) => team.id === prev)) {
+          return prev;
+        }
+        return list[0]?.id ?? null;
+      });
     } catch (error) {
-      console.error(error);
+      setTeams([]);
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchData();
   }, []);
 
-  const handleCreate = () => {
-    form.resetFields();
-    setIsModalVisible(true);
-  };
+  useEffect(() => {
+    fetchTeams();
+  }, [fetchTeams]);
 
-  const handleDelete = (id: string) => {
-    Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除该团队吗？此操作不可恢复。',
-      onOk: async () => {
-        try {
-          await deleteTeam(id);
-          message.success('删除成功');
-          fetchData();
-        } catch (error) {
-          // Error handled by interceptor
-        }
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        const res = await getUserList({ page: 1, page_size: 200 });
+        const payload = getPayload(res);
+        setUsers(payload?.content || payload?.items || []);
+      } catch (error) {
+        setUsers([]);
+      }
+    };
+    fetchUsers();
+  }, []);
+
+  const fetchMembers = useCallback(async (teamId: string | null) => {
+    if (!teamId) {
+      setMemberIds([]);
+      return;
+    }
+    setMembersLoading(true);
+    try {
+      const res = await getTeamMembers(teamId);
+      const payload = getPayload(res);
+      setMemberIds(Array.isArray(payload) ? payload : []);
+    } catch (error) {
+      setMemberIds([]);
+    } finally {
+      setMembersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMembers(selectedId);
+  }, [selectedId, fetchMembers]);
+
+  // 树默认展开所有「有子团队」的节点；数据变化（新增子团队）后自动展开新分支
+  const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([]);
+  useEffect(() => {
+    const parentIds = new Set<string>();
+    teams.forEach((team) => {
+      const parentId = team.parentId ?? team.parent_id;
+      if (parentId) {
+        parentIds.add(parentId);
       }
     });
+    setExpandedKeys(Array.from(parentIds));
+  }, [teams]);
+
+  const selectedTeam = useMemo(() => teams.find((team) => team.id === selectedId) ?? null, [teams, selectedId]);
+
+  const treeData = useMemo<TeamTreeNode[]>(() => {
+    const ids = new Set(teams.map((team) => team.id));
+    const childrenMap = new Map<string, TeamVO[]>();
+    const roots: TeamVO[] = [];
+
+    teams.forEach((team) => {
+      const parentId = team.parentId ?? team.parent_id ?? null;
+      if (!parentId || !ids.has(parentId)) {
+        roots.push(team);
+        return;
+      }
+      const bucket = childrenMap.get(parentId) ?? [];
+      bucket.push(team);
+      childrenMap.set(parentId, bucket);
+    });
+
+    const build = (team: TeamVO): TeamTreeNode => ({
+      key: team.id,
+      title: (
+        <Space size={4}>
+          <span>{team.name}</span>
+          {(team.parentId ?? team.parent_id) === null || (team.parentId ?? team.parent_id) === undefined ? (
+            <Tag color="blue">根</Tag>
+          ) : null}
+        </Space>
+      ),
+      children: (childrenMap.get(team.id) ?? []).map(build),
+    });
+
+    return roots.map(build);
+  }, [teams]);
+
+  const openCreate = (parentId?: string) => {
+    setEditingTeam(null);
+    form.resetFields();
+    if (parentId) {
+      form.setFieldsValue({ parent_id: parentId });
+    }
+    setModalVisible(true);
   };
 
-  const handleModalOk = async () => {
+  const openEdit = (team: TeamVO) => {
+    setEditingTeam(team);
+    form.resetFields();
+    form.setFieldsValue({
+      name: team.name,
+      description: team.description,
+      parent_id: team.parentId ?? team.parent_id ?? undefined,
+      leader_id: team.leaderId ?? team.leader_id ?? undefined,
+    });
+    setModalVisible(true);
+  };
+
+  const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
-      await createTeam(values as CreateTeamRequest);
-      message.success('创建成功');
-      setIsModalVisible(false);
-      fetchData();
+      setSubmitting(true);
+      if (editingTeam) {
+        await updateTeam(editingTeam.id, {
+          name: values.name,
+          description: values.description,
+          parent_id: values.parent_id ?? null,
+          leader_id: values.leader_id,
+        });
+        message.success('团队更新成功');
+      } else {
+        await createTeam({
+          name: values.name,
+          description: values.description,
+          parent_id: values.parent_id,
+          leader_id: values.leader_id,
+        });
+        message.success('团队创建成功');
+      }
+      setModalVisible(false);
+      await fetchTeams();
     } catch (error) {
-      // Form validation error or API error
+      // 表单校验失败或接口报错（拦截器已提示）
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const columns = [
-    { title: '团队名称', dataIndex: 'name', key: 'name' },
-    { title: '描述', dataIndex: 'description', key: 'description' },
-    { 
-      title: '负责人', 
-      key: 'leader',
-      render: (_: any, record: TeamVO) => record.leader?.full_name || record.leader?.username || '-'
+  const handleDelete = (team: TeamVO) => {
+    Modal.confirm({
+      title: '确认删除团队',
+      content: `确定删除「${team.name}」吗？子团队不会被级联删除，但会失去父团队归属。`,
+      okType: 'danger',
+      onOk: async () => {
+        try {
+          await deleteTeam(team.id);
+          message.success('团队已删除');
+          await fetchTeams();
+        } catch (error) {
+          // 拦截器已提示
+        }
+      },
+    });
+  };
+
+  const handleAddMember = async () => {
+    if (!selectedTeam) {
+      message.warning('请先选择团队');
+      return;
+    }
+    try {
+      const values = await memberForm.validateFields();
+      setMemberSubmitting(true);
+      await addTeamMember(selectedTeam.id, { user_id: values.user_id, role: values.role });
+      message.success('成员已添加');
+      memberForm.resetFields();
+      await fetchMembers(selectedTeam.id);
+    } catch (error) {
+      // 拦截器已提示
+    } finally {
+      setMemberSubmitting(false);
+    }
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    if (!selectedTeam) {
+      return;
+    }
+    try {
+      await removeTeamMember(selectedTeam.id, userId);
+      message.success('成员已移除');
+      await fetchMembers(selectedTeam.id);
+    } catch (error) {
+      // 拦截器已提示
+    }
+  };
+
+  const memberRows = memberIds.map((userId) => {
+    const user = userMap.get(userId);
+    const leaderId = selectedTeam?.leaderId ?? selectedTeam?.leader_id ?? null;
+    return {
+      userId,
+      name: user ? userName(user) : `${userId.slice(0, 8)}…`,
+      username: user?.username ?? '-',
+      isLeader: leaderId === userId,
+    };
+  });
+
+  const memberColumns: TableColumnsType<TeamMemberRow> = [
+    { title: '成员', dataIndex: 'name', key: 'name' },
+    { title: '账号', dataIndex: 'username', key: 'username' },
+    {
+      title: '角色',
+      key: 'isLeader',
+      width: 120,
+      render: (_: unknown, record: TeamMemberRow) =>
+        record.isLeader ? <Tag color="gold">负责人</Tag> : <Tag>成员</Tag>,
     },
-    { title: '成员数量', dataIndex: 'member_count', key: 'member_count' },
     {
       title: '操作',
       key: 'action',
-      render: (_: any, record: TeamVO) => (
-        <Space size="middle">
-          <a>成员管理</a>
-          <a style={{ color: 'red' }} onClick={() => handleDelete(record.id)}>删除</a>
-        </Space>
+      width: 120,
+      render: (_: unknown, record: TeamMemberRow) => (
+        <Popconfirm
+          title="确认移除该成员？"
+          onConfirm={() => handleRemoveMember(record.userId)}
+          okText="移除"
+          cancelText="取消"
+        >
+          <Typography.Link type="danger">移除</Typography.Link>
+        </Popconfirm>
       ),
     },
   ];
 
+  const parentOptions = teams
+    .filter((team) => !editingTeam || team.id !== editingTeam.id)
+    .map((team) => ({ value: team.id, label: team.name }));
+
   return (
-    <Card title="团队管理" extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>创建团队</Button>}>
-      <Table 
-        columns={columns} 
-        dataSource={data} 
-        rowKey="id"
-        loading={loading}
-        pagination={{
-          total,
-          showSizeChanger: false
-        }}
-      />
+    <Card
+      title="团队架构"
+      extra={
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={fetchTeams} loading={loading}>
+            刷新
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate()}>
+            创建团队
+          </Button>
+        </Space>
+      }
+    >
+      <Row gutter={24}>
+        <Col xs={24} lg={7}>
+          <Card size="small" title={<Space><TeamOutlined />团队层级</Space>} bodyStyle={{ minHeight: 420 }}>
+            <Spin spinning={loading}>
+              {treeData.length === 0 ? (
+                <Empty description="暂无团队" />
+              ) : (
+                <Tree
+                  blockNode
+                  expandedKeys={expandedKeys}
+                  onExpand={(keys) => setExpandedKeys(keys as React.Key[])}
+                  selectedKeys={selectedId ? [selectedId] : []}
+                  treeData={treeData}
+                  onSelect={(keys) => {
+                    // 再次点击已选中的节点时 antd 会返回空数组；保留当前选中，避免右侧详情被清空
+                    if (keys.length > 0) {
+                      setSelectedId(keys[0] as string);
+                    }
+                  }}
+                />
+              )}
+            </Spin>
+          </Card>
+        </Col>
+        <Col xs={24} lg={17}>
+          {selectedTeam ? (
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <Card
+                size="small"
+                title={selectedTeam.name}
+                extra={
+                  <Space wrap>
+                    <Button size="small" onClick={() => openCreate(selectedTeam.id)}>
+                      新增子团队
+                    </Button>
+                    <Button size="small" onClick={() => openEdit(selectedTeam)}>
+                      编辑
+                    </Button>
+                    <Button size="small" danger onClick={() => handleDelete(selectedTeam)}>
+                      删除
+                    </Button>
+                  </Space>
+                }
+              >
+                <Descriptions
+                  size="small"
+                  column={{ xs: 1, sm: 2 }}
+                  items={[
+                    { key: 'name', label: '团队名称', children: selectedTeam.name },
+                    {
+                      key: 'parent',
+                      label: '上级团队',
+                      children:
+                        teams.find((team) => team.id === (selectedTeam.parentId ?? selectedTeam.parent_id))?.name ?? '（根团队）',
+                    },
+                    {
+                      key: 'leader',
+                      label: '负责人',
+                      children: userLabel(selectedTeam.leaderId ?? selectedTeam.leader_id),
+                    },
+                    { key: 'desc', label: '描述', children: selectedTeam.description || '-' },
+                    {
+                      key: 'created',
+                      label: '创建时间',
+                      children: selectedTeam.createdAt || selectedTeam.created_at || '-',
+                    },
+                    { key: 'members', label: '直属成员数', children: memberIds.length },
+                  ]}
+                />
+              </Card>
+              <Card size="small" title="团队成员">
+                <Form form={memberForm} layout="inline" style={{ marginBottom: 16 }}>
+                  <Form.Item name="user_id" rules={[{ required: true, message: '请选择用户' }]} style={{ minWidth: 240 }}>
+                    <Select
+                      showSearch
+                      optionFilterProp="label"
+                      placeholder="选择要加入的用户"
+                      options={users
+                        .filter((user) => !memberIds.includes(user.id))
+                        .map((user) => ({ value: user.id, label: `${userName(user)}（${user.username}）` }))}
+                    />
+                  </Form.Item>
+                  <Form.Item name="role" initialValue="member">
+                    <Select
+                      style={{ width: 120 }}
+                      options={[
+                        { value: 'member', label: '成员' },
+                        { value: 'leader', label: '负责人' },
+                      ]}
+                    />
+                  </Form.Item>
+                  <Form.Item>
+                    <Button type="primary" icon={<UserAddOutlined />} loading={memberSubmitting} onClick={handleAddMember}>
+                      添加成员
+                    </Button>
+                  </Form.Item>
+                </Form>
+                <Table
+                  size="small"
+                  rowKey="userId"
+                  loading={membersLoading}
+                  dataSource={memberRows}
+                  pagination={false}
+                  locale={{ emptyText: '该团队暂无直属成员' }}
+                  columns={memberColumns}
+                />
+              </Card>
+            </Space>
+          ) : (
+            <Card size="small">
+              <Empty description="请选择左侧团队查看详情" />
+            </Card>
+          )}
+        </Col>
+      </Row>
 
       <Modal
-        title="创建团队"
-        open={isModalVisible}
-        onOk={handleModalOk}
-        onCancel={() => setIsModalVisible(false)}
+        title={editingTeam ? '编辑团队' : '创建团队'}
+        open={modalVisible}
+        onOk={handleSubmit}
+        onCancel={() => setModalVisible(false)}
+        confirmLoading={submitting}
         destroyOnClose
       >
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="团队名称" rules={[{ required: true, message: '请输入团队名称' }]}>
             <Input />
           </Form.Item>
-          {/* Note: In a real app, leader_id should use a Select component to choose from users */}
-          <Form.Item name="leader_id" label="负责人ID">
-            <Input placeholder="请输入负责人UUID (可选)" />
+          <Form.Item name="parent_id" label="上级团队">
+            <Select allowClear showSearch optionFilterProp="label" placeholder="不选则为根团队" options={parentOptions} />
+          </Form.Item>
+          <Form.Item name="leader_id" label="负责人">
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="请选择负责人"
+              options={users.map((user) => ({ value: user.id, label: `${userName(user)}（${user.username}）` }))}
+            />
           </Form.Item>
           <Form.Item name="description" label="描述">
-            <TextArea rows={4} />
+            <TextArea rows={3} />
           </Form.Item>
         </Form>
       </Modal>

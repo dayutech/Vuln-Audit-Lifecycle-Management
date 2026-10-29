@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Layout, Menu, Dropdown, Avatar } from 'antd';
+import { Layout, Menu, Dropdown, Avatar, Badge } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, SettingOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined, AuditOutlined } from '@ant-design/icons';
+import { UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, SettingOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined, AuditOutlined, FileSearchOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import { useUserStore } from '@/store/userStore';
 import { getCurrentUser, logout } from '@/api/auth';
+import { getUnreadNotificationCount } from '@/api/notification';
+import { getMyAccessProfile, isManagementProfile } from '@/api/permission';
 
 const { Header, Sider, Content } = Layout;
 
@@ -12,6 +14,53 @@ const BasicLayout: React.FC = () => {
   const location = useLocation();
   const { user, setUser, clearAuth } = useUserStore();
   const [collapsed, setCollapsed] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  /**
+   * 是否管理层（admin / project_leader）。
+   * null 表示画像尚未返回或获取失败——此时仍展示入口，由页面自身的 403 兜底，
+   * 避免「接口抖动导致管理员看不到入口」这种更差的结果。
+   */
+  const [managerEligible, setManagerEligible] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getMyAccessProfile().then((profile) => {
+      if (cancelled) return;
+      // 画像请求失败时 roles/permissions 均为空；此时保持 null（未知）而不是判定为非管理层
+      const known = profile.roles.length > 0 || profile.permissions.length > 0;
+      setManagerEligible(known ? isManagementProfile(profile) : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 侧边栏「系统消息」未读角标：进入布局时拉一次，通知中心标记已读后通过自定义事件刷新
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const count = await getUnreadNotificationCount();
+        if (!cancelled) setUnreadCount(count);
+      } catch {
+        // 未登录/接口不可用时静默降级，不打扰主流程
+      }
+    };
+    refresh();
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      if (typeof detail === 'number') {
+        setUnreadCount(detail);
+        return;
+      }
+      refresh();
+    };
+    window.addEventListener('notifications:unread-changed', handler);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('notifications:unread-changed', handler);
+    };
+  }, []);
 
   useEffect(() => {
     const fetchUser = async () => {
@@ -48,6 +97,7 @@ const BasicLayout: React.FC = () => {
       children: [
         { key: '/dashboard', icon: <DashboardOutlined />, label: '安全态势大盘' },
         { key: '/assets', icon: <AppstoreOutlined />, label: '产品与资产中心' },
+        { key: '/asset-groups', icon: <AppstoreOutlined />, label: '资产分组' },
         { key: '/vulnerabilities', icon: <SafetyCertificateOutlined />, label: '全局漏洞视图' },
         { key: '/tasks', icon: <CheckSquareOutlined />, label: '安全审计任务' },
         { key: '/approvals', icon: <AuditOutlined />, label: '审批中心' },
@@ -69,9 +119,21 @@ const BasicLayout: React.FC = () => {
       type: 'group' as const,
       children: [
         { key: '/teams', icon: <TeamOutlined />, label: '团队架构' },
+        { key: '/approval-scopes', icon: <AuditOutlined />, label: '审批范围' },
         { key: '/users', icon: <UserOutlined />, label: '账号管理' },
         { key: '/roles', icon: <SettingOutlined />, label: '角色与权限' },
-        { key: '/notifications', icon: <BellOutlined />, label: '系统消息' },
+        // 审计日志仅管理层可见（后端 @PreAuthorize 限 admin / project_leader）
+        ...(managerEligible === false
+          ? []
+          : [{ key: '/audit-logs', icon: <FileSearchOutlined />, label: '审计日志' }]),
+        // 数据导入：后端 /import/assets、/import/vulnerabilities 仅要求登录，所有角色可用
+        { key: '/import', icon: <CloudUploadOutlined />, label: '数据导入' },
+        { key: '/notifications', icon: <BellOutlined />, label: (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            系统消息
+            {unreadCount > 0 && <Badge count={unreadCount} size="small" overflowCount={99} />}
+          </span>
+        ) },
       ],
     },
   ];
@@ -90,14 +152,18 @@ const BasicLayout: React.FC = () => {
     const menuKeys = [
       '/dashboard',
       '/assets',
+      '/asset-groups',
       '/vulnerabilities',
       '/tasks',
       '/knowledge',
       '/documents',
       '/tools',
       '/teams',
+      '/approval-scopes',
       '/users',
       '/roles',
+      '/audit-logs',
+      '/import',
       '/notifications',
     ];
     const exactMatchedKey = menuKeys.find((key) => key === location.pathname);

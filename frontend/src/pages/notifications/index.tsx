@@ -1,112 +1,78 @@
-import React, { useEffect, useState } from 'react';
-import { Card, List, Typography, Badge, Button, Tabs, message, Space } from 'antd';
-import { CheckOutlined } from '@ant-design/icons';
-import { getNotificationList, markNotificationRead, markAllNotificationRead } from '@/api/notification';
-import type { NotificationVO } from '@/types/notification';
-import { formatDateTime } from '@/utils/datetime';
+import React, { useMemo } from 'react';
+import { BellOutlined, NotificationOutlined, SettingOutlined } from '@ant-design/icons';
+import { Card, Tabs } from 'antd';
+import { useSearchParams } from 'react-router-dom';
+import InboxTab from './InboxTab';
+import AnnouncementsTab from './AnnouncementsTab';
+import SettingsTab from './SettingsTab';
 
-const { Text } = Typography;
-const { TabPane } = Tabs;
+type TabKey = 'inbox' | 'announcements' | 'settings';
 
+const VALID_TABS: TabKey[] = ['inbox', 'announcements', 'settings'];
+
+const isTabKey = (value: string | null): value is TabKey =>
+  !!value && (VALID_TABS as string[]).includes(value);
+
+/**
+ * 通知中心（/notifications）
+ *
+ * 三个页签共用一条路由，通过 ?tab=inbox|announcements|settings 做深链：
+ * - 站内信：未读高亮、单条/全部已读、删除、跳转关联资源、投递记录
+ * - 公告区：生效中公告置顶 + 全量分页；管理员可发布/编辑/删除
+ * - 设置：按通知类型配置 启用/邮件/短信/Webhook
+ */
 const Notifications: React.FC = () => {
-  const [data, setData] = useState<NotificationVO[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState(0);
-  const [params, setParams] = useState({ page: 1, page_size: 10, is_read: undefined as boolean | undefined });
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const activeKey: TabKey = isTabKey(tabParam) ? tabParam : 'inbox';
 
-  const fetchData = async () => {
-    setLoading(true);
-    try {
-      const res = await getNotificationList(params);
-      const payload = res.data || (res as any);
-      const items = payload.content || payload.items || [];
-      const totalCount = payload.totalElements || payload.total || 0;
-      setData(items);
-      setTotal(totalCount);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, [params.page, params.page_size, params.is_read]);
-
-  const handleMarkRead = async (id: string) => {
-    try {
-      await markNotificationRead(id);
-      message.success('已标记为已读');
-      fetchData();
-    } catch (error) {
-      // Error handled
-    }
-  };
-
-  const handleMarkAllRead = async () => {
-    try {
-      const unreadIds = data.filter(item => !item.is_read).map(item => item.id);
-      if (unreadIds.length === 0) return;
-      await markAllNotificationRead(unreadIds);
-      message.success('全部标记为已读');
-      fetchData();
-    } catch (error) {
-      // Error handled
-    }
-  };
-
-  const onTabChange = (key: string) => {
-    if (key === 'all') {
-      setParams({ ...params, page: 1, is_read: undefined });
-    } else if (key === 'unread') {
-      setParams({ ...params, page: 1, is_read: false });
-    } else if (key === 'read') {
-      setParams({ ...params, page: 1, is_read: true });
-    }
-  };
+  const items = useMemo(
+    () => [
+      {
+        key: 'inbox',
+        label: (
+          <span>
+            <BellOutlined /> 站内信
+          </span>
+        ),
+        children: <InboxTab />,
+      },
+      {
+        key: 'announcements',
+        label: (
+          <span>
+            <NotificationOutlined /> 公告区
+          </span>
+        ),
+        children: <AnnouncementsTab />,
+      },
+      {
+        key: 'settings',
+        label: (
+          <span>
+            <SettingOutlined /> 通知设置
+          </span>
+        ),
+        children: <SettingsTab />,
+      },
+    ],
+    []
+  );
 
   return (
-    <Card 
-      title="消息中心" 
-      extra={<Button icon={<CheckOutlined />} onClick={handleMarkAllRead}>全部标为已读</Button>}
-    >
-      <Tabs defaultActiveKey="all" onChange={onTabChange}>
-        <TabPane tab="全部消息" key="all" />
-        <TabPane tab="未读消息" key="unread" />
-        <TabPane tab="已读消息" key="read" />
-      </Tabs>
-      
-      <List
-        loading={loading}
-        itemLayout="horizontal"
-        dataSource={data}
-        pagination={{
-          current: params.page,
-          pageSize: params.page_size,
-          total: total,
-          onChange: (page, pageSize) => setParams({ ...params, page, page_size: pageSize })
+    <Card title="通知中心">
+      <Tabs
+        activeKey={activeKey}
+        items={items}
+        onChange={(key) => {
+          const next = new URLSearchParams(searchParams);
+          if (key === 'inbox') {
+            next.delete('tab');
+          } else {
+            next.set('tab', key);
+          }
+          setSearchParams(next, { replace: true });
         }}
-        renderItem={item => (
-          <List.Item
-            actions={[
-              !item.is_read && <a onClick={() => handleMarkRead(item.id)}>标为已读</a>
-            ]}
-          >
-            <List.Item.Meta
-              title={
-                <Space>
-                  {!item.is_read && <Badge status="processing" />}
-                  <Text strong={!item.is_read}>{item.notification?.title}</Text>
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {formatDateTime(item.notification?.created_at ?? item.notification?.createdAt, '')}
-                  </Text>
-                </Space>
-              }
-              description={item.notification?.content}
-            />
-          </List.Item>
-        )}
       />
     </Card>
   );

@@ -2,6 +2,16 @@ import axios from 'axios';
 import type { InternalAxiosRequestConfig, AxiosResponse, AxiosError } from 'axios';
 import { message } from 'antd';
 
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    /**
+     * 关闭全局错误提示：由调用方按状态码自行提示（环境部署 503、附件下载 403/404 等）。
+     * 401 的登录跳转不受此开关影响。
+     */
+    silent?: boolean;
+  }
+}
+
 const request = axios.create({
   baseURL: '/api/v1',
   timeout: 10000,
@@ -31,31 +41,43 @@ request.interceptors.response.use(
     return res;
   },
   (error: AxiosError) => {
+    /**
+     * silent: 调用方显式传 { silent: true } 时由调用方自己提示（例如环境部署 503、
+     * 附件下载 403/404 需要展示后端 message + 失败原因），避免和全局提示重复。
+     * 401 仍统一跳登录，不受 silent 影响。
+     */
+    const silent = Boolean((error.config as { silent?: boolean } | undefined)?.silent);
     if (error.response) {
       const { status, data } = error.response as any;
       const errorMsg = data?.message || data?.error?.message;
-      switch (status) {
-        case 401:
-          message.error(errorMsg || '登录已过期，请重新登录');
-          localStorage.removeItem('access_token');
-          window.location.href = '/login';
-          break;
-        case 403:
-          message.error(errorMsg || '没有操作权限');
-          break;
-        case 400:
-          message.error(errorMsg || '请求参数错误');
-          break;
-        case 404:
-          message.error(errorMsg || '资源不存在');
-          break;
-        case 500:
-          message.error(errorMsg || '服务器内部错误');
-          break;
-        default:
-          message.error(errorMsg || '网络错误');
+      if (status === 401) {
+        message.error(errorMsg || '登录已过期，请重新登录');
+        localStorage.removeItem('access_token');
+        window.location.href = '/login';
+        return Promise.reject(error);
       }
-    } else {
+      if (!silent) {
+        switch (status) {
+          case 403:
+            message.error(errorMsg || '没有操作权限');
+            break;
+          case 400:
+            message.error(errorMsg || '请求参数错误');
+            break;
+          case 404:
+            message.error(errorMsg || '资源不存在');
+            break;
+          case 500:
+            message.error(errorMsg || '服务器内部错误');
+            break;
+          case 503:
+            message.error(errorMsg || '服务暂不可用');
+            break;
+          default:
+            message.error(errorMsg || '网络错误');
+        }
+      }
+    } else if (!silent) {
       message.error('网络请求失败');
     }
     return Promise.reject(error);

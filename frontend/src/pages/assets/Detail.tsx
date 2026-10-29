@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Tabs, Card, Button, Descriptions, Tag, Spin, Result, Form, Input, Select, Row, Col, Space, Upload, Table, message, Modal, Tooltip, Steps } from 'antd';
-import { AppstoreOutlined, BuildOutlined, FileZipOutlined, BugOutlined, SafetyCertificateOutlined, UploadOutlined, PlusOutlined, MinusCircleOutlined, UserOutlined, LockOutlined, TagOutlined, PlusCircleOutlined, CodeOutlined, SettingOutlined, NodeIndexOutlined, LinkOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Tabs, Card, Button, Descriptions, Tag, Spin, Result, Form, Input, Select, Row, Col, Space, Upload, Table, message, Modal, Tooltip, Steps, Alert, Typography } from 'antd';
+import { AppstoreOutlined, BuildOutlined, FileZipOutlined, BugOutlined, SafetyCertificateOutlined, UploadOutlined, PlusOutlined, MinusCircleOutlined, UserOutlined, LockOutlined, TagOutlined, PlusCircleOutlined, CodeOutlined, SettingOutlined, NodeIndexOutlined, LinkOutlined, InfoCircleOutlined, PlayCircleOutlined, StopOutlined, CloudUploadOutlined, ReloadOutlined } from '@ant-design/icons';
 import { 
   getAssetDetail, 
   getAssetVersions,
@@ -19,18 +19,27 @@ import {
   deleteAssetDeliverable,
   downloadAssetDeliverable,
   getEnvironmentList,
+  getEnvironmentDetail,
   createEnvironment,
   deleteEnvironment,
+  deployEnvironment,
+  startEnvironment,
+  stopEnvironment,
   createAssetAccessRequest,
   getMyAccessRequests,
   createAssetClaim,
   getMyClaims,
 } from '@/api/asset';
 import { getVulnerabilityList, createVulnerability, updateVulnerability, deleteVulnerability, getVulnerabilityOptions } from '@/api/vulnerability';
+import { isAssetSubscribed, subscribeAsset, unsubscribeAsset } from '@/api/notification';
+import { describeVulnCreateFailure, describeVulnUpdateFailure, isFormValidationError } from '@/pages/vulnerabilities/createError';
+import { toVulnerabilityCreatePayload, toVulnerabilityUpdatePayload } from '@/pages/vulnerabilities/createPayload';
+import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
 import { getTaskList, createTask, updateTask, updateTaskStatus, deleteTask } from '@/api/task';
 import { getUserList } from '@/api/user';
 import type { AssetVO, AssetFileVO, AssetDeliverableVO, EnvironmentVO, AssetVersionVO, AssetAccessVO, AssetClaimVO } from '@/types/asset';
 import type { UserVO } from '@/types/user';
+import AssetTagsPanel from './AssetTagsPanel';
 
 const { TabPane } = Tabs;
 const { Option } = Select;
@@ -166,6 +175,10 @@ const AssetDetail: React.FC = () => {
   const [myAccess, setMyAccess] = useState<AssetAccessVO | null>(null);
   const [myClaim, setMyClaim] = useState<AssetClaimVO | null>(null);
 
+  // ===== 资产动态订阅（/notifications/subscriptions/{assetId}） =====
+  const [subscribed, setSubscribed] = useState(false);
+  const [subscribeLoading, setSubscribeLoading] = useState(false);
+
   // Metadata states
   const [metadataForm] = Form.useForm();
   const [metadataExists, setMetadataExists] = useState(false);
@@ -194,6 +207,16 @@ const AssetDetail: React.FC = () => {
   const [envModalVisible, setEnvModalVisible] = useState(false);
   const [envForm] = Form.useForm();
   const [envSubmitting, setEnvSubmitting] = useState(false);
+  /** 部署器可用性（来自 GET /environments/{id} 的 provisioner/provisionerAvailable/provisionerMessage） */
+  const [envProvisioner, setEnvProvisioner] = useState<{
+    type?: string;
+    available?: boolean;
+    message?: string;
+  }>({});
+  /** 正在执行部署/启动/停止的环境："<envId>:<action>" */
+  const [envActionLoading, setEnvActionLoading] = useState<string | null>(null);
+  /** 正在等待状态收敛的环境（provisioning → running/failed） */
+  const [envConvergingId, setEnvConvergingId] = useState<string | null>(null);
 
   // Vulnerability states
   const [vulnerabilities, setVulnerabilities] = useState<any[]>([]);
@@ -431,16 +454,188 @@ const AssetDetail: React.FC = () => {
     }
   };
 
-  const loadEnvironments = async (assetId: string) => {
+  /**
+   * 加载环境列表并补齐详情字段（failReason、provisioner 三件套）。
+   *
+   * list 接口不返回 provisioner 信息，这里对每个环境补一次 GET /environments/{id}，
+   * 这样页签能直接展示部署器可用性、失败原因与真实状态。
+   */
+  const loadEnvironments = async (assetId: string, options?: { silentLoading?: boolean }) => {
     try {
-      setEnvLoading(true);
+      if (!options?.silentLoading) {
+        setEnvLoading(true);
+      }
       const res: any = await getEnvironmentList({ page: 1, page_size: 100, assetId });
       const data = res?.data ? res.data : res;
-      setEnvironments(Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []);
+      // 后端 PageResponse 用 content；兼容历史 items 数组形态
+      const list: EnvironmentVO[] = Array.isArray(data?.content)
+        ? data.content
+        : Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data)
+            ? data
+            : [];
+      setEnvironments(list);
+
+      if (list.length === 0) {
+        setEnvProvisioner({});
+        return;
+      }
+
+      const details = await Promise.all(
+        list.map(async (item) => {
+          try {
+            const detailRes: any = await getEnvironmentDetail(item.id);
+            return (detailRes?.data ? detailRes.data : detailRes) as EnvironmentVO;
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      const detailById = new Map<string, EnvironmentVO>();
+      details.forEach((detail) => {
+        if (detail?.id) {
+          detailById.set(detail.id, detail);
+        }
+      });
+
+      // 用详情里的最新状态/failReason 覆盖列表项，保证列表与后端一致
+      setEnvironments(
+        list.map((item) => {
+          const detail = detailById.get(item.id);
+          return detail ? { ...item, ...detail } : item;
+        }),
+      );
+
+      const firstDetail = details.find((detail): detail is EnvironmentVO => Boolean(detail?.provisioner));
+      if (firstDetail) {
+        setEnvProvisioner({
+          type: firstDetail.provisioner,
+          available: firstDetail.provisionerAvailable,
+          message: firstDetail.provisionerMessage,
+        });
+      }
     } catch (error) {
       console.error(error);
     } finally {
       setEnvLoading(false);
+    }
+  };
+
+  /**
+   * 轮询单个环境，直到状态从 provisioning 收敛（running / failed / stopped）。
+   * 后端部署是「先置 provisioning，再真实调用编排」，前端需要刷新才能看到最终态。
+   */
+  const pollEnvironmentConvergence = async (assetId: string, envId: string) => {
+    setEnvConvergingId(envId);
+    try {
+      for (let attempt = 0; attempt < 15; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+        const res: any = await getEnvironmentDetail(envId).catch(() => null);
+        const detail = (res?.data ? res.data : res) as EnvironmentVO | null;
+        if (!detail) {
+          continue;
+        }
+        setEnvironments((prev) =>
+          prev.map((item) => (item.id === envId ? { ...item, ...detail } : item)),
+        );
+        if (detail.provisioner) {
+          setEnvProvisioner({
+            type: detail.provisioner,
+            available: detail.provisionerAvailable,
+            message: detail.provisionerMessage,
+          });
+        }
+        if (detail.status !== 'provisioning') {
+          break;
+        }
+      }
+    } finally {
+      setEnvConvergingId(null);
+      await loadEnvironments(assetId, { silentLoading: true });
+    }
+  };
+
+  /** 展示环境操作失败：后端 message + failReason（长文本截断可展开），绝不静默 */
+  const showEnvActionError = (
+    title: string,
+    backendMessage: string,
+    failReason?: string | null,
+    statusCode?: number,
+  ) => {
+    Modal.error({
+      title,
+      width: 620,
+      content: (
+        <div>
+          <p style={{ marginBottom: 8 }}>
+            {statusCode ? <Tag color="orange">HTTP {statusCode}</Tag> : null}
+            {backendMessage || '未知错误'}
+          </p>
+          {failReason ? (
+            <div>
+              <div style={{ color: '#8c8c8c', marginBottom: 4 }}>失败原因（后端写入 environment.failReason）：</div>
+              <Typography.Paragraph
+                style={{ marginBottom: 0, color: '#cf1322' }}
+                copyable={{ text: failReason }}
+                ellipsis={{ rows: 3, expandable: true, symbol: '展开' }}
+              >
+                {failReason}
+              </Typography.Paragraph>
+            </div>
+          ) : (
+            <div style={{ color: '#8c8c8c' }}>后端未返回 failReason（可能未写入环境状态）。</div>
+          )}
+        </div>
+      ),
+    });
+  };
+
+  /** 部署 / 启动 / 停止环境 */
+  const handleEnvironmentAction = async (
+    record: EnvironmentVO,
+    action: 'deploy' | 'start' | 'stop',
+  ) => {
+    if (!asset?.id) {
+      return;
+    }
+    if (envProvisioner.available === false) {
+      message.warning(envProvisioner.message || '当前部署未启用容器编排');
+      return;
+    }
+    const actionLabel = action === 'deploy' ? '部署' : action === 'start' ? '启动' : '停止';
+    setEnvActionLoading(`${record.id}:${action}`);
+    try {
+      if (action === 'deploy') {
+        await deployEnvironment(record.id);
+      } else if (action === 'start') {
+        await startEnvironment(record.id);
+      } else {
+        await stopEnvironment(record.id);
+      }
+      message.success(`环境${actionLabel}成功`);
+      await pollEnvironmentConvergence(asset.id, record.id);
+    } catch (error) {
+      const statusCode = getApiErrorStatus(error);
+      const backendMessage = getApiErrorMessage(error, `环境${actionLabel}失败`);
+      // 失败后后端已把 status 置 failed 并写 failReason，重新拉详情用于展示
+      const detailRes: any = await getEnvironmentDetail(record.id).catch(() => null);
+      const detail = (detailRes?.data ? detailRes.data : detailRes) as EnvironmentVO | null;
+      if (detail) {
+        setEnvironments((prev) =>
+          prev.map((item) => (item.id === record.id ? { ...item, ...detail } : item)),
+        );
+      }
+      showEnvActionError(
+        `环境${actionLabel}失败`,
+        backendMessage,
+        detail?.failReason ?? record.failReason,
+        statusCode,
+      );
+      await loadEnvironments(asset.id, { silentLoading: true });
+    } finally {
+      setEnvActionLoading(null);
     }
   };
 
@@ -540,21 +735,24 @@ const AssetDetail: React.FC = () => {
     try {
       const values = await vulnForm.validateFields();
       setVulnSubmitting(true);
-      const payload = {
-        ...values,
-        affected_versions: values.affected_versions?.trim() ? values.affected_versions.trim() : undefined,
-      };
       if (vulnMode === 'create') {
-        await createVulnerability({ ...payload, asset_id: asset?.id || '' });
+        await createVulnerability(
+          toVulnerabilityCreatePayload(values, asset?.id || '') as unknown as Parameters<typeof createVulnerability>[0]
+        );
         message.success('漏洞创建成功');
       } else {
-        await updateVulnerability(currentVulnId, payload);
+        // t35：更新走 camelCase + DTO 白名单字段（PUT 为部分更新语义，状态字段不提交）
+        await updateVulnerability(currentVulnId, toVulnerabilityUpdatePayload(values));
         message.success('漏洞更新成功');
       }
       setVulnModalVisible(false);
       if (asset?.id) loadVulnerabilities(asset.id);
     } catch (error) {
-      console.error(error);
+      if (!isFormValidationError(error)) {
+        message.error(
+          vulnMode === 'create' ? describeVulnCreateFailure(error) : describeVulnUpdateFailure(error, '漏洞保存失败')
+        );
+      }
     } finally {
       setVulnSubmitting(false);
     }
@@ -647,6 +845,39 @@ const AssetDetail: React.FC = () => {
     }
   };
 
+  /**
+   * 拉取当前用户对该资产的订阅状态（GET /notifications/subscriptions 返回已订阅 assetId 列表），
+   * 用于渲染「订阅动态 / 取消订阅」按钮。
+   */
+  const loadSubscription = async (assetId: string) => {
+    try {
+      setSubscribed(await isAssetSubscribed(assetId));
+    } catch (error) {
+      console.error('加载订阅状态失败', error);
+      setSubscribed(false);
+    }
+  };
+
+  const handleToggleSubscribe = async () => {
+    if (!asset?.id) return;
+    try {
+      setSubscribeLoading(true);
+      if (subscribed) {
+        await unsubscribeAsset(asset.id);
+        setSubscribed(false);
+        message.success('已取消订阅该资产动态');
+      } else {
+        await subscribeAsset(asset.id);
+        setSubscribed(true);
+        message.success('已订阅该资产动态，漏洞/任务变化会推送到通知中心');
+      }
+    } catch (error: any) {
+      if (!error?.response) message.error('订阅操作失败');
+    } finally {
+      setSubscribeLoading(false);
+    }
+  };
+
   const handleSubmitAccessRequest = async () => {
     if (!asset?.id) return;
     try {
@@ -734,6 +965,11 @@ const AssetDetail: React.FC = () => {
   useEffect(() => {
     if (!asset?.id) return;
     loadMyAccessAndClaim(asset.id);
+  }, [asset?.id]);
+
+  useEffect(() => {
+    if (!asset?.id) return;
+    loadSubscription(asset.id);
   }, [asset?.id]);
 
   useEffect(() => {
@@ -987,7 +1223,15 @@ const AssetDetail: React.FC = () => {
           message.success('环境已删除');
           if (asset) loadEnvironments(asset.id);
         } catch (error) {
-          console.error(error);
+          const statusCode = getApiErrorStatus(error);
+          if (statusCode === 404) {
+            message.error('环境删除失败：环境不存在或已被删除');
+            if (asset) loadEnvironments(asset.id);
+          } else if (statusCode === 403) {
+            message.error('环境删除失败：没有该资产的写权限');
+          } else {
+            message.error(getApiErrorMessage(error, '环境删除失败，请稍后重试'));
+          }
         }
       }
     });
@@ -1121,37 +1365,119 @@ const AssetDetail: React.FC = () => {
     },
   ];
 
+  const envStatusMeta: Record<string, { color: string; label: string }> = {
+    created: { color: 'default', label: '未部署' },
+    provisioning: { color: 'processing', label: '部署中' },
+    deploying: { color: 'processing', label: '部署中' },
+    running: { color: 'success', label: '运行中' },
+    stopped: { color: 'default', label: '已停止' },
+    failed: { color: 'error', label: '失败' },
+  };
+
+  const renderEnvStatus = (status?: string) => {
+    const meta = envStatusMeta[(status || '').toLowerCase()];
+    return <Tag color={meta?.color ?? 'default'}>{meta?.label ?? (status || '-')}</Tag>;
+  };
+
+  /** 部署/启停按钮：不可用时置灰 + Tooltip 说明原因 */
+  const renderEnvActionButton = (
+    record: EnvironmentVO,
+    action: 'deploy' | 'start' | 'stop',
+    label: string,
+    icon: React.ReactNode,
+    disabledReason?: string,
+  ) => {
+    const loading = envActionLoading === `${record.id}:${action}`;
+    const converging = envConvergingId === record.id;
+    const button = (
+      <Button
+        type="link"
+        size="small"
+        icon={icon}
+        loading={loading}
+        disabled={Boolean(disabledReason) || converging}
+        onClick={() => handleEnvironmentAction(record, action)}
+      >
+        {label}
+      </Button>
+    );
+    if (!disabledReason) {
+      return button;
+    }
+    return (
+      <Tooltip title={disabledReason}>
+        {/* 禁用态按钮不触发鼠标事件，外面包一层 span 才能显示 Tooltip */}
+        <span style={{ display: 'inline-block' }}>{button}</span>
+      </Tooltip>
+    );
+  };
+
   const envColumns = [
     { title: '环境名称', dataIndex: 'name', key: 'name' },
-    { title: '状态', dataIndex: 'status', key: 'status', render: (status: string) => {
-      // 后端环境状态为 running / stopped / deploying / failed；
-      // 原先按大写 ACTIVE 判断，标签恒为灰色且文案不直观
-      const colorMap: Record<string, string> = {
-        running: 'success',
-        stopped: 'default',
-        deploying: 'processing',
-        failed: 'error',
-      };
-      const labelMap: Record<string, string> = {
-        running: '运行中',
-        stopped: '已停止',
-        deploying: '部署中',
-        failed: '失败',
-      };
-      const key = (status || '').toLowerCase();
-      return <Tag color={colorMap[key] ?? 'default'}>{labelMap[key] ?? (status || '-')}</Tag>;
-    } },
-    { title: '模板ID', dataIndex: 'templateId', key: 'templateId' },
-    { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', render: (text: string) => text ? new Date(text).toLocaleString() : '-' },
-    { 
-      title: '操作', 
-      key: 'action',
-      render: (_: any, record: EnvironmentVO) => (
-        <Space>
-          <a onClick={() => handleDeleteEnv(record.id)}>删除</a>
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status: string, record: EnvironmentVO) => (
+        <Space size={4} wrap>
+          {renderEnvStatus(status)}
+          {envConvergingId === record.id ? <Tag color="processing">等待收敛…</Tag> : null}
         </Space>
-      )
-    }
+      ),
+    },
+    {
+      title: '失败原因',
+      dataIndex: 'failReason',
+      key: 'failReason',
+      render: (failReason?: string | null, record?: EnvironmentVO) => {
+        if (!failReason) {
+          return <span style={{ color: '#bfbfbf' }}>-</span>;
+        }
+        const isFailed = (record?.status || '').toLowerCase() === 'failed';
+        return (
+          <Typography.Paragraph
+            style={{ marginBottom: 0, maxWidth: 320, color: isFailed ? '#cf1322' : undefined }}
+            copyable={{ text: failReason }}
+            ellipsis={{ rows: 2, expandable: true, symbol: '展开' }}
+          >
+            {failReason}
+          </Typography.Paragraph>
+        );
+      },
+    },
+    { title: '模板ID', dataIndex: 'templateId', key: 'templateId', ellipsis: true },
+    {
+      title: '创建时间',
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      render: (text: string) => (text ? new Date(text).toLocaleString() : '-'),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 220,
+      render: (_: any, record: EnvironmentVO) => {
+        const unavailableReason =
+          envProvisioner.available === false
+            ? envProvisioner.message || '当前部署未启用容器编排，无法部署/启停'
+            : undefined;
+        const status = (record.status || '').toLowerCase();
+        const startDisabled =
+          unavailableReason ?? (status === 'running' ? '环境已在运行中' : status === 'provisioning' ? '环境正在部署，请稍候' : undefined);
+        const stopDisabled =
+          unavailableReason ?? (status === 'stopped' ? '环境已停止' : status === 'provisioning' ? '环境正在部署，请稍候' : undefined);
+        return (
+          <Space size={0} wrap>
+            {renderEnvActionButton(record, 'deploy', '部署', <CloudUploadOutlined />, unavailableReason)}
+            {renderEnvActionButton(record, 'start', '启动', <PlayCircleOutlined />, startDisabled)}
+            {renderEnvActionButton(record, 'stop', '停止', <StopOutlined />, stopDisabled)}
+            <a onClick={() => handleDeleteEnv(record.id)} style={{ color: 'red', marginLeft: 4 }}>
+              删除
+            </a>
+          </Space>
+        );
+      },
+    },
   ];
 
   const vulnColumns = [
@@ -1242,6 +1568,7 @@ const AssetDetail: React.FC = () => {
             {myClaim && ['pending', 'approved'].includes(myClaim.status) && (
               <Tag color="geekblue">已认领（{myClaim.status}）</Tag>
             )}
+            {subscribed && <Tag color="cyan">已订阅动态</Tag>}
           </div>
         }
         extra={
@@ -1252,6 +1579,15 @@ const AssetDetail: React.FC = () => {
             <Button onClick={() => setClaimModalVisible(true)} disabled={!!myClaim && ['pending', 'approved'].includes(myClaim.status)}>
               认领资产
             </Button>
+            <Tooltip title={subscribed ? '取消后不再接收该资产的漏洞/任务动态' : '订阅后该资产的变化会推送到通知中心'}>
+              <Button
+                type={subscribed ? 'default' : 'primary'}
+                loading={subscribeLoading}
+                onClick={handleToggleSubscribe}
+              >
+                {subscribed ? '取消订阅动态' : '订阅动态'}
+              </Button>
+            </Tooltip>
             <Select
               style={{ width: 220 }}
               value={selectedVersionId}
@@ -1698,6 +2034,9 @@ const AssetDetail: React.FC = () => {
               </Spin>
             </div>
           </TabPane>
+          <TabPane tab={<span><TagOutlined />资产标签</span>} key="asset-tags">
+            {asset?.id ? <AssetTagsPanel assetId={asset.id} /> : null}
+          </TabPane>
           <TabPane tab={<span><BuildOutlined />环境与部署</span>} key="environments">
             <div style={{ padding: '24px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
@@ -1706,15 +2045,46 @@ const AssetDetail: React.FC = () => {
                   <p style={{ marginTop: 8, marginBottom: 0, color: '#8c8c8c' }}>可以在此处对接云平台或K8s，管理资产的多套部署环境（开发、测试、生产）。</p>
                 </div>
                 <Space>
+                  <Button
+                    icon={<ReloadOutlined />}
+                    loading={envLoading}
+                    onClick={() => asset?.id && loadEnvironments(asset.id)}
+                  >
+                    刷新
+                  </Button>
                   <Button type="primary" icon={<PlusOutlined />} onClick={() => setEnvModalVisible(true)}>添加环境</Button>
                 </Space>
               </div>
+              <Alert
+                style={{ marginBottom: 16 }}
+                showIcon
+                type={
+                  envProvisioner.available === false
+                    ? 'warning'
+                    : envProvisioner.available === true
+                      ? 'success'
+                      : 'info'
+                }
+                message={
+                  envProvisioner.available === undefined
+                    ? '未获取到部署器信息'
+                    : envProvisioner.available
+                      ? `部署器可用：${envProvisioner.type ?? 'docker'}`
+                      : `部署器不可用：${envProvisioner.type ?? 'noop'}（当前部署未启用容器编排）`
+                }
+                description={
+                  envProvisioner.available === false
+                    ? (envProvisioner.message || '宿主机未检测到可用的 Docker 守护进程或 docker CLI；部署/启动/停止会返回 503 并在环境上记录失败原因。')
+                    : (envProvisioner.message || '部署与启停会真实调用容器编排，状态以环境详情为准。')
+                }
+              />
               <Table
                 columns={envColumns}
                 dataSource={environments}
                 rowKey="id"
                 loading={envLoading}
                 pagination={false}
+                locale={{ emptyText: '该资产暂无环境，点击「添加环境」创建' }}
               />
             </div>
           </TabPane>

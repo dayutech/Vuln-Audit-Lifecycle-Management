@@ -20,6 +20,8 @@ import {
   rejectTaskReview,
 } from '@/api/task';
 import { createVulnerability, getVulnerabilityOptions } from '@/api/vulnerability';
+import { describeVulnCreateFailure, isFormValidationError } from '@/pages/vulnerabilities/createError';
+import { toVulnerabilityCreatePayload } from '@/pages/vulnerabilities/createPayload';
 import type { TaskVO, CreateTaskRequest, UpdateTaskStatusRequest, TaskCommentVO, TaskAttachmentVO } from '@/types/task';
 import {
   getAssetList,
@@ -1270,17 +1272,23 @@ const Tasks: React.FC = () => {
     try {
       const values = await relatedVulnForm.validateFields();
       setRelatedVulnSubmitting(true);
-      await createVulnerability({
-        ...values,
-        asset_id: assetId,
-        affected_versions: values.affected_versions?.trim() ? values.affected_versions.trim() : undefined,
-      });
+      await createVulnerability(
+        toVulnerabilityCreatePayload(
+          { ...values, affected_versions: values.affected_versions?.trim() ? values.affected_versions.trim() : undefined },
+          assetId
+        ) as unknown as Parameters<typeof createVulnerability>[0]
+      );
       message.success('漏洞创建成功');
       setRelatedVulnModalVisible(false);
       relatedVulnForm.resetFields();
       const vulnerabilitiesRes = await getTaskRelatedVulnerabilities(assetId);
       const vulnerabilitiesPayload = getPayload(vulnerabilitiesRes);
       setRelatedVulnerabilities(vulnerabilitiesPayload?.content || vulnerabilitiesPayload?.items || []);
+    } catch (error) {
+      // t27：创建漏洞新增资产写权限守卫，403 需给出「需为资产负责人或有写权限」
+      if (!isFormValidationError(error)) {
+        message.error(describeVulnCreateFailure(error));
+      }
     } finally {
       setRelatedVulnSubmitting(false);
     }
