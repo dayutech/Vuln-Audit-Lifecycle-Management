@@ -219,3 +219,19 @@ index.html 引用 `/static/index-*.js|css` 且资源可 200 加载。
 | 能力补齐 | **报表导出真实可用**：`GET /api/v1/dashboard/export?type=assets\|vulnerabilities\|workload` 输出 UTF-8 BOM CSV，xlsx 返回 400 | 实测 assets 633B/5 行、workload 97B/2 行、BOM 正确 |
 
 回归：`mvn test` **235 个用例全绿**（新增 3 个审批用例 + 3 个导出用例）。
+---
+
+## 12. 第四轮完善（前端接入访问申请 / 认领 / 审批中心）
+
+此前「访问申请」「资产认领」的后端接口齐全但**前端零入口**，工程师实际无法发起申请。
+本轮补齐 UI：
+
+| 页面 | 新增能力 |
+|---|---|
+| 资产列表 `/assets` | 操作列新增「申请访问」，通过弹窗选择是否查看文件后直接提交（**关键**：未获授权时详情页会 403，列表页入口是唯一可行路径） |
+| 资产详情 `/assets/{id}` | 头部新增「申请访问」「认领资产」按钮 + 状态标签（已授权 / 待审批 / 被驳回 / 已认领），按钮按当前状态自动禁用；两个模态表单可填写范围与说明 |
+| 审批中心 `/approvals` | 新页面：展示路由给当前用户的待审批访问申请，支持「通过 / 驳回」并填写审批备注；侧边栏「核心业务」组新增入口 |
+
+前端新增 API 封装：`createAssetAccessRequest`、`getMyAccessRequests`、`getAssetAccessRequests`、`getMyAccessApprovalRequests`、`reviewAssetAccessRequest`、`createAssetClaim`、`getMyClaims`、`getAssetClaims`、`reviewAssetClaim`、`completeAssetClaim`、`abandonAssetClaim`。
+
+构建产物校验：`/static/index-*.js` 中「申请访问」「认领资产」「审批中心」「访问申请待审批」等文案均已包含；`/`、`/assets`、`/approvals` 均返回 200。

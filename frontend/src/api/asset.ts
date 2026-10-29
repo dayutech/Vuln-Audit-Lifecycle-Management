@@ -10,6 +10,9 @@ import type {
   EnvironmentVO,
   CreateEnvironmentRequest,
   UpdateEnvironmentRequest,
+  AssetAccessVO,
+  AssetClaimVO,
+  CreateAssetAccessRequest,
 } from '@/types/asset';
 import type { PaginationParams } from '@/types/common';
 
@@ -260,4 +263,98 @@ export const rollbackEnvironmentSnapshot = (id: string, snapshotId: string): Pro
 
 export const getEnvironmentTemplateList = (): Promise<any> => {
   return request.get('/environment-templates');
+};
+
+// ==================== 访问申请 ====================
+
+/** 提交资产访问申请（后端自动路由审批人） */
+export const createAssetAccessRequest = (assetId: string, data: CreateAssetAccessRequest): Promise<AssetAccessVO> => {
+  return request.post(`/assets/${assetId}/access-requests`, {
+    canViewDocuments: data.can_view_documents ?? false,
+    canViewEnvironments: data.can_view_environments ?? false,
+    canViewFiles: data.can_view_files ?? false,
+    allowedFileTypes: data.allowed_file_types,
+    requestNote: data.request_note,
+  });
+};
+
+/** 我发起的访问申请 */
+export const getMyAccessRequests = (params?: { page?: number; page_size?: number; status?: string }): Promise<any> => {
+  return request.get('/assets/my/access-requests', {
+    params: {
+      page: Math.max((params?.page ?? 1) - 1, 0),
+      size: params?.page_size ?? 50,
+      status: params?.status,
+    },
+  });
+};
+
+/** 某资产的访问申请列表 */
+export const getAssetAccessRequests = (assetId: string, params?: { page?: number; page_size?: number; status?: string }): Promise<any> => {
+  return request.get(`/assets/${assetId}/access-requests`, {
+    params: {
+      page: Math.max((params?.page ?? 1) - 1, 0),
+      size: params?.page_size ?? 50,
+      status: params?.status,
+    },
+  });
+};
+
+/** 待我审批的访问申请 */
+export const getMyAccessApprovalRequests = (params?: { page?: number; page_size?: number }): Promise<any> => {
+  return request.get('/assets/my/access-approval-requests', {
+    params: {
+      page: Math.max((params?.page ?? 1) - 1, 0),
+      size: params?.page_size ?? 20,
+    },
+  });
+};
+
+/** 审批访问申请 */
+export const reviewAssetAccessRequest = (requestId: string, approved: boolean, reviewNote?: string): Promise<AssetAccessVO> => {
+  return request.post(`/assets/access-requests/${requestId}/review`, { approved, reviewNote });
+};
+
+// ==================== 资产认领 ====================
+
+/** 认领资产 */
+export const createAssetClaim = (assetId: string, note?: string): Promise<AssetClaimVO> => {
+  return request.post(`/assets/${assetId}/claims`, { note });
+};
+
+/** 我的认领记录 */
+export const getMyClaims = (params?: { page?: number; page_size?: number; status?: string }): Promise<any> => {
+  return request.get('/assets/my/claims', {
+    params: {
+      page: Math.max((params?.page ?? 1) - 1, 0),
+      size: params?.page_size ?? 50,
+      status: params?.status,
+    },
+  });
+};
+
+/** 某资产的认领记录 */
+export const getAssetClaims = (assetId: string, params?: { page?: number; page_size?: number; status?: string }): Promise<any> => {
+  return request.get(`/assets/${assetId}/claims`, {
+    params: {
+      page: Math.max((params?.page ?? 1) - 1, 0),
+      size: params?.page_size ?? 50,
+      status: params?.status,
+    },
+  });
+};
+
+/** 审批认领申请 */
+export const reviewAssetClaim = (claimId: string, approved: boolean, reviewNote?: string): Promise<AssetClaimVO> => {
+  return request.post(`/assets/claims/${claimId}/review`, { approved, reviewNote });
+};
+
+/** 完成认领 */
+export const completeAssetClaim = (claimId: string): Promise<any> => {
+  return request.post(`/assets/claims/${claimId}/complete`);
+};
+
+/** 放弃认领 */
+export const abandonAssetClaim = (claimId: string, note?: string): Promise<any> => {
+  return request.post(`/assets/claims/${claimId}/abandon`, null, { params: { note } });
 };

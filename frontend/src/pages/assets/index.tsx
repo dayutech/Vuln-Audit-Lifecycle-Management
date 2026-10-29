@@ -19,6 +19,7 @@ import {
   updateAsset,
   deleteAsset,
   getAssetOptions,
+  createAssetAccessRequest,
 } from '@/api/asset';
 import type {
   AssetVO,
@@ -153,6 +154,45 @@ const Assets: React.FC = () => {
     });
   };
 
+  /**
+   * 在列表页直接发起访问申请。
+   *
+   * 说明：未获授权的用户打不开资产详情页（详情接口会返回 403），
+   * 因此申请入口必须同时存在于列表页，否则工程师无法走「申请 → 审批 → 可见」流程。
+   */
+  const handleRequestAccess = (record: AssetVO) => {
+    let canViewFiles = true;
+    Modal.confirm({
+      title: `申请访问「${record.name}」`,
+      content: (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ marginBottom: 8, color: '#888' }}>提交后由上级审批，通过后即可查看该资产的文件与配置。</div>
+          <Select
+            defaultValue={true}
+            style={{ width: '100%' }}
+            onChange={(value) => { canViewFiles = value; }}
+            options={[
+              { value: true, label: '需要查看文件' },
+              { value: false, label: '仅需查看基本信息' },
+            ]}
+          />
+        </div>
+      ),
+      okText: '提交申请',
+      onOk: async () => {
+        try {
+          await createAssetAccessRequest(record.id, {
+            can_view_files: canViewFiles,
+            request_note: '列表页发起访问申请',
+          });
+          message.success('访问申请已提交，等待审批');
+        } catch (error: any) {
+          message.error(error?.response?.data?.message || '提交失败');
+        }
+      }
+    });
+  };
+
   const handleModalOk = async () => {
     try {
       const values = await form.validateFields();
@@ -231,6 +271,7 @@ const Assets: React.FC = () => {
       render: (_: any, record: AssetVO) => (
         <Space size="middle">
           <a onClick={() => navigate(`/assets/${record.id}`)}>进入工作台</a>
+          <a onClick={() => handleRequestAccess(record)}>申请访问</a>
           <a onClick={() => handleEdit(record)}>编辑</a>
           <a style={{ color: 'red' }} onClick={() => handleDelete(record.id)}>删除</a>
         </Space>

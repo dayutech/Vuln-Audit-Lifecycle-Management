@@ -20,12 +20,16 @@ import {
   downloadAssetDeliverable,
   getEnvironmentList,
   createEnvironment,
-  deleteEnvironment
+  deleteEnvironment,
+  createAssetAccessRequest,
+  getMyAccessRequests,
+  createAssetClaim,
+  getMyClaims,
 } from '@/api/asset';
 import { getVulnerabilityList, createVulnerability, updateVulnerability, deleteVulnerability, getVulnerabilityOptions } from '@/api/vulnerability';
 import { getTaskList, createTask, updateTask, updateTaskStatus, deleteTask } from '@/api/task';
 import { getUserList } from '@/api/user';
-import type { AssetVO, AssetFileVO, AssetDeliverableVO, EnvironmentVO, AssetVersionVO } from '@/types/asset';
+import type { AssetVO, AssetFileVO, AssetDeliverableVO, EnvironmentVO, AssetVersionVO, AssetAccessVO, AssetClaimVO } from '@/types/asset';
 import type { UserVO } from '@/types/user';
 
 const { TabPane } = Tabs;
@@ -151,6 +155,16 @@ const AssetDetail: React.FC = () => {
   const [setDefaultLoading, setSetDefaultLoading] = useState(false);
   const [setLatestLoading, setSetLatestLoading] = useState(false);
   const [versionForm] = Form.useForm();
+
+  // ===== 访问申请 / 认领 =====
+  const [accessForm] = Form.useForm();
+  const [claimForm] = Form.useForm();
+  const [accessModalVisible, setAccessModalVisible] = useState(false);
+  const [claimModalVisible, setClaimModalVisible] = useState(false);
+  const [accessSubmitting, setAccessSubmitting] = useState(false);
+  const [claimSubmitting, setClaimSubmitting] = useState(false);
+  const [myAccess, setMyAccess] = useState<AssetAccessVO | null>(null);
+  const [myClaim, setMyClaim] = useState<AssetClaimVO | null>(null);
 
   // Metadata states
   const [metadataForm] = Form.useForm();
@@ -612,9 +626,75 @@ const AssetDetail: React.FC = () => {
     }
   };
 
+  /**
+   * 拉取当前用户对该资产的访问申请与认领状态，
+   * 用于在页面上展示「已授权 / 待审批」并控制按钮可用性。
+   */
+  const loadMyAccessAndClaim = async (assetId: string) => {
+    try {
+      const accessRes: any = await getMyAccessRequests({ page: 1, page_size: 100 });
+      const accessList: AssetAccessVO[] = accessRes?.data?.content ?? accessRes?.content ?? [];
+      setMyAccess(accessList.find((item) => item.assetId === assetId) ?? null);
+    } catch (error) {
+      console.error('加载访问申请失败', error);
+    }
+    try {
+      const claimRes: any = await getMyClaims({ page: 1, page_size: 100 });
+      const claimList: AssetClaimVO[] = claimRes?.data?.content ?? claimRes?.content ?? [];
+      setMyClaim(claimList.find((item) => item.assetId === assetId) ?? null);
+    } catch (error) {
+      console.error('加载认领记录失败', error);
+    }
+  };
+
+  const handleSubmitAccessRequest = async () => {
+    if (!asset?.id) return;
+    try {
+      const values = await accessForm.validateFields();
+      setAccessSubmitting(true);
+      const created = await createAssetAccessRequest(asset.id, {
+        can_view_documents: values.canViewDocuments,
+        can_view_environments: values.canViewEnvironments,
+        can_view_files: values.canViewFiles,
+        allowed_file_types: values.allowedFileTypes,
+        request_note: values.requestNote,
+      });
+      message.success('访问申请已提交，等待审批');
+      setAccessModalVisible(false);
+      accessForm.resetFields();
+      const payload: any = (created as any)?.data ?? created;
+      setMyAccess(payload ?? null);
+      loadMyAccessAndClaim(asset.id);
+    } catch (error: any) {
+      if (error?.errorFields) return; // 表单校验失败，交由表单展示
+      message.error(error?.response?.data?.message || '提交访问申请失败');
+    } finally {
+      setAccessSubmitting(false);
+    }
+  };
+
+  const handleSubmitClaim = async () => {
+    if (!asset?.id) return;
+    try {
+      const values = await claimForm.validateFields();
+      setClaimSubmitting(true);
+      const created = await createAssetClaim(asset.id, values.note);
+      message.success('认领申请已提交');
+      setClaimModalVisible(false);
+      claimForm.resetFields();
+      const payload: any = (created as any)?.data ?? created;
+      setMyClaim(payload ?? null);
+      loadMyAccessAndClaim(asset.id);
+    } catch (error: any) {
+      if (error?.errorFields) return;
+      message.error(error?.response?.data?.message || '提交认领申请失败');
+    } finally {
+      setClaimSubmitting(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchAsset = async () => {
-      try {
+    const fetchAsset = async () => {      try {
         setLoading(true);
         const res: any = await getAssetDetail(id as string);
         const found = res?.data ? res.data : res;
@@ -650,6 +730,11 @@ const AssetDetail: React.FC = () => {
     if (!asset?.id) return;
     loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope, deliverableVersionScope === '__all__');
   }, [asset?.id, deliverableVersionScope]);
+
+  useEffect(() => {
+    if (!asset?.id) return;
+    loadMyAccessAndClaim(asset.id);
+  }, [asset?.id]);
 
   useEffect(() => {
     if (!asset?.id) return;
@@ -1151,10 +1236,22 @@ const AssetDetail: React.FC = () => {
             <span style={{ fontSize: '20px', fontWeight: 'bold', marginRight: '16px' }}>{asset.name}</span>
             <Tag color="blue">{asset.code}</Tag>
             <Tag color={asset.status === 'ACTIVE' ? 'success' : 'default'}>{asset.status}</Tag>
+            {myAccess?.status === 'approved' && <Tag color="green">已授权访问</Tag>}
+            {myAccess?.status === 'pending' && <Tag color="orange">访问申请待审批</Tag>}
+            {myAccess?.status === 'rejected' && <Tag color="red">访问申请被驳回</Tag>}
+            {myClaim && ['pending', 'approved'].includes(myClaim.status) && (
+              <Tag color="geekblue">已认领（{myClaim.status}）</Tag>
+            )}
           </div>
         }
         extra={
           <Space>
+            <Button onClick={() => setAccessModalVisible(true)} disabled={myAccess?.status === 'pending' || myAccess?.status === 'approved'}>
+              申请访问
+            </Button>
+            <Button onClick={() => setClaimModalVisible(true)} disabled={!!myClaim && ['pending', 'approved'].includes(myClaim.status)}>
+              认领资产
+            </Button>
             <Select
               style={{ width: 220 }}
               value={selectedVersionId}
@@ -1830,6 +1927,54 @@ const AssetDetail: React.FC = () => {
           )}
           <Form.Item name="description" label="任务描述">
             <Input.TextArea rows={4} placeholder="请输入任务描述" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* ===== 申请访问 ===== */}
+      <Modal
+        title="申请资产访问权限"
+        open={accessModalVisible}
+        onCancel={() => setAccessModalVisible(false)}
+        onOk={handleSubmitAccessRequest}
+        confirmLoading={accessSubmitting}
+        okText="提交申请"
+      >
+        <Form
+          form={accessForm}
+          layout="vertical"
+          initialValues={{ canViewDocuments: false, canViewEnvironments: false, canViewFiles: true }}
+        >
+          <Form.Item name="canViewDocuments" label="文档查看">
+            <Select options={[{ value: true, label: '需要' }, { value: false, label: '不需要' }]} />
+          </Form.Item>
+          <Form.Item name="canViewEnvironments" label="环境配置查看">
+            <Select options={[{ value: true, label: '需要' }, { value: false, label: '不需要' }]} />
+          </Form.Item>
+          <Form.Item name="canViewFiles" label="文件查看">
+            <Select options={[{ value: true, label: '需要' }, { value: false, label: '不需要' }]} />
+          </Form.Item>
+          <Form.Item name="allowedFileTypes" label="允许的文件类型（可选）">
+            <Input placeholder="如 iso,vmdk,zip，留空表示全部" />
+          </Form.Item>
+          <Form.Item name="requestNote" label="申请说明">
+            <TextArea rows={3} placeholder="说明用途，便于审批人判断" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* ===== 认领资产 ===== */}
+      <Modal
+        title="认领资产"
+        open={claimModalVisible}
+        onCancel={() => setClaimModalVisible(false)}
+        onOk={handleSubmitClaim}
+        confirmLoading={claimSubmitting}
+        okText="提交认领"
+      >
+        <Form form={claimForm} layout="vertical">
+          <Form.Item name="note" label="认领说明">
+            <TextArea rows={3} placeholder="说明你的挖掘计划或已做工作" />
           </Form.Item>
         </Form>
       </Modal>

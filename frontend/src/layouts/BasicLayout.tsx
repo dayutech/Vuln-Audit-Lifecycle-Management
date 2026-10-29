@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Layout, Menu, Dropdown, Avatar } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, SettingOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined } from '@ant-design/icons';
+import { UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, SettingOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined, AuditOutlined } from '@ant-design/icons';
 import { useUserStore } from '@/store/userStore';
 import { getCurrentUser, logout } from '@/api/auth';
 
@@ -50,6 +50,7 @@ const BasicLayout: React.FC = () => {
         { key: '/assets', icon: <AppstoreOutlined />, label: '产品与资产中心' },
         { key: '/vulnerabilities', icon: <SafetyCertificateOutlined />, label: '全局漏洞视图' },
         { key: '/tasks', icon: <CheckSquareOutlined />, label: '安全审计任务' },
+        { key: '/approvals', icon: <AuditOutlined />, label: '审批中心' },
       ],
     },
     {

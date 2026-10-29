@@ -165,6 +165,49 @@ export interface CreateAssetVersionRequest {
 
 export type AssetListResponse = PaginatedResponse<AssetVO>;
 
+/** 资产访问申请（与后端 AssetAccess 对齐，camelCase） */
+export interface AssetAccessVO {
+  id: string;
+  assetId: string;
+  userId: string;
+  status: 'pending' | 'approved' | 'rejected' | string;
+  canViewDocuments?: boolean;
+  canViewEnvironments?: boolean;
+  canViewFiles?: boolean;
+  allowedFileTypes?: string | null;
+  requestNote?: string | null;
+  approverId?: string | null;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  reviewNote?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** 资产认领申请（与后端 AssetClaim 对齐） */
+export interface AssetClaimVO {
+  id: string;
+  assetId: string;
+  userId: string;
+  status: 'pending' | 'approved' | 'rejected' | 'completed' | 'abandoned' | string;
+  note?: string | null;
+  claimedAt?: string | null;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  reviewNote?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateAssetAccessRequest {
+  can_view_documents?: boolean;
+  can_view_environments?: boolean;
+  can_view_files?: boolean;
+  allowed_file_types?: string;
+  request_note?: string;
+}
+
+
 export interface CreateAssetRequest {
   name: string;
   target_type: string;

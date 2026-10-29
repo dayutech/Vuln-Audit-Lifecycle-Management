@@ -14,6 +14,7 @@ import Tools from '@/pages/tools/index';
 import Notifications from '@/pages/notifications/index';
 import Knowledge from '@/pages/knowledge/index';
 import Tasks from '@/pages/tasks/index';
+import Approvals from '@/pages/approvals/index';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const token = localStorage.getItem('access_token');
@@ -68,6 +69,10 @@ const router = createBrowserRouter([
       {
         path: '/tasks/:id',
         element: <Tasks />,
+      },
+      {
+        path: '/approvals',
+        element: <Approvals />,
       },
       {
         path: '/documents',
