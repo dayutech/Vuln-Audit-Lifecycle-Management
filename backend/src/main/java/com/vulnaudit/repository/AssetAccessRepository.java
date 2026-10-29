@@ -31,6 +31,8 @@ public interface AssetAccessRepository extends JpaRepository<AssetAccess, UUID>,
      */
     List<AssetAccess> findByAssetId(@Nullable UUID assetId);
 
+    List<AssetAccess> findByStatus(@Nullable String status);
+
     /**
      * 根据用户ID查询所有访问申请
      *
