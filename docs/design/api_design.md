@@ -1936,7 +1936,17 @@ POST /api/v1/documents/{id}/versions/{version}/rollback
 Authorization: Bearer <token>
 ```
 
-> **说明**：将文档恢复到指定历史版本
+> **说明**：将文档恢复到指定历史版本。
+>
+> **快照语义（t37）**：回滚**不会修改**被回滚的历史版本（历史不可变），而是新增一条快照：
+> - 新快照 `version = max(历史最大版本, documents.version) + 1`；
+> - 新快照的 `title / summary / content` 取自目标版本；
+> - 新快照 `changelog = "rollback from v{目标版本}"`，`created_by = 操作者`，用于审计追溯；
+> - `documents` 的当前内容与 `version` 指向该新快照。
+>
+> 版本号分配与「编辑保存」共用同一套并发语义：行级锁（`SELECT ... FOR UPDATE`）+ `saveAndFlush`
+> + 有界重试（最多 3 次），因此并发「回滚 + 编辑」不会产生重复或跳号；重试耗尽返回
+> **409**「文档版本冲突，请重试」，目标版本不存在返回 **404**。
 
 ### 7.10 获取指定版本详情
 
