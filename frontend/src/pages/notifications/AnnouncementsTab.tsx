@@ -30,10 +30,16 @@ import {
   getServerNow,
   updateAnnouncement,
 } from '@/api/notification';
-import { canManageAnnouncements, getMyAccessProfile } from '@/api/permission';
+import {
+  ANNOUNCEMENT_FORBIDDEN_MESSAGE,
+  ANNOUNCEMENT_READONLY_HINT,
+  canManageAnnouncements,
+  getMyAccessProfile,
+} from '@/api/permission';
 import type { AnnouncementPage, AnnouncementSaveRequest, AnnouncementVO } from '@/types/notification';
 import { ANNOUNCEMENT_PRIORITY_META } from '@/types/notification';
 import { formatDateTime } from '@/utils/datetime';
+import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -163,13 +169,27 @@ const AnnouncementsTab: React.FC = () => {
     setModalOpen(true);
   };
 
+  /**
+   * 公告请求体。
+   *
+   * publishedAt 一律显式提交（服务端时钟对齐后的时间）：t40 前的后端未补默认值，
+   * 缺字段会直接 500；t40 之后虽会兜底补 now，但显式提交才能保证「生效判定」与展示时间一致。
+   */
   const buildPayload = (values: AnnouncementFormValues): AnnouncementSaveRequest => ({
     title: values.title.trim(),
     content: values.content,
     priority: values.priority || 'normal',
-    publishedAt: values.publishedAt.format(DATETIME_FORMAT),
+    publishedAt: (values.publishedAt ?? serverNow).format(DATETIME_FORMAT),
     expiresAt: values.expiresAt ? values.expiresAt.format(DATETIME_FORMAT) : null,
   });
+
+  /** 公告写操作的失败提示：401/403/400/5xx 分别可读，403 用角色口径文案 */
+  const describeWriteFailure = (error: unknown, fallback: string): string => {
+    const status = getApiErrorStatus(error);
+    if (status === 401) return '登录已过期，请重新登录后再试';
+    if (status === 403) return ANNOUNCEMENT_FORBIDDEN_MESSAGE;
+    return getApiErrorMessage(error, fallback);
+  };
 
   const handleSubmit = async () => {
     try {
@@ -189,7 +209,7 @@ const AnnouncementsTab: React.FC = () => {
       if (!editing) setPage(1);
     } catch (error: any) {
       if (error?.errorFields) return;
-      if (!error?.response) message.error('公告保存失败');
+      message.error(describeWriteFailure(error, '公告保存失败'));
     } finally {
       setSubmitting(false);
     }
@@ -201,7 +221,7 @@ const AnnouncementsTab: React.FC = () => {
       message.success('公告已删除');
       await Promise.all([loadActive(), loadPage(page)]);
     } catch (error: any) {
-      if (!error?.response) message.error('公告删除失败');
+      message.error(describeWriteFailure(error, '公告删除失败'));
     }
   };
 
@@ -346,7 +366,7 @@ const AnnouncementsTab: React.FC = () => {
         size="small"
         title="全部公告"
         extra={
-          !canManage ? <Text type="secondary">管理员可发布/编辑/删除公告</Text> : undefined
+          !canManage ? <Text type="secondary">{ANNOUNCEMENT_READONLY_HINT}</Text> : undefined
         }
       >
         {schemaMissingPublishedAt ? (

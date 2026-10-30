@@ -34,27 +34,39 @@ export const getTeamDetail = (id: string): Promise<TeamVO> => {
   return request.get(`/teams/${id}`);
 };
 
+/**
+ * 写操作统一 `silent: true`：由团队页按状态码给出可读提示
+ * （403 → 「无权管理该团队（需为管理员/项目负责人或该团队负责人）」，见 pages/teams/teamAccess.ts）。
+ */
 export const createTeam = (data: CreateTeamRequest): Promise<TeamVO> => {
   const currentUserId = useUserStore.getState().user?.id;
-  return request.post('/teams', {
-    name: data.name,
-    description: data.description,
-    parentId: data.parent_id || null,
-    leaderId: data.leader_id ?? currentUserId,
-    createdBy: currentUserId,
-  });
+  return request.post(
+    '/teams',
+    {
+      name: data.name,
+      description: data.description,
+      parentId: data.parent_id || null,
+      leaderId: data.leader_id ?? currentUserId,
+      createdBy: currentUserId,
+    },
+    { silent: true },
+  );
 };
 
 export const updateTeam = (
   id: string,
   data: { name?: string; description?: string; parent_id?: string | null; leader_id?: string },
 ): Promise<TeamVO> => {
-  return request.put(`/teams/${id}`, {
-    name: data.name,
-    description: data.description,
-    parentId: data.parent_id ?? undefined,
-    leaderId: data.leader_id,
-  });
+  return request.put(
+    `/teams/${id}`,
+    {
+      name: data.name,
+      description: data.description,
+      parentId: data.parent_id ?? undefined,
+      leaderId: data.leader_id,
+    },
+    { silent: true },
+  );
 };
 
 export const addTeamMember = (id: string, data: AddTeamMemberRequest): Promise<any> => {
@@ -63,6 +75,7 @@ export const addTeamMember = (id: string, data: AddTeamMemberRequest): Promise<a
       userId: data.user_id,
       role: data.role,
     },
+    silent: true,
   });
 };
 
@@ -77,9 +90,9 @@ export const getTeamUsers = (id: string): Promise<string[]> => {
 };
 
 export const removeTeamMember = (id: string, userId: string): Promise<any> => {
-  return request.delete(`/teams/${id}/members/${userId}`);
+  return request.delete(`/teams/${id}/members/${userId}`, { silent: true });
 };
 
 export const deleteTeam = (id: string): Promise<any> => {
-  return request.delete(`/teams/${id}`);
+  return request.delete(`/teams/${id}`, { silent: true });
 };

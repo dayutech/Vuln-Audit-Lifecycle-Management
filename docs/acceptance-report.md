@@ -12,7 +12,7 @@
 
 **结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**475 个后端用例 100% 通过**（t25 基线 452 + t39 新增 13 + t40 新增 10），线上冒烟 **108/108 全绿**（t13 的 92 + t41 新增 16），三账号交叉验证通过。
 
-t39/t40 之后鉴权缺口由 15 组收敛为 **13 组（中 10 / 低 3，高 0）**：3 组「高」severity 缺口（团队 CRUD、环境增删改与部署、公告写）已修复，资产认领「完成/放弃」状态机已打通（此前恒 403）。
+t39/t40/t45 之后鉴权缺口由 15 组收敛为 **13 组（中 10 / 低 3，高 0）**（含 t44 页面验证新发现「列表可见但详情 403」1 组）：3 组「高」severity 缺口（团队 CRUD、环境增删改与部署、公告写）已修复，资产认领「完成/放弃」状态机已打通（此前恒 403）。
 
 验收附带 8 项**已知偏离**（§5）与 8 项**后续建议**（§8），均不影响本次验收结论。
 
@@ -23,7 +23,7 @@ t39/t40 之后鉴权缺口由 15 组收敛为 **13 组（中 10 / 低 3，高 0�
 | 部署后专项核对 | 11a~11k 共 **13 项实测全 PASS** |
 | 空库引导（真实建库路径） | 56 张表、RBAC 90 权限点 / 261 关联、admin 登录 200、`permissionCount=90` |
 | 接口总数 / 已做鉴权 | 262 个端点；角色注解 56、数据级守卫 67、方法内校验 11 → **134 个显式鉴权端点**（写端点 87/135 = 64%），其余见 §2 |
-| 鉴权缺口 | 15 组 → **13 组（中 10 / 低 3，高 0）**；3 组高 severity 已修复（t40），认领状态机已打通（t39） |
+| 鉴权缺口 | 15 组 → **13 组（中 10 / 低 3，高 0）**；3 组高 severity 已修复（t40），认领状态机已打通（t39），用户读接口 PII 已收口（t45）；t44 新发现「列表/详情口径不一致」1 组 |
 | 线上 RBAC 幂等 | 重启多次 `permissions=90 / role_permissions=261 / roles=4` 不变 |
 
 ---
@@ -421,9 +421,9 @@ t39/t40 之后鉴权缺口由 15 组收敛为 **13 组（中 10 / 低 3，高 0�
 | 10 | `POST /tasks`、`POST /tasks/{id}/submit-review` | 仅登录 | 中 | 矩阵 2.9 规定创建任务限管理层；当前工程师可建任务并提交审核 | 创建补角色门槛；提交审核补负责人/协作者校验 |
 | 11 | `GET /teams/{id}/members`、`GET /teams/{id}/users` | 无 | 低 | 矩阵 2.3 工程师不可读成员列表 | 补角色门槛（或按团队可见性收敛） |
 | 12 | `PUT/DELETE /tools/{id}`、`POST /tools/{id}/versions` | 无 | 中 | 矩阵 2.8 规定修改限 admin/project_leader/team_leader、删除限 admin/project_leader；当前任意登录用户可改删工具与上传版本 | 补角色门槛（或工具负责人校验） |
-| 13 | `GET /users`、`GET /users/{id}`、`GET /users/{id}/roles`、`GET /users/check-username|check-email` | 无（仅登录态） | 中 | 矩阵 2.2 规定工程师不可读用户列表/详情；当前任意登录用户可枚举用户与邮箱/手机号（PII） | 补 `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')`；`check-*` 保留匿名但加限流 |
+| 13 | `GET /assets`（列表）与 `GET /assets/{id}`（详情）口径不一致 | 有但两侧规则不同 | 中 | 列表按 `AccessGuard.visibleAssetIds` 过滤、详情按 `canReadAsset` 判定；t44 实测工程师列表中 5 个资产有 3 个详情返回 403（列表能看到、点进去打不开） | 列表范围收敛到与 `canReadAsset` 同源的集合 |
 
-> 汇总：**已知缺口 13 组**（高 0 / 中 10 / 低 3）。原「高」3 组（团队 CRUD、环境增删改/部署、公告写）已于 t40 收口；原 #5「认领完成/放弃恒 403」的功能缺陷已于 t39 修复（见 §2.4）。
+> 汇总：**已知缺口 13 组**（高 0 / 中 10 / 低 3）。原「高」3 组（团队 CRUD、环境增删改/部署、公告写）已于 t40 收口；原 #5「认领完成/放弃恒 403」的功能缺陷已于 t39 修复；「用户读接口 PII」（原 #13）已于 t45 收口（见 §2.4）。
 > 这些问题**不影响功能验收**，但属于权限矩阵未落地的残余项，建议按 §8 逐项排期。
 
 ### 2.4 本轮已修复的鉴权缺口（回归证据）
@@ -441,7 +441,31 @@ t39/t40 之后鉴权缺口由 15 组收敛为 **13 组（中 10 / 低 3，高 0�
 | 环境增删改/部署无角色门槛（原 §2.3.2 #9，「高」） | t40：`POST/PUT/DELETE /environments**`、`/deploy|/start|/stop`、`POST /snapshots`、`/snapshots/{id}/rollback` 统一 `hasAnyRole(ADMIN,PROJECT_LEADER,TEAM_LEADER)`；`GET` 保持开放 | 同上（工程师全部写操作 403；团队长/管理员 200） |
 | 公告写无角色门槛（原 §2.3.2 #11，「高」） | t40：`POST/PUT/DELETE /notifications/announcements**` → `hasAnyRole(ADMIN,PROJECT_LEADER)`；`GET` 列表/active 保持开放 | 同上（工程师与团队长发公告均 403、管理员 201 且列表可读） |
 | 认领「完成/放弃」恒 403、`my/claims` 可能退化为全量（原 §2.3.2 #5） | t39：控制器改用 `CurrentUserProvider.requireCurrentUserId()`（缺失 401）；服务层保留认领人校验（完成仅本人、管理员不放行），管理层可强制放弃并写 `reviewed_by/review_note`；`getMyClaims` 未认证不再走 `findAll` | `AssetClaimLifecycleTest` 13 例（本人完成 200、非本人与管理员完成 403、管理层强制放弃 200、pending 400、不存在 404、生命周期闭环） |
+| 用户读接口 PII 枚举面（原 §2.3.2 #13） | t45：`GET /users`、`/users/{id}`、`/{id}/roles`、`check-username`、`check-email` → `hasAnyRole(ADMIN,PROJECT_LEADER)`；新增最小暴露 `GET /users/directory`（专用 record，仅 id/username/fullName，全员可用）；`/users/me/permissions`、`/auth/me` 保持对所有登录用户开放 | `UserDirectoryAuthorizationTest` 8 例（工程师 5 个管理读 403、目录 200 且无 email/phone/roles/status/lastLoginAt/passwordHash、admin/PL 全通、未认证 401、无权限仍 403） |
+| 匿名请求统一 403（原 §5 偏离 8） | t45：配置 `AuthenticationEntryPoint`（未认证 → 401 + 统一 JSON）与 `AccessDeniedHandler`（无权限 → 403） | 同上（`unauthenticated_returns401`、`authenticatedWithoutPermission_returns403`、`invalidToken_returns401`） |
 
+### 2.5 权限点目录与实际守卫的口径差异
+
+**结论：RBAC 权限点（90 个）当前不参与鉴权判定，是描述性目录 + 为后续 ABAC 预留；实际执行以 `@PreAuthorize` 角色注解 + 数据级守卫（`AccessGuard`）为准。权限点不得作为前端授权依据。**
+
+| 维度 | 权限点（`permissions` / `role_permissions`） | 实际鉴权（代码） |
+|---|---|---|
+| 数据来源 | `security/PermissionCatalog` 定义 90 条，启动幂等写入（t1），`GET /users/me/permissions` 返回 | `@PreAuthorize` 角色注解 + `AccessGuard.canRead*/canWrite*/canManageTeam/visibleAssetIds` |
+| 是否参与判定 | **否**：`PermissionService.hasPermission(...)` 在主代码中无调用点，`hasAuthority(...)` 仅出现在注释 | 是：262 端点中 134 个显式鉴权（角色 56 / 数据级 67 / 方法内 11） |
+| 变更影响 | 改权限点不影响任何接口放行/拒绝 | 改注解 / 守卫才影响 |
+
+**典型差异（必须按「角色 + 数据归属」而非权限点判定）**
+
+| 场景 | 权限点口径 | 实际鉴权口径 | 前端若按权限点判定的后果 |
+|---|---|---|---|
+| 团队长改自己团队 | `team_leader` 权限点里**没有** `team:update` | `PUT /teams/{id}`：`hasAnyRole(ADMIN,PL) or @accessGuard.canManageTeam(#id)` → **放行** | 会错误隐藏「编辑」入口（用户明明有权） |
+| 团队长删团队 | 无 `team:delete` | `DELETE /teams/{id}`：`hasAnyRole(ADMIN,PL) **and** canManageTeam` → 团队长被拒 | 结果正确但理由不同，易误导 |
+| 工程师被设为某团队 `leader_id` | 无任何 `team:*` | `isLeaderOfTeam` 只看 `teams.leader_id` → 可管理该团队 | 会隐藏实际可用的入口（t44 实测：smoke_engineer 因测试数据被设为负责人，页面显示「团队长视角」） |
+| 工程师读资产列表/详情 | 有 `asset:read` | 列表 200、详情按 `canReadAsset` 可能 403（§2.3.2 #13） | 权限点无法表达数据级范围，只能以接口返回为准 |
+
+**前端处置（t42/t43 已落地）**：`pages/teams/teamAccess.ts` 只按「角色 + `teams.leaderId`」判定，并在注释中写明「不要用 `team:update` 权限点」；`utils/accessRoles.ts` 同样以角色为主、权限点仅兜底。冒烟与页面验证均以接口实际返回（200/403）为准。
+
+**证据**：`grep -rn "hasPermission(" backend/src/main/java | grep -v PermissionService` 无业务调用点；`grep -rn "hasAuthority" backend/src/main/java` 仅注释命中；`scripts/qa/scan-auth-*.py` 输出 134 个显式鉴权端点；`PrivilegedWriteAuthorizationTest` 10 例按角色/归属验证放行与拒绝。
 ---
 
 ## 3. SRS 需求覆盖对照
@@ -495,7 +519,7 @@ t39/t40 之后鉴权缺口由 15 组收敛为 **13 组（中 10 / 低 3，高 0�
 | 5 | **无 actuator**：`/actuator/health` 返回 500（`NoResourceFoundException`） | 项目未引入 `spring-boot-starter-actuator` | 健康检查用 `/v3/api-docs` 200 + `POST /auth/login` 200（t25 与空库引导均按此验证） |
 | 6 | **工具版本并发 409 线上未自然触发** | t28 行级锁把版本号分配串行化，3 并发实测 201/201/201 且 versionNo 唯一 | 409 分支由 `ToolVersionConcurrencyTest` 覆盖；线上不会出现 500 |
 | 7 | **`DELETE /assets/{id}` 为软删除**（置 archived） | 保留审计与引用完整性 | 需要物理删除时按 id 清关联表（`deploy/README.md` §18.4 已给 SQL 思路） |
-| 8 | **匿名请求统一返回 403**（未配置 `AuthenticationEntryPoint`） | Spring Security 默认入口，认证失败与权限不足的状态码不区分 | 客户端按「4xx 即拒绝」处理即可；冒烟对未认证用例接受 401/403 |
+| 8 | ~~匿名请求统一返回 403~~ **已于 t45 修复** | t45 配置 `AuthenticationEntryPoint`（未认证 → 401）与 `AccessDeniedHandler`（无权限 → 403），语义符合 HTTP 规范 | 客户端可据此区分「需要重新登录」与「确实无权限」；冒烟原「接受 401/403」的宽松断言可收紧为 401 |
 
 ---
 
@@ -536,6 +560,24 @@ t39/t40 之后鉴权缺口由 15 组收敛为 **13 组（中 10 / 低 3，高 0�
 | 三账号交叉验证 | 管理员：全量可见 + 全部管理接口 200；小组长：统计/排行按本团队收敛、审计与导出 403、导入限本团队（越权行 `权限拒绝：` 且不落库）；工程师：资产/漏洞越权 403、审计/仪表盘统计与导出 403、导入资产 403、仅漏洞导入可用（自己的资产 200） | 冒烟脚本 `auth/*`、`audit/工程师403`、`dash/导出-工程师403`、`import/用户导入-工程师403`；`ImportAuthorizationTest`、`DashboardStatsAuthorizationTest`、`VulnerabilityAuthorizationTest` |
 | 前端构建 | `tsc -b && vite build` 成功（3680 modules，`index-DmCRvmQl.js` 2,224.37 kB），产物已上线 | t13 报告 A |
 
+### 7.1 前端发布与页面级验证（t44）
+
+| 项 | 结果 |
+|---|---|
+| 构建 | `npm install --legacy-peer-deps && npm run build` → 3682 modules，`dist/static/index-CRqqK9hb.js` 2,230.05 kB（gzip 666.32 kB），built in 4.64s |
+| 同步 | `SUDO_PASS=*** bash deploy/sync-dist.sh`（rsync --delete）→ `/var/www/vuln-audit` 仅 5 个文件：index.html、favicon.svg、icons.svg、`static/index-CRqqK9hb.js`、`static/index-TaRZIJNx.css`；旧 `index-DmCRvmQl.js` 已清除；`GET /`=200、`GET /static/index-CRqqK9hb.js`=200 |
+| 验证方式 | Playwright（msedge headless）直连线上 `http://192.168.188.200:8089`，三账号（admin / smoke_leader / smoke_engineer），脚本 `scripts/qa/verify-t44.mjs` |
+
+| # | 验证项 | 结果 |
+|---|---|---|
+| 1 | 工程师 `/teams` 无任何写入口 | **PASS**：新建/子团队/编辑/删除/添加成员/移除 六项全为 0；团队树渲染、成员表可读 |
+| 2 | 团队长仅能改自己领导团队，无新建/删除 | **PASS**：自己团队「编辑 + 添加成员」可见，「新增子团队 / 删除」不可见；切到他人团队后入口消失并提示「仅可查看成员（无管理权限）」 |
+| 3 | admin/PL 写入口全可见 | **PASS**：创建团队/新增子团队/编辑/删除/添加成员 5 项全真 |
+| 4 | 公告区写入口仅 admin/PL | **PASS**：admin 见「发布公告」且「生效中的公告」渲染；团队长与工程师无写入口、见只读提示、列表正常 |
+| 5 | 环境快照空 name 前端拦截 + 只读角色隐藏创建区 | **PASS**：admin 清空 name 点「创建快照」→ 提示「请先填写快照名称…」且 **POST /snapshots 请求数 0**；工程师「添加环境」为 disabled、快照入口与创建区不渲染 |
+| 附加 | 运行期无 JS 异常 | **PASS**：`pageErrors=[]`，无 5xx |
+
+> 数据依赖说明（非代码缺陷）：`teams.leader_id` 指向谁，谁就能管理该团队（`AccessGuard.isLeaderOfTeam` 只按数据判定）。实测环境里 `smoke_engineer` 被某测试数据设为团队负责人，故该账号 `/teams` 顶部显示「团队长视角」而非「只读视角」，与后端行为一致。
 ---
 
 ## 8. 仍建议后续跟进的事项（不阻塞验收）
@@ -543,13 +585,15 @@ t39/t40 之后鉴权缺口由 15 组收敛为 **13 组（中 10 / 低 3，高 0�
 | # | 事项 | 理由/建议 |
 |---|---|---|
 | 1 | 收紧 §2.3.2 剩余的 13 组鉴权缺口 | 「高」3 组已于 t40 收口、认领 403 已于 t39 修复；其余 10 中 / 3 低建议按模块补 `@PreAuthorize` 与数据级守卫，优先 **#13 用户列表 PII**、**#1/#2/#3 资产与版本写权**、**#12 工具改删** |
-| 2 | 配置 `AuthenticationEntryPoint`，匿名请求返回 401 而非 403 | 当前未认证请求统一回 403（与 `/assets` 一致），客户端难以区分「未登录」与「无权限」；配置后需同步冒烟断言（t41 已按 401/403 双接受处理） |
+| 2 | ~~配置 `AuthenticationEntryPoint`，匿名请求返回 401~~ **已完成（t45）** | 已配置 `AuthenticationEntryPoint`（401）与 `AccessDeniedHandler`（403）；冒烟脚本中「接受 401/403」的宽松断言可收紧为 401 |
 | 3 | 引入 `spring-boot-starter-actuator` 并提供 `/actuator/health` | 当前只能用 `/v3/api-docs` + 登录做健康检查，运维体验不足 |
 | 4 | 国际化（4.6） | 目前中文单语；如需多语言，建议引入 i18n 资源与文案抽离 |
 | 5 | 对象存储抽象 | 文件/附件/工具包当前落本地磁盘，多实例部署需共享存储或对象存储（S3/OSS） |
 | 6 | 真实容器编排启用 | 需宿主安装 Docker 并暴露 socket（或 K8s 编排），当前为 Noop 显式降级 |
 | 7 | 把「批量导入」纳入权限矩阵并补 `team_leader` 可见范围说明 | 矩阵 2.x 尚未覆盖导入域，建议补表以免后续回归 |
 | 8 | 增加前端 E2E 常态化（Playwright/Cypress） | 目前为页面级人工/Headless 验证；建议纳入 CI 以便长期回归 |
+| 9 | 统一「列表可见」与「详情可读」的判定 | §2.3.2 #13：t44 实测工程师列表中 3/5 个资产详情 403；建议列表范围复用 `canReadAsset` 同源集合 |
+| 10 | 明确「团队负责人」与角色的解耦语义 | `canManageTeam` 只看 `teams.leader_id`；若产品要求「必须 team_leader 角色」，需在 `isLeaderOfTeam` 加角色判定并同步前端 |
 
 ---
 

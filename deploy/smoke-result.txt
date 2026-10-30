@@ -154,3 +154,23 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 数据收尾：assets=3（示例数据）、asset_groups=0、notification_settings=0、vulnerabilities=0、tools=0、environments=0、tasks=1（历史审计任务）、audit_logs=568（保留审计轨迹）。
 - 备份：~/backups/vuln_audit_pre_t13_*.sql.gz（DDL 前）、backend_*.jar 与 backend_src_*.tar.gz（部署前）。
 - 软删除说明：脚本每轮 DELETE /assets 只置 archived，本次已按 id 清理关联表后硬删；自动化收尾脚本见 deploy/README.md §18.4。
+
+########## 五、t39/t40 之后复跑（2026-10-30 11:20） ##########
+- 后端：jar 72,871,064 B（含 t39 认领状态机、t40 团队/环境/公告鉴权收口），服务 active。
+- 冒烟：TOTAL=108  PASS=108  FAIL=0  SKIP=0（原 92 + t41 新增 16：认领生命周期/非本人完成 403/管理层强制放弃/鉴权收紧 403 与查询 200/未认证拒绝/公告不传 publishedAt/快照缺 name 400）。
+- 说明：未认证请求当时统一返回 403（未配 AuthenticationEntryPoint），用例按 401/403 双接受；t45 配置后应改为严格 401。
+
+########## 六、t42/t43 前端发布与页面级验证（t44，2026-10-30 12:0x） ##########
+- 前端构建：npm run build → dist/static/index-CRqqK9hb.js 2,230.05 kB（gzip 666.32 kB），3682 modules。
+- 同步：SUDO_PASS=*** bash deploy/sync-dist.sh（rsync --delete）→ /var/www/vuln-audit 仅 5 个文件：
+  index.html、favicon.svg、icons.svg、static/index-CRqqK9hb.js、static/index-TaRZIJNx.css；旧 index-DmCRvmQl.js 已清除。
+- 页面级验证（Playwright / msedge headless，直连 8089，三账号）：
+  1) 工程师 /teams：新建/子团队/编辑/删除/添加成员/移除 六项入口全为 0，团队树与成员表正常 → PASS
+  2) 团队长：自己团队可编辑/管成员、无新建与删除；他人团队「仅可查看成员（无管理权限）」→ PASS
+  3) admin：创建团队/新增子团队/编辑/删除/添加成员全可见 → PASS
+  4) 公告区：admin 有「发布公告」，团队长/工程师只读且有只读提示，列表与「生效中的公告」正常 → PASS
+  5) 环境快照：admin 清空 name 点「创建快照」被前端拦截（提示「请先填写快照名称…」，POST /snapshots 请求数 0）；工程师「添加环境」disabled、快照创建区不渲染 → PASS
+  附加：pageErrors=[]、无 5xx。脚本 scripts/qa/verify-t44.mjs，截图与 JSON 见执行机 .tmp-t44/。
+- 冒烟复跑（前端发布后，同一后端）：TOTAL=108  PASS=108  FAIL=0  SKIP=0（脚本退出码 0）。
+- 新发现（已入验收报告 §2.3.2 #13）：工程师资产列表可见的 5 个资产中有 3 个详情返回 403（列表范围与 canReadAsset 规则不一致）。
+- 数据依赖说明：teams.leader_id 决定团队管理权（与角色无关）；实测 smoke_engineer 被某测试数据设为团队负责人，故其 /teams 顶部显示「团队长视角」，与后端行为一致。

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Button,
   Card,
   Col,
@@ -30,9 +31,12 @@ import {
   removeTeamMember,
   updateTeam,
 } from '@/api/team';
+import { getMyAccessProfile, type MyAccessProfile } from '@/api/permission';
 import type { TeamVO } from '@/types/team';
 import { getUserList } from '@/api/user';
 import type { UserVO } from '@/types/user';
+import { useUserStore } from '@/store/userStore';
+import { describeTeamWriteFailure, isFormValidationError, resolveTeamWriteAccess } from './teamAccess';
 
 const { TextArea } = Input;
 
@@ -55,12 +59,15 @@ const userName = (user?: UserVO | null) =>
   user ? (user.full_name || (user as any).fullName || user.username) : '';
 
 const Teams: React.FC = () => {
+  const storeUser = useUserStore((state) => state.user);
   const [teams, setTeams] = useState<TeamVO[]>([]);
   const [users, setUsers] = useState<UserVO[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
+  const [profile, setProfile] = useState<MyAccessProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   const [modalVisible, setModalVisible] = useState(false);
   const [editingTeam, setEditingTeam] = useState<TeamVO | null>(null);
@@ -105,6 +112,34 @@ const Teams: React.FC = () => {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadProfile = async () => {
+      setProfileLoading(true);
+      try {
+        // 复用 t1 的 /users/me/permissions（角色 + 权限点 + userId），不新增接口
+        const next = await getMyAccessProfile();
+        if (!cancelled) setProfile(next);
+      } finally {
+        if (!cancelled) setProfileLoading(false);
+      }
+    };
+    loadProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** 写入口可见性：角色（admin/project_leader/team_leader）+ 团队 leaderId 归属，口径对齐后端 t40 */
+  const access = useMemo(
+    () =>
+      resolveTeamWriteAccess(profile, teams, {
+        userId: storeUser?.id,
+        roles: [storeUser?.role].filter(Boolean) as string[],
+      }),
+    [profile, teams, storeUser?.id, storeUser?.role],
+  );
 
   useEffect(() => {
     fetchTeams();
@@ -236,7 +271,9 @@ const Teams: React.FC = () => {
       setModalVisible(false);
       await fetchTeams();
     } catch (error) {
-      // 表单校验失败或接口报错（拦截器已提示）
+      if (!isFormValidationError(error)) {
+        message.error(describeTeamWriteFailure(error, editingTeam ? '团队更新失败' : '团队创建失败'));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -253,7 +290,7 @@ const Teams: React.FC = () => {
           message.success('团队已删除');
           await fetchTeams();
         } catch (error) {
-          // 拦截器已提示
+          message.error(describeTeamWriteFailure(error, '团队删除失败'));
         }
       },
     });
@@ -272,7 +309,9 @@ const Teams: React.FC = () => {
       memberForm.resetFields();
       await fetchMembers(selectedTeam.id);
     } catch (error) {
-      // 拦截器已提示
+      if (!isFormValidationError(error)) {
+        message.error(describeTeamWriteFailure(error, '添加成员失败'));
+      }
     } finally {
       setMemberSubmitting(false);
     }
@@ -287,7 +326,7 @@ const Teams: React.FC = () => {
       message.success('成员已移除');
       await fetchMembers(selectedTeam.id);
     } catch (error) {
-      // 拦截器已提示
+      message.error(describeTeamWriteFailure(error, '移除成员失败'));
     }
   };
 
@@ -312,7 +351,11 @@ const Teams: React.FC = () => {
       render: (_: unknown, record: TeamMemberRow) =>
         record.isLeader ? <Tag color="gold">负责人</Tag> : <Tag>成员</Tag>,
     },
-    {
+  ];
+
+  // 只有能管理该团队成员时才渲染「移除」操作列（工程师/非本团队团队长完全看不到写入口）
+  if (selectedTeam && access.canManageMembers(selectedTeam)) {
+    memberColumns.push({
       title: '操作',
       key: 'action',
       width: 120,
@@ -326,12 +369,15 @@ const Teams: React.FC = () => {
           <Typography.Link type="danger">移除</Typography.Link>
         </Popconfirm>
       ),
-    },
-  ];
+    });
+  }
 
   const parentOptions = teams
     .filter((team) => !editingTeam || team.id !== editingTeam.id)
     .map((team) => ({ value: team.id, label: team.name }));
+
+  const canManageSelected = Boolean(selectedTeam) && access.canManageMembers(selectedTeam);
+  const isReadOnlyViewer = !access.isGlobalManager && !access.isAnyTeamLeader;
 
   return (
     <Card
@@ -341,12 +387,38 @@ const Teams: React.FC = () => {
           <Button icon={<ReloadOutlined />} onClick={fetchTeams} loading={loading}>
             刷新
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate()}>
-            创建团队
-          </Button>
+          {/* 新建团队：仅 admin / project_leader（POST /teams 的 @PreAuthorize 口径） */}
+          {access.canCreateTeam ? (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate()}>
+              创建团队
+            </Button>
+          ) : null}
         </Space>
       }
     >
+      <Spin spinning={profileLoading}>
+        {isReadOnlyViewer ? (
+          <Alert
+            style={{ marginBottom: 16 }}
+            type="info"
+            showIcon
+            message="只读视角"
+            description={
+              access.roles.includes('team_leader')
+                ? '你是团队长，但当前没有领导任何团队：可以查看团队层级与成员，编辑/成员管理仅对你领导的团队开放。'
+                : '当前账号没有团队管理权限：可以查看团队层级与成员，但不能新建、编辑、删除团队或管理成员。'
+            }
+          />
+        ) : !access.isGlobalManager ? (
+          <Alert
+            style={{ marginBottom: 16 }}
+            type="info"
+            showIcon
+            message="团队长视角"
+            description="你可以编辑自己领导的团队并管理其成员；新建与删除团队仅管理员/项目负责人可操作。"
+          />
+        ) : null}
+      </Spin>
       <Row gutter={24}>
         <Col xs={24} lg={7}>
           <Card size="small" title={<Space><TeamOutlined />团队层级</Space>} bodyStyle={{ minHeight: 420 }}>
@@ -379,15 +451,24 @@ const Teams: React.FC = () => {
                 title={selectedTeam.name}
                 extra={
                   <Space wrap>
-                    <Button size="small" onClick={() => openCreate(selectedTeam.id)}>
-                      新增子团队
-                    </Button>
-                    <Button size="small" onClick={() => openEdit(selectedTeam)}>
-                      编辑
-                    </Button>
-                    <Button size="small" danger onClick={() => handleDelete(selectedTeam)}>
-                      删除
-                    </Button>
+                    {/* 新增子团队 = POST /teams，仅 admin / project_leader */}
+                    {access.canCreateTeam ? (
+                      <Button size="small" onClick={() => openCreate(selectedTeam.id)}>
+                        新增子团队
+                      </Button>
+                    ) : null}
+                    {/* 编辑 = PUT /teams/{id}：admin/PL 任意团队，团队长仅自己领导的团队 */}
+                    {access.canEditTeam(selectedTeam) ? (
+                      <Button size="small" onClick={() => openEdit(selectedTeam)}>
+                        编辑
+                      </Button>
+                    ) : null}
+                    {/* 删除 = DELETE /teams/{id}：后端 and 语义，仅 admin / project_leader */}
+                    {access.canDeleteTeam(selectedTeam) ? (
+                      <Button size="small" danger onClick={() => handleDelete(selectedTeam)}>
+                        删除
+                      </Button>
+                    ) : null}
                   </Space>
                 }
               >
@@ -417,33 +498,43 @@ const Teams: React.FC = () => {
                   ]}
                 />
               </Card>
-              <Card size="small" title="团队成员">
-                <Form form={memberForm} layout="inline" style={{ marginBottom: 16 }}>
-                  <Form.Item name="user_id" rules={[{ required: true, message: '请选择用户' }]} style={{ minWidth: 240 }}>
-                    <Select
-                      showSearch
-                      optionFilterProp="label"
-                      placeholder="选择要加入的用户"
-                      options={users
-                        .filter((user) => !memberIds.includes(user.id))
-                        .map((user) => ({ value: user.id, label: `${userName(user)}（${user.username}）` }))}
-                    />
-                  </Form.Item>
-                  <Form.Item name="role" initialValue="member">
-                    <Select
-                      style={{ width: 120 }}
-                      options={[
-                        { value: 'member', label: '成员' },
-                        { value: 'leader', label: '负责人' },
-                      ]}
-                    />
-                  </Form.Item>
-                  <Form.Item>
-                    <Button type="primary" icon={<UserAddOutlined />} loading={memberSubmitting} onClick={handleAddMember}>
-                      添加成员
-                    </Button>
-                  </Form.Item>
-                </Form>
+              <Card
+                size="small"
+                title="团队成员"
+                extra={
+                  canManageSelected ? null : (
+                    <Typography.Text type="secondary">仅可查看成员（无管理权限）</Typography.Text>
+                  )
+                }
+              >
+                {canManageSelected ? (
+                  <Form form={memberForm} layout="inline" style={{ marginBottom: 16 }}>
+                    <Form.Item name="user_id" rules={[{ required: true, message: '请选择用户' }]} style={{ minWidth: 240 }}>
+                      <Select
+                        showSearch
+                        optionFilterProp="label"
+                        placeholder="选择要加入的用户"
+                        options={users
+                          .filter((user) => !memberIds.includes(user.id))
+                          .map((user) => ({ value: user.id, label: `${userName(user)}（${user.username}）` }))}
+                      />
+                    </Form.Item>
+                    <Form.Item name="role" initialValue="member">
+                      <Select
+                        style={{ width: 120 }}
+                        options={[
+                          { value: 'member', label: '成员' },
+                          { value: 'leader', label: '负责人' },
+                        ]}
+                      />
+                    </Form.Item>
+                    <Form.Item>
+                      <Button type="primary" icon={<UserAddOutlined />} loading={memberSubmitting} onClick={handleAddMember}>
+                        添加成员
+                      </Button>
+                    </Form.Item>
+                  </Form>
+                ) : null}
                 <Table
                   size="small"
                   rowKey="userId"

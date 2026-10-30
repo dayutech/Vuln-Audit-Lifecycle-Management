@@ -22,6 +22,9 @@ import {
   getEnvironmentDetail,
   createEnvironment,
   deleteEnvironment,
+  createEnvironmentSnapshot,
+  getEnvironmentSnapshots,
+  rollbackEnvironmentSnapshot,
   deployEnvironment,
   startEnvironment,
   stopEnvironment,
@@ -35,6 +38,13 @@ import { isAssetSubscribed, subscribeAsset, unsubscribeAsset } from '@/api/notif
 import { describeVulnCreateFailure, describeVulnUpdateFailure, isFormValidationError } from '@/pages/vulnerabilities/createError';
 import { toVulnerabilityCreatePayload, toVulnerabilityUpdatePayload } from '@/pages/vulnerabilities/createPayload';
 import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
+import {
+  canWriteEnvironment,
+  getMyAccessProfile,
+  ENVIRONMENT_FORBIDDEN_MESSAGE,
+  ENVIRONMENT_READONLY_HINT,
+  type MyAccessProfile,
+} from '@/api/permission';
 import { getTaskList, createTask, updateTask, updateTaskStatus, deleteTask } from '@/api/task';
 import { getUserList } from '@/api/user';
 import type { AssetVO, AssetFileVO, AssetDeliverableVO, EnvironmentVO, AssetVersionVO, AssetAccessVO, AssetClaimVO } from '@/types/asset';
@@ -217,6 +227,15 @@ const AssetDetail: React.FC = () => {
   const [envActionLoading, setEnvActionLoading] = useState<string | null>(null);
   /** 正在等待状态收敛的环境（provisioning → running/failed） */
   const [envConvergingId, setEnvConvergingId] = useState<string | null>(null);
+
+  // ===== 环境快照（t40：写端点限 ADMIN/PROJECT_LEADER/TEAM_LEADER，POST 缺 name 先 400）=====
+  const [profile, setProfile] = useState<MyAccessProfile | null>(null);
+  const [snapshotEnv, setSnapshotEnv] = useState<EnvironmentVO | null>(null);
+  const [snapshotList, setSnapshotList] = useState<any[]>([]);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [snapshotName, setSnapshotName] = useState('');
+  const [snapshotSubmitting, setSnapshotSubmitting] = useState(false);
+  const [snapshotRollingId, setSnapshotRollingId] = useState<string | null>(null);
 
   // Vulnerability states
   const [vulnerabilities, setVulnerabilities] = useState<any[]>([]);
@@ -992,6 +1011,11 @@ const AssetDetail: React.FC = () => {
     loadBaseOverviewInheritance(asset.id, overviewVersionId);
   }, [asset?.id, overviewVersionId]);
 
+  // 权限画像：用于环境快照等写入口的角色判定（未知时按可写处理，由后端 403 兜底）
+  useEffect(() => {
+    getMyAccessProfile().then(setProfile);
+  }, []);
+
   const handleSubmitMetadata = async () => {
     if (!asset) return;
     try {
@@ -1207,7 +1231,9 @@ const AssetDetail: React.FC = () => {
       envForm.resetFields();
       loadEnvironments(asset.id);
     } catch (error) {
-      console.error(error);
+      // t40 环境写端点限 ADMIN/PROJECT_LEADER/TEAM_LEADER：403 给角色口径，400 展示后端原文
+      if (isFormValidationError(error)) return;
+      message.error(describeEnvWriteFailure(error, '环境创建失败'));
     } finally {
       setEnvSubmitting(false);
     }
@@ -1234,6 +1260,97 @@ const AssetDetail: React.FC = () => {
           }
         }
       }
+    });
+  };
+
+  /* ==================== 环境快照（t40 写端点限 ADMIN/PROJECT_LEADER/TEAM_LEADER） ==================== */
+
+  /**
+   * 环境写操作的失败提示：401/403/400/5xx 分级。
+   * - 401：登录过期（拦截器通常已跳登录，这里兜底）
+   * - 403：t40 收紧后的角色门槛，给出角色口径而不是泛化「失败」
+   * - 400：参数问题（如快照缺 name / 名称非法），展示后端原文
+   * 统一复用 utils/errorMessage，不重复实现状态码解析。
+   */
+  const describeEnvWriteFailure = (error: unknown, fallback: string): string => {
+    const status = getApiErrorStatus(error);
+    if (status === 401) return '登录已过期，请重新登录后再试';
+    if (status === 403) return ENVIRONMENT_FORBIDDEN_MESSAGE;
+    if (status === 400) {
+      return getApiErrorMessage(error, '请求参数不合法：快照名称不能为空，且需符合后端长度限制');
+    }
+    return getApiErrorMessage(error, fallback);
+  };
+
+  const canWriteEnv = profile ? canWriteEnvironment(profile) : true;
+
+  const loadSnapshots = async (envId: string) => {
+    setSnapshotLoading(true);
+    try {
+      const res: any = await getEnvironmentSnapshots(envId);
+      const payload = res?.data ?? res;
+      setSnapshotList(Array.isArray(payload) ? payload : Array.isArray(payload?.content) ? payload.content : []);
+    } catch (error) {
+      setSnapshotList([]);
+      message.error(describeEnvWriteFailure(error, '快照列表加载失败'));
+    } finally {
+      setSnapshotLoading(false);
+    }
+  };
+
+  const openSnapshotPanel = async (env: EnvironmentVO) => {
+    setSnapshotEnv(env);
+    setSnapshotList([]);
+    if (!snapshotName.trim()) {
+      setSnapshotName(`${env.name || '环境'}-快照-${new Date().toLocaleString()}`);
+    }
+    await loadSnapshots(env.id);
+  };
+
+  /**
+   * 创建快照。
+   * 后端 `POST /environments/{id}/snapshots` 的 name 是 @RequestParam 且必填，
+   * 缺参会先 400（参数绑定早于方法级守卫），因此在**发请求前**做本地非空校验。
+   */
+  const handleCreateSnapshot = async () => {
+    if (!snapshotEnv) return;
+    const name = snapshotName.trim();
+    if (!name) {
+      message.warning('请先填写快照名称（后端缺少 name 会直接返回 400，已在前端拦截）');
+      return;
+    }
+    setSnapshotSubmitting(true);
+    try {
+      await createEnvironmentSnapshot(snapshotEnv.id, name);
+      message.success('快照创建成功');
+      await loadSnapshots(snapshotEnv.id);
+    } catch (error) {
+      message.error(describeEnvWriteFailure(error, '快照创建失败'));
+    } finally {
+      setSnapshotSubmitting(false);
+    }
+  };
+
+  const handleRollbackSnapshot = (snapshotId: string) => {
+    if (!snapshotEnv) return;
+    Modal.confirm({
+      title: '回滚到该快照',
+      content: '回滚会用快照状态覆盖当前环境，确认继续？',
+      okText: '回滚',
+      cancelText: '取消',
+      onOk: async () => {
+        setSnapshotRollingId(snapshotId);
+        try {
+          await rollbackEnvironmentSnapshot(snapshotEnv.id, snapshotId);
+          message.success('已回滚到所选快照');
+          await loadSnapshots(snapshotEnv.id);
+          if (asset) loadEnvironments(asset.id);
+        } catch (error) {
+          message.error(describeEnvWriteFailure(error, '快照回滚失败'));
+        } finally {
+          setSnapshotRollingId(null);
+        }
+      },
     });
   };
 
@@ -1471,6 +1588,9 @@ const AssetDetail: React.FC = () => {
             {renderEnvActionButton(record, 'deploy', '部署', <CloudUploadOutlined />, unavailableReason)}
             {renderEnvActionButton(record, 'start', '启动', <PlayCircleOutlined />, startDisabled)}
             {renderEnvActionButton(record, 'stop', '停止', <StopOutlined />, stopDisabled)}
+            <a onClick={() => openSnapshotPanel(record)} style={{ marginLeft: 4 }}>
+              快照
+            </a>
             <a onClick={() => handleDeleteEnv(record.id)} style={{ color: 'red', marginLeft: 4 }}>
               删除
             </a>
@@ -2052,7 +2172,16 @@ const AssetDetail: React.FC = () => {
                   >
                     刷新
                   </Button>
-                  <Button type="primary" icon={<PlusOutlined />} onClick={() => setEnvModalVisible(true)}>添加环境</Button>
+                  <Tooltip title={canWriteEnv ? '' : ENVIRONMENT_FORBIDDEN_MESSAGE}>
+                    <Button
+                      type="primary"
+                      icon={<PlusOutlined />}
+                      disabled={!canWriteEnv}
+                      onClick={() => setEnvModalVisible(true)}
+                    >
+                      添加环境
+                    </Button>
+                  </Tooltip>
                 </Space>
               </div>
               <Alert
@@ -2228,6 +2357,83 @@ const AssetDetail: React.FC = () => {
             <TextArea rows={4} placeholder='{"replicas": 3, "memory": "2Gi"}' />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 环境快照：查看 + 创建（name 本地校验）+ 回滚 */}
+      <Modal
+        title={snapshotEnv ? `环境快照 - ${snapshotEnv.name}` : '环境快照'}
+        open={Boolean(snapshotEnv)}
+        onCancel={() => {
+          setSnapshotEnv(null);
+          setSnapshotList([]);
+        }}
+        footer={null}
+        width={720}
+        destroyOnHidden
+      >
+        {canWriteEnv ? (
+          <Space.Compact style={{ width: '100%', marginBottom: 12 }}>
+            <Input
+              value={snapshotName}
+              onChange={(event) => setSnapshotName(event.target.value)}
+              placeholder="快照名称（必填，缺名会返回 400）"
+              maxLength={100}
+              onPressEnter={handleCreateSnapshot}
+            />
+            <Button type="primary" loading={snapshotSubmitting} onClick={handleCreateSnapshot}>
+              创建快照
+            </Button>
+          </Space.Compact>
+        ) : (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={ENVIRONMENT_READONLY_HINT}
+            description={ENVIRONMENT_FORBIDDEN_MESSAGE}
+          />
+        )}
+        <Spin spinning={snapshotLoading}>
+          {snapshotList.length === 0 ? (
+            <span style={{ color: '#8c8c8c' }}>
+              {snapshotLoading ? '加载中…' : '该环境还没有快照'}
+            </span>
+          ) : (
+            <Table
+              rowKey={(record: any) => String(record?.id ?? record?.name)}
+              size="small"
+              pagination={false}
+              dataSource={snapshotList}
+              columns={[
+                { title: '名称', dataIndex: 'name', key: 'name' },
+                {
+                  title: '创建时间',
+                  dataIndex: 'createdAt',
+                  key: 'createdAt',
+                  render: (value: string) => (value ? new Date(value).toLocaleString() : '-'),
+                },
+                {
+                  title: '操作',
+                  key: 'action',
+                  width: 100,
+                  render: (_: any, record: any) =>
+                    canWriteEnv ? (
+                      <Button
+                        type="link"
+                        size="small"
+                        loading={snapshotRollingId === record.id}
+                        onClick={() => handleRollbackSnapshot(record.id)}
+                      >
+                        回滚
+                      </Button>
+                    ) : (
+                      <span style={{ color: '#bfbfbf' }}>-</span>
+                    ),
+                },
+              ]}
+            />
+          )}
+        </Spin>
       </Modal>
 
       {/* 漏洞表单弹窗 */}

@@ -94,3 +94,4 @@ uploads/
 
 # QA 鉴权矩阵扫描输出（scripts/qa）
 .qa-tmp/
+.tmp-*/
