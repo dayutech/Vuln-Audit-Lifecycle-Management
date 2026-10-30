@@ -599,3 +599,78 @@ cd frontend && npm run build && SUDO_PASS='<sudo 口令>' bash ../deploy/sync-di
 cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh
 # 期望：TOTAL=92 PASS=92 FAIL=0 SKIP=0；有 FAIL 时脚本退出码为 1 并列出失败用例名
 ```
+
+---
+
+## 19. 第十轮完善（高危写端点鉴权收口：团队 CRUD / 环境 CRUD 与部署 / 公告写）
+
+**问题**：验收报告 §2.3.2 的 3 组「高」severity 缺口——这些写端点**既无角色注解也无数据级守卫**，
+任何登录用户都能建团队、删环境、触发部署、发全员公告。
+
+### 19.1 授权矩阵（本轮收口）
+
+| 端点 | 角色门槛 | 数据级守卫 |
+|---|---|---|
+| `POST /api/v1/teams` | `hasAnyRole('ADMIN','PROJECT_LEADER')` | — |
+| `PUT /api/v1/teams/{id}` | `hasAnyRole('ADMIN','PROJECT_LEADER') or @accessGuard.canManageTeam(#id)` | 团队长仅可改**自己领导**的团队 |
+| `DELETE /api/v1/teams/{id}` | `hasAnyRole('ADMIN','PROJECT_LEADER') and @accessGuard.canManageTeam(#id)` | 团队存在性 + 归属双校验 |
+| `POST /api/v1/teams/{id}/members`、`DELETE .../members/{userId}` | `hasAnyRole('ADMIN','PROJECT_LEADER') or @accessGuard.canManageTeam(#id)` | 团队长仅可管理自己团队的成员 |
+| `POST/PUT/DELETE /api/v1/environments**`、`/deploy`、`/start`、`/stop`、`POST /snapshots`、`/snapshots/{id}/rollback` | `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')` | —（环境归属 follow 资产，本轮按矩阵先落角色轨） |
+| `POST/PUT/DELETE /api/v1/notifications/announcements**` | `hasAnyRole('ADMIN','PROJECT_LEADER')` | —（公告为全站广播） |
+
+**查询类端点保持原状**（团队列表/详情/成员/树、环境列表/详情/快照列表、公告列表/active 对所有登录用户开放）：
+否则前端团队树、环境页签、公告栏会白屏。
+
+`AccessGuard#canManageTeam(teamId, authentication)`：admin/project_leader → 任意团队；team_leader →
+仅 `teams.leader_id = 当前用户`；团队ID为空 / 解析不到用户 / 其它角色 → **拒绝（fail-closed）**。
+
+### 19.2 顺带修复（公告创建 500）
+
+`system_announcements.published_at` 为 NOT NULL，`NotificationServiceImpl#createAnnouncement` 此前未补默认值，
+**任何不传 `publishedAt` 的创建都直接 500**。现补：未传 → `LocalDateTime.now()`（按「立即发布」处理），
+`priority` 未传 → `normal`。
+
+### 19.3 状态码与验证
+
+| 场景 | 状态码 |
+|---|---|
+| 工程师建/改/删团队、加成员、建/删环境、部署、发公告 | **403**（方法级守卫，早于业务校验） |
+| 团队长派改/管理**他人**团队 | **403** |
+| 团队长改/管理**自己**团队 | **200** |
+| admin / project_leader 上述写操作 | **200/201** |
+| 上述查询端点对工程师 | **200**（不受写门槛波及） |
+
+注意：`POST /environments/{id}/snapshots` 需要 `name` 参数，**缺参会先返回 400**（参数绑定早于方法级守卫）；
+验证 403 时需带全参数。
+
+```bash
+cd backend && mvn -B test -Dtest=PrivilegedWriteAuthorizationTest
+cd backend && mvn -B test -Dtest=TeamControllerTest,EnvironmentControllerTest,NotificationControllerTest
+```
+
+三账号交叉验证：工程师调三个域的写端点 → 全 403 且库中无新增；团队长改自己团队 200、改他人团队 403；
+admin 全通；工程师读团队列表/环境详情/公告列表仍 200。
+
+## 20. 第十一轮（t39/t40 修复后的回归、重建部署与冒烟复跑）
+
+时间：2026-10-30 10:02–11:20（Asia/Shanghai）。本次**无新增迁移**（V1…V17 不变），无需手工 DDL。
+
+| 项 | 结果 |
+|---|---|
+| 后端全量回归（真实工作区） | `mvn -B clean test` → **Tests run: 475, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS（56:54；机器同时有前端构建，耗时高于 t25 的 16:17） |
+| 用例增量 | 452（t25 基线）+ **13**（t39 `AssetClaimLifecycleTest`）+ **10**（t40 `PrivilegedWriteAuthorizationTest`）= 475 |
+| 后端重建 | 远端 `mvn -B -DskipTests package` → BUILD SUCCESS 9.8s；jar `72,871,064 B`；源码 257 main / 57 test |
+| 重启 | `systemctl --user restart vuln-audit-backend` → 6 次重试后 `POST /auth/login` 200；`/v3/api-docs` 200 |
+| 线上冒烟 | `BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh` → **TOTAL=108 / PASS=108 / FAIL=0 / SKIP=0** |
+| 冒烟增量（16 条） | 认领生命周期（创建/审批/本人完成/状态 completed）、非本人完成 403（管理员亦 403）、管理层强制放弃 200、未认证读 `my/claims` 401/403（不返回全量）、工程师团队/环境/公告写 403 ×4、工程师团队列表/环境列表/公告列表 200 ×3、公告不传 `publishedAt` 200、环境快照缺 `name` 400 |
+| 前端 | 本次仅后端变更；**dist 未同步**，前端 t42/t43 完成后由后续任务统一 build + `sync-dist.sh`（避免部署到不含新前端改动的产物） |
+| 备份 | `~/backups/backend_20261030_*.jar`（旧 jar）、`backend_src_20261030_*.tar.gz`（旧源码） |
+
+后端侧三账号交叉验证（冒烟覆盖）：工程师 → 团队/环境/公告写 403、查询 200、认领只能完成自己的、`my/claims` 未认证被拒；
+组长 → 他人已批准认领可强制放弃 200；管理员 → 非认领人完成 403（t39 语义：完成仅本人）、其余管理面 200。
+
+```bash
+# 复跑
+cd backend && mvn -B clean test          # 期望 475 passed
+cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 108/108
+```
