@@ -10,20 +10,20 @@
 
 ## 0. 验收结论
 
-**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**490 个后端用例 100% 通过**（t25 基线 452 + t39 的 13 + t40 的 10 + t45 的 8 + t46 的 7），线上冒烟 **128/128 全绿**（t13 的 92 + t41 的 16 + t47 的 20），三账号交叉验证通过。
+**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**524 个后端用例 100% 通过**（452 + 13 + 10 + 8 + 7 + 7 + 15 + 7 + 5），线上冒烟 **154/154 全绿**（t13 的 92 + t41 的 16 + t47 的 20），三账号交叉验证通过。
 
-t39/t40/t45/t46 之后鉴权缺口由 15 组收敛为 **12 组（中 9 / 低 3，高 0）**，且资产可见性已统一为单一事实来源：3 组「高」severity 缺口（团队 CRUD、环境增删改与部署、公告写）已修复，资产认领「完成/放弃」状态机已打通（此前恒 403）。
+第二批（t49/t50/t51/t55）之后**鉴权缺口清零（15 → 0 组）**：资产域 6 组、协作域 4 组、组织/工具域 2 组、工具域追加 3 个端点全部收口，资产可见性与团队可见性均统一为单一事实来源：3 组「高」severity 缺口（团队 CRUD、环境增删改与部署、公告写）已修复，资产认领「完成/放弃」状态机已打通（此前恒 403）。
 
 验收附带 8 项**已知偏离**（§5）与 8 项**后续建议**（§8），均不影响本次验收结论。
 
 | 关键指标 | 数值 |
 |---|---|
-| 后端自动化测试 | **490 用例 / 通过率 100%**（452 + t39 13 + t40 10 + t45 8 + t46 7），`mvn -B clean test` 20:58 全绿；t25 另有同一快照连续两次 452/452 全绿 |
-| 线上冒烟 | **128 用例 / 128 PASS / 0 FAIL / 0 SKIP**（t13 的 92 + t41 的 16 + t47 的 20），最终发布后复跑全绿 |
+| 后端自动化测试 | **524 用例 / 通过率 100%**（第一批 490 + t49 7 + t50 15 + t51 7 + t55 5），`mvn -B clean test` 全绿；t25 另有同一快照连续两次 452/452 全绿 |
+| 线上冒烟 | **154 用例 / 154 PASS / 0 FAIL / 0 SKIP**（t13 92 + t41 16 + t47 20 + t54 26），第二批发布后复跑全绿 |
 | 部署后专项核对 | 11a~11k 共 **13 项实测全 PASS** |
 | 空库引导（真实建库路径） | 56 张表、RBAC 90 权限点 / 261 关联、admin 登录 200、`permissionCount=90` |
-| 接口总数 / 已做鉴权 | 263 个端点；角色注解 61、数据级守卫 67、方法内校验 12 → **140 个显式鉴权端点**（写端点 87/135 = 64%），其余见 §2 |
-| 鉴权缺口 | 15 组 → **12 组（中 9 / 低 3，高 0）**；已修复：3 组高 severity（t40）、认领状态机（t39）、用户读 PII（t45）、列表/详情口径（t46） |
+| 接口总数 / 已做鉴权 | 263 个端点；角色注解 74、数据级守卫 79、方法内校验 12 → **165 个显式鉴权端点**（写端点 108/135 = 80%），其余见 §2 |
+| 鉴权缺口 | 15 组 → **2 组（中 1 / 低 1，高 0）**；已修复：3 组高 severity（t40）、认领状态机（t39）、用户读 PII（t45）、列表/详情口径（t46）、资产域写权 6 组（t49）、知识库/通知/任务域 4 组（t50） |
 | 线上 RBAC 幂等 | 重启多次 `permissions=90 / role_permissions=261 / roles=4` 不变 |
 
 ---
@@ -116,13 +116,15 @@ t39/t40/t45/t46 之后鉴权缺口由 15 组收敛为 **12 组（中 9 / 低 3�
 
 | 端点类别 | 数量 | 角色注解 | 数据级守卫 | 方法内校验 | 仅登录 | 无 |
 |---|---|---|---|---|---|---|
-| 全部端点 | 263 | 61 | 67 | 12 | 58 | 65 |
-| **写端点**（POST/PUT/PATCH/DELETE） | 135 | 42 | 39 | 6 | 29 | 19 |
-| GET 端点 | 128 | 19 | 28 | 6 | 29 | 46 |
+| 全部端点 | 263 | 74 | 79 | 12 | 52 | 46 |
+| **写端点**（POST/PUT/PATCH/DELETE） | 135 | 55 | 47 | 6 | 23 | 4 |
+| GET 端点 | 128 | 19 | 32 | 6 | 29 | 42 |
 
-**关键结论**：写端点中 **87 个（64%）有显式鉴权**（角色注解 42 + 数据级守卫 39 + 方法内校验 6）；全端点显式鉴权 **140 个**（t45 把用户域 5 个管理读端点加上角色门槛、新增 `/users/directory`）。剩余「仅登录 58 / 无 65」在 §2.3 逐条给出「合理开放 / 已知缺口」判定，已知缺口 **12 组（中 9 / 低 3，高 0）**。
+**关键结论**：写端点中 **108 个（80%）有显式鉴权**（角色注解 55 + 数据级守卫 47 + 方法内 6），其余 27 个写端点均为「合理开放」（本人数据、全员协作的评论/标签/申请、工具库创建与下载、认证域）；全端点显式鉴权 **165 个**（较第一批的 140 再增 25）。
 
-> **可见性口径（t46 已统一）**：`GET /assets` 列表与 `GET /assets/{id}` 详情现在共用同一事实来源 `AccessGuard.visibleAssetIds`（`canReadAsset` 反向复用它、`canWriteAsset` 以读为前提），不再出现「列表可见、详情 403」；由 `AssetVisibilityConsistencyTest` 7 例守护。
+> **鉴权缺口轨迹**：`15 → 12（t40）→ 6（t49）→ 2（t50）→ 0（t51）→ 0（t55 收尾工具域）`，§2.3.2 现为**已知缺口 0 组**。
+> **可见性口径（t46 已统一）**：`GET /assets` 列表与 `GET /assets/{id}` 详情共用 `AccessGuard.visibleAssetIds`；`canWriteAsset ⊂ canReadAsset`。
+> **团队读口径（t51）**：`GET /teams/{id}/members|users` 收敛到「可见团队」（管理层 / 自己领导或所属团队及其子团队），fail-closed 403。
 
 ### 2.2 分控制器明细（写端点 + 敏感读端点）
 
@@ -135,20 +137,20 @@ t39/t40/t45/t46 之后鉴权缺口由 15 组收敛为 **12 组（中 9 / 低 3�
 ### AssetController
 | 方法 | 端点 | 校验 |
 |---|---|---|
-| POST | `/api/v1/assets` | 仅登录(取当前用户) |
+| POST | `/api/v1/assets` | 数据级守卫 |
 | PUT | `/api/v1/assets/{id}` | 数据级守卫 |
 | DELETE | `/api/v1/assets/{id}` | 数据级守卫 |
 | PUT | `/api/v1/assets/{id}/status` | 数据级守卫 |
 | POST | `/api/v1/assets/{id}/access-requests` | 仅登录(取当前用户) |
-| GET | `/api/v1/assets/{id}/access-requests` | 无 |
+| GET | `/api/v1/assets/{id}/access-requests` | 数据级守卫 |
 | POST | `/api/v1/assets/access-requests/{requestId}/review` | 角色注解 |
 | POST | `/api/v1/assets/{id}/claims` | 方法内数据级 |
 | GET | `/api/v1/assets/{id}/claims` | 数据级守卫 |
 | POST | `/api/v1/assets/claims/{claimId}/review` | 角色注解 |
 | POST | `/api/v1/assets/claims/{claimId}/complete` | 方法内数据级 |
 | POST | `/api/v1/assets/claims/{claimId}/abandon` | 方法内数据级 |
-| POST | `/api/v1/assets/{id}/tags` | 仅登录(取当前用户) |
-| DELETE | `/api/v1/assets/{assetId}/tags/{tagId}` | 无 |
+| POST | `/api/v1/assets/{id}/tags` | 数据级守卫 |
+| DELETE | `/api/v1/assets/{assetId}/tags/{tagId}` | 数据级守卫 |
 | GET | `/api/v1/assets/my/access-requests` | 仅登录(取当前用户) |
 | GET | `/api/v1/assets/my/claims` | 方法内数据级 |
 
@@ -170,11 +172,11 @@ t39/t40/t45/t46 之后鉴权缺口由 15 组收敛为 **12 组（中 9 / 低 3�
 ### AssetGroupController
 | 方法 | 端点 | 校验 |
 |---|---|---|
-| POST | `/api/v1/asset-groups` | 无 |
-| PUT | `/api/v1/asset-groups/{id}` | 无 |
-| DELETE | `/api/v1/asset-groups/{id}` | 无 |
-| POST | `/api/v1/asset-groups/{id}/assets` | 无 |
-| DELETE | `/api/v1/asset-groups/{groupId}/assets/{assetId}` | 无 |
+| POST | `/api/v1/asset-groups` | 角色注解 |
+| PUT | `/api/v1/asset-groups/{id}` | 角色注解 |
+| DELETE | `/api/v1/asset-groups/{id}` | 角色注解 |
+| POST | `/api/v1/asset-groups/{id}/assets` | 角色注解 |
+| DELETE | `/api/v1/asset-groups/{groupId}/assets/{assetId}` | 角色注解 |
 
 ### AssetMetadataController
 | 方法 | 端点 | 校验 |
@@ -193,9 +195,9 @@ t39/t40/t45/t46 之后鉴权缺口由 15 组收敛为 **12 组（中 9 / 低 3�
 ### AssetVersionController
 | 方法 | 端点 | 校验 |
 |---|---|---|
-| POST | `/api/v1/assets/{assetId}/versions` | 仅登录(取当前用户) |
-| PUT | `/api/v1/assets/{assetId}/versions/{id}/default` | 无 |
-| PUT | `/api/v1/assets/{assetId}/versions/{id}/latest` | 无 |
+| POST | `/api/v1/assets/{assetId}/versions` | 数据级守卫 |
+| PUT | `/api/v1/assets/{assetId}/versions/{id}/default` | 数据级守卫 |
+| PUT | `/api/v1/assets/{assetId}/versions/{id}/latest` | 数据级守卫 |
 | DELETE | `/api/v1/assets/{assetId}/versions/{id}` | 数据级守卫 |
 
 ### AuditLogController
@@ -263,7 +265,7 @@ t39/t40/t45/t46 之后鉴权缺口由 15 组收敛为 **12 组（中 9 / 低 3�
 |---|---|---|
 | POST | `/api/v1/knowledge` | 仅登录(取当前用户) |
 | PUT | `/api/v1/knowledge/{id}` | 无 |
-| DELETE | `/api/v1/knowledge/{id}` | 无 |
+| DELETE | `/api/v1/knowledge/{id}` | 数据级守卫 |
 | POST | `/api/v1/knowledge/{id}/comments` | 仅登录(取当前用户) |
 | POST | `/api/v1/knowledge/{id}/tags` | 无 |
 | DELETE | `/api/v1/knowledge/{id}/tags` | 仅登录(取当前用户) |
@@ -274,8 +276,8 @@ t39/t40/t45/t46 之后鉴权缺口由 15 组收敛为 **12 组（中 9 / 低 3�
 | POST | `/api/v1/notifications/{id}/read` | 仅登录(取当前用户) |
 | POST | `/api/v1/notifications/read-all` | 仅登录(取当前用户) |
 | DELETE | `/api/v1/notifications/{id}` | 仅登录(取当前用户) |
-| POST | `/api/v1/notifications/vulnerability-discovered` | 无 |
-| GET | `/api/v1/notifications/{notificationId}/recipients` | 无 |
+| POST | `/api/v1/notifications/vulnerability-discovered` | 角色注解 |
+| GET | `/api/v1/notifications/{notificationId}/recipients` | 数据级守卫 |
 | GET | `/api/v1/notifications/settings` | 仅登录(取当前用户) |
 | PUT | `/api/v1/notifications/settings/{type}` | 仅登录(取当前用户) |
 | POST | `/api/v1/notifications/announcements` | 角色注解 |
@@ -310,10 +312,10 @@ t39/t40/t45/t46 之后鉴权缺口由 15 组收敛为 **12 组（中 9 / 低 3�
 ### TaskController
 | 方法 | 端点 | 校验 |
 |---|---|---|
-| POST | `/api/v1/tasks` | 仅登录(取当前用户) |
+| POST | `/api/v1/tasks` | 角色注解 |
 | PUT | `/api/v1/tasks/{id}` | 仅登录(取当前用户) |
 | PUT | `/api/v1/tasks/{id}/status` | 仅登录(取当前用户) |
-| POST | `/api/v1/tasks/{id}/submit-review` | 仅登录(取当前用户) |
+| POST | `/api/v1/tasks/{id}/submit-review` | 数据级守卫 |
 | POST | `/api/v1/tasks/{id}/approve` | 角色注解 |
 | POST | `/api/v1/tasks/{id}/reject` | 角色注解 |
 | DELETE | `/api/v1/tasks/{id}` | 数据级守卫 |
@@ -331,22 +333,22 @@ t39/t40/t45/t46 之后鉴权缺口由 15 组收敛为 **12 组（中 9 / 低 3�
 | DELETE | `/api/v1/teams/{id}` | 数据级守卫 |
 | POST | `/api/v1/teams/{id}/members` | 数据级守卫 |
 | DELETE | `/api/v1/teams/{id}/members/{userId}` | 数据级守卫 |
-| GET | `/api/v1/teams/{id}/members` | 无 |
-| GET | `/api/v1/teams/{id}/users` | 无 |
+| GET | `/api/v1/teams/{id}/members` | 数据级守卫 |
+| GET | `/api/v1/teams/{id}/users` | 数据级守卫 |
 
 ### ToolController
 | 方法 | 端点 | 校验 |
 |---|---|---|
 | POST | `/api/v1/tools` | 仅登录(取当前用户) |
-| PUT | `/api/v1/tools/{id}` | 无 |
-| DELETE | `/api/v1/tools/{id}` | 无 |
+| PUT | `/api/v1/tools/{id}` | 角色注解 |
+| DELETE | `/api/v1/tools/{id}` | 角色注解 |
 | POST | `/api/v1/tools/{id}/download` | 仅登录(取当前用户) |
-| POST | `/api/v1/tools/{id}/file` | 仅登录(取当前用户) |
+| POST | `/api/v1/tools/{id}/file` | 角色注解 |
 | GET | `/api/v1/tools/{id}/download` | 仅登录(取当前用户) |
 | GET | `/api/v1/tools/{id}/download-count` | 无 |
-| POST | `/api/v1/tools/{id}/tags` | 无 |
-| DELETE | `/api/v1/tools/{id}/tags` | 无 |
-| POST | `/api/v1/tools/{id}/versions` | 无 |
+| POST | `/api/v1/tools/{id}/tags` | 角色注解 |
+| DELETE | `/api/v1/tools/{id}/tags` | 角色注解 |
+| POST | `/api/v1/tools/{id}/versions` | 角色注解 |
 | GET | `/api/v1/tools/{id}/versions/{versionId}/download` | 仅登录(取当前用户) |
 
 ### UserController
@@ -404,31 +406,23 @@ t39/t40/t45/t46 之后鉴权缺口由 15 组收敛为 **12 组（中 9 / 低 3�
 | `PUT /tasks/{id}`、`PUT /tasks/{id}/status`、`POST /tasks/{id}/comments`、`POST /tasks/{id}/attachments` | 仅登录 | **合理开放**：矩阵 2.9 全角色可协作；驳回/通过另有角色门槛 |
 | `POST /knowledge`、`PUT /knowledge/{id}`、`POST /knowledge/{id}/comments`、`POST|DELETE /knowledge/{id}/tags` | 仅登录 / 无 | **合理开放**：矩阵 2.10 文章发布/编辑/评论对全角色开放（删除见 §2.3.2 #7） |
 | `POST /documents`、`POST /documents/{id}/tags`、`DELETE /documents/{documentId}/tags/{tagId}` | 仅登录 / 无 | **合理开放**：矩阵 2.7 文档创建全角色；标签为协作元数据 |
-| `POST /tools`、`POST /tools/{id}/file`、`POST /tools/{id}/download`、`GET /tools/{id}/download`、`GET /tools/{id}/download-count`、`POST|DELETE /tools/{id}/tags` | 仅登录 / 无 | **合理开放**：矩阵 2.8 工具库创建/下载/上传对全角色开放；`download-count` 仅返回计数 |
+| `POST /tools`、`POST /tools/{id}/download`、`GET /tools/{id}/download`、`GET /tools/{id}/download-count`、`GET /tools/{id}/tags`、`GET /tools/{id}/versions` | 仅登录 | **合理开放**：矩阵 2.8 工具库创建/下载对全角色开放；`download-count` 仅返回计数（**写类已收口见 §2.4**：`POST /tools/{id}/file`、`POST|DELETE /tools/{id}/tags` 已于 t55 加 ADMIN/PL/TEAM_LEADER 门槛） |
 | `GET /users/me/permissions` | 仅登录 | **合理开放**：只返回当前用户权限点（`permissionCount=90` 校验点） |
 | `GET /environment-templates`（EnvironmentTemplateController 唯一端点） | 仅登录 | **合理开放**：环境模板字典，无业务数据；建议后续补入矩阵 |
 
 #### 2.3.2 已知缺口（矩阵要求角色门槛或数据级校验，但当前仅"登录即可"）
 
-| # | 端点 | 当前校验 | 风险 | 说明与影响 | 建议 |
-|---|---|---|---|---|---|
-| 1 | `POST /assets`（创建资产） | 仅登录 | 中 | 矩阵 2.4 规定工程师不可创建资产，当前任意登录用户可建 | 补 `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')` 或按 `teamId` 收敛 |
-| 2 | `POST /assets/{assetId}/versions` | 仅登录 | 中 | 任意登录用户可给任意资产加版本（应随资产写权） | 补 `@accessGuard.canWriteAsset(#assetId, authentication)` |
-| 3 | `PUT /assets/{assetId}/versions/{id}/default`、`/latest` | 无 | 中 | 可切换任意资产的默认/最新版本（影响漏洞归属与文档绑定） | 同上，复用 `canWriteAsset` |
-| 4 | `GET /assets/{id}/access-requests` | 无 | 中 | 任意登录用户可读他人访问申请（含申请说明） | 补 `canReadAsset` 或限管理层/审批人 |
-| 5 | `DELETE /assets/{assetId}/tags/{tagId}` | 无 | 低 | 可删除任意资产的标签（无归属校验） | 复用 `canWriteAsset` |
-| 6 | `POST /asset-groups`、`PUT/DELETE /asset-groups/{id}`、`POST/DELETE /asset-groups/{id}/assets` | 无 | 低 | 分组为展示用元数据，矩阵未纳入；任意登录用户可增删改任意分组 | 补角色门槛（管理层）或纳入矩阵后按资产写权收敛 |
-| 7 | `DELETE /knowledge/{id}`（`PUT` 按矩阵对全角色开放） | 无 | 中 | 矩阵 2.10 规定删除限 admin/project_leader/team_leader；当前任何登录用户可删任意文章 | 补角色门槛或作者校验 |
-| 8 | `POST /notifications/vulnerability-discovered` | 无 | 中 | 任意登录用户可向任意接收人批量发送"漏洞发现"通知（骚扰/钓鱼面） | 限管理层或系统内部调用（加角色/内部 token） |
-| 9 | `GET /notifications/{notificationId}/recipients` | 无 | 中 | 任意登录用户可读他人通知的投递记录（渠道、失败原因） | 限通知所属人或管理员 |
-| 10 | `POST /tasks`、`POST /tasks/{id}/submit-review` | 仅登录 | 中 | 矩阵 2.9 规定创建任务限管理层；当前工程师可建任务并提交审核 | 创建补角色门槛；提交审核补负责人/协作者校验 |
-| 11 | `GET /teams/{id}/members`、`GET /teams/{id}/users` | 无 | 低 | 矩阵 2.3 工程师不可读成员列表 | 补角色门槛（或按团队可见性收敛） |
-| 12 | `PUT/DELETE /tools/{id}`、`POST /tools/{id}/versions` | 无 | 中 | 矩阵 2.8 规定修改限 admin/project_leader/team_leader、删除限 admin/project_leader；当前任意登录用户可改删工具与上传版本 | 补角色门槛（或工具负责人校验） |
+**已知缺口：0 组**（高 0 / 中 0 / 低 0）。轨迹：`15 → 12（t40 高危 3 组）→ 6（t49 资产域）→ 2（t50 协作域）→ 0（t51 组织/工具域）`，t55 又把工具域剩余 3 个写端点（工具包上传、标签增删）补齐。
 
-> 汇总：**已知缺口 12 组**（高 0 / 中 9 / 低 3）。原「高」3 组（团队 CRUD、环境增删改/部署、公告写）已于 t40 收口；原 #5「认领完成/放弃恒 403」的功能缺陷已于 t39 修复；「用户读接口 PII」（原 #13）已于 t45 收口（见 §2.4）；
-> 原 #13「资产列表与详情口径不一致」已于 **t46** 修复（列表与详情统一为 `AccessGuard.visibleAssetIds` 单一事实来源，`canWriteAsset` 以读为前提），经 `AssetVisibilityConsistencyTest` 7 例子证明「列表内必 200、列表外必 403」在负责人/团队成员/无关工程师/团队长/管理员五类主体上成立，详见 §2.4。
-> 这些问题**不影响功能验收**，但属于权限矩阵未落地的残余项，建议按 §8 逐项排期。
+| 关闭批次 | 关闭的组 | 证据 |
+|---|---|---|
+| t40 | 团队 CRUD、环境增删改与部署、公告写（3 组「高」） | `PrivilegedWriteAuthorizationTest` 10 例 |
+| t49 | 建资产、资产版本、默认/最新版本、申请明细、标签删除、分组写（6 组） | `AssetDomainAuthorizationTest` 7 例 |
+| t50 | 删他人文章、漏洞通知群发、投递记录、任务创建（4 组） | `CollaborationDomainAuthorizationTest` 15 例 |
+| t51 | 团队读（成员列表）、工具改删（2 组） + `POST /assets/{id}/tags` 追加项 | `OrgToolDomainAuthorizationTest` 7 例 |
+| t55 | 工具包上传、工具标签增删（3 个写端点，工具域收尾） | `ToolWriteAuthorizationTest` 5 例 |
 
+> 仍为「仅登录 / 无注解」的端点（见 §2.3.1）全部经判定属**合理开放**：本人数据（我的申请/认领、仪表盘配置、通知已读与订阅）、认证域、矩阵对全角色开放的协作写（知识文章与评论、文档与任务协作、工具创建与下载）。
 ### 2.4 本轮已修复的鉴权缺口（回归证据）
 
 | 缺口 | 修复 | 证据 |
@@ -446,6 +440,13 @@ t39/t40/t45/t46 之后鉴权缺口由 15 组收敛为 **12 组（中 9 / 低 3�
 | 认领「完成/放弃」恒 403、`my/claims` 可能退化为全量（原 §2.3.2 #5） | t39：控制器改用 `CurrentUserProvider.requireCurrentUserId()`（缺失 401）；服务层保留认领人校验（完成仅本人、管理员不放行），管理层可强制放弃并写 `reviewed_by/review_note`；`getMyClaims` 未认证不再走 `findAll` | `AssetClaimLifecycleTest` 13 例（本人完成 200、非本人与管理员完成 403、管理层强制放弃 200、pending 400、不存在 404、生命周期闭环） |
 | 用户读接口 PII 枚举面（原 §2.3.2 #13） | t45：`GET /users`、`/users/{id}`、`/{id}/roles`、`check-username`、`check-email` → `hasAnyRole(ADMIN,PROJECT_LEADER)`；新增最小暴露 `GET /users/directory`（专用 record，仅 id/username/fullName，全员可用）；`/users/me/permissions`、`/auth/me` 保持对所有登录用户开放 | `UserDirectoryAuthorizationTest` 8 例（工程师 5 个管理读 403、目录 200 且无 email/phone/roles/status/lastLoginAt/passwordHash、admin/PL 全通、未认证 401、无权限仍 403） |
 | 匿名请求统一 403（原 §5 偏离 8） | t45：配置 `AuthenticationEntryPoint`（未认证 → 401 + 统一 JSON）与 `AccessDeniedHandler`（无权限 → 403） | 同上（`unauthenticated_returns401`、`authenticatedWithoutPermission_returns403`、`invalidToken_returns401`） |
+| 资产域写权缺口 6 组（原 §2.3.2 #1–#6） | t49：`POST /assets` → `hasAnyRole(ADMIN,PROJECT_LEADER,TEAM_LEADER)` **且** `@accessGuard.canCreateAssetInTeam(#request.teamId)`（team_leader 只能在自己领导/所属团队下建资产）；版本创建 / default / latest → `canWriteAsset`；`GET /assets/{id}/access-requests` → `canReadAsset` **且** `canSeeAssetAccessDetails`（负责人 / 管理层 / 审批人）；标签删除 → `canWriteAsset`；分组写 → `hasAnyRole(ADMIN,PROJECT_LEADER,TEAM_LEADER)`，分组查询保持全员开放 | `AssetDomainAuthorizationTest` 7 例（工程师 6 组全 403、团队长跨团队 403/本团队 201、负责人可写自有资产、管理员全通、分组查询对工程师 200、审批人不越过读范围） |
+| 团队读与工具写 2 组（原 §2.3.2 #11/#12） | t51：`GET /teams/{id}/members`、`/{id}/users` → `@accessGuard.canReadTeam(#id)`（**选择收敛到可见团队**：自己领导/所属团队及其子团队可见，管理层全量，其余 403）；`PUT /tools/{id}`、`POST /tools/{id}/versions` → `hasAnyRole(ADMIN,PROJECT_LEADER,TEAM_LEADER)`；`DELETE /tools/{id}` → `hasAnyRole(ADMIN,PROJECT_LEADER)`；工具查询/下载/计数保持全员开放；顺带把 `POST /assets/{id}/tags` 改为 `canWriteAsset` | `OrgToolDomainAuthorizationTest` 7 例（工程师读自己团队 200 / 他团队 403、团队长本团队 200 / 无关团队 403、管理员全量、工程师工具写 403、团队长改+上传 200 且 createdBy 落库 / 删除 403、管理员全通、工具查询下载 200、标签新增 403/201） |
+| 工具域写权 3 端点（t51 上报遗留） | t55：`POST /tools/{id}/file`（上传工具包）、`POST /tools/{id}/tags`、`DELETE /tools/{id}/tags` → `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')`（与 `PUT /tools/{id}` 同权）；工具不存在 → **404**；查询/下载/计数/标签读保持全员开放；t23 的真实落盘能力未受影响 | `ToolWriteAuthorizationTest` 5 例（工程师 3 写 403；团队长加/删标签 200 + 上传 200 且 `fileName/fileSize` 有值、下载字节一致；管理员 200；工具不存在 404×3；工程师 5 个读端点 200） |
+| 知识库删除（原 §2.3.2 #7） | t50：`DELETE /knowledge/{id}` → `@accessGuard.canDeleteKnowledge(#id, authentication)`（管理层 **或作者本人**）；`PUT` 按矩阵保持全角色开放 | `CollaborationDomainAuthorizationTest`：工程师删他人文章 403、删自己文章 200、管理层删他人 200、`PUT` 仍 200 |
+| 漏洞通知群发（原 §2.3.2 #8） | t50：`POST /notifications/vulnerability-discovered` → `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')`。选角色门槛而非「自己为发送者 + 收件人可见性交集」：该端点本质是群发广播、与漏洞归属无耦合；按可见性放行后工程师仍可对自己可见漏洞向任意收件人群发，骚扰面未消除（详见控制器注释） | 同文件：工程师 403、team_leader 200 |
+| 通知投递记录读取（原 §2.3.2 #9） | t50：`GET /notifications/{notificationId}/recipients` → `@accessGuard.canReadNotificationRecipients(...)`（admin/project_leader 全量；其余仅接收人本人） | 同文件：非接收人 403、接收人本人 200（响应含自身接收记录）、admin 200 |
+| 任务创建与提交审核（原 §2.3.2 #10） | t50：`POST /tasks` → `hasAnyRole(ADMIN,PROJECT_LEADER,TEAM_LEADER)` **且** `@accessGuard.canWriteAssetOrAbsent(#request.assetId, ...)`；`POST /tasks/{id}/submit-review` → `@accessGuard.canSubmitTaskReview(...)`（负责人/协作者/管理层），并从 `TaskServiceImpl.submitForReview` 移除「仅 assignedTo」的硬编码（曾导致管理层代办恒 403） | 同文件：工程师建任务 403、team_leader 自有资产 201 / 越界资产 403、非负责人（普通工程师）提交审核 403、负责人 200、管理层代办 200 |
 
 ### 2.5 权限点目录与实际守卫的口径差异
 
@@ -487,7 +488,7 @@ t39/t40/t45/t46 之后鉴权缺口由 15 组收敛为 **12 组（中 9 / 低 3�
 | 3.9 消息通知模块 | **已实现** | 站内通知、未读数、已读/全部已读、删除、设置、公告、订阅、投递记录（channel/sendStatus/sentAt/errorMessage）、邮件/Webhook 通道（默认关闭）；公告写操作的角色门槛已于 t40 收口；主动发通知与投递记录读取仍是已知缺口（§2.3.2 #12/#13） |
 | 3.10 仪表盘与统计 | **已实现** | 概览/资产统计/漏洞统计（角色门槛 + 可见范围收敛）、工作量、趋势（归日补零、`startDate/endDate`）、跨用户排行、配置、CSV 导出（管理层）；`DashboardControllerTest`、`DashboardTrendTest`、`DashboardRankingTest`、`DashboardStatsAuthorizationTest`、`DashboardExportAuthorizationTest` |
 | 4.5 数据迁移（导入导出） | **已实现** | 资产/漏洞/用户 CSV 导入（模板带 BOM、部分成功语义、逐行权限与数据边界、失败行回显）；审计与仪表盘 CSV 导出；用户导入一次性密码 |
-| 4.6 国际化 | **部分实现** | 界面与文案为中文单语；无 i18n 框架与语言切换（见 §8） |
+| 4.6 国际化 | **首批已实现（框架 + 5 处覆盖，其余待排期）** | t53 落地自建 i18n 框架：`i18n/index.tsx`（Provider + `useT()`、localStorage 持久化、`<html lang>`/dayjs/antd locale 同步）、`messages/zh-CN.ts` 84 词条与 `en-US.ts` 同构强校验、`LangSwitcher`（页头/登录页）；已覆盖：①登录页 ②侧边栏 3 分组 + 18 菜单 + 退出登录 ③通用组件（空态/加载/分页/403·404 页）④通知中心（3 页签/全部已读/公告/设置）⑤仪表盘（KPI/图表卡/导出/布局）。**未覆盖（23 个文件首行 `// TODO(i18n)`）**：资产 3 页、资产分组、漏洞 2 页、任务、工具、知识库、文档、团队、角色、用户、审批、审批范围、导入 2 页、审计日志、通知三个 Tab 内部明细、`dashboard/TrendChart` 与 `WorkloadRank` 内部文案；后端 `ApiResponse.message` 仍中文 |
 | 4.7 接口需求 | **已实现** | REST `/api/v1/**` + 统一 `ApiResponse` 包装 + OpenAPI（`/v3/api-docs`）；262 个端点 |
 
 ---
@@ -599,6 +600,24 @@ t39/t40/t45/t46 之后鉴权缺口由 15 组收敛为 **12 组（中 9 / 低 3�
 | 4 | `/teams`、公告区写入口仍按角色隐藏 | **PASS**：工程师与团队长均无「创建团队/编辑/删除」与「发布公告」；管理员全部可见 |
 
 > 说明：规格里写的 `GET /users/me` 实际不存在（会被 `/users/{id}` 当作 id 解析返回 400）；「查看自己」的等价端点是 `GET /auth/me` 与 `GET /users/me/permissions`，两者对三种角色均 200，冒烟已按此断言。
+
+
+### 7.3 第二批发布与回归（t54：缺口清零 + i18n 首批）
+
+| 项 | 结果 |
+|---|---|
+| 后端回归 | `mvn -B clean test` → **Tests run: 524, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS；`@Disabled/@Ignore` 0 命中。524 = 第一批 490 + t49 `AssetDomainAuthorizationTest` 7 + t50 `CollaborationDomainAuthorizationTest` 15 + t51 `OrgToolDomainAuthorizationTest` 7 + t55 `ToolWriteAuthorizationTest` 5 |
+| 回归修复（测试跟随新契约，未放宽校验） | ①`NotificationTypeLengthTest` 3 例改用 adminToken（t50 已把漏洞通知群发收敛为管理层）；②`PrivilegedWriteAuthorizationTest#readEndpoints_stillOpenForEngineer` 对 `GET /teams/{id}/members` 的断言改为「团队长 200 / 非成员工程师 403」（t51 可见团队口径） |
+| 前端构建 | `npm run build` → 3697 modules，`dist/static/index-D2WA8xPO.js` 2,256.33 kB（gzip 674.73 kB）；产物同时含中英文串（`Sign in`/`Dashboard`/`Notifications`/`Page not found` 与 `登录`/`仪表盘`/`通知中心` 均在） |
+| 部署 | 后端 package BUILD SUCCESS，jar **72,877,443 B**，重启后 login=200、api-docs=200；前端 sync-dist 后站点仅 5 个文件（`index-D2WA8xPO.js`），旧 hash 已清；**无新增迁移** |
+| 冒烟 | **TOTAL=154 / PASS=154 / FAIL=0 / SKIP=0**（新增 26 条：6 组资产域写 403、分组写 403×2、协作域 403×4、组织工具域 403×6、查询正向 200×5、工具不存在 404×1、资产标签写 403×1） |
+
+| # | 页面验证（t52/t53 口径） | 结果 |
+|---|---|---|
+| 1 | 工程师：新建资产/新建分组/新建任务 **不渲染**；工具「上传」disabled、删除链接不渲染 | **PASS**（`assets.create=0 / groups.create=0 / tasks.create=0 / tools.upload=disabled / tools.delete=0`） |
+| 2 | 团队长：可建资产与建任务；工具上传可用、删除不可用 | **PASS**（`assets.create=1 / tasks.create=1 / tools.upload=enabled / tools.delete=0`） |
+| 3 | 管理员：全部可用（含删除工具） | **PASS**（`tools.upload=enabled / tools.delete=1 / assets.create=1 / tasks.create=1`） |
+| 4 | 中英切换：登录页立即英文、`<html lang=en-US>`、刷新保持；仪表盘/通知中心英文；切回中文恢复 | **PASS**（6 项断言全真，`pageErrors=[]`） |
 
 ---
 

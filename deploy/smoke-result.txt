@@ -187,3 +187,16 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 页面补验（Playwright，三账号）：①工程师无「账号管理」菜单、直连 /users 无数据（管理员 10 行正常）；②工程师资产列表→详情正常（有 Tab、无 403 错误页）；
   ③任务页人员下拉 5 个选项（目录接口 200 且无 PII）；④/teams 与公告区写入口按角色隐藏、管理员全可见。四项全 PASS。
 - RBAC 幂等与数据：permissions=90 / role_permissions=261 / roles=4 不变。
+
+########## 八、第二批发布与回归（t54，2026-10-30 19:0x） ##########
+- 后端：jar 72,877,443 B（含 t49/t50/t51/t55 鉴权收口），login=200、api-docs=200；无新增迁移。
+- 回归：Tests run 524, Failures 0, Errors 0, Skipped 0（490 + 7 + 15 + 7 + 5），BUILD SUCCESS 26:51；@Disabled/@Ignore 0 命中。
+- 前端：index-D2WA8xPO.js 2,256.33 kB；sync-dist --delete 后站点仅 5 文件（旧 hash 已清）；产物含中英双套文案。
+- 冒烟：TOTAL=154 PASS=154 FAIL=0 SKIP=0（exit 0）。新增 26 条：
+  工程师 6 组资产域写 403（建资产/建版本/设默认/设最新/他人申请明细/删标签）+ 建分组/改分组/删分组 403、
+  协作域 4 条 403（删他人文章/发漏洞通知/读他人投递记录/建任务）、
+  组织工具域 6 条 403（读无关团队成员/改工具/传版本/加标签/删标签/传工具包）、
+  查询正向 5 条 200（资产/知识库/通知/任务/工具）、工具不存在加标签 404。
+- 回归期修测试契约（未放宽校验）：NotificationTypeLengthTest 改 adminToken（t50 群发收敛）；PrivilegedWriteAuthorizationTest 的 teams/{id}/members 断言改为「团队长 200 / 非成员工程师 403」（t51）。
+- 页面验证（Playwright，三账号 + 中英切换）：工程师 assets/groups/tasks 建入口=0、工具上传 disabled、删除=0；团队长 assets/tasks 可建、工具上传可用、删除=0；管理员全可用（工具删除=1）；
+  i18n：登录页英文 + html lang=en-US + 刷新保持 + 仪表盘/通知中心英文 + 切回中文恢复 → 全 PASS。

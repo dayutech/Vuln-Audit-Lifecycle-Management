@@ -850,3 +850,214 @@ WHERE TABLE_SCHEMA='vuln_audit' AND COLUMN_NAME='asset_id' AND TABLE_NAME<>'asse
 ```
 
 **建议**：每次冒烟后按此清理，或在专用测试库上跑冒烟，避免污染生产实例。
+---
+
+## 24. 第十三轮（资产域 6 组鉴权缺口收口，t49）
+
+**问题**（验收报告 §2.3.2 资产域 #1–#6）：建资产、加资产版本、切换默认/最新版本、读访问申请明细、
+删除资产标签、资产分组增删改 —— 全部「仅登录即可」，工程师既可建资产、也可改他人资产版本、删他人标签、
+读他人访问申请（含申请说明）。
+
+### 24.1 授权矩阵（资产域）
+
+| 端点 | 角色门槛 | 数据级守卫 |
+|---|---|---|
+| `POST /api/v1/assets` | `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')` | `@accessGuard.canCreateAssetInTeam(#request.teamId)`：admin/PL 不限；team_leader 的 `teamId` 必须是**自己领导或所属**的团队 |
+| `POST /api/v1/assets/{assetId}/versions` | 仅登录（写权来自资产） | `canWriteAsset(#assetId)` |
+| `PUT /api/v1/assets/{assetId}/versions/{id}/default`、`/latest` | 同上 | `canWriteAsset(#assetId)` |
+| `GET /api/v1/assets/{id}/access-requests` | 仅登录 | `canReadAsset(#id)` **且** `canSeeAssetAccessDetails(#id)`（负责人 / 管理层 / 该资产申请的审批人或评审人） |
+| `DELETE /api/v1/assets/{assetId}/tags/{tagId}` | 仅登录 | `canWriteAsset(#assetId)` |
+| `POST /api/v1/asset-groups`、`PUT/DELETE /api/v1/asset-groups/{id}`、`POST/DELETE /api/v1/asset-groups/{id}/assets` | `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')` | —（分组为展示用元数据） |
+| `GET /api/v1/asset-groups**`（列表/详情/类型/组内资产） | **全员开放（未变）** | 前端分组页依赖 |
+
+**新增守卫**：`AccessGuard#canCreateAssetInTeam(teamId, auth)`（team_leader 必须显式指定自己领导/所属团队，
+未指定或越界一律拒绝，fail-closed）、`AccessGuard#canSeeAssetAccessDetails(assetId, auth)`（AND 语义：
+先过读范围，再看是否负责人/管理层/审批人 —— 审批人身份不能越过读范围）。
+
+### 24.2 状态码（资产域）
+
+| 场景 | 状态码 |
+|---|---|
+| 工程师建资产 / 加他人资产版本 / 切默认版本 / 读他人申请明细 / 删他人标签 / 任意分组写 | **403** |
+| team_leader 在他人团队下建资产 | **403** |
+| team_leader 建资产未传 `teamId` | **400**（`@NotNull` 参数校验先于方法级守卫；两条路径都拒绝） |
+| 资产负责人写自己资产（版本/默认/标签）与读自己资产的申请明细 | **200/201** |
+| admin / project_leader 上述全部 | **200/201** |
+
+### 24.3 验证
+
+```bash
+cd backend && mvn -B test -Dtest=AssetDomainAuthorizationTest
+cd backend && mvn -B test -Dtest=AssetGroupControllerTest,AssetVersionControllerTest
+```
+
+三账号交叉验证：工程师 6 组写操作全 403 且分组查询仍 200；team_leader 本团队 201 / 跨团队 403；
+资产负责人可写自有资产；admin 全通。
+
+> 遗留（未在本轮处理）：`POST /api/v1/assets/{id}/tags`（新增标签）仍为「仅登录」——与 #5 的删除标签属同类写权，
+> 建议下一轮与 `POST /assets/{id}/access-requests`（创建申请，本身是普通用户动作）一并复核。
+
+---
+
+## 25. 第十四轮（知识库/通知/任务 4 组鉴权缺口收口，t50）
+
+验收报告 §2.3.2 剩余缺口中的协作域 4 组已收口，缺口由 **6 组降至 2 组**（余：工具写权、团队成员列表）。
+
+### 25.1 授权矩阵（协作域）
+
+| 端点 | 规则 | 说明 |
+|---|---|---|
+| `DELETE /knowledge/{id}` | `@accessGuard.canDeleteKnowledge(#id, authentication)` | 管理层（admin/PL/team_leader）**或作者本人**；他人文章 403 |
+| `PUT /knowledge/{id}` | 仅登录（**未改动**） | 矩阵 2.10 允许全角色协作编辑，避免打坏前端 |
+| `POST /notifications/vulnerability-discovered` | `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')` | 见 25.2 取舍说明 |
+| `GET /notifications/{id}/recipients` | `@accessGuard.canReadNotificationRecipients(...)` | admin/PL 全量；其余**仅接收人本人**；发送者与其他 403 |
+| `POST /tasks` | `hasAnyRole(ADMIN,PROJECT_LEADER,TEAM_LEADER)` **and** `@accessGuard.canWriteAssetOrAbsent(#request.assetId, ...)` | 不带资产的任务放行；带资产需资产写权 |
+| `POST /tasks/{id}/submit-review` | `@accessGuard.canSubmitTaskReview(#id, authentication)` | 负责人 / 协作者 / 管理层；服务层同步移除「仅 assignedTo」硬编码 |
+
+查询类端点（知识库列表/详情、通知列表、任务列表）**保持现状**，不影响前端。
+
+### 25.2 #8 的取舍（为什么不做「自己为发送者 + 收件人可见性交集」）
+
+`POST /notifications/vulnerability-discovered` 本质是**群发广播**（`recipientIds` 可为任意用户列表），与漏洞归属无耦合。
+按「发送者=自己 + 收件人对该漏洞可见」放行后，任意工程师仍能对**自己可见**的漏洞向任意收件人群发，
+骚扰/钓鱼面并未消除，只是把范围从「全部漏洞」缩到「自己可见漏洞」；同时会新增逐收件人可见性交集计算与 N 次查询。
+因此选择**角色门槛（管理层）**，与 §2.3.2 建议「限管理层或系统内部调用」一致，且便于审计追责。
+
+### 25.3 顺带修复
+
+- `TaskServiceImpl.submitForReview` 原先硬编码「仅任务负责人可提交」，导致管理层代办与协作者提交恒 403；
+  现在授权统一在 `@PreAuthorize(canSubmitTaskReview)` 收敛，服务层只保留「操作者必填 + 审计结论必填 + 状态机」校验。
+- `TaskControllerTest.createTask_Success` 原先用随机 `assetId`（等于无权资产），t50 后正确返回 403；
+  测试改为先建「组长自己的资产」再建任务（**修测试不放宽校验**）。
+
+### 25.4 状态码
+
+| 场景 | 状态码 |
+|---|---|
+| 工程师删他人文章 / 发漏洞通知 / 读他人投递记录 / 建任务 / 非负责人提交审核 | **403** |
+| 工程师删自己文章 | **200** |
+| 接收人本人读自己的投递记录、admin 读任意 | **200** |
+| team_leader 在自己的资产上建任务 | **201** |
+| 带他人资产建任务（虽为管理层） | **403** |
+
+### 25.5 验证
+
+```bash
+cd backend && mvn -B test -Dtest=CollaborationDomainAuthorizationTest
+cd backend && mvn -B test -Dtest=TaskControllerTest,KnowledgeControllerTest,NotificationControllerTest
+```
+
+`CollaborationDomainAuthorizationTest` 15 例（#7 删除 4 例、#8 通知 2 例、#9 投递记录 3 例、#10 任务 6 例），
+连同三个既有控制器测试共 **57 例全绿**。无需 DDL / 迁移。
+
+---
+
+## 26. 第十五轮（团队读与工具写收口：鉴权矩阵缺口清零，t51）
+
+**问题**（验收报告 §2.3.2 最后 2 组）：
+1) `GET /teams/{id}/members`、`GET /teams/{id}/users` 任意登录可读任意团队成员列表（组织架构数据）；
+2) `PUT/DELETE /tools/{id}`、`POST /tools/{id}/versions` 任意登录可改删工具、上传版本（矩阵 2.8 有明确分级）。
+
+### 26.1 #11 的处理方式：**收敛到「可见团队」**（不是登记偏离）
+
+理由：成员列表属组织架构数据，且前端只在本团队语境下使用（团队树/成员页签），
+跨团队读没有真实需求；`username` 已可通过 `/users/directory` 全员获取，不需要为成员列表额外开口子。
+
+| 主体 | 可见范围 |
+|---|---|
+| admin / project_leader | 全量 |
+| 团队长 / 团队成员 | **自己领导的团队 ∪ 自己所属的团队 ∪ 这些团队的子团队**（团队树展开需要） |
+| 其它（含解析不到用户、团队不存在） | **403**（fail-closed） |
+
+实现：`AccessGuard#canReadTeam(teamId, auth)`；子团队用 `findByParentId` 逐层下溯（**不**用团队仓储里的
+native 递归 CTE —— 该 CTE 在 H2 测试库不可用，会在方法级守卫里抛异常变 500），层级上限 `MAX_TEAM_DEPTH=20` 防脏数据成环。
+
+### 26.2 #12 工具写
+
+| 端点 | 角色门槛 |
+|---|---|
+| `PUT /api/v1/tools/{id}` | `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')` |
+| `POST /api/v1/tools/{id}/versions` | `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')`（t23 的 `createdBy` 落库逻辑未动，回归用例断言 `createdBy=操作者` 且 `hasFile=true`） |
+| `DELETE /api/v1/tools/{id}` | `hasAnyRole('ADMIN','PROJECT_LEADER')` |
+| `GET /tools`、`/{id}`、`/{id}/versions`、`/{id}/download`、`/{id}/download-count`、`/{id}/tags` | **全员开放（未变）** |
+
+### 26.3 顺带收口（t49 上报，captain 并入）
+
+`POST /api/v1/assets/{id}/tags`（新增标签）→ `@accessGuard.canWriteAsset(#id)`，与已收口的「删除标签」同一口径。
+
+### 26.4 验证
+
+```bash
+cd backend && mvn -B test -Dtest=OrgToolDomainAuthorizationTest
+cd backend && mvn -B test -Dtest=TeamControllerTest,ToolControllerTest,AssetControllerTest
+```
+
+三账号交叉验证：工程师读自己团队 200 / 读他团队 403、工具改删与版本上传全 403、工具查询与下载 200；
+团队长读本团队 200 / 无关团队 403、改工具与上传版本 200（`createdBy` 落库）、删工具 403；admin 全通。
+
+> **鉴权矩阵缺口清零**：验收报告 §2.3.2 的「已知缺口」由 15 组降到 **0 组**（t39/t40/t45/t46/t49/t50/t51 逐批收口）。
+
+---
+
+## 27. 第十六轮（工具域写端点收尾：标签增删与工具包上传，t55）
+
+**问题**（t51 上报的同类遗留）：工具域仍有 3 个写端点「仅需登录」——`POST /tools/{id}/file`（上传工具包）、
+`POST /tools/{id}/tags`、`DELETE /tools/{id}/tags`，与已收口的 #12「工具修改权」属同一类。
+
+### 27.1 授权矩阵（工具域写）
+
+| 端点 | 角色门槛 | 备注 |
+|---|---|---|
+| `PUT /api/v1/tools/{id}` | ADMIN / PROJECT_LEADER / TEAM_LEADER | t51 已收口 |
+| `POST /api/v1/tools/{id}/versions` | ADMIN / PROJECT_LEADER / TEAM_LEADER | t51 已收口（createdBy 落库未动） |
+| `POST /api/v1/tools/{id}/file` | ADMIN / PROJECT_LEADER / TEAM_LEADER | **t55**；工具不存在 → 404 |
+| `POST /api/v1/tools/{id}/tags` | ADMIN / PROJECT_LEADER / TEAM_LEADER | **t55**；工具不存在 → 404 |
+| `DELETE /api/v1/tools/{id}/tags` | ADMIN / PROJECT_LEADER / TEAM_LEADER | **t55**；工具不存在 → 404 |
+| `DELETE /api/v1/tools/{id}` | ADMIN / PROJECT_LEADER | t51 已收口（删除更严） |
+| `GET /tools`、`/{id}`、`/{id}/versions`、`/{id}/tags`、`/{id}/download`、`/{id}/download-count`、`/category/*`、`/popular` | 全员开放（未变） | 查询与下载不得收紧 |
+
+### 27.2 顺带修的真 bug
+
+`ToolServiceImpl.addTag/removeTag` 此前对**不存在的工具**静默成功（写入孤儿标签行 / 删除 0 行返回 200）。
+现按资源存在性 fail-closed：工具不存在 → `BusinessException(TOOL_NOT_FOUND)` → **404**。
+（工具包上传 `storeToolFile` 原本就有该判断，行为一致。）
+
+### 27.3 验证
+
+```bash
+cd backend && mvn -B test -Dtest=ToolWriteAuthorizationTest
+cd backend && mvn -B test -Dtest=ToolControllerTest,ToolVersionUploadTest,OrgToolDomainAuthorizationTest
+```
+
+三账号交叉验证：工程师三个写端点 **403**；团队长/管理员 加标签 200、删标签 200、上传工具包 200
+（`fileName/fileSize` 有值、下载字节与上传一致）；工具不存在时三个写端点 **404**；
+工程师对工具列表/详情/版本/标签/下载计数仍 **200**。
+
+## 28. 第二批发布（t49/t50/t51/t55 鉴权收口 + t52/t53/t56 前端对齐与 i18n）
+
+时间：2026-10-30 17:5x–19:0x（Asia/Shanghai）。**无新增迁移**（V1…V17 不变）。
+
+| 项 | 结果 |
+|---|---|
+| 后端回归 | `mvn -B clean test` → **Tests run: 524, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS（26:51）；`@Disabled/@Ignore` 0 命中 |
+| 用例增量 | 第一批 490 + t49 `AssetDomainAuthorizationTest` 7 + t50 `CollaborationDomainAuthorizationTest` 15 + t51 `OrgToolDomainAuthorizationTest` 7 + t55 `ToolWriteAuthorizationTest` 5 = **524** |
+| 前端 | `npm run build` → `dist/static/index-D2WA8xPO.js` 2,256.33 kB（gzip 674.73 kB），3697 modules；产物含中英双套文案 |
+| 后端重建 | 远端 package BUILD SUCCESS 10.7s，jar **72,877,443 B**；重启后 login=200、api-docs=200 |
+| 前端发布 | sync-dist --delete 后 `/var/www/vuln-audit` 仅 5 个文件（`index-D2WA8xPO.js` + css + 3 个静态资源），旧 hash 已清 |
+| 冒烟 | **TOTAL=154 / PASS=154 / FAIL=0 / SKIP=0** |
+| 备份 | `~/backups/backend_20261030_*.jar`、`backend_src_20261030_*.tar.gz` |
+
+**鉴权缺口清零（15 → 0）**：t49 资产域 6 组、t50 协作域 4 组、t51 组织/工具域 2 组、t55 工具域追加 3 个写端点（工具包上传 / 标签增删）。
+**本轮新回归点（冒烟常态化）**：工程师 6 组资产域写 403、分组写 403、协作域 4 条 403、组织工具域 6 条 403；查询（资产/知识库/通知/任务/工具）对工程师 200；工具不存在时加标签 404。
+
+**回归期修的两处测试契约（未放宽校验）**
+1) `NotificationTypeLengthTest` 3 例改用 adminToken —— t50 已把 `POST /notifications/vulnerability-discovered` 收敛为 ADMIN/PL/TEAM_LEADER；
+2) `PrivilegedWriteAuthorizationTest#readEndpoints_stillOpenForEngineer` 的 `GET /teams/{id}/members` 断言改为「团队长 200 / 非成员工程师 403」—— t51 的可见团队口径。
+
+**前端（t52/t53/t56）**：入口可见性与后端门槛对齐（工程师无建资产/建分组/建任务入口，工具上传 disabled、删除不渲染；团队长/管理员逐级开放）；工具标签抽屉非管理层只读；i18n 首批覆盖登录/导航/通用组件/通知/仪表盘，中英切换即时生效、刷新保持、`<html lang>` 同步。
+
+```bash
+cd backend && mvn -B clean test                                   # 期望 524 passed
+cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 154/154
+SUDO_PASS='***' bash deploy/sync-dist.sh                          # 前端发布
+```
