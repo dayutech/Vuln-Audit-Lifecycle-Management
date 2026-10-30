@@ -437,6 +437,100 @@ if [ -n "$ASSET_ID" ] && [ -n "$ENGINEER_TOKEN" ]; then
   judge "asset/我的访问申请" 200 '"success"[[:space:]]*:[[:space:]]*true' "GET /assets/my/access-requests"
 fi
 
+# ----------------------------------------------------------------------------- 认领生命周期（t39）
+# 覆盖：申请 → 审批 → 本人完成（修复前恒 403）→ 状态 completed；
+#       非认领人（含管理员）完成 403；管理层强制放弃 200；未登录读我的认领 401。
+CLAIM_ID=""
+CLAIM2_ID=""
+if [ -n "$ASSET_ID" ] && [ -n "$ENGINEER_TOKEN" ] && [ -n "$ADMIN_TOKEN" ]; then
+  api_json POST "/api/v1/assets/${ASSET_ID}/claims" "$ENGINEER_TOKEN" \
+    "{\"assetId\":\"${ASSET_ID}\",\"note\":\"冒烟认领-本人完成\"}"
+  judge_ok "claim/创建" '"id"' "POST /assets/{id}/claims"
+  CLAIM_ID="$(jfirst id)"
+
+  if [ -n "$CLAIM_ID" ]; then
+    api_json POST "/api/v1/assets/claims/${CLAIM_ID}/review" "$ADMIN_TOKEN" \
+      '{"approved":true,"reviewNote":"冒烟认领审批通过"}'
+    judge "claim/审批通过" 200 '"success"[[:space:]]*:[[:space:]]*true' "POST /assets/claims/{id}/review"
+
+    request POST "/api/v1/assets/claims/${CLAIM_ID}/complete" "$ENGINEER_TOKEN"
+    judge "claim/本人完成(修复前恒403)" 200 '"success"[[:space:]]*:[[:space:]]*true' "POST /assets/claims/{id}/complete"
+
+    request GET "/api/v1/assets/${ASSET_ID}/claims?page=0&size=10" "$ADMIN_TOKEN"
+    judge "claim/状态为completed" 200 '"status"[[:space:]]*:[[:space:]]*"completed"' "GET /assets/{id}/claims"
+  else
+    skip "claim/审批通过" "-" "未取到认领 ID"
+    skip "claim/本人完成(修复前恒403)" "-" "未取到认领 ID"
+    skip "claim/状态为completed" "-" "未取到认领 ID"
+  fi
+
+  # 第二条认领：工程师申请并审批通过，用于「非本人完成 403」与「管理层强制放弃 200」
+  api_json POST "/api/v1/assets/${ASSET_ID}/claims" "$ENGINEER_TOKEN" \
+    "{\"assetId\":\"${ASSET_ID}\",\"note\":\"冒烟认领-强制放弃\"}"
+  CLAIM2_ID="$(jfirst id)"
+  if [ -n "$CLAIM2_ID" ]; then
+    api_json POST "/api/v1/assets/claims/${CLAIM2_ID}/review" "$ADMIN_TOKEN" \
+      '{"approved":true,"reviewNote":"冒烟认领2审批通过"}'
+    if [ "$LAST_STATUS" = "200" ]; then
+      # 非认领人完成：管理员也必须是 403（"完成"是认领人确认交付）
+      request POST "/api/v1/assets/claims/${CLAIM2_ID}/complete" "$ADMIN_TOKEN"
+      judge "claim/非本人完成-403" 403 '' "管理员不是认领人"
+
+      # 管理层强制放弃
+      if [ -n "$LEADER_TOKEN" ]; then
+        request POST "/api/v1/assets/claims/${CLAIM2_ID}/abandon?note=%E5%86%92%E7%83%9F%E5%BC%BA%E5%88%B6%E6%94%BE%E5%BC%83" "$LEADER_TOKEN"
+        judge "claim/管理层强制放弃" 200 '"success"[[:space:]]*:[[:space:]]*true' "POST /assets/claims/{id}/abandon（组长）"
+      else
+        skip "claim/管理层强制放弃" "-" "缺少组长 token"
+      fi
+    else
+      skip "claim/非本人完成-403" "$LAST_STATUS" "第二条认领审批未成功"
+      skip "claim/管理层强制放弃" "$LAST_STATUS" "第二条认领审批未成功"
+    fi
+  else
+    skip "claim/非本人完成-403" "-" "未取到第二条认领 ID"
+    skip "claim/管理层强制放弃" "-" "未取到第二条认领 ID"
+  fi
+
+  # 未登录读「我的认领」：不得退化为全量查询（t39 连带修复）。
+  # 本系统未配置 AuthenticationEntryPoint，Spring Security 对匿名请求统一回 403（与 /assets 等一致）；
+  # 控制器内的 401 分支只在「已认证但解析不到用户」时触发，故此处接受 401/403，关键是不返回全量。
+  request GET '/api/v1/assets/my/claims?page=0&size=10' ""
+  case "$LAST_STATUS" in
+    401 | 403) pass "claim/未登录读我的认领-401/403" "$LAST_STATUS" "未认证被拒绝，未返回全量认领" ;;
+    200) fail "claim/未登录读我的认领-401/403" "200" "未认证却返回 200，可能泄漏全量认领 ｜ $(snippet)" ;;
+    *) fail "claim/未登录读我的认领-401/403" "$LAST_STATUS" "期望 401/403 ｜ $(snippet)" ;;
+  esac
+fi
+
+# ----------------------------------------------------------------------------- 鉴权收紧（t40）
+# 工程师：团队/环境/公告的写操作 403；对应的查询接口保持 200（避免前端白屏）。
+if [ -n "$ENGINEER_TOKEN" ]; then
+  api_json POST '/api/v1/teams' "$ENGINEER_TOKEN" \
+    "{\"name\":\"冒烟越权团队 ${TAG}\",\"description\":\"应被拒绝\",\"leaderId\":\"${ADMIN_ID}\",\"createdBy\":\"${ADMIN_ID}\"}"
+  judge "authz/工程师建团队-403" 403 '' "POST /teams 需 ADMIN/PROJECT_LEADER"
+
+  request DELETE "/api/v1/teams/00000000-0000-0000-0000-0000000000aa" "$ENGINEER_TOKEN"
+  judge "authz/工程师删团队-403" 403 '' "DELETE /teams/{id} 需角色门槛"
+
+  api_json POST '/api/v1/environments' "$ENGINEER_TOKEN" \
+    "{\"name\":\"冒烟越权环境 ${TAG}\",\"assetId\":\"${ASSET_ID}\",\"templateId\":\"00000000-0000-0000-0000-000000000001\",\"config\":\"{}\"}"
+  judge "authz/工程师建环境-403" 403 '' "POST /environments 需管理层"
+
+  api_json POST '/api/v1/notifications/announcements' "$ENGINEER_TOKEN" \
+    "{\"title\":\"冒烟越权公告 ${TAG}\",\"content\":\"应被拒绝\",\"priority\":\"normal\"}"
+  judge "authz/工程师发公告-403" 403 '' "POST /announcements 需 ADMIN/PROJECT_LEADER"
+
+  request GET '/api/v1/teams?page=0&size=5' "$ENGINEER_TOKEN"
+  judge "authz/工程师读团队列表-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "查询保持开放"
+
+  request GET '/api/v1/environments?page=0&size=5' "$ENGINEER_TOKEN"
+  judge "authz/工程师读环境列表-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "查询保持开放"
+
+  request GET '/api/v1/notifications/announcements?page=0&size=5' "$ENGINEER_TOKEN"
+  judge "authz/工程师读公告列表-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "查询保持开放"
+fi
+
 # ----------------------------------------------------------------------------- 漏洞
 
 if need "vuln/创建-201" "$ADMIN_TOKEN" "缺少 admin token"; then
@@ -682,6 +776,13 @@ if need "notify/公告-创建" "$ADMIN_TOKEN" "缺少 admin token"; then
 
   request GET '/api/v1/notifications/announcements/active' "$ADMIN_TOKEN"
   judge "notify/活跃公告" 200 '"success"[[:space:]]*:[[:space:]]*true' "GET /notifications/announcements/active"
+
+  # t40 修复：不传 publishedAt 时服务端补 now（此前因 NOT NULL 直接 500）
+  api_json POST '/api/v1/notifications/announcements' "$ADMIN_TOKEN" \
+    "{\"title\":\"冒烟公告-无发布时间 ${TAG}\",\"content\":\"不传 publishedAt\",\"priority\":\"normal\"}"
+  judge_ok "notify/公告-创建-不传publishedAt" '"id"' "服务端补 publishedAt=now（t40）"
+  ANNOUNCEMENT_ID2="$(jfirst id)"
+  [ -n "$ANNOUNCEMENT_ID2" ] && request DELETE "/api/v1/notifications/announcements/${ANNOUNCEMENT_ID2}" "$ADMIN_TOKEN" >/dev/null 2>&1
 fi
 
 # ----------------------------------------------------------------------------- 导入
@@ -799,9 +900,14 @@ if [ -n "$ENV_ID" ]; then
 
   request GET "/api/v1/environments/${ENV_ID}" "$ADMIN_TOKEN"
   judge "env/详情(含部署器信息)" 200 "\"id\"[[:space:]]*:[[:space:]]*\"${ENV_ID}\"" "GET /environments/{id}"
+
+  # t40 提示：snapshots 缺 name 会先 400（参数绑定早于方法级守卫），用于确认参数校验生效
+  api_json POST "/api/v1/environments/${ENV_ID}/snapshots" "$ADMIN_TOKEN" '{"description":"冒烟无 name"}'
+  judge "env/快照-缺name-400" 400 '' "POST /environments/{id}/snapshots（缺 name）"
 else
   skip "env/部署-无Docker应503" "-" "环境创建未成功，跳过"
   skip "env/详情(含部署器信息)" "-" "环境创建未成功，跳过"
+  skip "env/快照-缺name-400" "-" "环境创建未成功，跳过"
 fi
 
 # ----------------------------------------------------------------------------- RBAC
