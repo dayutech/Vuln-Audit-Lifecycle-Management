@@ -33,8 +33,8 @@ import {
 } from '@/api/team';
 import { getMyAccessProfile, type MyAccessProfile } from '@/api/permission';
 import type { TeamVO } from '@/types/team';
-import { getUserList } from '@/api/user';
-import type { UserVO } from '@/types/user';
+import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
+import type { UserDirectoryEntry } from '@/api/user';
 import { useUserStore } from '@/store/userStore';
 import { describeTeamWriteFailure, isFormValidationError, resolveTeamWriteAccess } from './teamAccess';
 
@@ -55,13 +55,13 @@ interface TeamMemberRow {
 
 const getPayload = (res: unknown) => ((res as any)?.data ?? res);
 
-const userName = (user?: UserVO | null) =>
-  user ? (user.full_name || (user as any).fullName || user.username) : '';
+const userName = (user?: UserDirectoryEntry | null) =>
+  user ? (user.fullName || user.username) : '';
 
 const Teams: React.FC = () => {
   const storeUser = useUserStore((state) => state.user);
   const [teams, setTeams] = useState<TeamVO[]>([]);
-  const [users, setUsers] = useState<UserVO[]>([]);
+  const [users, setUsers] = useState<UserDirectoryEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [memberIds, setMemberIds] = useState<string[]>([]);
@@ -77,7 +77,7 @@ const Teams: React.FC = () => {
   const [memberSubmitting, setMemberSubmitting] = useState(false);
 
   const userMap = useMemo(() => {
-    const map = new Map<string, UserVO>();
+    const map = new Map<string, UserDirectoryEntry>();
     users.forEach((user) => map.set(user.id, user));
     return map;
   }, [users]);
@@ -148,9 +148,8 @@ const Teams: React.FC = () => {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const res = await getUserList({ page: 1, page_size: 200 });
-        const payload = getPayload(res);
-        setUsers(payload?.content || payload?.items || []);
+        const list = await getUserDirectory({ limit: USER_DIRECTORY_DEFAULT_LIMIT });
+        setUsers(list);
       } catch (error) {
         setUsers([]);
       }

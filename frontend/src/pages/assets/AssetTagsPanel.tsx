@@ -4,13 +4,13 @@ import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { addAssetTag, deleteAssetTag, getAssetTags } from '@/api/asset';
 import type { AssetTagVO } from '@/types/asset';
-import { getUserList } from '@/api/user';
-import type { UserVO } from '@/types/user';
+import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
+import type { UserDirectoryEntry } from '@/api/user';
 
 const getPayload = (res: unknown) => ((res as any)?.data ?? res);
 
-const userName = (user?: UserVO | null) =>
-  user ? (user.full_name || (user as any).fullName || user.username) : '';
+const userName = (user?: UserDirectoryEntry | null) =>
+  user ? (user.fullName || user.username) : '';
 
 interface AssetTagsPanelProps {
   assetId: string;
@@ -25,7 +25,7 @@ const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId }) => {
   const [loading, setLoading] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [users, setUsers] = useState<UserVO[]>([]);
+  const [users, setUsers] = useState<UserDirectoryEntry[]>([]);
 
   const userMap = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
 
@@ -52,9 +52,9 @@ const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId }) => {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const res = await getUserList({ page: 1, page_size: 200 });
-        const payload = getPayload(res);
-        setUsers(payload?.content || payload?.items || []);
+        // 标签创建人展示走用户目录（工程师也可读），不再请求 GET /users
+        const list = await getUserDirectory({ limit: USER_DIRECTORY_DEFAULT_LIMIT });
+        setUsers(list);
       } catch (error) {
         setUsers([]);
       }

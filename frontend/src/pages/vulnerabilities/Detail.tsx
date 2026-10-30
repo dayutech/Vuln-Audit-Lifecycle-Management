@@ -55,7 +55,8 @@ import {
   updateWorkflowStatus,
   uploadVulnerabilityAttachment,
 } from '@/api/vulnerability';
-import { getUserList } from '@/api/user';
+import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
+import type { UserDirectoryEntry } from '@/api/user';
 import { getApiErrorMessage, getApiErrorStatus, getBlobErrorMessage } from '@/utils/errorMessage';
 import { saveBlobAsFile } from '@/utils/download';
 import type {
@@ -64,7 +65,6 @@ import type {
   VulnerabilityTagVO,
   VulnerabilityVO,
 } from '@/types/vulnerability';
-import type { UserVO } from '@/types/user';
 import {
   EXPLOIT_STAGE_OPTIONS,
   HISTORY_STATUS_TYPES,
@@ -152,7 +152,7 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
   const [attachmentLoading, setAttachmentLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
 
-  const [users, setUsers] = useState<UserVO[]>([]);
+  const [users, setUsers] = useState<UserDirectoryEntry[]>([]);
 
   const [activeTab, setActiveTab] = useState('overview');
   const [action, setAction] = useState<ActionState | null>(null);
@@ -223,9 +223,9 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const res = await getUserList({ page: 1, page_size: 200 });
-        const payload = getPayload<any>(res);
-        setUsers(payload?.content || payload?.items || []);
+        // 人员名映射走用户目录（工程师可读）
+        const list = await getUserDirectory({ limit: USER_DIRECTORY_DEFAULT_LIMIT });
+        setUsers(list);
       } catch (error) {
         setUsers([]);
       }
@@ -236,7 +236,7 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
   const userNames = useMemo(() => {
     const map = new Map<string, string>();
     users.forEach((user) => {
-      map.set(user.id, user.full_name || user.username || user.id);
+      map.set(user.id, user.fullName || user.username || user.id);
     });
     return map;
   }, [users]);
@@ -634,7 +634,7 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
               showSearch
               optionFilterProp="label"
               placeholder="请选择处理人"
-              options={users.map((user) => ({ value: user.id, label: user.full_name || user.username }))}
+              options={users.map((user) => ({ value: user.id, label: user.fullName || user.username }))}
             />
           </Form.Item>
         );

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Tabs, Card, Button, Descriptions, Tag, Spin, Result, Form, Input, Select, Row, Col, Space, Upload, Table, message, Modal, Tooltip, Steps, Alert, Typography } from 'antd';
 import { AppstoreOutlined, BuildOutlined, FileZipOutlined, BugOutlined, SafetyCertificateOutlined, UploadOutlined, PlusOutlined, MinusCircleOutlined, UserOutlined, LockOutlined, TagOutlined, PlusCircleOutlined, CodeOutlined, SettingOutlined, NodeIndexOutlined, LinkOutlined, InfoCircleOutlined, PlayCircleOutlined, StopOutlined, CloudUploadOutlined, ReloadOutlined } from '@ant-design/icons';
@@ -46,9 +46,10 @@ import {
   type MyAccessProfile,
 } from '@/api/permission';
 import { getTaskList, createTask, updateTask, updateTaskStatus, deleteTask } from '@/api/task';
-import { getUserList } from '@/api/user';
+import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT, USER_DIRECTORY_LIMIT_HINT, mergeUserDirectory } from '@/api/user';
+import type { UserDirectoryEntry } from '@/api/user';
 import type { AssetVO, AssetFileVO, AssetDeliverableVO, EnvironmentVO, AssetVersionVO, AssetAccessVO, AssetClaimVO } from '@/types/asset';
-import type { UserVO } from '@/types/user';
+
 import AssetTagsPanel from './AssetTagsPanel';
 
 const { TabPane } = Tabs;
@@ -255,7 +256,18 @@ const AssetDetail: React.FC = () => {
   const [taskForm] = Form.useForm();
   const [taskMode, setTaskMode] = useState<'create' | 'edit'>('create');
   const [currentTaskId, setCurrentTaskId] = useState<string>('');
-  const [taskUsers, setTaskUsers] = useState<UserVO[]>([]);
+  const [taskUsers, setTaskUsers] = useState<UserDirectoryEntry[]>([]);
+  /** 责任人下拉改成后端搜索（keyword 走 /users/directory） */
+  const [userDirectoryLimitHit, setUserDirectoryLimitHit] = useState(false);
+  const userSearchTimer = useRef<number | undefined>(undefined);
+  const handleUserSearch = (keyword: string) => {
+    if (userSearchTimer.current) window.clearTimeout(userSearchTimer.current);
+    userSearchTimer.current = window.setTimeout(async () => {
+      const list = await getUserDirectory({ keyword, limit: USER_DIRECTORY_DEFAULT_LIMIT });
+      setTaskUsers((prev) => mergeUserDirectory(prev, list));
+      setUserDirectoryLimitHit(list.length >= USER_DIRECTORY_DEFAULT_LIMIT);
+    }, 300);
+  };
   const [taskStatusUpdatingId, setTaskStatusUpdatingId] = useState<string | null>(null);
 
   const normalizeAsset = (item: AssetVO): AssetVO => ({
@@ -701,10 +713,9 @@ const AssetDetail: React.FC = () => {
 
   const loadTaskUsers = async () => {
     try {
-      const res: any = await getUserList({ page: 1, page_size: 200 });
-      const data = res?.data ? res.data : res;
-      const sourceList = Array.isArray(data?.items) ? data.items : Array.isArray(data?.content) ? data.content : Array.isArray(data) ? data : [];
-      setTaskUsers(sourceList);
+      // 任务负责人/协作者下拉走用户目录（GET /users/directory），不再请求受限的 GET /users
+      const list = await getUserDirectory({ limit: USER_DIRECTORY_DEFAULT_LIMIT });
+      setTaskUsers(list);
     } catch (error) {
       console.error(error);
       setTaskUsers([]);
@@ -2493,8 +2504,8 @@ const AssetDetail: React.FC = () => {
             </Form.Item>
           )}
           {taskMode === 'create' && (
-            <Form.Item name="assignee_id" label="责任人">
-              <Select placeholder="不选择则默认为创建者" allowClear showSearch optionFilterProp="children">
+            <Form.Item name="assignee_id" label="责任人" extra={userDirectoryLimitHit ? USER_DIRECTORY_LIMIT_HINT : undefined}>
+              <Select placeholder="不选择则默认为创建者" allowClear showSearch optionFilterProp="children" onSearch={handleUserSearch} filterOption={false}>
                 {taskUsers.map((item) => (
                   <Option key={item.id} value={item.id}>{item.username}</Option>
                 ))}

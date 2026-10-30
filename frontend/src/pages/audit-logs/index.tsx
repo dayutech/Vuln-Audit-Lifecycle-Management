@@ -25,7 +25,7 @@ import type { ColumnsType } from 'antd/es/table';
 import type { Dayjs } from 'dayjs';
 import { exportAuditLogs, getAuditLogDetail, getAuditLogList } from '@/api/audit';
 import { getMyAccessProfile, isManagementProfile, type MyAccessProfile } from '@/api/permission';
-import { getUserList } from '@/api/user';
+import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
 import type { AuditLogQuery, AuditLogVO } from '@/types/audit';
 import { AUDIT_ACTION_HINT, AUDIT_RESOURCE_TYPE_OPTIONS } from '@/types/audit';
 import { formatDateTime } from '@/utils/datetime';
@@ -93,22 +93,16 @@ const AuditLogs: React.FC = () => {
 
   const loadUserNameMap = useCallback(async () => {
     try {
-      const res: any = await getUserList({ page: 1, page_size: 200 });
-      const list: any[] = Array.isArray(res?.data?.content)
-        ? res.data.content
-        : Array.isArray(res?.data?.items)
-          ? res.data.items
-          : Array.isArray(res?.content)
-            ? res.content
-            : [];
+      // 用户目录（仅 id/username/fullName）：工程师也可读，避免 GET /users 的 403
+      const list = await getUserDirectory({ limit: USER_DIRECTORY_DEFAULT_LIMIT });
       const map: Record<string, string> = {};
       list.forEach((user) => {
         if (!user?.id) return;
-        map[String(user.id)] = user.fullName || user.full_name || user.username || String(user.id);
+        map[String(user.id)] = user.fullName || user.username || String(user.id);
       });
       setUserNames(map);
     } catch {
-      // 拿不到用户列表时退回展示用户 ID，不影响审计日志本身
+      // 拿不到用户目录时退回展示用户 ID，不影响审计日志本身
       setUserNames({});
     }
   }, []);

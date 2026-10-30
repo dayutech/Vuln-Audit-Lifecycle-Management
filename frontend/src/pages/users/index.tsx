@@ -67,6 +67,11 @@ const Users: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [keyword, setKeyword] = useState('');
   const [params, setParams] = useState({ page: 1, page_size: 10, search: '' });
+  /**
+   * 403 可读提示：t45 起 GET /users 仅 admin / project_leader 可用。
+   * 菜单入口已对非管理层隐藏，这里再兜住「直接输 URL / 权限画像未返回时已进入页面」的情况。
+   */
+  const [accessDenied, setAccessDenied] = useState<string | null>(null);
 
   // 用户新增/编辑
   const [isModalVisible, setIsModalVisible] = useState(false);
@@ -106,8 +111,14 @@ const Users: React.FC = () => {
       const items = payload.content || payload.items || [];
       setData(items);
       setTotal(payload.totalElements || payload.total || 0);
-    } catch {
-      // 拦截器已提示
+      setAccessDenied(null);
+    } catch (error) {
+      // 403 不是「加载失败」，而是该账号无权查看用户管理：给可读提示而不是空表格
+      if (getApiErrorStatus(error) === 403) {
+        setAccessDenied(
+          getApiErrorMessage(error, '账号管理仅管理员 / 项目负责人可用，当前账号无权查看用户列表'),
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -377,6 +388,27 @@ const Users: React.FC = () => {
       ),
     },
   ];
+
+  if (accessDenied) {
+    return (
+      <Card title="账号管理">
+        <Alert
+          type="warning"
+          showIcon
+          message="当前账号无权查看用户管理"
+          description={
+            <div>
+              <p style={{ marginBottom: 8 }}>{accessDenied}</p>
+              <p style={{ margin: 0 }}>
+                账号管理（含用户列表、角色分配、重置密码）仅对管理员 / 项目负责人开放；
+                人员下拉与作者名展示请使用其他页面的用户目录数据。
+              </p>
+            </div>
+          }
+        />
+      </Card>
+    );
+  }
 
   return (
     <Card

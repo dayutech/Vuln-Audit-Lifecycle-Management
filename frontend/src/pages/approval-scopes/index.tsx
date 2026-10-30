@@ -28,10 +28,10 @@ import {
 import type { ApprovalScopeVO } from '@/api/approvalScope';
 import { getAllTeams } from '@/api/team';
 import { getAssetList, getAssetOptions } from '@/api/asset';
-import { getUserList } from '@/api/user';
+import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
+import type { UserDirectoryEntry } from '@/api/user';
 import type { TeamVO } from '@/types/team';
 import type { AssetVO } from '@/types/asset';
-import type { UserVO } from '@/types/user';
 
 const getPayload = (res: unknown) => ((res as any)?.data ?? res);
 
@@ -47,15 +47,15 @@ const SCOPE_TYPE_META: Record<string, { label: string; color: string }> = {
   asset_category: { label: '资产类别', color: 'cyan' },
 };
 
-const userName = (user?: UserVO | null) =>
-  user ? (user.full_name || (user as any).fullName || user.username) : '';
+const userName = (user?: UserDirectoryEntry | null) =>
+  user ? (user.fullName || user.username) : '';
 
 const ApprovalScopes: React.FC = () => {
   const [scopes, setScopes] = useState<ApprovalScopeVO[]>([]);
   const [myScopes, setMyScopes] = useState<ApprovalScopeVO[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const [users, setUsers] = useState<UserVO[]>([]);
+  const [users, setUsers] = useState<UserDirectoryEntry[]>([]);
   const [teams, setTeams] = useState<TeamVO[]>([]);
   const [assets, setAssets] = useState<AssetVO[]>([]);
   const [assetCategories, setAssetCategories] = useState<string[]>([]);
@@ -66,7 +66,7 @@ const ApprovalScopes: React.FC = () => {
   const scopeType = Form.useWatch('scopeType', form);
 
   const userMap = useMemo(() => {
-    const map = new Map<string, UserVO>();
+    const map = new Map<string, UserDirectoryEntry>();
     users.forEach((user) => map.set(user.id, user));
     return map;
   }, [users]);
@@ -121,17 +121,16 @@ const ApprovalScopes: React.FC = () => {
   useEffect(() => {
     const fetchRefs = async () => {
       try {
-        const [userRes, teamRes, assetRes, optionRes] = await Promise.all([
-          getUserList({ page: 1, page_size: 200 }),
+        const [userList, teamRes, assetRes, optionRes] = await Promise.all([
+          getUserDirectory({ limit: USER_DIRECTORY_DEFAULT_LIMIT }),
           getAllTeams(),
           getAssetList({ page: 1, page_size: 200 }),
           getAssetOptions(),
         ]);
-        const userPayload = getPayload(userRes);
         const teamPayload = getPayload(teamRes);
         const assetPayload = getPayload(assetRes);
         const optionPayload = getPayload(optionRes) as { targetTypes?: Array<{ value: string }> } | undefined;
-        setUsers(userPayload?.content || userPayload?.items || []);
+        setUsers(userList);
         setTeams(Array.isArray(teamPayload) ? teamPayload : []);
         setAssets(assetPayload?.content || assetPayload?.items || []);
         setAssetCategories((optionPayload?.targetTypes ?? []).map((item) => String(item.value)));

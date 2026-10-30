@@ -42,7 +42,7 @@ import {
   uploadToolPackage,
   uploadToolVersion,
 } from '@/api/tool';
-import { getUserList } from '@/api/user';
+import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
 import type { ToolVO, ToolVersionVO } from '@/types/tool';
 import { formatDateTime } from '@/utils/datetime';
 import { saveBlobAsFile } from '@/utils/download';
@@ -135,18 +135,16 @@ const Tools: React.FC = () => {
     fetchData();
   }, [params.page, params.page_size, params.search]);
 
-  // 版本列表的「创建人」列：后端只返回 createdBy（UUID），这里一次性拉用户映射
+  // 版本列表的「创建人」列：后端只返回 createdBy（UUID），这里拉一次用户目录做映射
   useEffect(() => {
     let cancelled = false;
-    getUserList({ page: 1, page_size: 200 })
-      .then((res: any) => {
+    getUserDirectory({ limit: USER_DIRECTORY_DEFAULT_LIMIT })
+      .then((list) => {
         if (cancelled) return;
-        const payload = res?.data ?? res ?? {};
-        const items = payload.content || payload.items || [];
         const map: Record<string, string> = {};
-        items.forEach((user: any) => {
+        list.forEach((user) => {
           if (user?.id) {
-            map[user.id] = user.fullName || user.full_name || user.username || user.id;
+            map[user.id] = user.fullName || user.username || user.id;
           }
         });
         setUserNames(map);

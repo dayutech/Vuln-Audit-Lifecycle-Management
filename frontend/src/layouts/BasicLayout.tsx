@@ -120,7 +120,10 @@ const BasicLayout: React.FC = () => {
       children: [
         { key: '/teams', icon: <TeamOutlined />, label: '团队架构' },
         { key: '/approval-scopes', icon: <AuditOutlined />, label: '审批范围' },
-        { key: '/users', icon: <UserOutlined />, label: '账号管理' },
+        // 账号管理仅管理层可见（t45：GET /users 收紧为 admin / project_leader）
+        ...(managerEligible === false
+          ? []
+          : [{ key: '/users', icon: <UserOutlined />, label: '账号管理' }]),
         { key: '/roles', icon: <SettingOutlined />, label: '角色与权限' },
         // 审计日志仅管理层可见（后端 @PreAuthorize 限 admin / project_leader）
         ...(managerEligible === false

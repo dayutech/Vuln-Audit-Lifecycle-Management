@@ -42,7 +42,7 @@ import {
   removeKnowledgeTag,
   searchKnowledge,
 } from '@/api/knowledge';
-import { getUserList } from '@/api/user';
+import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
 import type { CreateKnowledgeRequest, KnowledgeArticleVO } from '@/types/knowledge';
 import { formatDateTime } from '@/utils/datetime';
 import { useUserStore } from '@/store/userStore';
@@ -193,13 +193,12 @@ const Knowledge: React.FC = () => {
 
   const fetchAuthors = async () => {
     try {
-      const res: any = await getUserList({ page: 1, page_size: 200 });
-      const payload = res?.data ?? res ?? {};
-      const items = payload.content || payload.items || [];
+      // 作者名只取自用户目录（id/username/fullName）；工程师可读，不会 403
+      const list = await getUserDirectory({ limit: USER_DIRECTORY_DEFAULT_LIMIT });
       const map: Record<string, string> = {};
-      items.forEach((user: any) => {
+      list.forEach((user) => {
         if (user?.id) {
-          map[user.id] = user.fullName || user.full_name || user.username || user.id;
+          map[user.id] = user.fullName || user.username || user.id;
         }
       });
       setAuthorNames(map);

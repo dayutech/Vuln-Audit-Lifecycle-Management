@@ -19,7 +19,79 @@ export const getUserList = (params: PaginationParams & { role?: string, team_id?
       role: params.role,
       teamId: params.team_id,
     },
+    // 账号管理页（admin/project_leader）使用；其他页面请用 getUserDirectory
   });
+};
+
+// ==================== 用户目录（最小暴露，t45/t48） ====================
+
+/**
+ * 用户目录条目：后端 `UserDirectoryEntry`。
+ *
+ * 只有 id / username / fullName —— 不含 email、phone、status、roles、lastLoginAt。
+ * 页面展示必须只用这三个字段（不要再读 email/phone 做 tooltip）。
+ */
+export interface UserDirectoryEntry {
+  id: string;
+  username: string;
+  /** 显示名，可能为空（回落到 username） */
+  fullName?: string;
+}
+
+/** 目录默认返回上限（与后端一致）；达到上限说明可能被截断，应提示用户输入关键字 */
+export const USER_DIRECTORY_DEFAULT_LIMIT = 200;
+
+/** 达到上限时的提示文案 */
+export const USER_DIRECTORY_LIMIT_HINT = '仅显示前 200 人，输入关键字继续搜索';
+
+/**
+ * 查询用户目录：`GET /users/directory`
+ *
+ * - 仅需登录（工程师/团队长都可用），是人员下拉、审批人展示、作者名等场景的**唯一数据源**；
+ * - `keyword` 走后端参数（匹配 username/fullName），不要前端全量拉取再过滤；
+ * - `limit` 默认 200、后端上限 500；
+ * - silent：调用方自己决定失败时的降级（下拉为空、作者名回落 ID），避免满屏报错。
+ */
+export const getUserDirectory = async (params?: {
+  keyword?: string;
+  limit?: number;
+}): Promise<UserDirectoryEntry[]> => {
+  const res: any = await request.get('/users/directory', {
+    params: {
+      keyword: params?.keyword?.trim() ? params.keyword.trim() : undefined,
+      limit: params?.limit ?? USER_DIRECTORY_DEFAULT_LIMIT,
+    },
+    silent: true,
+  });
+  return extractUserDirectory(res);
+};
+
+/** 解包目录响应（ApiResponse<List> / 裸数组 都兼容） */
+export const extractUserDirectory = (res: unknown): UserDirectoryEntry[] => {
+  const payload = (res as any)?.data ?? res;
+  const list = Array.isArray(payload) ? payload : Array.isArray(payload?.content) ? payload.content : [];
+  return list
+    .map((item: any) => ({
+      id: String(item?.id ?? ''),
+      username: String(item?.username ?? ''),
+      fullName: item?.fullName ?? item?.full_name ?? undefined,
+    }))
+    .filter((item: UserDirectoryEntry) => Boolean(item.id));
+};
+
+/** 目录条目的展示名：fullName 优先，回落 username */
+export const userDirectoryLabel = (user?: UserDirectoryEntry | null): string =>
+  user?.fullName || user?.username || '';
+
+/** 按 id 合并目录条目（下拉远程搜索时保留已选项，避免已选人员显示成 ID） */
+export const mergeUserDirectory = (
+  current: UserDirectoryEntry[],
+  incoming: UserDirectoryEntry[],
+): UserDirectoryEntry[] => {
+  const map = new Map<string, UserDirectoryEntry>();
+  current.forEach((item) => map.set(item.id, item));
+  incoming.forEach((item) => map.set(item.id, { ...map.get(item.id), ...item }));
+  return Array.from(map.values());
 };
 
 export const getUserDetail = (id: string): Promise<UserVO> => {

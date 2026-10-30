@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -33,8 +33,8 @@ import {
 import type { CreateVulnerabilityRequest, VulnerabilityVO } from '@/types/vulnerability';
 import { getAssetList, getAssetVersions } from '@/api/asset';
 import type { AssetVersionVO, AssetVO } from '@/types/asset';
-import { getUserList } from '@/api/user';
-import type { UserVO } from '@/types/user';
+import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT, USER_DIRECTORY_LIMIT_HINT, mergeUserDirectory } from '@/api/user';
+import type { UserDirectoryEntry } from '@/api/user';
 import VulnerabilityDetail from './Detail';
 import {
   collectUnexpectedFieldDiffs,
@@ -105,7 +105,18 @@ const Vulnerabilities: React.FC = () => {
   const [assets, setAssets] = useState<AssetVO[]>([]);
   const [assetVersions, setAssetVersions] = useState<AssetVersionVO[]>([]);
   const [createAssetVersions, setCreateAssetVersions] = useState<AssetVersionVO[]>([]);
-  const [users, setUsers] = useState<UserVO[]>([]);
+  const [users, setUsers] = useState<UserDirectoryEntry[]>([]);
+  /** 处理人下拉改成后端搜索（keyword 走 /users/directory） */
+  const [userDirectoryLimitHit, setUserDirectoryLimitHit] = useState(false);
+  const userSearchTimer = useRef<number | undefined>(undefined);
+  const handleUserSearch = (keyword: string) => {
+    if (userSearchTimer.current) window.clearTimeout(userSearchTimer.current);
+    userSearchTimer.current = window.setTimeout(async () => {
+      const list = await getUserDirectory({ keyword, limit: USER_DIRECTORY_DEFAULT_LIMIT });
+      setUsers((prev) => mergeUserDirectory(prev, list));
+      setUserDirectoryLimitHit(list.length >= USER_DIRECTORY_DEFAULT_LIMIT);
+    }, 300);
+  };
   const [editPageSubmitting, setEditPageSubmitting] = useState(false);
   /** 当前账号权限画像：用于在「提交漏洞」表单里对非本人资产给出即时提示（t27 创建守卫） */
   const [profile, setProfile] = useState<MyAccessProfile | null>(null);
@@ -204,9 +215,9 @@ const Vulnerabilities: React.FC = () => {
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const res = await getUserList({ page: 1, page_size: 200 });
-        const payload = getPayload(res);
-        setUsers(payload?.content || payload?.items || []);
+        // 发现者/处理人下拉走用户目录（工程师可读）
+        const list = await getUserDirectory({ limit: USER_DIRECTORY_DEFAULT_LIMIT });
+        setUsers(list);
       } catch (error) {
         setUsers([]);
       }
@@ -577,15 +588,17 @@ const Vulnerabilities: React.FC = () => {
                       </Form.Item>
                     </Col>
                     <Col span={12}>
-                      <Form.Item name="assigned_to" label="指派处理人">
+                      <Form.Item name="assigned_to" label="指派处理人" extra={userDirectoryLimitHit ? USER_DIRECTORY_LIMIT_HINT : undefined}>
                         <Select
                           allowClear
                           showSearch
+                          onSearch={handleUserSearch}
+                          filterOption={false}
                           optionFilterProp="label"
                           placeholder="请选择处理人"
                           options={users.map((user) => ({
                             value: user.id,
-                            label: user.full_name || user.username,
+                            label: user.fullName || user.username,
                           }))}
                         />
                       </Form.Item>
@@ -844,13 +857,15 @@ const Vulnerabilities: React.FC = () => {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="assigned_to" label="指派处理人">
+              <Form.Item name="assigned_to" label="指派处理人" extra={userDirectoryLimitHit ? USER_DIRECTORY_LIMIT_HINT : undefined}>
                 <Select
                   allowClear
                   showSearch
+                  onSearch={handleUserSearch}
+                  filterOption={false}
                   optionFilterProp="label"
                   placeholder="请选择处理人"
-                  options={users.map((user) => ({ value: user.id, label: user.full_name || user.username }))}
+                  options={users.map((user) => ({ value: user.id, label: user.fullName || user.username }))}
                 />
               </Form.Item>
             </Col>

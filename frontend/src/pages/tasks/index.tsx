@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Table, Button, Space, Card, Tag, Modal, Form, Select, Input, DatePicker, InputNumber, message, Descriptions, Tabs, Progress, Steps, Upload, Row, Col, Tooltip, Spin } from 'antd';
 import { PlusOutlined, SearchOutlined, UploadOutlined, PlusCircleOutlined, MinusCircleOutlined, UserOutlined, LockOutlined, TagOutlined, CodeOutlined, SettingOutlined, NodeIndexOutlined, LinkOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import {
@@ -33,10 +33,10 @@ import {
   getAssetDeliverables,
   uploadAssetDeliverable,
 } from '@/api/asset';
-import { getUserList } from '@/api/user';
+import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT, USER_DIRECTORY_LIMIT_HINT, mergeUserDirectory } from '@/api/user';
 import { getDocumentList, getDocumentDetail, createDocument, updateDocument } from '@/api/document';
 import type { AssetVO, AssetVersionVO, AssetDeliverableVO } from '@/types/asset';
-import type { UserVO } from '@/types/user';
+import type { UserDirectoryEntry } from '@/api/user';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useUserStore } from '@/store/userStore';
@@ -270,7 +270,18 @@ const Tasks: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [params, setParams] = useState<{ page: number; page_size: number; search: string; status?: string }>({ page: 1, page_size: 10, search: '' });
-  const [users, setUsers] = useState<UserVO[]>([]);
+  const [users, setUsers] = useState<UserDirectoryEntry[]>([]);
+  /** 人员下拉改成后端搜索（keyword 走 /users/directory），达到 200 上限时提示继续输入 */
+  const [userDirectoryLimitHit, setUserDirectoryLimitHit] = useState(false);
+  const userSearchTimer = useRef<number | undefined>(undefined);
+  const handleUserSearch = (keyword: string) => {
+    if (userSearchTimer.current) window.clearTimeout(userSearchTimer.current);
+    userSearchTimer.current = window.setTimeout(async () => {
+      const list = await getUserDirectory({ keyword, limit: USER_DIRECTORY_DEFAULT_LIMIT });
+      setUsers((prev) => mergeUserDirectory(prev, list));
+      setUserDirectoryLimitHit(list.length >= USER_DIRECTORY_DEFAULT_LIMIT);
+    }, 300);
+  };
   const [assets, setAssets] = useState<AssetVO[]>([]);
   const [assetVersions, setAssetVersions] = useState<AssetVersionVO[]>([]);
   const [taskComments, setTaskComments] = useState<TaskCommentVO[]>([]);
@@ -735,10 +746,9 @@ const Tasks: React.FC = () => {
 
   const fetchUsers = async () => {
     try {
-      const res = await getUserList({ page: 1, page_size: 200 });
-      const payload = (res as any)?.data || res;
-      const items = payload.content || payload.items || [];
-      setUsers(Array.isArray(items) ? items : []);
+      // 人员下拉统一走用户目录（GET /users/directory，工程师也可读）
+      const list = await getUserDirectory({ limit: USER_DIRECTORY_DEFAULT_LIMIT });
+      setUsers(list);
     } catch (error) {
       setUsers([]);
     }
@@ -1344,8 +1354,8 @@ const Tasks: React.FC = () => {
         destroyOnClose
       >
         <Form form={assignForm} layout="vertical">
-          <Form.Item name="assignee_id" label="指派给" rules={[{ required: true, message: '请选择指派用户' }]}>
-            <Select placeholder="请选择用户" showSearch optionFilterProp="children">
+          <Form.Item name="assignee_id" label="指派给" rules={[{ required: true, message: '请选择指派用户' }]} extra={userDirectoryLimitHit ? USER_DIRECTORY_LIMIT_HINT : undefined}>
+            <Select placeholder="请选择用户" showSearch optionFilterProp="children" onSearch={handleUserSearch} filterOption={false}>
               {users.map((item) => (
                 <Option key={item.id} value={item.id}>{item.username}</Option>
               ))}
@@ -2301,8 +2311,8 @@ const Tasks: React.FC = () => {
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="assignee_id" label="责任人">
-            <Select placeholder="不选择则默认为创建者" allowClear showSearch optionFilterProp="children">
+          <Form.Item name="assignee_id" label="责任人" extra={userDirectoryLimitHit ? USER_DIRECTORY_LIMIT_HINT : undefined}>
+            <Select placeholder="不选择则默认为创建者" allowClear showSearch optionFilterProp="children" onSearch={handleUserSearch} filterOption={false}>
               {users.map((item) => (
                 <Option key={item.id} value={item.id}>{item.username}</Option>
               ))}
@@ -2315,7 +2325,7 @@ const Tasks: React.FC = () => {
             <InputNumber min={0} precision={2} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="collaborator_ids" label="协作者">
-            <Select mode="multiple" allowClear showSearch optionFilterProp="children" placeholder="可选：协作者可记录审计进度">
+            <Select mode="multiple" allowClear showSearch optionFilterProp="children" placeholder="可选：协作者可记录审计进度" onSearch={handleUserSearch} filterOption={false}>
               {users.map((item) => (
                 <Option key={item.id} value={item.id}>{item.username}</Option>
               ))}
