@@ -12,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -32,7 +33,8 @@ public class TeamController {
     private final com.vulnaudit.security.CurrentUserProvider currentUserProvider;
 
     @PostMapping
-    @Operation(summary = "创建团队", description = "创建新的团队；createdBy 缺省时取当前登录用户")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
+    @Operation(summary = "创建团队", description = "创建新的团队（仅 admin/project_leader）；createdBy 缺省时取当前登录用户")
     public ResponseEntity<ApiResponse<Team>> createTeam(@Valid @RequestBody Team team) {
         log.info("创建团队: name={}", team.getName());
 
@@ -85,7 +87,8 @@ public class TeamController {
     }
 
     @PutMapping("/{id}")
-    @Operation(summary = "更新团队", description = "更新团队信息")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER') or @accessGuard.canManageTeam(#id, authentication)")
+    @Operation(summary = "更新团队", description = "更新团队信息（admin/project_leader，或该团队的团队长）")
     public ResponseEntity<ApiResponse<Team>> updateTeam(
             @PathVariable UUID id,
             @Valid @RequestBody Team team) {
@@ -97,7 +100,8 @@ public class TeamController {
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "删除团队", description = "删除团队")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER') and @accessGuard.canManageTeam(#id, authentication)")
+    @Operation(summary = "删除团队", description = "删除团队（仅 admin/project_leader，且需通过团队数据级守卫）")
     public ResponseEntity<ApiResponse<Void>> deleteTeam(@PathVariable UUID id) {
         log.info("删除团队: id={}", id);
         
@@ -135,7 +139,8 @@ public class TeamController {
     // ==================== 成员管理 ====================
 
     @PostMapping("/{id}/members")
-    @Operation(summary = "添加团队成员", description = "向团队添加成员")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER') or @accessGuard.canManageTeam(#id, authentication)")
+    @Operation(summary = "添加团队成员", description = "向团队添加成员（admin/project_leader，或该团队的团队长）")
     public ResponseEntity<ApiResponse<Void>> addMember(
             @PathVariable UUID id,
             @Parameter(description = "用户ID") @RequestParam UUID userId,
@@ -148,7 +153,8 @@ public class TeamController {
     }
 
     @DeleteMapping("/{id}/members/{userId}")
-    @Operation(summary = "移除团队成员", description = "从团队移除成员")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER') or @accessGuard.canManageTeam(#id, authentication)")
+    @Operation(summary = "移除团队成员", description = "从团队移除成员（admin/project_leader，或该团队的团队长）")
     public ResponseEntity<ApiResponse<Void>> removeMember(
             @PathVariable UUID id,
             @PathVariable UUID userId) {

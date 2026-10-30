@@ -310,6 +310,14 @@ public class NotificationServiceImpl implements NotificationService {
     @Transactional
     public SystemAnnouncement createAnnouncement(SystemAnnouncement announcement) {
         log.info("创建系统公告: title={}", announcement.getTitle());
+        // system_announcements.published_at 为 NOT NULL：未传时按「立即发布」补当前时间，
+        // 否则创建公告会直接 500（此前只有显式传 publishedAt 的调用方能用）
+        if (announcement.getPublishedAt() == null) {
+            announcement.setPublishedAt(LocalDateTime.now());
+        }
+        if (announcement.getPriority() == null || announcement.getPriority().isBlank()) {
+            announcement.setPriority("normal");
+        }
         return systemAnnouncementRepository.save(announcement);
     }
 

@@ -17,6 +17,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -206,6 +207,7 @@ public class NotificationController {
     }
 
     @PostMapping("/announcements")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
     @Operation(summary = "创建系统公告", description = "创建新的系统公告")
     public ResponseEntity<ApiResponse<SystemAnnouncement>> createAnnouncement(
             @RequestBody SystemAnnouncement announcement) {
@@ -218,6 +220,7 @@ public class NotificationController {
     }
 
     @PutMapping("/announcements/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
     @Operation(summary = "更新系统公告", description = "更新系统公告")
     public ResponseEntity<ApiResponse<SystemAnnouncement>> updateAnnouncement(
             @PathVariable UUID id,
@@ -230,6 +233,7 @@ public class NotificationController {
     }
 
     @DeleteMapping("/announcements/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
     @Operation(summary = "删除系统公告", description = "删除系统公告")
     public ResponseEntity<ApiResponse<Void>> deleteAnnouncement(@PathVariable UUID id) {
         log.info("删除系统公告: id={}", id);

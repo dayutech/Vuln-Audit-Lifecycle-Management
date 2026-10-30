@@ -206,6 +206,15 @@ public class AssetClaimServiceImpl implements AssetClaimService {
 
     /**
      * 完成认领
+     *
+     * <p>语义（t39 校正）：
+     * <ul>
+     *     <li>仅<b>认领人本人</b>可完成。SRS 4.4「资产认领」把完成动作定义为认领人确认交付结果，
+     *         管理层不代办完成（管理层的介入动作是「强制放弃」，见 {@link #abandonClaim}）；
+     *         因此这里不放行 admin/project_leader，宁可 403 也不做隐式授权。</li>
+     *     <li>状态必须为 {@code approved}（已批准但未完成），否则 400 {@code INVALID_STATUS}；</li>
+     *     <li>认领记录不存在 → 404；非认领人 → 403。</li>
+     * </ul>
      */
     @Override
     @Transactional
@@ -222,16 +231,17 @@ public class AssetClaimServiceImpl implements AssetClaimService {
                     return new BusinessException(ErrorCode.ASSET_CLAIM_NOT_FOUND);
                 });
 
-        // 检查是否为认领人
-        if (!claim.getUserId().equals(userId)) {
-            log.warn("非认领人无法完成: id={}, userId={}", id, userId);
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+        // 检查是否为认领人（管理层不放行，见方法注释）
+        if (userId == null || !claim.getUserId().equals(userId)) {
+            log.warn("非认领人无法完成: id={}, userId={}, claimUserId={}", id, userId, claim.getUserId());
+            throw new BusinessException(ErrorCode.FORBIDDEN, "只有认领人本人可以完成认领");
         }
 
         // 检查是否为已批准状态
         if (!"approved".equals(claim.getStatus())) {
-            log.warn("认领申请未批准: id={}, status={}", id, claim.getStatus());
-            throw new BusinessException(ErrorCode.INVALID_STATUS);
+            log.warn("认领申请未批准，无法完成: id={}, status={}", id, claim.getStatus());
+            throw new BusinessException(ErrorCode.INVALID_STATUS,
+                    "仅 approved 状态可完成，当前状态: " + claim.getStatus());
         }
 
         claim.setStatus("completed");
@@ -243,6 +253,15 @@ public class AssetClaimServiceImpl implements AssetClaimService {
 
     /**
      * 放弃认领
+     *
+     * <p>语义（t39 校正）：
+     * <ul>
+     *     <li>认领人本人可放弃；</li>
+     *     <li>管理层（admin / project_leader / team_leader）可<b>强制放弃</b>，并把操作人记录到
+     *         {@code reviewed_by}/{@code reviewed_at}，同时在 {@code review_note} 追加操作人标记，
+     *         保证审计可追溯（实体无独立的 abandoned_by 列，复用评审字段是最近似语义）；</li>
+     *     <li>状态必须为 {@code approved}，否则 400；既非本人又非管理层 → 403；记录不存在 → 404。</li>
+     * </ul>
      */
     @Override
     @Transactional
@@ -259,23 +278,43 @@ public class AssetClaimServiceImpl implements AssetClaimService {
                     return new BusinessException(ErrorCode.ASSET_CLAIM_NOT_FOUND);
                 });
 
-        // 检查是否为认领人
-        if (!claim.getUserId().equals(userId)) {
-            log.warn("非认领人无法放弃: id={}, userId={}", id, userId);
-            throw new BusinessException(ErrorCode.FORBIDDEN);
+        boolean isOwner = userId != null && claim.getUserId().equals(userId);
+        boolean isManagement = userId != null && isManagementRole(userId);
+
+        if (!isOwner && !isManagement) {
+            log.warn("无权放弃该认领: id={}, userId={}, claimUserId={}", id, userId, claim.getUserId());
+            throw new BusinessException(ErrorCode.FORBIDDEN, "只有认领人或管理层可以放弃认领");
         }
 
         // 检查是否为已批准状态
         if (!"approved".equals(claim.getStatus())) {
-            log.warn("认领申请未批准: id={}, status={}", id, claim.getStatus());
-            throw new BusinessException(ErrorCode.INVALID_STATUS);
+            log.warn("认领申请未批准，无法放弃: id={}, status={}", id, claim.getStatus());
+            throw new BusinessException(ErrorCode.INVALID_STATUS,
+                    "仅 approved 状态可放弃，当前状态: " + claim.getStatus());
         }
 
         claim.setStatus("abandoned");
-        claim.setReviewNote(note);
+        if (isOwner) {
+            claim.setReviewNote(note);
+        } else {
+            // 强制放弃：记录操作人，便于审计追溯
+            String operatorNote = "强制放弃 by " + userId + (note == null || note.isBlank() ? "" : "：" + note);
+            claim.setReviewNote(operatorNote);
+            claim.setReviewedBy(userId);
+            claim.setReviewedAt(LocalDateTime.now());
+        }
         assetClaimRepository.save(claim);
 
-        log.info("认领已放弃: id={}", id);
+        log.info("认领已放弃: id={}, forced={}", id, !isOwner);
+    }
+
+    /**
+     * 是否管理层角色（admin / project_leader / team_leader）
+     */
+    private boolean isManagementRole(UUID userId) {
+        return approvalRoutingService.hasRole(userId, "admin")
+                || approvalRoutingService.hasRole(userId, "project_leader")
+                || approvalRoutingService.hasRole(userId, "team_leader");
     }
 
     /**

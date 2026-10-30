@@ -47,6 +47,7 @@ public class AssetController {
     private final AssetService assetService;
     private final AssetAccessService assetAccessService;
     private final AssetClaimService assetClaimService;
+    private final com.vulnaudit.security.CurrentUserProvider currentUserProvider;
     private final AssetTagRepository assetTagRepository;
     private final AssetHistoryRepository assetHistoryRepository;
     private final AssetRepository assetRepository;
@@ -297,8 +298,9 @@ public class AssetController {
 
         log.info("认领资产: assetId={}", id);
 
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UUID currentUserId = getCurrentUserId(authentication);
+        // 与 complete/abandon 一致：统一从 CurrentUserProvider 取操作者（缺失 401），
+        // 避免 userId=null 传到服务层 requireNonNull → 500
+        UUID currentUserId = currentUserProvider.requireCurrentUserId();
 
         AssetClaim claim = AssetClaim.builder()
                 .assetId(id)
@@ -342,23 +344,27 @@ public class AssetController {
     }
 
     @PostMapping("/claims/{claimId}/complete")
-    @Operation(summary = "完成认领", description = "标记认领为已完成")
+    @Operation(summary = "完成认领", description = "标记认领为已完成（仅认领人本人可执行）")
     public ResponseEntity<ApiResponse<Void>> completeClaim(@PathVariable UUID claimId) {
         log.info("完成认领: claimId={}", claimId);
-        
-        assetClaimService.completeClaim(claimId, null);
+
+        // 此前 userId 硬编码 null → 服务层「必须是认领人」校验必然失败，接口恒 403（状态机断链）。
+        // 统一走 CurrentUserProvider（缺失直接 401），不再新增第四处解析实现。
+        UUID currentUserId = currentUserProvider.requireCurrentUserId();
+        assetClaimService.completeClaim(claimId, currentUserId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
     @PostMapping("/claims/{claimId}/abandon")
-    @Operation(summary = "放弃认领", description = "放弃资产认领")
+    @Operation(summary = "放弃认领", description = "放弃资产认领；认领人本人或管理层（ADMIN/PROJECT_LEADER/TEAM_LEADER）可强制放弃")
     public ResponseEntity<ApiResponse<Void>> abandonClaim(
             @PathVariable UUID claimId,
             @Parameter(description = "放弃原因") @RequestParam(required = false) String note) {
-        
+
         log.info("放弃认领: claimId={}", claimId);
-        
-        assetClaimService.abandonClaim(claimId, null, note);
+
+        UUID currentUserId = currentUserProvider.requireCurrentUserId();
+        assetClaimService.abandonClaim(claimId, currentUserId, note);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
@@ -471,10 +477,10 @@ public class AssetController {
             @Parameter(description = "状态") @RequestParam(required = false) String status) {
         
         log.info("获取我的认领列表");
-        
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UUID currentUserId = getCurrentUserId(authentication);
-        
+
+        // 当前用户无法解析时返回 401：否则 userId=null 会让查询退化为「全部认领」，造成越权可见
+        UUID currentUserId = currentUserProvider.requireCurrentUserId();
+
         PageResponse<AssetClaim> result = assetClaimService.findAll(page, size, null, currentUserId, status);
         return ResponseEntity.ok(ApiResponse.success(result));
     }

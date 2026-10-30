@@ -103,6 +103,30 @@ public class AccessGuard {
     }
 
     /**
+     * 是否可管理指定团队（团队 CRUD / 成员增删的数据级守卫）
+     *
+     * <p>判定规则：
+     * <ul>
+     *   <li>admin / project_leader → 可管理任意团队；</li>
+     *   <li>team_leader → 仅可管理「自己领导」的团队（{@code teams.leader_id = 当前用户}）；</li>
+     *   <li>其它角色 / 团队ID为空 / 解析不到用户 → 一律拒绝（fail-closed）。</li>
+     * </ul>
+     *
+     * @param teamId         目标团队ID
+     * @param authentication 当前认证
+     * @return true 表示可管理
+     */
+    public boolean canManageTeam(UUID teamId, Authentication authentication) {
+        if (teamId == null) {
+            return false;
+        }
+        if (isGlobalReader(authentication)) {
+            return true;
+        }
+        return isLeaderOfTeam(authentication, teamId);
+    }
+
+    /**
      * 当前用户可见的资产 ID 集合。
      *
      * <p>用于列表类接口做范围过滤（漏洞、文档等以资产为归属的资源）。

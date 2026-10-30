@@ -17,6 +17,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
@@ -40,6 +41,7 @@ public class EnvironmentController {
     private final com.vulnaudit.security.CurrentUserProvider currentUserProvider;
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "创建环境", description = "创建新环境；createdBy 缺省时取当前登录用户")
     public ResponseEntity<ApiResponse<Environment>> createEnvironment(@RequestBody Environment environment) {
         log.info("创建环境: name={}", environment.getName());
@@ -97,6 +99,7 @@ public class EnvironmentController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "更新环境", description = "更新环境信息")
     public ResponseEntity<ApiResponse<Environment>> updateEnvironment(
             @PathVariable UUID id,
@@ -109,6 +112,7 @@ public class EnvironmentController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "删除环境", description = "删除环境")
     public ResponseEntity<ApiResponse<Void>> deleteEnvironment(@PathVariable UUID id) {
         log.info("删除环境: id={}", id);
@@ -118,6 +122,7 @@ public class EnvironmentController {
     }
 
     @PostMapping("/{id}/deploy")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "部署环境", description = "部署指定环境")
     public ResponseEntity<ApiResponse<Void>> deployEnvironment(@PathVariable UUID id) {
         log.info("部署环境: id={}", id);
@@ -126,6 +131,7 @@ public class EnvironmentController {
     }
 
     @PostMapping("/{id}/start")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "启动环境", description = "启动指定环境")
     public ResponseEntity<ApiResponse<Void>> startEnvironment(@PathVariable UUID id) {
         log.info("启动环境: id={}", id);
@@ -135,6 +141,7 @@ public class EnvironmentController {
     }
 
     @PostMapping("/{id}/stop")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "停止环境", description = "停止指定环境")
     public ResponseEntity<ApiResponse<Void>> stopEnvironment(@PathVariable UUID id) {
         log.info("停止环境: id={}", id);
@@ -144,6 +151,7 @@ public class EnvironmentController {
     }
 
     @PostMapping("/{id}/snapshots")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "创建快照", description = "为环境创建快照，created_by 记录真实当前用户")
     public ResponseEntity<ApiResponse<Void>> createSnapshot(
             @PathVariable UUID id,
@@ -168,6 +176,7 @@ public class EnvironmentController {
     }
 
     @PostMapping("/{id}/snapshots/{snapshotId}/rollback")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "回滚快照", description = "将环境回滚到指定快照")
     public ResponseEntity<ApiResponse<Void>> rollbackSnapshot(
             @PathVariable UUID id,

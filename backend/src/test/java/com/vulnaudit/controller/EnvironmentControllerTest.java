@@ -121,7 +121,7 @@ public class EnvironmentControllerTest extends BaseTest {
             String envJson = "{\"name\":\"新环境\",\"assetId\":\"" + testAssetId + "\",\"templateId\":\"" + testTemplateId + "\",\"config\":\"{}\",\"createdBy\":\"" + testUserId + "\"}";
 
             mockMvc.perform(post("/api/v1/environments")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", leaderToken)
                     .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(envJson))
                     .andExpect(status().isOk());
@@ -133,7 +133,7 @@ public class EnvironmentControllerTest extends BaseTest {
             String envJson = "{\"name\":\"默认版本环境\",\"assetId\":\"" + testAssetId + "\",\"templateId\":\"" + testTemplateId + "\",\"config\":\"{}\",\"createdBy\":\"" + testUserId + "\"}";
 
             mockMvc.perform(post("/api/v1/environments")
-                            .header("Authorization", engineerToken)
+                            .header("Authorization", leaderToken)
                             .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                             .content(envJson))
                     .andExpect(status().isOk())
@@ -151,7 +151,7 @@ public class EnvironmentControllerTest extends BaseTest {
             String envJson = "{\"name\":\"更新后的环境\",\"config\":\"{\\\"updated\\\":true}\"}";
 
             mockMvc.perform(put("/api/v1/environments/" + testEnvironment.getId())
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", leaderToken)
                     .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(envJson))
                     .andExpect(status().isOk());
@@ -163,7 +163,7 @@ public class EnvironmentControllerTest extends BaseTest {
             String envJson = "{\"assetVersionId\":\"" + UUID.randomUUID() + "\"}";
 
             mockMvc.perform(put("/api/v1/environments/" + testEnvironment.getId())
-                            .header("Authorization", engineerToken)
+                            .header("Authorization", leaderToken)
                             .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                             .content(envJson))
                     .andExpect(status().isNotFound());
@@ -178,7 +178,7 @@ public class EnvironmentControllerTest extends BaseTest {
         @DisplayName("部署环境 - 未启用容器编排时返回503，状态写failed且给出原因")
         void deployEnvironment_WithoutOrchestration_Returns503() throws Exception {
             mockMvc.perform(post("/api/v1/environments/" + testEnvironment.getId() + "/deploy")
-                            .header("Authorization", engineerToken))
+                            .header("Authorization", leaderToken))
                     .andExpect(status().isServiceUnavailable())
                     .andExpect(jsonPath("$.success").value(false))
                     .andExpect(jsonPath("$.message").value("当前部署未启用容器编排"));
@@ -194,7 +194,7 @@ public class EnvironmentControllerTest extends BaseTest {
         @DisplayName("启动环境 - 未启用容器编排时返回503，不再伪装 running")
         void startEnvironment_WithoutOrchestration_Returns503() throws Exception {
             mockMvc.perform(post("/api/v1/environments/" + testEnvironment.getId() + "/start")
-                            .header("Authorization", engineerToken))
+                            .header("Authorization", leaderToken))
                     .andExpect(status().isServiceUnavailable())
                     .andExpect(jsonPath("$.message").value("当前部署未启用容器编排"));
 
@@ -206,7 +206,7 @@ public class EnvironmentControllerTest extends BaseTest {
         @DisplayName("停止环境 - 未启用容器编排时返回503")
         void stopEnvironment_WithoutOrchestration_Returns503() throws Exception {
             mockMvc.perform(post("/api/v1/environments/" + testEnvironment.getId() + "/stop")
-                            .header("Authorization", engineerToken))
+                            .header("Authorization", leaderToken))
                     .andExpect(status().isServiceUnavailable());
 
             Environment reloaded = environmentRepository.findById(testEnvironment.getId()).orElseThrow();
@@ -217,14 +217,14 @@ public class EnvironmentControllerTest extends BaseTest {
         @DisplayName("创建快照 - createdBy 记录真实当前用户")
         void createSnapshot_Success() throws Exception {
             mockMvc.perform(post("/api/v1/environments/" + testEnvironment.getId() + "/snapshots")
-                            .header("Authorization", engineerToken)
+                            .header("Authorization", leaderToken)
                             .param("name", "测试快照"))
                     .andExpect(status().isOk());
 
             List<EnvironmentSnapshot> snapshots =
                     environmentSnapshotRepository.findByEnvironmentIdOrderByVersionDesc(testEnvironment.getId());
             assertEquals(1, snapshots.size());
-            assertEquals(engineerUserId, snapshots.get(0).getCreatedBy());
+            assertEquals(leaderUserId, snapshots.get(0).getCreatedBy());
             assertFalse(snapshots.get(0).getCreatedBy().equals(testUserId));
         }
     }
