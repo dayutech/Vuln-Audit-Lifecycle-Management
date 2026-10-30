@@ -1193,6 +1193,110 @@ fi
 
 # ----------------------------------------------------------------------------- 汇总
 
+# ----------------------------------------------------------------------------- 第二批鉴权收口（t49/t50/t51/t55）
+# 12 组写操作对工程师必须 403；对应查询仍 200（避免前端白屏）。
+RAND1="00000000-0000-4000-8000-0000000aa54a"
+RAND2="00000000-0000-4000-8000-0000000bb54b"
+if [ -n "$ENGINEER_TOKEN" ] && [ -n "$ASSET_ID" ]; then
+  # 资产域（t49）：建资产 / 版本 / 默认 / 最新 / 申请明细 / 标签删除 / 标签新增 / 分组写
+  authz_asset_payload="{\"name\":\"冒烟越权资产 ${TAG}\",\"targetType\":\"Web应用\",\"targetSource\":\"客户委托\",\"priority\":\"P3\",\"status\":\"active\""
+  [ -n "$TEAM_ID" ] && authz_asset_payload="${authz_asset_payload},\"teamId\":\"${TEAM_ID}\""
+  authz_asset_payload="${authz_asset_payload}}"
+  api_json POST '/api/v1/assets' "$ENGINEER_TOKEN" "$authz_asset_payload"
+  judge "authz2/工程师建资产-403" 403 '' "POST /assets 需管理层"
+
+  api_json POST "/api/v1/assets/${ASSET_ID}/versions" "$ENGINEER_TOKEN" '{"version":"v9.9","description":"越权"}'
+  judge "authz2/工程师建资产版本-403" 403 '' "POST /assets/{id}/versions 需资产写权"
+
+  request PUT "/api/v1/assets/${ASSET_ID}/versions/${RAND1}/default" "$ENGINEER_TOKEN"
+  judge "authz2/工程师设默认版本-403" 403 '' "PUT /versions/{id}/default 需资产写权"
+
+  request PUT "/api/v1/assets/${ASSET_ID}/versions/${RAND1}/latest" "$ENGINEER_TOKEN"
+  judge "authz2/工程师设最新版本-403" 403 '' "PUT /versions/{id}/latest 需资产写权"
+
+  request GET "/api/v1/assets/${ASSET_ID}/access-requests?page=0&size=5" "$ENGINEER_TOKEN"
+  judge "authz2/工程师读他人申请明细-403" 403 '' "GET /assets/{id}/access-requests 限负责人/审批人/管理层"
+
+  request DELETE "/api/v1/assets/${ASSET_ID}/tags/${RAND1}" "$ENGINEER_TOKEN"
+  judge "authz2/工程师删资产标签-403" 403 '' "DELETE /assets/{id}/tags/{tagId} 需资产写权"
+
+  request POST "/api/v1/assets/${ASSET_ID}/tags?tag=smoke_t54" "$ENGINEER_TOKEN"
+  judge "authz2/工程师加资产标签-403" 403 '' "POST /assets/{id}/tags 需资产写权（t51 追加）"
+
+  api_json POST '/api/v1/asset-groups' "$ENGINEER_TOKEN" \
+    "{\"name\":\"冒烟越权分组 ${TAG}\",\"type\":\"custom\"}"
+  judge "authz2/工程师建分组-403" 403 '' "POST /asset-groups 需管理层"
+  # 分组样本：admin 现建一个，工程师改/删应 403，最后与管理端删除
+  authz_group_payload="{\"name\":\"冒烟鉴权分组 ${TAG}\",\"type\":\"custom\"}"
+  api_json POST '/api/v1/asset-groups' "$ADMIN_TOKEN" "$authz_group_payload"
+  AUTHZ_GROUP_ID="$(jfirst id)"
+  if [ -n "$AUTHZ_GROUP_ID" ]; then
+    api_json PUT "/api/v1/asset-groups/${AUTHZ_GROUP_ID}" "$ENGINEER_TOKEN" \
+      "{\"name\":\"冒烟分组改名 ${TAG}\",\"type\":\"custom\"}"
+    judge "authz2/工程师改分组-403" 403 '' "PUT /asset-groups/{id} 需管理层"
+    request DELETE "/api/v1/asset-groups/${AUTHZ_GROUP_ID}" "$ENGINEER_TOKEN"
+    judge "authz2/工程师删分组-403" 403 '' "DELETE /asset-groups/{id} 需管理层"
+    request DELETE "/api/v1/asset-groups/${AUTHZ_GROUP_ID}" "$ADMIN_TOKEN" >/dev/null 2>&1
+  else
+    skip "authz2/工程师改分组-403" "$LAST_STATUS" "分组样本创建失败"
+    skip "authz2/工程师删分组-403" "$LAST_STATUS" "分组样本创建失败"
+  fi
+
+  # 协作域（t50）：删他人文章 / 漏洞通知群发 / 投递记录 / 建任务
+  request DELETE "/api/v1/knowledge/${RAND1}" "$ENGINEER_TOKEN"
+  judge "authz2/工程师删他人文章-403" 403 '' "DELETE /knowledge/{id} 限作者或管理层"
+
+  request POST "/api/v1/notifications/vulnerability-discovered?vulnerabilityId=${RAND1}&recipientIds=${ADMIN_ID}" "$ENGINEER_TOKEN"
+  judge "authz2/工程师发漏洞通知-403" 403 '' "POST /notifications/vulnerability-discovered 需管理层"
+
+  request GET "/api/v1/notifications/${RAND1}/recipients" "$ENGINEER_TOKEN"
+  judge "authz2/工程师读他人投递记录-403" 403 '' "GET /notifications/{id}/recipients 限接收人/管理层"
+
+  api_json POST '/api/v1/tasks' "$ENGINEER_TOKEN" \
+    "{\"title\":\"冒烟越权任务 ${TAG}\",\"description\":\"越权\",\"type\":\"audit\",\"priority\":\"medium\"}"
+  judge "authz2/工程师建任务-403" 403 '' "POST /tasks 需管理层"
+
+  # 组织/工具域（t51/t55）：他团队成员列表 / 工具写
+  request GET "/api/v1/teams/${RAND1}/members" "$ENGINEER_TOKEN"
+  judge "authz2/工程师读无关团队成员-403" 403 '' "GET /teams/{id}/members 限可见团队"
+  if [ -n "$TOOL_ID" ]; then
+    api_json PUT "/api/v1/tools/${TOOL_ID}" "$ENGINEER_TOKEN" \
+      "{\"name\":\"冒烟越权工具 ${TAG}\",\"category\":\"scanner\",\"description\":\"越权\"}"
+    judge "authz2/工程师改工具-403" 403 '' "PUT /tools/{id} 需管理层"
+    api_json POST "/api/v1/tools/${TOOL_ID}/versions" "$ENGINEER_TOKEN" '{"versionNo":99}'
+    judge "authz2/工程师传工具版本-403" 403 '' "POST /tools/{id}/versions 需管理层"
+    api_json POST "/api/v1/tools/${TOOL_ID}/tags?tag=smoke_t54" "$ENGINEER_TOKEN" '{}'
+    judge "authz2/工程师加工具标签-403" 403 '' "POST /tools/{id}/tags 需管理层（t55）"
+    request DELETE "/api/v1/tools/${TOOL_ID}/tags?tag=smoke_t54" "$ENGINEER_TOKEN"
+    judge "authz2/工程师删工具标签-403" 403 '' "DELETE /tools/{id}/tags 需管理层（t55）"
+    [ -f "$TMPD/t54-tool.bin" ] || printf 't54-tool-payload' >"$TMPD/t54-tool.bin"
+    request POST "/api/v1/tools/${TOOL_ID}/file" "$ENGINEER_TOKEN" -F "file=@$(pathify "$TMPD/t54-tool.bin")"
+    judge "authz2/工程师上传工具包-403" 403 '' "POST /tools/{id}/file 需管理层（t55）"
+  else
+    skip "authz2/工程师改工具-403" "-" "无工具样本"
+    skip "authz2/工程师传工具版本-403" "-" "无工具样本"
+    skip "authz2/工程师加工具标签-403" "-" "无工具样本"
+    skip "authz2/工程师删工具标签-403" "-" "无工具样本"
+    skip "authz2/工程师上传工具包-403" "-" "无工具样本"
+  fi
+
+  # 查询不受影响（正向）
+  for item in "/api/v1/assets?page=0&size=5:资产列表" "/api/v1/knowledge?page=0&size=5:知识库列表" \
+    "/api/v1/notifications?page=0&size=5:通知列表" "/api/v1/tasks?page=0&size=5:任务列表" \
+    "/api/v1/tools?page=0&size=5:工具列表"; do
+    p="${item%%:*}"
+    label="${item##*:}"
+    request GET "$p" "$ENGINEER_TOKEN"
+    judge "authz2/工程师${label}-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "查询保持开放"
+  done
+
+  # t55 顺带修复：对不存在的工具加标签应 404（此前静默 200）
+  if [ -n "$ADMIN_TOKEN" ]; then
+    api_json POST "/api/v1/tools/${RAND2}/tags?tag=smoke_t54" "$ADMIN_TOKEN" '{}'
+    judge "tools/不存在工具加标签-404" 404 '' "不存在的工具返回 404（t55 修复）"
+  fi
+fi
+
 printf '\n==== 冒烟汇总 ====\n'
 printf 'TOTAL=%d  PASS=%d  FAIL=%d  SKIP=%d\n' "$TOTAL" "$PASSED" "$FAILED" "$SKIPPED"
 if [ "$FAILED" -gt 0 ]; then
