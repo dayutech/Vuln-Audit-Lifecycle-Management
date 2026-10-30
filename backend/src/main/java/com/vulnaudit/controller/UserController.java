@@ -112,6 +112,7 @@ public class UserController {
      * 根据ID查询用户
      */
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
     @Operation(summary = "查询用户", description = "根据ID查询用户详细信息")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "查询成功"),
@@ -129,10 +130,34 @@ public class UserController {
     }
 
     /**
+     * 用户目录（最小暴露，供全员使用）
+     *
+     * <p>与 {@code GET /users} 的分工：本端点<b>对所有登录用户开放</b>，但只返回
+     * {@code id / username / fullName}（专用 DTO {@link com.vulnaudit.dto.UserDirectoryEntry}），
+     * 不含 email、phone、状态、角色、最后登录时间；供任务负责人下拉、审批人展示、知识库作者名等场景。
+     * 用户管理数据（列表/详情/角色/存在性检查）仍限 admin / project_leader。
+     */
+    @GetMapping("/directory")
+    @Operation(summary = "用户目录（最小暴露）",
+            description = "返回 id/username/fullName，供任意登录用户做下拉与展示；不含 email/phone/角色等 PII")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "查询成功"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "未认证")
+    })
+    public ApiResponse<List<com.vulnaudit.dto.UserDirectoryEntry>> getUserDirectory(
+            @Parameter(description = "关键词（匹配用户名/姓名）") @RequestParam(required = false) String keyword,
+            @Parameter(description = "返回条数上限（默认 200，最大 500）") @RequestParam(defaultValue = "0") int limit) {
+        log.debug("查询用户目录: keyword={}, limit={}", keyword, limit);
+
+        return ApiResponse.success(userService.findDirectory(keyword, limit));
+    }
+
+    /**
      * 分页查询用户列表
      */
     @GetMapping
-    @Operation(summary = "查询用户列表", description = "分页查询用户列表，支持关键词搜索和状态筛选")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
+    @Operation(summary = "查询用户列表", description = "分页查询用户列表，支持关键词搜索和状态筛选（仅 admin/project_leader）")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "查询成功"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "未授权")
@@ -287,6 +312,7 @@ public class UserController {
      * 检查用户名是否存在
      */
     @GetMapping("/check-username")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
     @Operation(summary = "检查用户名是否存在", description = "检查用户名是否已被使用")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "检查成功")
@@ -303,6 +329,7 @@ public class UserController {
      * 检查邮箱是否存在
      */
     @GetMapping("/check-email")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
     @Operation(summary = "检查邮箱是否存在", description = "检查邮箱是否已被使用")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "检查成功")
@@ -321,6 +348,7 @@ public class UserController {
      * 获取用户的角色列表
      */
     @GetMapping("/{id}/roles")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
     @Operation(summary = "获取用户角色", description = "获取指定用户被分配的所有角色")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "查询成功"),

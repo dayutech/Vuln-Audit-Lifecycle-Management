@@ -403,4 +403,42 @@ public class UserServiceImpl implements UserService {
         return permissionService.getUserPermissionCodes(userId);
     }
 
+    /** 目录默认返回条数 */
+    private static final int DIRECTORY_DEFAULT_LIMIT = 200;
+
+    /** 目录最大返回条数（防止被当作全量导出使用） */
+    private static final int DIRECTORY_MAX_LIMIT = 500;
+
+    /**
+     * 用户目录（最小暴露）
+     *
+     * <p>与 {@link #findAll} 的区别：<b>只投影 id / username / fullName</b>，
+     * 不查也不返回 email / phone / status / roles / lastLoginAt，避免 PII 枚举面。
+     * 关键词只匹配 username / fullName（不匹配 email，避免用邮箱反查账号是否存在）。
+     */
+    @Override
+    public List<com.vulnaudit.dto.UserDirectoryEntry> findDirectory(String keyword, int limit) {
+        int effectiveLimit = limit <= 0 ? DIRECTORY_DEFAULT_LIMIT : Math.min(limit, DIRECTORY_MAX_LIMIT);
+        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(
+                0, effectiveLimit, org.springframework.data.domain.Sort.by("username").ascending());
+
+        org.springframework.data.jpa.domain.Specification<User> spec = (root, query, cb) -> {
+            java.util.List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
+            // 只暴露可用账号：停用/删除的账号不应出现在下拉里
+            predicates.add(cb.notEqual(root.get("status"), "deleted"));
+            if (org.springframework.util.StringUtils.hasText(keyword)) {
+                String like = "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("username")), like),
+                        cb.like(cb.lower(root.get("fullName")), like)));
+            }
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+
+        return userRepository.findAll(spec, pageable).getContent().stream()
+                .map(user -> new com.vulnaudit.dto.UserDirectoryEntry(
+                        user.getId(), user.getUsername(), user.getFullName()))
+                .toList();
+    }
+
 }

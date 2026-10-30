@@ -198,14 +198,45 @@ public class AssetServiceImpl implements AssetService {
      */
     @Override
     public PageResponse<AssetResponse> findAllWithDetails(int page, int size, @Nullable String keyword, @Nullable String status, @Nullable UUID teamId, @Nullable String priority) {
-        log.debug("分页查询资产详情: page={}, size={}, keyword={}, status={}, teamId={}, priority={}",
-                page, size, keyword, status, teamId, priority);
-        
+        return findAllWithDetails(page, size, keyword, status, teamId, priority, null);
+    }
+
+    /**
+     * 分页查询资产列表（带数据级可见范围）
+     *
+     * <p><b>单一事实来源</b>：{@code visibleAssetIds} 由 {@code AccessGuard.visibleAssetIds(auth)} 提供，
+     * 与详情/从属资源使用的判定完全相同，因此「列表里出现的资产，详情必然 200」。
+     *
+     * @param visibleAssetIds 可见资产ID集合；{@code null} = 不限制（管理层），空集合 = 无可见资产
+     */
+    @Override
+    public PageResponse<AssetResponse> findAllWithDetails(int page, int size, @Nullable String keyword,
+                                                          @Nullable String status, @Nullable UUID teamId,
+                                                          @Nullable String priority,
+                                                          @Nullable Set<UUID> visibleAssetIds) {
+        log.debug("分页查询资产详情: page={}, size={}, keyword={}, status={}, teamId={}, priority={}, visibilityRestricted={}",
+                page, size, keyword, status, teamId, priority, visibleAssetIds != null);
+
+        if (visibleAssetIds != null && visibleAssetIds.isEmpty()) {
+            // 无可见资产：直接返回空页，避免生成 IN () 的非法 SQL
+            return PageResponse.<AssetResponse>builder()
+                    .content(List.of())
+                    .totalElements(0L)
+                    .totalPages(0)
+                    .currentPage(page)
+                    .pageSize(size)
+                    .build();
+        }
+
         Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
-        
+
         Specification<Asset> spec = (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
-            
+
+            if (visibleAssetIds != null) {
+                predicates.add(root.get("id").in(visibleAssetIds));
+            }
+
             if (StringUtils.hasText(keyword)) {
                 jakarta.persistence.criteria.Predicate nameLike = cb.like(root.get("name"), "%" + keyword + "%");
                 jakarta.persistence.criteria.Predicate codeLike = cb.like(root.get("code"), "%" + keyword + "%");
@@ -501,9 +532,11 @@ public class AssetServiceImpl implements AssetService {
                 .map(Asset::getTeamId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
-        
+
+        // 用可接受 null 键的 HashMap：调用方会以 asset.getTeamId()（可能为 null）取值，
+        // Map.of()/Collections.emptyMap() 的 get(null) 会抛 NPE（t46 列表收敛后暴露）
         if (teamIds.isEmpty()) {
-            return Map.of();
+            return new java.util.HashMap<>();
         }
         
         List<Team> teams = teamRepository.findAllById(teamIds);
@@ -521,7 +554,8 @@ public class AssetServiceImpl implements AssetService {
                 .collect(Collectors.toSet());
         
         if (ownerIds.isEmpty()) {
-            return Map.of();
+            // 同 resolveTeamNames：调用方会用可能为 null 的 ownerId 取值，Map.of() 的 get(null) 会抛 NPE
+            return new java.util.HashMap<>();
         }
         
         List<User> users = userRepository.findAllById(ownerIds);

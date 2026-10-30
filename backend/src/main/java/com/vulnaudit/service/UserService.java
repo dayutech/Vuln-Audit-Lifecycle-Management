@@ -164,4 +164,17 @@ public interface UserService {
     @Nonnull
     List<String> getUserPermissionCodes(@Nullable UUID userId);
 
+    /**
+     * 用户目录（最小暴露，供全员下拉与展示使用）
+     *
+     * <p>只返回 id / username / fullName，不含 email、phone、状态、角色与登录信息；
+     * 供任意登录用户调用（任务负责人下拉、审批人展示、知识库作者名等）。
+     *
+     * @param keyword 关键词（匹配 username / fullName，可为空）
+     * @param limit   返回条数上限（&lt;=0 取默认值，超过上限按上限收敛）
+     * @return 目录条目列表（按 username 升序）
+     */
+    @Nonnull
+    List<com.vulnaudit.dto.UserDirectoryEntry> findDirectory(@Nullable String keyword, int limit);
+
 }

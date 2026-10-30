@@ -89,13 +89,13 @@ public class UserControllerTest extends BaseTest {
         }
 
         @Test
-        @DisplayName("获取用户列表 - 无权限")
+        @DisplayName("获取用户列表 - 工程师 403（矩阵 2.2：用户管理数据仅管理层可读）")
         void getUserList_Forbidden() throws Exception {
-            // UserController的getUserList没有权限限制，所以返回200
-            // 如果需要限制，需要在控制器添加@PreAuthorize
+            // t45：用户列表含 email/phone/角色等 PII，已收紧为 admin/project_leader；
+            // 工程师需要的人员下拉改走 GET /users/directory（最小暴露：id/username/fullName）。
             mockMvc.perform(get("/api/v1/users")
                     .header("Authorization", engineerToken))
-                    .andExpect(status().isOk());
+                    .andExpect(status().isForbidden());
         }
     }
 

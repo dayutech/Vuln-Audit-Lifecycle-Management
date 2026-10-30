@@ -105,6 +105,15 @@ public class SecurityConfig {
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
+
+                // 认证/授权失败语义（HTTP 规范）：
+                //   未认证（无 token / token 无效）→ 401；已认证但无权限 → 403。
+                // 此前未配置 AuthenticationEntryPoint，匿名请求统一被兜成 403，客户端无法区分
+                // 「该重新登录」还是「确实没权限」。
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint(this::handleUnauthenticated)
+                        .accessDeniedHandler(this::handleAccessDenied)
+                )
                 
                 // 配置认证提供者
                 .authenticationProvider(authenticationProvider())
@@ -113,6 +122,33 @@ public class SecurityConfig {
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         
         return http.build();
+    }
+
+    /**
+     * 未认证处理：返回 401 + 统一响应体
+     *
+     * <p>只在「请求未携带有效凭证」时触发（{@link AuthenticationException}）；
+     * 已认证但权限不足走 {@link #handleAccessDenied}，保持 403。
+     */
+    private void handleUnauthenticated(jakarta.servlet.http.HttpServletRequest request,
+                                      jakarta.servlet.http.HttpServletResponse response,
+                                      org.springframework.security.core.AuthenticationException authException)
+            throws java.io.IOException {
+        response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write("{\"success\":false,\"code\":401,\"message\":\"未认证，请先登录\"}");
+    }
+
+    /**
+     * 无权限处理：返回 403 + 统一响应体（与 401 区分）
+     */
+    private void handleAccessDenied(jakarta.servlet.http.HttpServletRequest request,
+                                    jakarta.servlet.http.HttpServletResponse response,
+                                    org.springframework.security.access.AccessDeniedException accessDeniedException)
+            throws java.io.IOException {
+        response.setStatus(jakarta.servlet.http.HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write("{\"success\":false,\"code\":403,\"message\":\"无权限访问该资源\"}");
     }
 
     /**

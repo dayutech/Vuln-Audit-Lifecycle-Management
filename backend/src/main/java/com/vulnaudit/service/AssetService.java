@@ -83,6 +83,19 @@ public interface AssetService {
     PageResponse<AssetResponse> findAllWithDetails(int page, int size, @Nullable String keyword, @Nullable String status, @Nullable UUID teamId, @Nullable String priority);
 
     /**
+     * 分页查询资产列表（带数据级可见范围）
+     *
+     * <p>可见集合必须来自 {@code AccessGuard.visibleAssetIds(auth)}，与详情/从属资源共用同一口径，
+     * 保证「列表里出现的资产，详情必然 200；列表外的资产，详情 403」。
+     *
+     * @param visibleAssetIds 可见资产ID集合；{@code null} = 不限制（管理层），空集合 = 无可见资产
+     */
+    @Nonnull
+    PageResponse<AssetResponse> findAllWithDetails(int page, int size, @Nullable String keyword, @Nullable String status,
+                                                   @Nullable UUID teamId, @Nullable String priority,
+                                                   @Nullable java.util.Set<UUID> visibleAssetIds);
+
+    /**
      * 根据团队ID查询资产列表
      *
      * @param teamId 团队ID

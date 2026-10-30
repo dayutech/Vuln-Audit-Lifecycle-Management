@@ -48,6 +48,7 @@ public class AssetController {
     private final AssetAccessService assetAccessService;
     private final AssetClaimService assetClaimService;
     private final com.vulnaudit.security.CurrentUserProvider currentUserProvider;
+    private final com.vulnaudit.service.AccessGuard accessGuard;
     private final AssetTagRepository assetTagRepository;
     private final AssetHistoryRepository assetHistoryRepository;
     private final AssetRepository assetRepository;
@@ -127,7 +128,8 @@ public class AssetController {
     }
 
     @GetMapping
-    @Operation(summary = "分页查询资产列表", description = "支持按关键词、状态、团队、优先级筛选")
+    @Operation(summary = "分页查询资产列表",
+            description = "支持按关键词、状态、团队、优先级筛选；返回范围与详情共用同一可见性判定（AccessGuard.visibleAssetIds）")
     public ResponseEntity<ApiResponse<PageResponse<AssetResponse>>> listAssets(
             @Parameter(description = "页码") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size,
@@ -135,10 +137,16 @@ public class AssetController {
             @Parameter(description = "资产状态") @RequestParam(required = false) String status,
             @Parameter(description = "团队ID") @RequestParam(required = false) UUID teamId,
             @Parameter(description = "优先级") @RequestParam(required = false) String priority) {
-        
+
         log.info("分页查询资产: page={}, size={}, keyword={}, status={}", page, size, keyword, status);
-        
-        PageResponse<AssetResponse> result = assetService.findAllWithDetails(page, size, keyword, status, teamId, priority);
+
+        // 单一事实来源：列表范围 = 详情判定（visibleAssetIds 为 null 表示管理层不限制）。
+        // 此前列表未做任何过滤，导致「列表可见 → 点进去 403」。
+        java.util.Set<UUID> visibleAssetIds = accessGuard.visibleAssetIds(
+                SecurityContextHolder.getContext().getAuthentication());
+
+        PageResponse<AssetResponse> result = assetService.findAllWithDetails(
+                page, size, keyword, status, teamId, priority, visibleAssetIds);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

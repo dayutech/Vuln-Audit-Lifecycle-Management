@@ -33,11 +33,21 @@ import java.util.stream.Collectors;
  * 通过 {@code @PreAuthorize("@accessGuard.canReadAsset(#id, authentication)")}
  * 在控制器方法上声明式引用，避免把判断散落到各方法体里。
  *
+ * <p><b>单一事实来源（t46 统一）</b>：资产可见性只有一个来源 —— {@link #visibleAssetIds(Authentication)}。
+ * <ul>
+ *   <li>列表接口用 {@code visibleAssetIds(...)} 过滤范围（{@code null} = 不限制）；</li>
+ *   <li>详情/从属资源用 {@link #canReadAsset(UUID, Authentication)}，其实现就是
+ *       {@code visibleAssetIds(...)} 的成员判定；</li>
+ *   <li>写权限 {@link #canWriteAsset(UUID, Authentication)} 以读为前提（写 ⊂ 读），
+ *       不会出现「能写不能读」或「列表可见但详情 403」。</li>
+ * </ul>
+ * <b>列表与详情共用同一可见性判定，不得各自实现。</b>
+ *
  * <p>判定口径（与 SRS 3.7.3 / 权限矩阵 3.2 对齐）：
  * <ul>
- *   <li>admin / project_leader：全局可见</li>
+ *   <li>admin / project_leader：全局可见（{@code visibleAssetIds} 返回 {@code null}）</li>
  *   <li>team_leader：本团队（teams.leader_id = 当前用户）资产可见</li>
- *   <li>普通成员：仅自己负责的资产、或已获 approved 访问授权的资产</li>
+ *   <li>普通成员：仅自己负责的资产、或已获 approved 访问授权的资产（团队普通成员不自动可见）</li>
  *   <li>文档：作者本人 / 显式授权 / 所属资产可见 三者之一</li>
  *   <li>任务：负责人 / 创建者 / 协作者 / 管理层</li>
  * </ul>
@@ -165,35 +175,42 @@ public class AccessGuard {
 
     // ------------------------------------------------------------------ 资产
 
-    /** 是否可读取资产及其从属资源（元数据 / 文件 / 交付物 / 环境） */
+    /**
+     * 是否可读取资产及其从属资源（元数据 / 文件 / 交付物 / 环境）
+     *
+     * <p><b>实现即 {@link #visibleAssetIds(Authentication)}（单一事实来源）</b>：
+     * 管理层放行（{@code null} 表示不限制）；其余用户仅当资产在可见集合内。
+     * 列表过滤与详情判定因此天然一致，不存在「列表能看到、点进去 403」。
+     */
     public boolean canReadAsset(UUID assetId, Authentication authentication) {
         if (assetId == null) {
             return false;
         }
-        // 管理层先放行：不存在的资源交由控制器返回 404，而不是 403
-        if (isGlobalReader(authentication)) {
+        Set<UUID> visible = visibleAssetIds(authentication);
+        if (visible == null) {
+            // 管理层（admin / project_leader）：放行，不存在的资源交由控制器返回 404
             return true;
         }
-        Asset asset = assetRepository.findById(assetId).orElse(null);
-        if (asset == null) {
-            // 非管理层对不存在的资源同样返回 403，避免通过状态码枚举资源
-            return false;
-        }
-        UUID userId = currentUserId(authentication);
-        if (userId != null) {
-            if (userId.equals(asset.getOwnerId())) {
-                return true;
-            }
-            if (assetAccessRepository.existsByAssetIdAndUserIdAndStatus(assetId, userId, "approved")) {
-                return true;
-            }
-        }
-        return isLeaderOfTeam(authentication, asset.getTeamId());
+        // 非管理层：未解析到用户的空集合、或不存在的资源，同样返回 false（避免用状态码枚举资源）
+        return visible.contains(assetId);
     }
 
-    /** 是否可写资产（仅负责人、管理层） */
+    /**
+     * 是否可写资产。
+     *
+     * <p><b>写 ⊂ 读</b>：先要求 {@link #canReadAsset} 通过，再判定写身份，
+     * 避免出现「能写但不能读」以及「改完刷新就 403」的割裂状态。
+     * <ul>
+     *   <li>写身份：管理层（admin / project_leader / team_leader）或该资产负责人；</li>
+     *   <li>由此 team_leader 只能写「本团队（自己领导）可见」的资产 —— 与读口径一致，
+     *       属 t46 的有意收窄（原先可写任意资产但读不到，属不自洽状态）。</li>
+     * </ul>
+     */
     public boolean canWriteAsset(UUID assetId, Authentication authentication) {
         if (assetId == null) {
+            return false;
+        }
+        if (!canReadAsset(assetId, authentication)) {
             return false;
         }
         if (isManager(authentication)) {
@@ -204,54 +221,54 @@ public class AccessGuard {
         return asset != null && userId != null && userId.equals(asset.getOwnerId());
     }
 
-    /** 以文件 ID 判断所属资产可读性 */
+    /** 以文件 ID 判断所属资产可读性（不另设口径，完全复用 canReadAsset） */
     public boolean canReadAssetFile(UUID fileId, Authentication authentication) {
         if (fileId == null) {
             return false;
         }
-        if (isManager(authentication)) {
-            return true;
-        }
         AssetFile file = assetFileRepository.findById(fileId).orElse(null);
-        return file != null && canReadAsset(file.getAssetId(), authentication);
+        if (file == null) {
+            // 管理层放行，不存在的文件交由控制器返回 404；非管理层 403（防枚举）
+            return isGlobalReader(authentication);
+        }
+        return canReadAsset(file.getAssetId(), authentication);
     }
 
-    /** 以文件 ID 判断所属资产可写性 */
+    /** 以文件 ID 判断所属资产可写性（写 ⊂ 读，复用 canWriteAsset） */
     public boolean canWriteAssetFile(UUID fileId, Authentication authentication) {
         if (fileId == null) {
             return false;
         }
-        if (isManager(authentication)) {
-            return true;
-        }
         AssetFile file = assetFileRepository.findById(fileId).orElse(null);
-        return file != null && canWriteAsset(file.getAssetId(), authentication);
+        if (file == null) {
+            // 管理层放行 → 控制器 404；其余 403
+            return isManager(authentication);
+        }
+        return canWriteAsset(file.getAssetId(), authentication);
     }
 
-    /** 以交付物 ID 判断所属资产可读性 */
+    /** 以交付物 ID 判断所属资产可读性（不另设口径，完全复用 canReadAsset） */
     public boolean canReadDeliverable(UUID deliverableId, Authentication authentication) {
         if (deliverableId == null) {
             return false;
         }
-        if (isManager(authentication)) {
-            return true;
+        var deliverable = assetDeliverableRepository.findById(deliverableId).orElse(null);
+        if (deliverable == null) {
+            return isGlobalReader(authentication);
         }
-        return assetDeliverableRepository.findById(deliverableId)
-                .map(deliverable -> canReadAsset(deliverable.getAssetId(), authentication))
-                .orElse(false);
+        return canReadAsset(deliverable.getAssetId(), authentication);
     }
 
-    /** 以交付物 ID 判断所属资产可写性 */
+    /** 以交付物 ID 判断所属资产可写性（写 ⊂ 读，复用 canWriteAsset） */
     public boolean canWriteDeliverable(UUID deliverableId, Authentication authentication) {
         if (deliverableId == null) {
             return false;
         }
-        if (isManager(authentication)) {
-            return true;
+        var deliverable = assetDeliverableRepository.findById(deliverableId).orElse(null);
+        if (deliverable == null) {
+            return isManager(authentication);
         }
-        return assetDeliverableRepository.findById(deliverableId)
-                .map(deliverable -> canWriteAsset(deliverable.getAssetId(), authentication))
-                .orElse(false);
+        return canWriteAsset(deliverable.getAssetId(), authentication);
     }
 
     // ------------------------------------------------------------------ 漏洞
