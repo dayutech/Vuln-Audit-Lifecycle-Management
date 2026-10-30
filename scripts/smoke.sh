@@ -495,12 +495,12 @@ if [ -n "$ASSET_ID" ] && [ -n "$ENGINEER_TOKEN" ] && [ -n "$ADMIN_TOKEN" ]; then
   # 未登录读「我的认领」：不得退化为全量查询（t39 连带修复）。
   # 本系统未配置 AuthenticationEntryPoint，Spring Security 对匿名请求统一回 403（与 /assets 等一致）；
   # 控制器内的 401 分支只在「已认证但解析不到用户」时触发，故此处接受 401/403，关键是不返回全量。
+  # t45 后未认证一律 401（AuthenticationEntryPoint 已配置）
   request GET '/api/v1/assets/my/claims?page=0&size=10' ""
-  case "$LAST_STATUS" in
-    401 | 403) pass "claim/未登录读我的认领-401/403" "$LAST_STATUS" "未认证被拒绝，未返回全量认领" ;;
-    200) fail "claim/未登录读我的认领-401/403" "200" "未认证却返回 200，可能泄漏全量认领 ｜ $(snippet)" ;;
-    *) fail "claim/未登录读我的认领-401/403" "$LAST_STATUS" "期望 401/403 ｜ $(snippet)" ;;
-  esac
+  judge "claim/未登录读我的认领-401" 401 '' "未认证必须 401（t45）"
+
+  request GET '/api/v1/assets/my/claims?page=0&size=10' "invalid.token.value"
+  judge "auth/无效token-401" 401 '' "无效 token 也是 401（t45）"
 fi
 
 # ----------------------------------------------------------------------------- 鉴权收紧（t40）
@@ -529,6 +529,91 @@ if [ -n "$ENGINEER_TOKEN" ]; then
 
   request GET '/api/v1/notifications/announcements?page=0&size=5' "$ENGINEER_TOKEN"
   judge "authz/工程师读公告列表-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "查询保持开放"
+
+  # ===== 用户域（t45）：管理视角收紧 + 轻量目录不泄漏 PII =====
+  request GET '/api/v1/users?page=0&size=5' "$ENGINEER_TOKEN"
+  judge "users/工程师列表-403" 403 '' "GET /users 需 ADMIN/PROJECT_LEADER"
+  if [ -n "$ADMIN_ID" ]; then
+    request GET "/api/v1/users/${ADMIN_ID}" "$ENGINEER_TOKEN"
+    judge "users/工程师详情-403" 403 '' "GET /users/{id} 需管理层"
+  else
+    skip "users/工程师详情-403" "-" "未取到 admin id"
+  fi
+  request GET '/api/v1/users/check-username?username=admin' "$ENGINEER_TOKEN"
+  judge "users/工程师check-username-403" 403 '' "check-username 需管理层"
+  request GET '/api/v1/users/check-email?email=admin@example.com' "$ENGINEER_TOKEN"
+  judge "users/工程师check-email-403" 403 '' "check-email 需管理层"
+
+  request GET '/api/v1/users/directory?limit=5' "$ENGINEER_TOKEN"
+  judge "users/工程师目录-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "人员下拉数据源（仅登录）"
+  if grep -Eq '"email"|"phone"|"roles"|"passwordHash"|"status"|"lastLoginAt"' "$BODY"; then
+    fail "users/目录无PII字段" "$LAST_STATUS" "目录响应含敏感字段 ｜ $(snippet)"
+  else
+    pass "users/目录无PII字段" "$LAST_STATUS" "仅 id/username/fullName"
+  fi
+  request GET '/api/v1/users/directory?keyword=admin&limit=3' "$ENGINEER_TOKEN"
+  judge "users/目录keyword-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "keyword 只匹配 username/fullName"
+
+  # 「我的信息」对所有角色开放：实际路由是 /auth/me 与 /users/me/permissions
+  # （/users/me 不存在，会被 /users/{id} 当作 id 解析而返回 400，已在报告中说明）
+  for pair in "admin:${ADMIN_TOKEN}" "engineer:${ENGINEER_TOKEN}" "leader:${LEADER_TOKEN}"; do
+    who="${pair%%:*}"
+    tk="${pair#*:}"
+    if [ -n "$tk" ]; then
+      request GET '/api/v1/auth/me' "$tk"
+      judge "users/${who}-auth-me-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "GET /auth/me 对登录用户开放"
+      request GET '/api/v1/users/me/permissions' "$tk"
+      judge "users/${who}-me-permissions-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "GET /users/me/permissions 对登录用户开放"
+    else
+      skip "users/${who}-auth-me-200" "-" "缺少 ${who} token"
+      skip "users/${who}-me-permissions-200" "-" "缺少 ${who} token"
+    fi
+  done
+fi
+
+# ----------------------------------------------------------------------------- 资产可见性不变量（t46）
+# 列表里每个资产 id 的详情必须 200；列表外的资产详情必须 403（三账号各一遍）。
+if [ -n "$ADMIN_TOKEN" ] && [ -n "$ENGINEER_TOKEN" ] && [ -n "$LEADER_TOKEN" ]; then
+  ALL_IDS="$(mktemp)"
+  request GET '/api/v1/assets?page=0&size=200' "$ADMIN_TOKEN"
+  flatten | grep -o '"id"[[:space:]]*:[[:space:]]*"[0-9a-f-]\{36\}"' | sed 's/.*"id"[[:space:]]*:[[:space:]]*"//; s/"$//' | sort -u >"$ALL_IDS"
+
+  visibility_check() { # <name前缀> <token>
+    local prefix="$1" tk="$2" list_ids bad seen=0 outside=""
+    list_ids="$(mktemp)"
+    request GET '/api/v1/assets?page=0&size=50' "$tk"
+    flatten | grep -o '"id"[[:space:]]*:[[:space:]]*"[0-9a-f-]\{36\}"' | sed 's/.*"id"[[:space:]]*:[[:space:]]*"//; s/"$//' | sort -u >"$list_ids"
+    bad=0
+    while IFS= read -r aid; do
+      [ -z "$aid" ] && continue
+      seen=$((seen + 1))
+      [ "$seen" -gt 5 ] && break
+      request GET "/api/v1/assets/${aid}" "$tk"
+      [ "$LAST_STATUS" = "200" ] || { bad=$((bad + 1)); echo "    detail($aid)=${LAST_STATUS}" >&2; }
+    done <"$list_ids"
+    if [ "$seen" -eq 0 ]; then
+      pass "vis/${prefix}-列表空" "$LAST_STATUS" "该账号列表为空，逐条详情跳过"
+    elif [ "$bad" -eq 0 ]; then
+      pass "vis/${prefix}-列表内详情全200" "200" "抽查 ${seen} 个资产详情均 200"
+    else
+      fail "vis/${prefix}-列表内详情全200" "4xx" "${seen} 个里有 ${bad} 个详情非 200"
+    fi
+    outside="$(comm -23 "$ALL_IDS" "$list_ids" | head -1)"
+    if [ -n "$outside" ]; then
+      request GET "/api/v1/assets/${outside}" "$tk"
+      judge "vis/${prefix}-列表外详情403" 403 '' "不可见资产详情必须 403"
+    elif [ "$prefix" = "admin" ]; then
+      pass "vis/${prefix}-列表外详情403" "-" "管理员可见全部资产，无列表外样本（合理开放）"
+    else
+      skip "vis/${prefix}-列表外详情403" "-" "该账号可见全部资产，无列表外样本"
+    fi
+    rm -f "$list_ids"
+  }
+
+  visibility_check "admin" "$ADMIN_TOKEN"
+  visibility_check "engineer" "$ENGINEER_TOKEN"
+  visibility_check "leader" "$LEADER_TOKEN"
+  rm -f "$ALL_IDS"
 fi
 
 # ----------------------------------------------------------------------------- 漏洞
