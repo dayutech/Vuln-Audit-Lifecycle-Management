@@ -18,6 +18,7 @@ import Approvals from '@/pages/approvals/index';
 import AssetGroups from '@/pages/asset-groups/index';
 import ApprovalScopes from '@/pages/approval-scopes/index';
 import AuditLogs from '@/pages/audit-logs/index';
+import { ErrorPage } from '@/components/Feedback';
 import ImportPage from '@/pages/import/index';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -121,6 +122,19 @@ const router = createBrowserRouter([
       {
         path: '/import',
         element: <ImportPage />,
+      },
+      // 403 / 404：i18n 化通用组件；未匹配路径落到 404，避免空白页
+      {
+        path: '/403',
+        element: <ErrorPage status="403" />,
+      },
+      {
+        path: '/404',
+        element: <ErrorPage status="404" />,
+      },
+      {
+        path: '*',
+        element: <ErrorPage status="404" />,
       },
     ],
   },

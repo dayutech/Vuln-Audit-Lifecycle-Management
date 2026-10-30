@@ -1,5 +1,6 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Button, Empty, Input, Space, Table, Tag, Typography, message } from 'antd';
+import { Alert, Button, Empty, Input, Space, Table, Tag, Typography, message } from 'antd';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { addAssetTag, deleteAssetTag, getAssetTags } from '@/api/asset';
@@ -14,13 +15,15 @@ const userName = (user?: UserDirectoryEntry | null) =>
 
 interface AssetTagsPanelProps {
   assetId: string;
+  /** 资产写权（负责人或管理层）；false 时隐藏新增/删除标签入口（t49 起 DELETE 标签需 canWriteAsset） */
+  canWrite?: boolean;
 }
 
 /**
  * 资产详情页「标签」区块：GET/POST/DELETE /assets/{id}/tags。
  * 独立组件以便资产详情页保持小改动面。
  */
-const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId }) => {
+const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId, canWrite = false }) => {
   const [tags, setTags] = useState<AssetTagVO[]>([]);
   const [loading, setLoading] = useState(false);
   const [tagInput, setTagInput] = useState('');
@@ -113,6 +116,7 @@ const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId }) => {
         </Button>
       </div>
 
+      {canWrite ? (
       <Space.Compact style={{ maxWidth: 460, marginBottom: 16 }}>
         <Input
           placeholder="输入标签名称后回车添加"
@@ -125,6 +129,14 @@ const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId }) => {
           添加标签
         </Button>
       </Space.Compact>
+      ) : (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message="当前角色只能查看标签：新增/删除标签需要资产负责人或管理层权限"
+        />
+      )}
 
       {tags.length === 0 ? (
         <Empty description="该资产暂无标签" />
@@ -135,7 +147,7 @@ const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId }) => {
               <Tag
                 key={tag.id}
                 color="blue"
-                closable
+                closable={canWrite}
                 onClose={(event) => {
                   event.preventDefault();
                   handleRemove(tag);

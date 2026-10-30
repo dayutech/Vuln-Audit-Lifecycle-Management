@@ -1,3 +1,4 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import { useEffect, useState } from 'react';
 import { Card, Table, Space, Tag, Button, Modal, Input, message } from 'antd';
 import { getMyAccessApprovalRequests, reviewAssetAccessRequest } from '@/api/asset';

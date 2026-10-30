@@ -95,3 +95,127 @@ export const resolveStatsScope = (profile: MyAccessProfile | null): StatsScopeIn
 };
 
 export const statsScopeTagColor = (tone: StatsScopeTone): string => (tone === 'full' ? 'blue' : 'default');
+
+/* ==================== 运营管理层（admin / project_leader / team_leader） ==================== */
+
+/**
+ * 「运营管理层」= admin / project_leader / team_leader。
+ *
+ * 与后端 t49~t51 收口后的写侧门槛对齐：
+ * - POST /assets、资产分组写、POST /tasks、POST /notifications/vulnerability-discovered、
+ *   PUT /tools/{id}、POST /tools/{id}/versions
+ * - 知识库删除的管理层分支
+ */
+export const OPERATIONS_ROLES = ['admin', 'project_leader', 'team_leader'] as const;
+
+/**
+ * 解析「当前用户 ID」：优先取权限画像里的 userId（`/users/me/permissions` 必返回），
+ * 退回登录态 store 的 id。
+ * `/auth/me` 返回的是扁平 `userId` 字段，store 里的 `id` 可能为空——这正是 t52 首轮实测中
+ * 「资产负责人自己也被判成不可写」的原因。
+ */
+export const resolveCurrentUserId = (
+  profile: MyAccessProfile | null,
+  storeUserId?: string,
+): string | undefined => profile?.userId || storeUserId;
+
+export const isOperationsProfile = (profile: MyAccessProfile | null): boolean =>
+  includesRole(profile, OPERATIONS_ROLES);
+
+/* ---------- 资产 ---------- */
+
+/** POST /assets：admin / project_leader / team_leader */
+export const canCreateAsset = (profile: MyAccessProfile | null): boolean => isOperationsProfile(profile);
+
+/** 资产分组写（新建/编辑/删除/加移资产）：admin / project_leader / team_leader */
+export const canManageAssetGroups = (profile: MyAccessProfile | null): boolean =>
+  isOperationsProfile(profile);
+
+/**
+ * 资产写权（前端近似判定，与后端 canWriteAsset 同向）：管理层 / 小组长，或「我就是该资产负责人」。
+ * 后端还要求「写 ⊂ 读」（团队长仅本团队资产），前端拿不到该集合，403 仍需兜底提示。
+ */
+export const canWriteAsset = (
+  profile: MyAccessProfile | null,
+  assetOwnerId: string | undefined,
+  currentUserId: string | undefined,
+): boolean =>
+  isOperationsProfile(profile) ||
+  Boolean(currentUserId && assetOwnerId && assetOwnerId === currentUserId);
+
+/** 资产写入口（新建版本 / 设为默认 / 设为最新 / 删除标签）的置灰说明 */
+export const ASSET_WRITE_FORBIDDEN_TIP = '仅资产负责人或管理员/项目负责人/小组长可写该资产';
+
+/* ---------- 知识库 ---------- */
+
+/** DELETE /knowledge/{id}：管理层（admin/PL/TL）或作者本人 */
+export const canDeleteKnowledge = (
+  profile: MyAccessProfile | null,
+  authorId: string | undefined,
+  currentUserId: string | undefined,
+): boolean =>
+  isOperationsProfile(profile) ||
+  Boolean(currentUserId && authorId && authorId === currentUserId);
+
+export const KNOWLEDGE_DELETE_FORBIDDEN_TIP = '仅作者本人或管理员/项目负责人/小组长可删除文章';
+
+/* ---------- 工具 ---------- */
+
+/** PUT /tools/{id}、POST /tools/{id}/versions、POST /tools/{id}/file：admin/PL/TL */
+export const canManageTools = (profile: MyAccessProfile | null): boolean => isOperationsProfile(profile);
+
+/** DELETE /tools/{id}：仅 admin / project_leader */
+export const canDeleteTool = (profile: MyAccessProfile | null): boolean =>
+  includesRole(profile, MANAGEMENT_ROLES);
+
+export const TOOL_WRITE_FORBIDDEN_TIP = '仅管理员/项目负责人/小组长可编辑工具与上传版本';
+export const TOOL_DELETE_FORBIDDEN_TIP = '仅管理员/项目负责人可删除工具';
+
+/**
+ * 工具标签增删（t55 收口）：POST /tools/{id}/tags、DELETE /tools/{id}/tags?tag=xxx
+ * 与 POST /tools/{id}/file 同为 `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')`，即与 `canManageTools` 同权。
+ *
+ * 分工：前端只收敛「入口可见性」，**后端 @PreAuthorize 才是唯一权威**；
+ * 任何越权请求（例如页面角色画像过期、直接调接口）由后端 403 + 下面这条文案兜底。
+ */
+export const TOOL_TAG_FORBIDDEN_MESSAGE = '无权修改该工具标签（需为管理员 / 项目负责人 / 小组长）';
+export const TOOL_TAG_READONLY_HINT = '只读视图：标签的新增 / 移除仅管理员 / 项目负责人 / 小组长可用';
+export const TOOL_FILE_FORBIDDEN_MESSAGE = '无权上传工具包（需为管理员 / 项目负责人 / 小组长）';
+
+/* ---------- 任务 ---------- */
+
+/** POST /tasks：admin/PL/TL（目标资产写权由后端守卫兜底） */
+export const canCreateTask = (profile: MyAccessProfile | null): boolean => isOperationsProfile(profile);
+
+/**
+ * POST /tasks/{id}/submit-review：任务负责人 / 协作者 / 管理层。
+ * 与 t50「管理层可代办提交」口径一致。
+ */
+export const canSubmitTaskReview = (
+  profile: MyAccessProfile | null,
+  task: { assigneeId?: string; collaboratorIds?: string[] } | null | undefined,
+  currentUserId: string | undefined,
+): boolean => {
+  if (isOperationsProfile(profile)) return true;
+  if (!currentUserId || !task) return false;
+  return task.assigneeId === currentUserId || (task.collaboratorIds ?? []).includes(currentUserId);
+};
+
+export const TASK_REVIEW_FORBIDDEN_TIP = '仅任务负责人、协作者或管理层可提交审核';
+
+/* ---------- 通知 ---------- */
+
+/** GET /notifications/{id}/recipients：本人（接收人）或管理层（admin/PL） */
+export const canReadNotificationRecipients = (
+  profile: MyAccessProfile | null,
+  isRecipient: boolean,
+): boolean => includesRole(profile, MANAGEMENT_ROLES) || isRecipient;
+
+/** POST /notifications/vulnerability-discovered：admin/PL/TL */
+export const canSendVulnerabilityNotification = (profile: MyAccessProfile | null): boolean =>
+  isOperationsProfile(profile);
+
+/* ---------- 团队 ---------- */
+
+/** GET /teams/{id}/members：非可见团队后端 403，前端展示可读提示而不是空白表 */
+export const TEAM_MEMBERS_FORBIDDEN_MESSAGE = '无权查看该团队成员（仅可查看自己领导或所属团队）';

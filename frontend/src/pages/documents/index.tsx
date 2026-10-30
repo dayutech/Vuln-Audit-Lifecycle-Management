@@ -1,3 +1,4 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Table, Button, Space, Card, Input, Tag, Modal, Form, Select, message, Tabs } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';

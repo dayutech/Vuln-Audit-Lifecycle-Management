@@ -6,6 +6,8 @@ import { useUserStore } from '@/store/userStore';
 import { getCurrentUser, logout } from '@/api/auth';
 import { getUnreadNotificationCount } from '@/api/notification';
 import { getMyAccessProfile, isManagementProfile } from '@/api/permission';
+import { useT } from '@/i18n';
+import LangSwitcher from '@/i18n/LangSwitcher';
 
 const { Header, Sider, Content } = Layout;
 
@@ -21,6 +23,7 @@ const BasicLayout: React.FC = () => {
    * 避免「接口抖动导致管理员看不到入口」这种更差的结果。
    */
   const [managerEligible, setManagerEligible] = useState<boolean | null>(null);
+  const { t } = useT();
 
   useEffect(() => {
     let cancelled = false;
@@ -91,49 +94,49 @@ const BasicLayout: React.FC = () => {
 
   const menuItems = [
     {
-      label: '核心业务',
+      label: t('menu.groupCore'),
       key: 'core',
       type: 'group' as const,
       children: [
-        { key: '/dashboard', icon: <DashboardOutlined />, label: '安全态势大盘' },
-        { key: '/assets', icon: <AppstoreOutlined />, label: '产品与资产中心' },
-        { key: '/asset-groups', icon: <AppstoreOutlined />, label: '资产分组' },
-        { key: '/vulnerabilities', icon: <SafetyCertificateOutlined />, label: '全局漏洞视图' },
-        { key: '/tasks', icon: <CheckSquareOutlined />, label: '安全审计任务' },
-        { key: '/approvals', icon: <AuditOutlined />, label: '审批中心' },
+                { key: '/dashboard', icon: <DashboardOutlined />, label: t('menu.dashboard') },
+                { key: '/assets', icon: <AppstoreOutlined />, label: t('menu.assets') },
+                { key: '/asset-groups', icon: <AppstoreOutlined />, label: t('menu.assetGroups') },
+                { key: '/vulnerabilities', icon: <SafetyCertificateOutlined />, label: t('menu.vulnerabilities') },
+                { key: '/tasks', icon: <CheckSquareOutlined />, label: t('menu.tasks') },
+                { key: '/approvals', icon: <AuditOutlined />, label: t('menu.approvals') },
       ],
     },
     {
-      label: '知识与资源',
+      label: t('menu.groupKnowledge'),
       key: 'knowledge',
       type: 'group' as const,
       children: [
-        { key: '/knowledge', icon: <ReadOutlined />, label: '安全知识库' },
-        { key: '/documents', icon: <FileTextOutlined />, label: '规范与文档' },
-        { key: '/tools', icon: <ToolOutlined />, label: '工具与组件库' },
+                { key: '/knowledge', icon: <ReadOutlined />, label: t('menu.knowledge') },
+                { key: '/documents', icon: <FileTextOutlined />, label: t('menu.documents') },
+                { key: '/tools', icon: <ToolOutlined />, label: t('menu.tools') },
       ],
     },
     {
-      label: '系统与管理',
+      label: t('menu.groupSystem'),
       key: 'system',
       type: 'group' as const,
       children: [
-        { key: '/teams', icon: <TeamOutlined />, label: '团队架构' },
-        { key: '/approval-scopes', icon: <AuditOutlined />, label: '审批范围' },
+                { key: '/teams', icon: <TeamOutlined />, label: t('menu.teams') },
+                { key: '/approval-scopes', icon: <AuditOutlined />, label: t('menu.approvalScopes') },
         // 账号管理仅管理层可见（t45：GET /users 收紧为 admin / project_leader）
         ...(managerEligible === false
           ? []
-          : [{ key: '/users', icon: <UserOutlined />, label: '账号管理' }]),
-        { key: '/roles', icon: <SettingOutlined />, label: '角色与权限' },
+          : [{ key: '/users', icon: <UserOutlined />, label: t('menu.users') }]),
+                { key: '/roles', icon: <SettingOutlined />, label: t('menu.roles') },
         // 审计日志仅管理层可见（后端 @PreAuthorize 限 admin / project_leader）
         ...(managerEligible === false
           ? []
-          : [{ key: '/audit-logs', icon: <FileSearchOutlined />, label: '审计日志' }]),
+          : [{ key: '/audit-logs', icon: <FileSearchOutlined />, label: t('menu.auditLogs') }]),
         // 数据导入：后端 /import/assets、/import/vulnerabilities 仅要求登录，所有角色可用
-        { key: '/import', icon: <CloudUploadOutlined />, label: '数据导入' },
+                { key: '/import', icon: <CloudUploadOutlined />, label: t('menu.import') },
         { key: '/notifications', icon: <BellOutlined />, label: (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            系统消息
+            {t('menu.notifications')}
             {unreadCount > 0 && <Badge count={unreadCount} size="small" overflowCount={99} />}
           </span>
         ) },
@@ -146,7 +149,7 @@ const BasicLayout: React.FC = () => {
       {
         key: 'logout',
         icon: <LogoutOutlined />,
-        label: '退出登录',
+        label: t('header.logout'),
         onClick: handleLogout,
       },
     ],
@@ -192,7 +195,8 @@ const BasicLayout: React.FC = () => {
         />
       </Sider>
       <Layout>
-        <Header style={{ padding: '0 24px', background: '#fff', display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+        <Header style={{ padding: '0 24px', background: '#fff', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
+          <LangSwitcher />
           <Dropdown menu={userMenu} placement="bottomRight">
             <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
               <Avatar icon={<UserOutlined />} src={user?.avatar} />

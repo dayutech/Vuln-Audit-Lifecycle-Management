@@ -1,3 +1,4 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useRef, useState } from 'react';
 import { Table, Button, Space, Card, Tag, Modal, Form, Select, Input, DatePicker, InputNumber, message, Descriptions, Tabs, Progress, Steps, Upload, Row, Col, Tooltip, Spin } from 'antd';
 import { PlusOutlined, SearchOutlined, UploadOutlined, PlusCircleOutlined, MinusCircleOutlined, UserOutlined, LockOutlined, TagOutlined, CodeOutlined, SettingOutlined, NodeIndexOutlined, LinkOutlined, InfoCircleOutlined } from '@ant-design/icons';
@@ -40,6 +41,8 @@ import type { UserDirectoryEntry } from '@/api/user';
 import dayjs from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useUserStore } from '@/store/userStore';
+import { useAccessProfile } from '@/hooks/useAccessProfile';
+import { canCreateTask, canSubmitTaskReview, resolveCurrentUserId, TASK_REVIEW_FORBIDDEN_TIP } from '@/utils/accessRoles';
 
 const { Option } = Select;
 
@@ -265,6 +268,9 @@ const Tasks: React.FC = () => {
   const navigate = useNavigate();
   const { id: taskId } = useParams();
   const { user } = useUserStore();
+  // t50/t52：创建任务仅 admin/PL/TL；提交审核仅负责人/协作者/管理层
+  const { profile: taskAccessProfile, loaded: taskAccessLoaded } = useAccessProfile();
+  const allowCreateTask = taskAccessLoaded && canCreateTask(taskAccessProfile);
   const [data, setData] = useState<TaskVO[]>([]);
   const [detailTask, setDetailTask] = useState<TaskVO | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1442,11 +1448,18 @@ const Tasks: React.FC = () => {
   ];
 
   if (taskId) {
-    const currentUserId = user?.id;
+    const currentUserId = resolveCurrentUserId(taskAccessProfile, user?.id);
     const assigneeId = detailTask?.assignee?.id;
     const creatorId = detailTask?.creator?.id;
     const taskStatus = detailTask?.status || '';
-    const canSubmitReview = !!detailTask && currentUserId === assigneeId && ['pending', 'in_progress', 'assigned'].includes(taskStatus);
+    const canSubmitReview = !!detailTask
+    && taskAccessLoaded
+    && canSubmitTaskReview(
+      taskAccessProfile,
+      { assigneeId, collaboratorIds: (detailTask.collaborators ?? []).map((item) => item.id) },
+      currentUserId,
+    )
+    && ['pending', 'in_progress', 'assigned'].includes(taskStatus);
     const canApproveOrReject = !!detailTask && canReviewTask && taskStatus === 'review_pending';
     const canUpdateStatus = !!detailTask && (canAssignTask || currentUserId === assigneeId) && taskStatus !== 'review_pending';
     const canManageTaskMembers = !!detailTask && (canAssignTask || currentUserId === creatorId || currentUserId === assigneeId);
@@ -2133,11 +2146,16 @@ const Tasks: React.FC = () => {
                         <Form.Item name="audit_conclusion" label="审计结论" rules={[{ required: true, message: '请填写审计结论' }]}>
                           <Input.TextArea rows={5} placeholder="填写审计结论、风险摘要与建议措施" />
                         </Form.Item>
-                        {canSubmitReview && (
-                          <Button type="primary" loading={reviewSubmitting} onClick={handleSubmitForReview}>
+                        <Tooltip title={canSubmitReview ? '' : TASK_REVIEW_FORBIDDEN_TIP}>
+                          <Button
+                            type="primary"
+                            loading={reviewSubmitting}
+                            disabled={!canSubmitReview}
+                            onClick={handleSubmitForReview}
+                          >
                             提交审核
                           </Button>
-                        )}
+                        </Tooltip>
                       </Form>
                       <Descriptions column={2} size="small" bordered style={{ marginBottom: 16 }}>
                         <Descriptions.Item label="审核人">{(detailTask as any).reviewed_by || '-'}</Descriptions.Item>
@@ -2242,7 +2260,7 @@ const Tasks: React.FC = () => {
   }
 
   return (
-    <Card title="任务管理" extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>创建任务</Button>}>
+    <Card title="任务管理" extra={allowCreateTask ? (<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>创建任务</Button>) : null}>
       <div style={{ marginBottom: 16 }}>
         <Space>
         <Input 

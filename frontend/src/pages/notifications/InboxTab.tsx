@@ -1,3 +1,4 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -41,6 +42,9 @@ import type {
 } from '@/types/notification';
 import { notificationTypeLabel } from '@/types/notification';
 import { formatDateTime } from '@/utils/datetime';
+import { useT } from '@/i18n';
+import { AppEmpty } from '@/components/Feedback';
+import { getApiErrorStatus } from '@/utils/errorMessage';
 
 const { Text, Paragraph } = Typography;
 
@@ -112,6 +116,7 @@ const renderSendStatus = (status?: NotificationSendStatus | null, errorMessage?:
 
 const InboxTab: React.FC = () => {
   const navigate = useNavigate();
+  const { t } = useT();
   const [items, setItems] = useState<NotificationListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
@@ -124,6 +129,8 @@ const InboxTab: React.FC = () => {
   const [detail, setDetail] = useState<NotificationListItem | null>(null);
   const [recipients, setRecipients] = useState<NotificationRecipientVO[]>([]);
   const [recipientsLoading, setRecipientsLoading] = useState(false);
+  /** 投递记录仅「接收人本人或管理层」可见（t50 canReadNotificationRecipients）：403 时直接不渲染该区块 */
+  const [recipientsDenied, setRecipientsDenied] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -203,11 +210,14 @@ const InboxTab: React.FC = () => {
   const openDetail = async (item: NotificationListItem) => {
     setDetail(item);
     setRecipients([]);
+    setRecipientsDenied(false);
     setRecipientsLoading(true);
     try {
       setRecipients(await getNotificationRecipients(item.id));
-    } catch {
+    } catch (error) {
       setRecipients([]);
+      // t50：投递记录仅「接收人本人或管理层」可读；403 时不渲染该区块，而不是显示空表
+      if (getApiErrorStatus(error) === 403) setRecipientsDenied(true);
     } finally {
       setRecipientsLoading(false);
     }
@@ -257,7 +267,7 @@ const InboxTab: React.FC = () => {
         </Space>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => load()} loading={loading}>
-            刷新
+            {t('notifications.refresh')}
           </Button>
           <Button
             type="primary"
@@ -266,25 +276,20 @@ const InboxTab: React.FC = () => {
             loading={markingAll}
             disabled={unreadCount === 0}
           >
-            全部标为已读
+            {t('notifications.markAllRead')}
           </Button>
         </Space>
       </Card>
 
       <Spin spinning={loading}>
         {items.length === 0 && !loading ? (
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={
-              filter === 'unread'
-                ? '没有未读消息，说明动态都已处理完毕'
-                : '暂无消息：任务分配、漏洞流转、审批与公告提醒会集中出现在这里'
-            }
+          <AppEmpty
+            description={filter === 'unread' ? t('notifications.emptyUnread') : t('notifications.emptyInbox')}
           >
             <Button icon={<ReloadOutlined />} onClick={() => load()}>
-              刷新试试
+              {t('common.refresh')}
             </Button>
-          </Empty>
+          </AppEmpty>
         ) : (
           <List
             itemLayout="vertical"
@@ -421,6 +426,7 @@ const InboxTab: React.FC = () => {
               {detail.content || '(无正文)'}
             </Card>
 
+            {!recipientsDenied && (<>
             <Typography.Title level={5} style={{ marginTop: 20 }}>
               <Space>
                 <SendOutlined />
@@ -463,6 +469,7 @@ const InboxTab: React.FC = () => {
                 />
               )}
             </Spin>
+            </>)}
           </div>
         ) : null}
       </Drawer>

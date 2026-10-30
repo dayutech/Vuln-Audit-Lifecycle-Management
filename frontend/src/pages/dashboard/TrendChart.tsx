@@ -1,3 +1,4 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Empty, Segmented, Skeleton, Space, Typography } from 'antd';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';

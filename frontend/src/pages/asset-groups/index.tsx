@@ -1,4 +1,7 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useAccessProfile } from '@/hooks/useAccessProfile';
+import { canManageAssetGroups } from '@/utils/accessRoles';
 import {
   AutoComplete,
   Button,
@@ -46,6 +49,9 @@ const getPayload = (res: unknown) => ((res as any)?.data ?? res);
 
 const AssetGroups: React.FC = () => {
   const [groups, setGroups] = useState<AssetGroupVO[]>([]);
+  // t49：分组写（创建/编辑/删除/加移资产）仅 admin/PL/TL，工程师只读
+  const { profile: groupProfile, loaded: groupProfileLoaded } = useAccessProfile();
+  const allowManageGroups = groupProfileLoaded && canManageAssetGroups(groupProfile);
   const [loading, setLoading] = useState(false);
   const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -244,9 +250,11 @@ const AssetGroups: React.FC = () => {
           <Button icon={<ReloadOutlined />} onClick={fetchGroups} loading={loading}>
             刷新
           </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            新建分组
-          </Button>
+          {allowManageGroups ? (
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+              新建分组
+            </Button>
+          ) : null}
         </Space>
       }
     >
@@ -287,10 +295,16 @@ const AssetGroups: React.FC = () => {
                   width: 130,
                   render: (_: unknown, record: AssetGroupVO) => (
                     <Space size="small">
-                      <Typography.Link onClick={() => openEdit(record)}>编辑</Typography.Link>
-                      <Typography.Link type="danger" onClick={() => handleDelete(record)}>
-                        删除
-                      </Typography.Link>
+                      {allowManageGroups ? (
+                        <>
+                          <Typography.Link onClick={() => openEdit(record)}>编辑</Typography.Link>
+                          <Typography.Link type="danger" onClick={() => handleDelete(record)}>
+                            删除
+                          </Typography.Link>
+                        </>
+                      ) : (
+                        <Typography.Text type="secondary">只读</Typography.Text>
+                      )}
                     </Space>
                   ),
                 },
@@ -324,23 +338,29 @@ const AssetGroups: React.FC = () => {
                       { key: 'count', label: '资产数量', children: groupAssetIds.length },
                     ]}
                   />
-                  <Space.Compact style={{ width: '100%' }}>
-                    <Select
-                      showSearch
-                      allowClear
-                      optionFilterProp="label"
-                      style={{ flex: 1 }}
-                      placeholder="选择要加入本组的资产"
-                      value={assetToAdd}
-                      onChange={(value) => setAssetToAdd(value)}
-                      options={assets
-                        .filter((asset) => !groupAssetIds.includes(asset.id))
-                        .map((asset) => ({ value: asset.id, label: `${asset.name}（${asset.code}）` }))}
-                    />
-                    <Button type="primary" loading={addingAsset} onClick={handleAddAsset}>
-                      加入分组
-                    </Button>
-                  </Space.Compact>
+                  {allowManageGroups ? (
+                    <Space.Compact style={{ width: '100%' }}>
+                      <Select
+                        showSearch
+                        allowClear
+                        optionFilterProp="label"
+                        style={{ flex: 1 }}
+                        placeholder="选择要加入本组的资产"
+                        value={assetToAdd}
+                        onChange={(value) => setAssetToAdd(value)}
+                        options={assets
+                          .filter((asset) => !groupAssetIds.includes(asset.id))
+                          .map((asset) => ({ value: asset.id, label: `${asset.name}（${asset.code}）` }))}
+                      />
+                      <Button type="primary" loading={addingAsset} onClick={handleAddAsset}>
+                        加入分组
+                      </Button>
+                    </Space.Compact>
+                  ) : (
+                    <Typography.Text type="secondary">
+                      只读视图：分组的创建 / 编辑 / 删除与组内资产的加移仅管理员 / 项目负责人 / 小组长可用
+                    </Typography.Text>
+                  )}
                   <Table
                     size="small"
                     rowKey="assetId"
@@ -356,16 +376,19 @@ const AssetGroups: React.FC = () => {
                         title: '操作',
                         key: 'action',
                         width: 90,
-                        render: (_: unknown, record: { assetId: string }) => (
-                          <Popconfirm
-                            title="从分组移除该资产？"
-                            onConfirm={() => handleRemoveAsset(record.assetId)}
-                            okText="移除"
-                            cancelText="取消"
-                          >
-                            <Typography.Link type="danger">移除</Typography.Link>
-                          </Popconfirm>
-                        ),
+                        render: (_: unknown, record: { assetId: string }) =>
+                          allowManageGroups ? (
+                            <Popconfirm
+                              title="从分组移除该资产？"
+                              onConfirm={() => handleRemoveAsset(record.assetId)}
+                              okText="移除"
+                              cancelText="取消"
+                            >
+                              <Typography.Link type="danger">移除</Typography.Link>
+                            </Popconfirm>
+                          ) : (
+                            <Typography.Text type="secondary">-</Typography.Text>
+                          ),
                       },
                     ]}
                   />

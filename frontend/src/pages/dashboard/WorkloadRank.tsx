@@ -1,8 +1,10 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Empty, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { getWorkloadRanking, listTasksForDashboard } from '@/api/dashboard';
 import { getApiErrorStatus } from '@/utils/errorMessage';
+import { useT } from '@/i18n';
 import { describeApiFailure } from './apiFailure';
 import { buildLocalRows, mapServerRows, type RankRow } from './rankMapping';
 
@@ -47,6 +49,7 @@ const buildRankNotice = (status: number | undefined, fallbackUsed: boolean): Ran
  * 「当前为本兜底口径」，避免把兜底数据当成正式口径展示。
  */
 const WorkloadRank: React.FC = () => {
+  const { t } = useT();
   const [rows, setRows] = useState<RankRow[]>([]);
   const [source, setSource] = useState<RankSource | null>(null);
   const [notice, setNotice] = useState<RankNotice | null>(null);
@@ -171,7 +174,7 @@ const WorkloadRank: React.FC = () => {
           <Tag color="green">服务端口径</Tag>
         ) : null}
         <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={load}>
-          刷新
+          {t('common.refresh')}
         </Button>
       </Space>
 

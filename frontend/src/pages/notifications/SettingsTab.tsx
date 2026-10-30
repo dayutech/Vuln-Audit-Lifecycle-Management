@@ -1,9 +1,11 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Empty, Space, Switch, Table, Tag, Tooltip, Typography, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { getNotificationSettings, updateNotificationSetting } from '@/api/notification';
 import type { NotificationSettingUpdateRequest, NotificationSettingVO } from '@/types/notification';
 import { NOTIFICATION_TYPE_OPTIONS } from '@/types/notification';
+import { useT } from '@/i18n';
 
 const { Text } = Typography;
 
@@ -71,6 +73,7 @@ const toPayload = (row: SettingRow): NotificationSettingUpdateRequest => ({
 });
 
 const SettingsTab: React.FC = () => {
+  const { t } = useT();
   const [rows, setRows] = useState<SettingRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -237,10 +240,10 @@ const SettingsTab: React.FC = () => {
       {loadError ? <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={loadError} /> : null}
       <Card
         size="small"
-        title="按通知类型配置渠道"
+        title={t('notifications.settings.title')}
         extra={
           <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={load}>
-            重新加载
+            {t('notifications.settings.reload')}
           </Button>
         }
       >

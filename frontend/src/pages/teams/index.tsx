@@ -1,3 +1,4 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -34,6 +35,8 @@ import {
 import { getMyAccessProfile, type MyAccessProfile } from '@/api/permission';
 import type { TeamVO } from '@/types/team';
 import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
+import { TEAM_MEMBERS_FORBIDDEN_MESSAGE } from '@/utils/accessRoles';
+import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
 import type { UserDirectoryEntry } from '@/api/user';
 import { useUserStore } from '@/store/userStore';
 import { describeTeamWriteFailure, isFormValidationError, resolveTeamWriteAccess } from './teamAccess';
@@ -66,6 +69,8 @@ const Teams: React.FC = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [memberIds, setMemberIds] = useState<string[]>([]);
   const [membersLoading, setMembersLoading] = useState(false);
+  /** 成员列表 403（非可见团队，t51 canReadTeam）→ 展示可读提示而不是空白表 */
+  const [membersError, setMembersError] = useState<string | null>(null);
   const [profile, setProfile] = useState<MyAccessProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
 
@@ -163,12 +168,16 @@ const Teams: React.FC = () => {
       return;
     }
     setMembersLoading(true);
+    setMembersError(null);
     try {
       const res = await getTeamMembers(teamId);
       const payload = getPayload(res);
       setMemberIds(Array.isArray(payload) ? payload : []);
     } catch (error) {
       setMemberIds([]);
+      if (getApiErrorStatus(error) === 403) {
+        setMembersError(getApiErrorMessage(error, TEAM_MEMBERS_FORBIDDEN_MESSAGE));
+      }
     } finally {
       setMembersLoading(false);
     }
@@ -534,15 +543,24 @@ const Teams: React.FC = () => {
                     </Form.Item>
                   </Form>
                 ) : null}
-                <Table
-                  size="small"
-                  rowKey="userId"
-                  loading={membersLoading}
-                  dataSource={memberRows}
-                  pagination={false}
-                  locale={{ emptyText: '该团队暂无直属成员' }}
-                  columns={memberColumns}
-                />
+                {membersError ? (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="无法查看该团队成员"
+                    description={membersError}
+                  />
+                ) : (
+                  <Table
+                    size="small"
+                    rowKey="userId"
+                    loading={membersLoading}
+                    dataSource={memberRows}
+                    pagination={false}
+                    locale={{ emptyText: '该团队暂无直属成员' }}
+                    columns={memberColumns}
+                  />
+                )}
               </Card>
             </Space>
           ) : (

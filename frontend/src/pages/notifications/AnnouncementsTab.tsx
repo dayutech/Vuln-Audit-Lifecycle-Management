@@ -1,3 +1,4 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -32,7 +33,6 @@ import {
 } from '@/api/notification';
 import {
   ANNOUNCEMENT_FORBIDDEN_MESSAGE,
-  ANNOUNCEMENT_READONLY_HINT,
   canManageAnnouncements,
   getMyAccessProfile,
 } from '@/api/permission';
@@ -40,6 +40,7 @@ import type { AnnouncementPage, AnnouncementSaveRequest, AnnouncementVO } from '
 import { ANNOUNCEMENT_PRIORITY_META } from '@/types/notification';
 import { formatDateTime } from '@/utils/datetime';
 import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
+import { useT } from '@/i18n';
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -74,6 +75,7 @@ const STATUS_META: Record<AnnouncementStatus, { color: string; label: string }> 
 };
 
 const AnnouncementsTab: React.FC = () => {
+  const { t } = useT();
   const [form] = Form.useForm<AnnouncementFormValues>();
   const [activeList, setActiveList] = useState<AnnouncementVO[]>([]);
   const [page, setPage] = useState(1);
@@ -306,18 +308,18 @@ const AnnouncementsTab: React.FC = () => {
         title={
           <Space>
             <PushpinFilled style={{ color: '#1677ff' }} />
-            生效中的公告
+            {t('notifications.announcements.title')}
             <Tag color="blue">{activeList.length}</Tag>
           </Space>
         }
         extra={
           <Space>
             <Button size="small" icon={<ReloadOutlined />} onClick={refresh} loading={activeLoading || loading}>
-              刷新
+              {t('common.refresh')}
             </Button>
             {canManage ? (
               <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-                发布公告
+                {t('notifications.announcements.publish')}
               </Button>
             ) : null}
           </Space>
@@ -364,9 +366,9 @@ const AnnouncementsTab: React.FC = () => {
 
       <Card
         size="small"
-        title="全部公告"
+        title={t('notifications.announcements.all')}
         extra={
-          !canManage ? <Text type="secondary">{ANNOUNCEMENT_READONLY_HINT}</Text> : undefined
+          !canManage ? <Text type="secondary">{t('notifications.announcements.readonly')}</Text> : undefined
         }
       >
         {schemaMissingPublishedAt ? (

@@ -1,14 +1,17 @@
 import React, { useState } from 'react';
-import { Card, Form, Input, Button, message } from 'antd';
+import { Card, Form, Input, Button, message, Space } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { login } from '@/api/auth';
 import { useUserStore } from '@/store/userStore';
+import { useT } from '@/i18n';
+import LangSwitcher from '@/i18n/LangSwitcher';
 
 const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { setToken, setUser } = useUserStore();
+  const { t } = useT();
 
   const onFinish = async (values: any) => {
     setLoading(true);
@@ -16,7 +19,7 @@ const Login: React.FC = () => {
       const res = await login(values);
       // The backend returns { success: true, data: { token, ... } }
       if (res && res.data && res.data.token) {
-        message.success('登录成功');
+        message.success(t('login.success'));
         setToken(res.data.token);
         // Transform the flat response to user object format expected by store
         setUser({
@@ -37,7 +40,11 @@ const Login: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: '#f0f2f5' }}>
-      <Card title="漏洞审计生命周期管理系统" style={{ width: 400, textAlign: 'center' }}>
+      <Card
+        title={t('login.title')}
+        extra={<LangSwitcher />}
+        style={{ width: 420, textAlign: 'center' }}
+      >
         <Form
           name="login"
           initialValues={{ remember: true }}
@@ -46,24 +53,27 @@ const Login: React.FC = () => {
         >
           <Form.Item
             name="username"
-            rules={[{ required: true, message: '请输入用户名!' }]}
+            rules={[{ required: true, message: t('login.usernameRequired') }]}
           >
-            <Input prefix={<UserOutlined />} placeholder="用户名" />
+            <Input prefix={<UserOutlined />} placeholder={t('login.username')} />
           </Form.Item>
 
           <Form.Item
             name="password"
-            rules={[{ required: true, message: '请输入密码!' }]}
+            rules={[{ required: true, message: t('login.passwordRequired') }]}
           >
-            <Input.Password prefix={<LockOutlined />} placeholder="密码" />
+            <Input.Password prefix={<LockOutlined />} placeholder={t('login.password')} />
           </Form.Item>
 
           <Form.Item>
             <Button type="primary" htmlType="submit" style={{ width: '100%' }} loading={loading}>
-              登录
+              {t('login.submit')}
             </Button>
           </Form.Item>
         </Form>
+        <Space size={4} style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)' }}>
+          {/* 后端错误信息（如账号密码错误）仍为后端中文，前端不翻译 */}
+        </Space>
       </Card>
     </div>
   );

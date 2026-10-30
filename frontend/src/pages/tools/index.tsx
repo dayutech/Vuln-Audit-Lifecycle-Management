@@ -1,3 +1,4 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -43,6 +44,8 @@ import {
   uploadToolVersion,
 } from '@/api/tool';
 import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
+import { useAccessProfile } from '@/hooks/useAccessProfile';
+import { canManageTools, canDeleteTool, TOOL_TAG_FORBIDDEN_MESSAGE, TOOL_TAG_READONLY_HINT } from '@/utils/accessRoles';
 import type { ToolVO, ToolVersionVO } from '@/types/tool';
 import { formatDateTime } from '@/utils/datetime';
 import { saveBlobAsFile } from '@/utils/download';
@@ -85,6 +88,10 @@ const splitTags = (tags?: string): string[] =>
  */
 const Tools: React.FC = () => {
   const [data, setData] = useState<ToolVO[]>([]);
+  // t51：PUT /tools/{id} 与上传版本仅 admin/PL/TL；DELETE 仅 admin/PL
+  const { profile: toolProfile, loaded: toolProfileLoaded } = useAccessProfile();
+  const allowManageTools = toolProfileLoaded && canManageTools(toolProfile);
+  const allowDeleteTool = toolProfileLoaded && canDeleteTool(toolProfile);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [keyword, setKeyword] = useState('');
@@ -390,6 +397,11 @@ const Tools: React.FC = () => {
 
   const handleAddTag = async () => {
     if (!tagTool) return;
+    // t55：POST /tools/{id}/tags 仅 admin/PL/TL；前端先拦一次，避免无谓的 403 请求
+    if (!allowManageTools) {
+      message.error(TOOL_TAG_FORBIDDEN_MESSAGE);
+      return;
+    }
     const tag = newTag.trim();
     if (!tag) {
       message.warning('请输入标签内容');
@@ -405,20 +417,26 @@ const Tools: React.FC = () => {
       setNewTag('');
       message.success(`已添加标签「${tag}」`);
       fetchData();
-    } catch {
-      // 拦截器提示
+    } catch (error) {
+      // 后端 @PreAuthorize 是唯一权威：403 用角色文案，其余按服务端消息
+      message.error(getApiErrorMessage(error, TOOL_TAG_FORBIDDEN_MESSAGE));
     }
   };
 
   const handleRemoveTag = async (tag: string) => {
     if (!tagTool) return;
+    // t55：DELETE /tools/{id}/tags?tag=xxx（query 参数，不是 /{tagId}）仅 admin/PL/TL
+    if (!allowManageTools) {
+      message.error(TOOL_TAG_FORBIDDEN_MESSAGE);
+      return;
+    }
     try {
       await removeToolTag(tagTool.id, tag);
       setTags((prev) => prev.filter((item) => item !== tag));
       message.success(`已移除标签「${tag}」`);
       fetchData();
-    } catch {
-      // 拦截器提示
+    } catch (error) {
+      message.error(getApiErrorMessage(error, TOOL_TAG_FORBIDDEN_MESSAGE));
     }
   };
 
@@ -491,7 +509,7 @@ const Tools: React.FC = () => {
           <a onClick={() => openTags(record)}>
             <TagsOutlined /> 标签
           </a>
-          <a style={{ color: 'red' }} onClick={() => handleDelete(record)}>删除</a>
+          {allowDeleteTool && <a style={{ color: 'red' }} onClick={() => handleDelete(record)}>删除</a>}
         </Space>
       ),
     },
@@ -503,7 +521,7 @@ const Tools: React.FC = () => {
       extra={
         <Space>
           <Button icon={<ReloadOutlined />} loading={loading} onClick={fetchData}>刷新</Button>
-          <Button type="primary" icon={<UploadOutlined />} onClick={openCreate}>上传工具</Button>
+          <Button type="primary" icon={<UploadOutlined />} disabled={!allowManageTools} onClick={openCreate}>上传工具</Button>
         </Space>
       }
     >
@@ -698,6 +716,7 @@ const Tools: React.FC = () => {
           }}
         />
 
+        {allowManageTools ? (
         <Card size="small" title="上传新版本" style={{ marginTop: 16 }}>
           <Form form={versionForm} layout="vertical">
             <Form.Item
@@ -728,6 +747,14 @@ const Tools: React.FC = () => {
             </Button>
           </Form>
         </Card>
+        ) : (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 16 }}
+            message="当前角色仅可查看与下载版本：编辑工具、上传版本需要管理员 / 项目负责人 / 小组长权限"
+          />
+        )}
       </Drawer>
 
       {/* 标签 */}
@@ -738,15 +765,19 @@ const Tools: React.FC = () => {
         width={420}
         destroyOnClose
       >
-        <Space.Compact style={{ width: '100%', marginBottom: 16 }}>
-          <Input
-            placeholder="输入标签，如 信息收集"
-            value={newTag}
-            onChange={(event) => setNewTag(event.target.value)}
-            onPressEnter={handleAddTag}
-          />
-          <Button type="primary" onClick={handleAddTag}>添加</Button>
-        </Space.Compact>
+        {allowManageTools ? (
+          <Space.Compact style={{ width: '100%', marginBottom: 16 }}>
+            <Input
+              placeholder="输入标签，如 信息收集"
+              value={newTag}
+              onChange={(event) => setNewTag(event.target.value)}
+              onPressEnter={handleAddTag}
+            />
+            <Button type="primary" onClick={handleAddTag}>添加</Button>
+          </Space.Compact>
+        ) : (
+          <Alert type="info" showIcon style={{ marginBottom: 16 }} message={TOOL_TAG_READONLY_HINT} />
+        )}
 
         {tagLoading ? (
           <Text type="secondary">加载中…</Text>
@@ -755,7 +786,7 @@ const Tools: React.FC = () => {
         ) : (
           <Space size={[8, 8]} wrap>
             {tags.map((tag) => (
-              <Tag key={tag} color="cyan" closable onClose={() => handleRemoveTag(tag)}>
+              <Tag key={tag} color="cyan" closable={allowManageTools} onClose={() => handleRemoveTag(tag)}>
                 {tag}
               </Tag>
             ))}

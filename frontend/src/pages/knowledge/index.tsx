@@ -1,3 +1,4 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -46,6 +47,8 @@ import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
 import type { CreateKnowledgeRequest, KnowledgeArticleVO } from '@/types/knowledge';
 import { formatDateTime } from '@/utils/datetime';
 import { useUserStore } from '@/store/userStore';
+import { useAccessProfile } from '@/hooks/useAccessProfile';
+import { canDeleteKnowledge, resolveCurrentUserId } from '@/utils/accessRoles';
 
 const { Option } = Select;
 const { Text, Paragraph } = Typography;
@@ -153,6 +156,9 @@ const splitTags = (tags?: string): string[] =>
  */
 const Knowledge: React.FC = () => {
   const currentUser = useUserStore((state) => state.user);
+  // t50：DELETE /knowledge/{id} 仅作者本人或管理层
+  const { profile: accessProfile, loaded: accessLoaded } = useAccessProfile();
+  const effectiveUserId = resolveCurrentUserId(accessProfile, currentUser?.id);
 
   const [data, setData] = useState<KnowledgeArticleVO[]>([]);
   const [loading, setLoading] = useState(false);
@@ -499,7 +505,9 @@ const Knowledge: React.FC = () => {
             <a onClick={() => openTags(record)}>
               <TagsOutlined /> 标签
             </a>
-            <a style={{ color: 'red' }} onClick={() => handleDelete(record)}>删除</a>
+            {accessLoaded && canDeleteKnowledge(accessProfile, record.authorId, effectiveUserId) && (
+              <a style={{ color: 'red' }} onClick={() => handleDelete(record)}>删除</a>
+            )}
           </Space>
         ),
       },

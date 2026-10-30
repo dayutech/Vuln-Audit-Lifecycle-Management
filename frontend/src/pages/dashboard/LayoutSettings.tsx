@@ -1,6 +1,7 @@
 import React from 'react';
 import { Alert, Button, Checkbox, List, Modal, Select, Space, Tag, Typography } from 'antd';
 import { ArrowDownOutlined, ArrowUpOutlined, UndoOutlined } from '@ant-design/icons';
+import { useT } from '@/i18n';
 import type { DashboardCardLayout } from '@/types/dashboard';
 import { cardTitle } from './layoutConfig';
 
@@ -26,6 +27,7 @@ interface LayoutSettingsProps {
  * 卡片布局设置：显隐 / 宽度 / 顺序，保存到 POST /dashboard/config。
  */
 const LayoutSettings: React.FC<LayoutSettingsProps> = ({ open, layout, saving, onCancel, onChange, onSave, onReset }) => {
+  const { t } = useT();
   const move = (index: number, offset: number) => {
     const target = index + offset;
     if (target < 0 || target >= layout.length) return;
@@ -45,21 +47,21 @@ const LayoutSettings: React.FC<LayoutSettingsProps> = ({ open, layout, saving, o
   return (
     <Modal
       open={open}
-      title="自定义大盘布局"
+      title={t('dashboard.layoutModalTitle')}
       onCancel={onCancel}
       onOk={onSave}
       confirmLoading={saving}
-      okText="保存布局"
+      okText={t('dashboard.layoutSave')}
       width={620}
       footer={[
         <Button key="reset" icon={<UndoOutlined />} onClick={onReset} loading={saving}>
-          恢复默认
+          {t('dashboard.layoutReset')}
         </Button>,
         <Button key="cancel" onClick={onCancel}>
-          取消
+          {t('common.cancel')}
         </Button>,
         <Button key="ok" type="primary" loading={saving} onClick={onSave}>
-          保存布局
+          {t('dashboard.layoutSave')}
         </Button>,
       ]}
     >

@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router-dom';
 import InboxTab from './InboxTab';
 import AnnouncementsTab from './AnnouncementsTab';
 import SettingsTab from './SettingsTab';
+import { useT } from '@/i18n';
 
 type TabKey = 'inbox' | 'announcements' | 'settings';
 
@@ -25,6 +26,7 @@ const Notifications: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
   const activeKey: TabKey = isTabKey(tabParam) ? tabParam : 'inbox';
+  const { t } = useT();
 
   const items = useMemo(
     () => [
@@ -32,7 +34,7 @@ const Notifications: React.FC = () => {
         key: 'inbox',
         label: (
           <span>
-            <BellOutlined /> 站内信
+            <BellOutlined /> {t('notifications.tabInbox')}
           </span>
         ),
         children: <InboxTab />,
@@ -41,7 +43,7 @@ const Notifications: React.FC = () => {
         key: 'announcements',
         label: (
           <span>
-            <NotificationOutlined /> 公告区
+            <NotificationOutlined /> {t('notifications.tabAnnouncements')}
           </span>
         ),
         children: <AnnouncementsTab />,
@@ -50,17 +52,18 @@ const Notifications: React.FC = () => {
         key: 'settings',
         label: (
           <span>
-            <SettingOutlined /> 通知设置
+            <SettingOutlined /> {t('notifications.tabSettings')}
           </span>
         ),
         children: <SettingsTab />,
       },
     ],
-    []
+    // 语言变化时需要重建 items（tab 文案随语言切换）
+    [t]
   );
 
   return (
-    <Card title="通知中心">
+    <Card title={t('notifications.title')}>
       <Tabs
         activeKey={activeKey}
         items={items}

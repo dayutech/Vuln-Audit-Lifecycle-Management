@@ -1,3 +1,4 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useState } from 'react';
 import {
   Table,
@@ -27,12 +28,17 @@ import type {
   UpdateAssetRequest,
 } from '@/types/asset';
 import { getTeamList } from '@/api/team';
+import { useAccessProfile } from '@/hooks/useAccessProfile';
+import { canCreateAsset } from '@/utils/accessRoles';
 import type { TeamVO } from '@/types/team';
 
 const { TextArea } = Input;
 
 const Assets: React.FC = () => {
   const navigate = useNavigate();
+  // t49 起 POST /assets 仅 admin/project_leader/team_leader：工程师不渲染新建入口
+  const { profile, loaded: profileLoaded } = useAccessProfile();
+  const allowCreateAsset = profileLoaded && canCreateAsset(profile);
   const [data, setData] = useState<AssetVO[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
@@ -280,7 +286,14 @@ const Assets: React.FC = () => {
   ];
 
   return (
-    <Card title="资产管理" extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>新建资产</Button>}>
+    <Card
+      title="资产管理"
+      extra={
+        allowCreateAsset ? (
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>新建资产</Button>
+        ) : null
+      }
+    >
       <div style={{ marginBottom: 16 }}>
         <Input 
           placeholder="搜索资产名称/编码" 

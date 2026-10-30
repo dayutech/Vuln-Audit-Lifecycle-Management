@@ -49,6 +49,7 @@ import { getMyAccessProfile, type MyAccessProfile } from '@/api/permission';
 import { getApiErrorMessage, getApiErrorStatus, getBlobErrorMessage } from '@/utils/errorMessage';
 import { saveBlobAsFile } from '@/utils/download';
 import { describeApiFailure } from './dashboard/apiFailure';
+import { useT } from '@/i18n';
 import { canExportReports, resolveStatsScope, statsScopeTagColor } from './dashboard/statsScope';
 import type {
   AssetStats,
@@ -106,10 +107,10 @@ const normalizeEnumMap = (map: Record<string, number> | undefined): Record<strin
   return normalized;
 };
 
-const EXPORT_OPTIONS: { key: ExportType; label: string }[] = [
-  { key: 'assets', label: '导出资产清单 CSV' },
-  { key: 'vulnerabilities', label: '导出漏洞清单 CSV' },
-  { key: 'workload', label: '导出工作量 CSV' },
+const EXPORT_OPTIONS: { key: ExportType; labelKey: 'dashboard.exportAssets' | 'dashboard.exportVulnerabilities' | 'dashboard.exportWorkload' }[] = [
+  { key: 'assets', labelKey: 'dashboard.exportAssets' },
+  { key: 'vulnerabilities', labelKey: 'dashboard.exportVulnerabilities' },
+  { key: 'workload', labelKey: 'dashboard.exportWorkload' },
 ];
 
 /** 把后端返回的 count map 转成图表数据 */
@@ -129,6 +130,7 @@ const Dashboard: React.FC = () => {
   /** 漏洞统计失败态：403 单独渲染「仅管理层可见」，其余按 5xx/网络分级提示 */
   const [vulnStatsError, setVulnStatsError] = useState<{ forbidden: boolean; message: string } | null>(null);
   const [profile, setProfile] = useState<MyAccessProfile | null>(null);
+  const { t } = useT();
 
   const [layout, setLayout] = useState<DashboardCardLayout[]>(defaultLayout());
   const [draftLayout, setDraftLayout] = useState<DashboardCardLayout[]>(defaultLayout());
@@ -140,6 +142,12 @@ const Dashboard: React.FC = () => {
   const [exportingType, setExportingType] = useState<ExportType | null>(null);
 
   const scope = useMemo(() => resolveStatsScope(profile), [profile]);
+  /** 口径文案走 i18n（resolveStatsScope 里的中文标签仅作后端/日志口径参考） */
+  const scopeLabel = useMemo(() => {
+    if (scope.tone === 'full') return t('dashboard.scope.full');
+    if (profile?.roles?.includes('team_leader')) return t('dashboard.scope.scopedTeam');
+    return t('dashboard.scope.scoped');
+  }, [scope.tone, profile, t]);
 
   const loadStats = useCallback(async () => {
     setLoading(true);
@@ -253,7 +261,7 @@ const Dashboard: React.FC = () => {
    */
   const vulnAccessBlocked = Boolean(vulnStatsError?.forbidden) || (profile ? !scope.canViewVulnStats : false);
   const vulnUnavailable = !vulnAccessBlocked && Boolean(vulnStatsError);
-  const vulnBlockedMessage = `漏洞统计仅管理层（管理员 / 项目负责人 / 小组长）可见，当前角色：${scope.roleLabel}。`;
+  const vulnBlockedMessage = t('dashboard.vulnForbiddenDesc', { role: scope.roleLabel });
 
   const handleExport = async (type: ExportType) => {
     setExportingType(type);
@@ -341,13 +349,13 @@ const Dashboard: React.FC = () => {
         <Alert
           type="info"
           showIcon
-          message="漏洞统计仅管理层可见"
+          message={t('dashboard.vulnForbiddenTitle')}
           description={vulnBlockedMessage}
         />
       );
     }
     if (vulnUnavailable && vulnStatsError) {
-      return <Alert type="warning" showIcon message="漏洞统计暂不可用" description={vulnStatsError.message} />;
+      return <Alert type="warning" showIcon message={t('dashboard.vulnUnavailableTitle')} description={vulnStatsError.message} />;
     }
     if (loading) return <Skeleton active paragraph={{ rows: 6 }} />;
     const severityData = toChartData(
@@ -403,8 +411,8 @@ const Dashboard: React.FC = () => {
             <Statistic
               title={
                 <Space size={6}>
-                  资产总数
-                  <Tag color={statsScopeTagColor(scope.tone)}>{scope.label}</Tag>
+                  {t('dashboard.cardAssets')}
+                  <Tag color={statsScopeTagColor(scope.tone)}>{scopeLabel}</Tag>
                 </Space>
               }
               value={assetStats?.total ?? 0}
@@ -426,8 +434,8 @@ const Dashboard: React.FC = () => {
             <Statistic
               title={
                 <Space size={6}>
-                  漏洞总数
-                  <Tag color={statsScopeTagColor(scope.tone)}>{scope.label}</Tag>
+                  {t('dashboard.cardVulnerabilities')}
+                  <Tag color={statsScopeTagColor(scope.tone)}>{scopeLabel}</Tag>
                 </Space>
               }
               value={vulnAccessBlocked || vulnUnavailable ? '-' : vulnStats?.total ?? 0}
@@ -457,7 +465,7 @@ const Dashboard: React.FC = () => {
         return (
           <Card loading={loading} variant="borderless">
             <Statistic
-              title="我的任务"
+              title={t('dashboard.cardMyTasks')}
               value={
                 Object.values(workload?.tasks ?? {}).reduce((sum, value) => sum + (Number(value) || 0), 0)
               }
@@ -475,7 +483,7 @@ const Dashboard: React.FC = () => {
         return (
           <Card loading={loading} variant="borderless">
             <Statistic
-              title="我的资产认领"
+              title={t('dashboard.cardMyClaims')}
               value={Object.values(workload?.claims ?? {}).reduce((sum, value) => sum + (Number(value) || 0), 0)}
               prefix={<TrophyOutlined />}
               valueStyle={{ color: '#faad14' }}
@@ -489,7 +497,7 @@ const Dashboard: React.FC = () => {
         );
       case 'chart-trends':
         return (
-          <Card title="趋势折线" variant="borderless">
+          <Card title={t('dashboard.cardTrends')} variant="borderless">
             <TrendChart days={trendDays} onDaysChange={setTrendDays} />
           </Card>
         );
@@ -498,8 +506,8 @@ const Dashboard: React.FC = () => {
           <Card
             title={
               <Space size={6}>
-                资产分布（类型 / 优先级）
-                <Tag color={statsScopeTagColor(scope.tone)}>{scope.label}</Tag>
+                {t('dashboard.cardAssetDistribution')}
+                <Tag color={statsScopeTagColor(scope.tone)}>{scopeLabel}</Tag>
               </Space>
             }
             variant="borderless"
@@ -512,8 +520,8 @@ const Dashboard: React.FC = () => {
           <Card
             title={
               <Space size={6}>
-                漏洞分布（严重程度 / 工作流状态）
-                <Tag color={statsScopeTagColor(scope.tone)}>{scope.label}</Tag>
+                {t('dashboard.cardVulnDistribution')}
+                <Tag color={statsScopeTagColor(scope.tone)}>{scopeLabel}</Tag>
               </Space>
             }
             variant="borderless"
@@ -523,7 +531,7 @@ const Dashboard: React.FC = () => {
         );
       case 'rank-workload':
         return (
-          <Card title="工作量排行" variant="borderless">
+          <Card title={t('dashboard.cardWorkloadRank')} variant="borderless">
             <WorkloadRank />
           </Card>
         );
@@ -536,7 +544,7 @@ const Dashboard: React.FC = () => {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <Title level={2} style={{ margin: 0 }}>
-          安全态势大盘
+          {t('dashboard.title')}
         </Title>
         <Space wrap>
           {canExport ? (
@@ -544,21 +552,21 @@ const Dashboard: React.FC = () => {
               menu={{
                 items: EXPORT_OPTIONS.map((option) => ({
                   key: option.key,
-                  label: option.label,
+                  label: t(option.labelKey),
                   onClick: () => handleExport(option.key),
                 })),
               }}
             >
               <Button icon={<DownloadOutlined />} loading={!!exportingType}>
-                导出报表
+                {t('dashboard.export')}
               </Button>
             </Dropdown>
           ) : null}
           <Button icon={<SettingOutlined />} onClick={handleOpenLayout}>
-            布局设置
+            {t('dashboard.layout')}
           </Button>
           <Button icon={<ReloadOutlined />} onClick={loadStats} loading={loading}>
-            刷新
+            {t('dashboard.refresh')}
           </Button>
         </Space>
       </div>
@@ -588,7 +596,7 @@ const Dashboard: React.FC = () => {
 
       <Text type="secondary" style={{ display: 'block', marginTop: 16, fontSize: 12 }}>
         数据来源：/dashboard/assets/stats、/dashboard/vulnerabilities/stats、/dashboard/workload/stats、/dashboard/trends/*；
-        统计口径：{scope.label}
+        统计口径：{scopeLabel}
         {scope.tone === 'full'
           ? '（管理员 / 项目负责人可见全部资产与漏洞）'
           : '（仅统计你可访问的资产及其漏洞；漏洞统计仅管理层可用）'}

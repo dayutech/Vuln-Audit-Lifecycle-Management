@@ -1,3 +1,4 @@
+// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Tabs, Card, Button, Descriptions, Tag, Spin, Result, Form, Input, Select, Row, Col, Space, Upload, Table, message, Modal, Tooltip, Steps, Alert, Typography } from 'antd';
@@ -51,6 +52,9 @@ import type { UserDirectoryEntry } from '@/api/user';
 import type { AssetVO, AssetFileVO, AssetDeliverableVO, EnvironmentVO, AssetVersionVO, AssetAccessVO, AssetClaimVO } from '@/types/asset';
 
 import AssetTagsPanel from './AssetTagsPanel';
+import { useUserStore } from '@/store/userStore';
+import { useAccessProfile } from '@/hooks/useAccessProfile';
+import { canWriteAsset, resolveCurrentUserId, ASSET_WRITE_FORBIDDEN_TIP } from '@/utils/accessRoles';
 
 const { TabPane } = Tabs;
 const { Option } = Select;
@@ -163,6 +167,12 @@ const AssetDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [asset, setAsset] = useState<AssetVO | null>(null);
+  // 资产写入口（新建版本/设为默认/设为最新/标签删除）：管理层或资产负责人
+  const { profile: accessProfile, loaded: accessProfileLoaded } = useAccessProfile();
+  const currentUser = useUserStore((state) => state.user);
+  const assetOwnerId = asset?.ownerId ?? asset?.owner_id;
+  const currentUserId = resolveCurrentUserId(accessProfile, currentUser?.id);
+  const canWriteCurrentAsset = accessProfileLoaded && canWriteAsset(accessProfile, assetOwnerId, currentUserId);
   const [loading, setLoading] = useState(true);
   const [assetVersions, setAssetVersions] = useState<AssetVersionVO[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string>();
@@ -1730,9 +1740,15 @@ const AssetDetail: React.FC = () => {
                 value: item.id,
               }))}
             />
-            <Button onClick={() => setCreateVersionVisible(true)}>新建版本</Button>
-            <Button loading={setDefaultLoading} onClick={handleSetDefaultVersion}>设为默认</Button>
-            <Button loading={setLatestLoading} onClick={handleSetLatestVersion}>设为最新</Button>
+            <Tooltip title={canWriteCurrentAsset ? '' : ASSET_WRITE_FORBIDDEN_TIP}>
+              <Button disabled={!canWriteCurrentAsset} onClick={() => setCreateVersionVisible(true)}>新建版本</Button>
+            </Tooltip>
+            <Tooltip title={canWriteCurrentAsset ? '' : ASSET_WRITE_FORBIDDEN_TIP}>
+              <Button disabled={!canWriteCurrentAsset} loading={setDefaultLoading} onClick={handleSetDefaultVersion}>设为默认</Button>
+            </Tooltip>
+            <Tooltip title={canWriteCurrentAsset ? '' : ASSET_WRITE_FORBIDDEN_TIP}>
+              <Button disabled={!canWriteCurrentAsset} loading={setLatestLoading} onClick={handleSetLatestVersion}>设为最新</Button>
+            </Tooltip>
             <Button onClick={() => navigate('/assets')}>返回列表</Button>
           </Space>
         }
@@ -2166,7 +2182,7 @@ const AssetDetail: React.FC = () => {
             </div>
           </TabPane>
           <TabPane tab={<span><TagOutlined />资产标签</span>} key="asset-tags">
-            {asset?.id ? <AssetTagsPanel assetId={asset.id} /> : null}
+            {asset?.id ? <AssetTagsPanel assetId={asset.id} canWrite={canWriteCurrentAsset} /> : null}
           </TabPane>
           <TabPane tab={<span><BuildOutlined />环境与部署</span>} key="environments">
             <div style={{ padding: '24px 0' }}>
