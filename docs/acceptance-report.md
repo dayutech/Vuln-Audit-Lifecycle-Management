@@ -10,18 +10,21 @@
 
 ## 0. 验收结论
 
-**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，452 个后端用例连续两次 100% 通过，线上冒烟 92/92 连续两次全绿，三账号交叉验证通过。
+**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**475 个后端用例 100% 通过**（t25 基线 452 + t39 新增 13 + t40 新增 10），线上冒烟 **108/108 全绿**（t13 的 92 + t41 新增 16），三账号交叉验证通过。
 
-验收附带 7 项**已知偏离**（§5）与 8 项**后续建议**（§8），均不影响本次验收结论。
+t39/t40 之后鉴权缺口由 15 组收敛为 **13 组（中 10 / 低 3，高 0）**：3 组「高」severity 缺口（团队 CRUD、环境增删改与部署、公告写）已修复，资产认领「完成/放弃」状态机已打通（此前恒 403）。
+
+验收附带 8 项**已知偏离**（§5）与 8 项**后续建议**（§8），均不影响本次验收结论。
 
 | 关键指标 | 数值 |
 |---|---|
-| 后端自动化测试 | **452 用例 / 54 suite / 通过率 100%**，同一快照连续两次 `mvn -B clean test` 全绿（16:17 / 16:42） |
-| 线上冒烟 | **92 用例 / 92 PASS / 0 FAIL / 0 SKIP**，连续两次（部署后 + 清理后复跑） |
+| 后端自动化测试 | **475 用例 / 通过率 100%**（t25 基线 452 + t39 的 13 + t40 的 10），`mvn -B clean test` 56:54 全绿；t25 另有同一快照连续两次 452/452 全绿 |
+| 线上冒烟 | **108 用例 / 108 PASS / 0 FAIL / 0 SKIP**（t13 的 92 + t41 新增 16 条），部署 t39/t40 后复跑全绿 |
 | 部署后专项核对 | 11a~11k 共 **13 项实测全 PASS** |
 | 空库引导（真实建库路径） | 56 张表、RBAC 90 权限点 / 261 关联、admin 登录 200、`permissionCount=90` |
-| 接口总数 / 已做鉴权 | 262 个端点；角色注解 44、数据级守卫 63、方法内校验 7 → **114 个显式鉴权端点**，其余见 §2 |
-| 线上 RBAC 幂等 | 重启两次 `permissions=90 / role_permissions=261 / roles=4` 不变 |
+| 接口总数 / 已做鉴权 | 262 个端点；角色注解 56、数据级守卫 67、方法内校验 11 → **134 个显式鉴权端点**（写端点 87/135 = 64%），其余见 §2 |
+| 鉴权缺口 | 15 组 → **13 组（中 10 / 低 3，高 0）**；3 组高 severity 已修复（t40），认领状态机已打通（t39） |
+| 线上 RBAC 幂等 | 重启多次 `permissions=90 / role_permissions=261 / roles=4` 不变 |
 
 ---
 
@@ -113,278 +116,276 @@
 
 | 端点类别 | 数量 | 角色注解 | 数据级守卫 | 方法内校验 | 仅登录 | 无 |
 |---|---|---|---|---|---|---|
-| 全部端点 | 262 | 44 | 63 | 7 | 64 | 84 |
-| **写端点**（POST/PUT/PATCH/DELETE） | 135 | 30 | 35 | 3 | 34 | 33 |
-| GET 端点 | 127 | 14 | 28 | 4 | 30 | 51 |
+| 全部端点 | 262 | 56 | 67 | 11 | 58 | 70 |
+| **写端点**（POST/PUT/PATCH/DELETE） | 135 | 42 | 39 | 6 | 29 | 19 |
+| GET 端点 | 127 | 14 | 28 | 5 | 29 | 51 |
 
-**关键结论**：写端点中 **68 个（50%）有显式鉴权**（角色注解 + 数据级守卫 + 方法内校验），**34 个仅要求登录**、**33 个无任何校验**——后两类在 §2.3 逐条给出「合理开放 / 已知缺口」判定，其中 25 条为合理开放（本人数据、工具/知识库全员可写、认证域），8 组为已知缺口（团队/环境/公告/资产创建等敏感写操作）。
+**关键结论**：写端点中 **87 个（64%）有显式鉴权**（角色注解 42 + 数据级守卫 39 + 方法内校验 6，t39/t40 前为 68 个），**29 个仅要求登录**、**19 个无任何校验**——后两类在 §2.3 逐条给出「合理开放 / 已知缺口」判定：合理开放覆盖认证域、本人数据、工具/知识库/文档协作等；已知缺口 **13 组**（中 10 / 低 3，高 0）。
 
 ### 2.2 分控制器明细（写端点 + 敏感读端点）
 
-
 ### ApprovalScopeController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/approval-scopes` | grantScope | 角色注解 |
-| DELETE | `/api/v1/approval-scopes/{id}` | revokeScope | 角色注解 |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/approval-scopes` | 角色注解 |
+| DELETE | `/api/v1/approval-scopes/{id}` | 角色注解 |
 
 ### AssetController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/assets` | createAsset | 仅登录(取当前用户) |
-| PUT | `/api/v1/assets/{id}` | updateAsset | 数据级守卫 |
-| DELETE | `/api/v1/assets/{id}` | deleteAsset | 数据级守卫 |
-| PUT | `/api/v1/assets/{id}/status` | updateStatus | 数据级守卫 |
-| POST | `/api/v1/assets/{id}/access-requests` | createAccessRequest | 仅登录(取当前用户) |
-| GET | `/api/v1/assets/{id}/access-requests` | listAccessRequests | 无 |
-| POST | `/api/v1/assets/access-requests/{requestId}/review` | reviewAccessRequest | 角色注解 |
-| POST | `/api/v1/assets/{id}/claims` | createClaim | 仅登录(取当前用户) |
-| GET | `/api/v1/assets/{id}/claims` | listClaims | 数据级守卫 |
-| POST | `/api/v1/assets/claims/{claimId}/review` | reviewClaim | 角色注解 |
-| POST | `/api/v1/assets/claims/{claimId}/complete` | completeClaim | 无 |
-| POST | `/api/v1/assets/claims/{claimId}/abandon` | abandonClaim | 无 |
-| POST | `/api/v1/assets/{id}/tags` | addAssetTag | 仅登录(取当前用户) |
-| DELETE | `/api/v1/assets/{assetId}/tags/{tagId}` | removeAssetTag | 无 |
-| GET | `/api/v1/assets/my/access-requests` | getMyAccessRequests | 仅登录(取当前用户) |
-| GET | `/api/v1/assets/my/claims` | getMyClaims | 仅登录(取当前用户) |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/assets` | 仅登录(取当前用户) |
+| PUT | `/api/v1/assets/{id}` | 数据级守卫 |
+| DELETE | `/api/v1/assets/{id}` | 数据级守卫 |
+| PUT | `/api/v1/assets/{id}/status` | 数据级守卫 |
+| POST | `/api/v1/assets/{id}/access-requests` | 仅登录(取当前用户) |
+| GET | `/api/v1/assets/{id}/access-requests` | 无 |
+| POST | `/api/v1/assets/access-requests/{requestId}/review` | 角色注解 |
+| POST | `/api/v1/assets/{id}/claims` | 方法内数据级 |
+| GET | `/api/v1/assets/{id}/claims` | 数据级守卫 |
+| POST | `/api/v1/assets/claims/{claimId}/review` | 角色注解 |
+| POST | `/api/v1/assets/claims/{claimId}/complete` | 方法内数据级 |
+| POST | `/api/v1/assets/claims/{claimId}/abandon` | 方法内数据级 |
+| POST | `/api/v1/assets/{id}/tags` | 仅登录(取当前用户) |
+| DELETE | `/api/v1/assets/{assetId}/tags/{tagId}` | 无 |
+| GET | `/api/v1/assets/my/access-requests` | 仅登录(取当前用户) |
+| GET | `/api/v1/assets/my/claims` | 方法内数据级 |
 
 ### AssetDeliverableController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/assets/{assetId}/deliverables` | uploadDeliverable | 数据级守卫 |
-| GET | `/api/v1/asset-deliverables/{id}/download` | downloadDeliverable | 数据级守卫 |
-| DELETE | `/api/v1/asset-deliverables/{id}` | deleteDeliverable | 数据级守卫 |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/assets/{assetId}/deliverables` | 数据级守卫 |
+| GET | `/api/v1/asset-deliverables/{id}/download` | 数据级守卫 |
+| DELETE | `/api/v1/asset-deliverables/{id}` | 数据级守卫 |
 
 ### AssetFileController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/assets/{assetId}/files` | uploadFile | 数据级守卫 |
-| GET | `/api/v1/asset-files/{id}/download` | downloadFile | 数据级守卫 |
-| DELETE | `/api/v1/asset-files/{id}` | deleteFile | 数据级守卫 |
-| POST | `/api/v1/asset-files/{id}/versions` | uploadNewVersion | 数据级守卫 |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/assets/{assetId}/files` | 数据级守卫 |
+| GET | `/api/v1/asset-files/{id}/download` | 数据级守卫 |
+| DELETE | `/api/v1/asset-files/{id}` | 数据级守卫 |
+| POST | `/api/v1/asset-files/{id}/versions` | 数据级守卫 |
 
 ### AssetGroupController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/asset-groups` | createGroup | 无 |
-| PUT | `/api/v1/asset-groups/{id}` | updateGroup | 无 |
-| DELETE | `/api/v1/asset-groups/{id}` | deleteGroup | 无 |
-| POST | `/api/v1/asset-groups/{id}/assets` | addAssetToGroup | 无 |
-| DELETE | `/api/v1/asset-groups/{groupId}/assets/{assetId}` | removeAssetFromGroup | 无 |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/asset-groups` | 无 |
+| PUT | `/api/v1/asset-groups/{id}` | 无 |
+| DELETE | `/api/v1/asset-groups/{id}` | 无 |
+| POST | `/api/v1/asset-groups/{id}/assets` | 无 |
+| DELETE | `/api/v1/asset-groups/{groupId}/assets/{assetId}` | 无 |
 
 ### AssetMetadataController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| GET | `/api/v1/assets/{assetId}/metadata/base` | getBaseMetadata | 数据级守卫 |
-| PUT | `/api/v1/assets/{assetId}/metadata/base` | updateBaseMetadata | 数据级守卫 |
-| GET | `/api/v1/assets/{assetId}/metadata/network` | getNetworkMetadata | 数据级守卫 |
-| PUT | `/api/v1/assets/{assetId}/metadata/network` | updateNetworkMetadata | 数据级守卫 |
-| GET | `/api/v1/assets/{assetId}/metadata/env` | getEnvMetadata | 数据级守卫 |
-| PUT | `/api/v1/assets/{assetId}/metadata/env` | updateEnvMetadata | 数据级守卫 |
-| GET | `/api/v1/assets/{assetId}/metadata/account` | getAccountMetadata | 数据级守卫 |
-| PUT | `/api/v1/assets/{assetId}/metadata/account` | updateAccountMetadata | 数据级守卫 |
-| GET | `/api/v1/assets/{assetId}/metadata/extra` | getExtraMetadata | 数据级守卫 |
-| PUT | `/api/v1/assets/{assetId}/metadata/extra` | updateExtraMetadata | 数据级守卫 |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| GET | `/api/v1/assets/{assetId}/metadata/base` | 数据级守卫 |
+| PUT | `/api/v1/assets/{assetId}/metadata/base` | 数据级守卫 |
+| GET | `/api/v1/assets/{assetId}/metadata/network` | 数据级守卫 |
+| PUT | `/api/v1/assets/{assetId}/metadata/network` | 数据级守卫 |
+| GET | `/api/v1/assets/{assetId}/metadata/env` | 数据级守卫 |
+| PUT | `/api/v1/assets/{assetId}/metadata/env` | 数据级守卫 |
+| GET | `/api/v1/assets/{assetId}/metadata/account` | 数据级守卫 |
+| PUT | `/api/v1/assets/{assetId}/metadata/account` | 数据级守卫 |
+| GET | `/api/v1/assets/{assetId}/metadata/extra` | 数据级守卫 |
+| PUT | `/api/v1/assets/{assetId}/metadata/extra` | 数据级守卫 |
 
 ### AssetVersionController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/assets/{assetId}/versions` | createVersion | 仅登录(取当前用户) |
-| PUT | `/api/v1/assets/{assetId}/versions/{id}/default` | setDefaultVersion | 无 |
-| PUT | `/api/v1/assets/{assetId}/versions/{id}/latest` | setLatestVersion | 无 |
-| DELETE | `/api/v1/assets/{assetId}/versions/{id}` | deleteVersion | 数据级守卫 |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/assets/{assetId}/versions` | 仅登录(取当前用户) |
+| PUT | `/api/v1/assets/{assetId}/versions/{id}/default` | 无 |
+| PUT | `/api/v1/assets/{assetId}/versions/{id}/latest` | 无 |
+| DELETE | `/api/v1/assets/{assetId}/versions/{id}` | 数据级守卫 |
 
 ### AuditLogController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| GET | `/api/v1/audit-logs/{id}` | getAuditLog | 角色注解 |
-| GET | `/api/v1/audit-logs` | listAuditLogs | 角色注解 |
-| GET | `/api/v1/audit-logs/export` | exportAuditLogs | 角色注解 |
-| GET | `/api/v1/audit-logs/users/{userId}` | listUserAuditLogs | 角色注解 |
-| GET | `/api/v1/audit-logs/resources/{resourceType}/{resourceId}` | listResourceAuditLogs | 角色注解 |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| GET | `/api/v1/audit-logs/{id}` | 角色注解 |
+| GET | `/api/v1/audit-logs` | 角色注解 |
+| GET | `/api/v1/audit-logs/export` | 角色注解 |
+| GET | `/api/v1/audit-logs/users/{userId}` | 角色注解 |
+| GET | `/api/v1/audit-logs/resources/{resourceType}/{resourceId}` | 角色注解 |
 
 ### AuthController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/auth/login` | login | 无 |
-| POST | `/api/v1/auth/logout` | logout | 仅登录(取当前用户) |
-| GET | `/api/v1/auth/me` | getCurrentUser | 仅登录(取当前用户) |
-| POST | `/api/v1/auth/change-password` | changePassword | 仅登录(取当前用户) |
-| POST | `/api/v1/auth/refresh` | refreshToken | 仅登录(取当前用户) |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/auth/login` | 无 |
+| POST | `/api/v1/auth/logout` | 仅登录(取当前用户) |
+| GET | `/api/v1/auth/me` | 仅登录(取当前用户) |
+| POST | `/api/v1/auth/change-password` | 仅登录(取当前用户) |
+| POST | `/api/v1/auth/refresh` | 仅登录(取当前用户) |
 
 ### DashboardController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| PUT | `/api/v1/dashboard/my` | saveMyConfig | 仅登录(取当前用户) |
-| GET | `/api/v1/dashboard/workload/stats/claims` | getClaimStats | 仅登录(取当前用户) |
-| POST | `/api/v1/dashboard/config` | saveConfig | 仅登录(取当前用户) |
-| DELETE | `/api/v1/dashboard/config` | deleteConfig | 方法内数据级 |
-| GET | `/api/v1/dashboard/export` | exportStats | 角色注解 |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| PUT | `/api/v1/dashboard/my` | 仅登录(取当前用户) |
+| GET | `/api/v1/dashboard/workload/stats/claims` | 仅登录(取当前用户) |
+| POST | `/api/v1/dashboard/config` | 仅登录(取当前用户) |
+| DELETE | `/api/v1/dashboard/config` | 方法内数据级 |
+| GET | `/api/v1/dashboard/export` | 角色注解 |
 
 ### DocumentController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/documents` | createDocument | 仅登录(取当前用户) |
-| PUT | `/api/v1/documents/{id}` | updateDocument | 数据级守卫 |
-| DELETE | `/api/v1/documents/{id}` | deleteDocument | 数据级守卫 |
-| POST | `/api/v1/documents/{id}/access` | grantAccess | 数据级守卫 |
-| DELETE | `/api/v1/documents/{id}/access` | revokeAccess | 数据级守卫 |
-| POST | `/api/v1/documents/{id}/publish` | publishDocument | 数据级守卫 |
-| POST | `/api/v1/documents/{id}/unpublish` | unpublishDocument | 数据级守卫 |
-| POST | `/api/v1/documents/{id}/versions/{version}/rollback` | rollbackDocumentVersion | 数据级守卫 |
-| POST | `/api/v1/documents/{id}/tags` | addDocumentTag | 仅登录(取当前用户) |
-| DELETE | `/api/v1/documents/{documentId}/tags/{tagId}` | removeDocumentTag | 无 |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/documents` | 仅登录(取当前用户) |
+| PUT | `/api/v1/documents/{id}` | 数据级守卫 |
+| DELETE | `/api/v1/documents/{id}` | 数据级守卫 |
+| POST | `/api/v1/documents/{id}/access` | 数据级守卫 |
+| DELETE | `/api/v1/documents/{id}/access` | 数据级守卫 |
+| POST | `/api/v1/documents/{id}/publish` | 数据级守卫 |
+| POST | `/api/v1/documents/{id}/unpublish` | 数据级守卫 |
+| POST | `/api/v1/documents/{id}/versions/{version}/rollback` | 数据级守卫 |
+| POST | `/api/v1/documents/{id}/tags` | 仅登录(取当前用户) |
+| DELETE | `/api/v1/documents/{documentId}/tags/{tagId}` | 无 |
 
 ### EnvironmentController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/environments` | createEnvironment | 仅登录(取当前用户) |
-| PUT | `/api/v1/environments/{id}` | updateEnvironment | 无 |
-| DELETE | `/api/v1/environments/{id}` | deleteEnvironment | 无 |
-| POST | `/api/v1/environments/{id}/deploy` | deployEnvironment | 无 |
-| POST | `/api/v1/environments/{id}/start` | startEnvironment | 无 |
-| POST | `/api/v1/environments/{id}/stop` | stopEnvironment | 无 |
-| POST | `/api/v1/environments/{id}/snapshots` | createSnapshot | 仅登录(取当前用户) |
-| POST | `/api/v1/environments/{id}/snapshots/{snapshotId}/rollback` | rollbackSnapshot | 仅登录(取当前用户) |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/environments` | 角色注解 |
+| PUT | `/api/v1/environments/{id}` | 角色注解 |
+| DELETE | `/api/v1/environments/{id}` | 角色注解 |
+| POST | `/api/v1/environments/{id}/deploy` | 角色注解 |
+| POST | `/api/v1/environments/{id}/start` | 角色注解 |
+| POST | `/api/v1/environments/{id}/stop` | 角色注解 |
+| POST | `/api/v1/environments/{id}/snapshots` | 角色注解 |
+| POST | `/api/v1/environments/{id}/snapshots/{snapshotId}/rollback` | 角色注解 |
 
 ### ImportController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/import/assets` | importAssets | 角色注解 |
-| POST | `/api/v1/import/vulnerabilities` | importVulnerabilities | 方法内数据级 |
-| POST | `/api/v1/import/users` | importUsers | 角色注解 |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/import/assets` | 角色注解 |
+| POST | `/api/v1/import/vulnerabilities` | 方法内数据级 |
+| POST | `/api/v1/import/users` | 角色注解 |
 
 ### KnowledgeController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/knowledge` | createArticle | 仅登录(取当前用户) |
-| PUT | `/api/v1/knowledge/{id}` | updateArticle | 无 |
-| DELETE | `/api/v1/knowledge/{id}` | deleteArticle | 无 |
-| POST | `/api/v1/knowledge/{id}/comments` | addComment | 仅登录(取当前用户) |
-| POST | `/api/v1/knowledge/{id}/tags` | addTag | 无 |
-| DELETE | `/api/v1/knowledge/{id}/tags` | removeTag | 仅登录(取当前用户) |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/knowledge` | 仅登录(取当前用户) |
+| PUT | `/api/v1/knowledge/{id}` | 无 |
+| DELETE | `/api/v1/knowledge/{id}` | 无 |
+| POST | `/api/v1/knowledge/{id}/comments` | 仅登录(取当前用户) |
+| POST | `/api/v1/knowledge/{id}/tags` | 无 |
+| DELETE | `/api/v1/knowledge/{id}/tags` | 仅登录(取当前用户) |
 
 ### NotificationController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/notifications/{id}/read` | markAsRead | 仅登录(取当前用户) |
-| POST | `/api/v1/notifications/read-all` | markAllAsRead | 仅登录(取当前用户) |
-| DELETE | `/api/v1/notifications/{id}` | deleteNotification | 仅登录(取当前用户) |
-| POST | `/api/v1/notifications/vulnerability-discovered` | sendVulnerabilityNotification | 无 |
-| GET | `/api/v1/notifications/{notificationId}/recipients` | updateSetting | 无 |
-| GET | `/api/v1/notifications/settings` | updateSetting | 仅登录(取当前用户) |
-| PUT | `/api/v1/notifications/settings/{type}` | updateSetting | 仅登录(取当前用户) |
-| POST | `/api/v1/notifications/announcements` | createAnnouncement | 无 |
-| PUT | `/api/v1/notifications/announcements/{id}` | updateAnnouncement | 无 |
-| DELETE | `/api/v1/notifications/announcements/{id}` | deleteAnnouncement | 无 |
-| POST | `/api/v1/notifications/subscriptions/{assetId}` | subscribeAsset | 仅登录(取当前用户) |
-| DELETE | `/api/v1/notifications/subscriptions/{assetId}` | unsubscribeAsset | 仅登录(取当前用户) |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/notifications/{id}/read` | 仅登录(取当前用户) |
+| POST | `/api/v1/notifications/read-all` | 仅登录(取当前用户) |
+| DELETE | `/api/v1/notifications/{id}` | 仅登录(取当前用户) |
+| POST | `/api/v1/notifications/vulnerability-discovered` | 无 |
+| GET | `/api/v1/notifications/{notificationId}/recipients` | 无 |
+| GET | `/api/v1/notifications/settings` | 仅登录(取当前用户) |
+| PUT | `/api/v1/notifications/settings/{type}` | 仅登录(取当前用户) |
+| POST | `/api/v1/notifications/announcements` | 角色注解 |
+| PUT | `/api/v1/notifications/announcements/{id}` | 角色注解 |
+| DELETE | `/api/v1/notifications/announcements/{id}` | 角色注解 |
+| POST | `/api/v1/notifications/subscriptions/{assetId}` | 仅登录(取当前用户) |
+| DELETE | `/api/v1/notifications/subscriptions/{assetId}` | 仅登录(取当前用户) |
 
 ### PermissionController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/permissions` | createPermission | 角色注解 |
-| GET | `/api/v1/permissions/{id}` | getPermission | 角色注解 |
-| GET | `/api/v1/permissions` | listPermissions | 角色注解 |
-| PUT | `/api/v1/permissions/{id}` | updatePermission | 角色注解 |
-| DELETE | `/api/v1/permissions/{id}` | deletePermission | 角色注解 |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/permissions` | 角色注解 |
+| GET | `/api/v1/permissions/{id}` | 角色注解 |
+| GET | `/api/v1/permissions` | 角色注解 |
+| PUT | `/api/v1/permissions/{id}` | 角色注解 |
+| DELETE | `/api/v1/permissions/{id}` | 角色注解 |
 
 ### RoleController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/roles` | createRole | 角色注解 |
-| GET | `/api/v1/roles/{id}` | getRole | 角色注解 |
-| GET | `/api/v1/roles` | listRoles | 角色注解 |
-| PUT | `/api/v1/roles/{id}` | updateRole | 角色注解 |
-| DELETE | `/api/v1/roles/{id}` | deleteRole | 角色注解 |
-| POST | `/api/v1/roles/{id}/permissions` | assignPermissions | 角色注解 |
-| GET | `/api/v1/roles/{id}/permissions` | getRolePermissions | 角色注解 |
-| DELETE | `/api/v1/roles/{id}/permissions` | removePermissions | 角色注解 |
-| POST | `/api/v1/roles/{id}/users/{userId}` | assignRoleToUser | 角色注解 |
-| DELETE | `/api/v1/roles/{id}/users/{userId}` | removeRoleFromUser | 角色注解 |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/roles` | 角色注解 |
+| GET | `/api/v1/roles/{id}` | 角色注解 |
+| GET | `/api/v1/roles` | 角色注解 |
+| PUT | `/api/v1/roles/{id}` | 角色注解 |
+| DELETE | `/api/v1/roles/{id}` | 角色注解 |
+| POST | `/api/v1/roles/{id}/permissions` | 角色注解 |
+| GET | `/api/v1/roles/{id}/permissions` | 角色注解 |
+| DELETE | `/api/v1/roles/{id}/permissions` | 角色注解 |
+| POST | `/api/v1/roles/{id}/users/{userId}` | 角色注解 |
+| DELETE | `/api/v1/roles/{id}/users/{userId}` | 角色注解 |
 
 ### TaskController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/tasks` | createTask | 仅登录(取当前用户) |
-| PUT | `/api/v1/tasks/{id}` | updateTask | 仅登录(取当前用户) |
-| PUT | `/api/v1/tasks/{id}/status` | updateStatus | 仅登录(取当前用户) |
-| POST | `/api/v1/tasks/{id}/submit-review` | submitReview | 仅登录(取当前用户) |
-| POST | `/api/v1/tasks/{id}/approve` | approveReview | 角色注解 |
-| POST | `/api/v1/tasks/{id}/reject` | rejectReview | 角色注解 |
-| DELETE | `/api/v1/tasks/{id}` | deleteTask | 数据级守卫 |
-| POST | `/api/v1/tasks/{id}/assign` | assignTask | 角色注解 |
-| POST | `/api/v1/tasks/{id}/comments` | addComment | 仅登录(取当前用户) |
-| POST | `/api/v1/tasks/{id}/collaborators` | addCollaborator | 角色注解 |
-| DELETE | `/api/v1/tasks/{id}/collaborators/{userId}` | removeCollaborator | 角色注解 |
-| POST | `/api/v1/tasks/{id}/attachments` | addAttachment | 仅登录(取当前用户) |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/tasks` | 仅登录(取当前用户) |
+| PUT | `/api/v1/tasks/{id}` | 仅登录(取当前用户) |
+| PUT | `/api/v1/tasks/{id}/status` | 仅登录(取当前用户) |
+| POST | `/api/v1/tasks/{id}/submit-review` | 仅登录(取当前用户) |
+| POST | `/api/v1/tasks/{id}/approve` | 角色注解 |
+| POST | `/api/v1/tasks/{id}/reject` | 角色注解 |
+| DELETE | `/api/v1/tasks/{id}` | 数据级守卫 |
+| POST | `/api/v1/tasks/{id}/assign` | 角色注解 |
+| POST | `/api/v1/tasks/{id}/comments` | 仅登录(取当前用户) |
+| POST | `/api/v1/tasks/{id}/collaborators` | 角色注解 |
+| DELETE | `/api/v1/tasks/{id}/collaborators/{userId}` | 角色注解 |
+| POST | `/api/v1/tasks/{id}/attachments` | 仅登录(取当前用户) |
 
 ### TeamController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/teams` | createTeam | 仅登录(取当前用户) |
-| PUT | `/api/v1/teams/{id}` | updateTeam | 无 |
-| DELETE | `/api/v1/teams/{id}` | deleteTeam | 无 |
-| POST | `/api/v1/teams/{id}/members` | addMember | 无 |
-| DELETE | `/api/v1/teams/{id}/members/{userId}` | removeMember | 无 |
-| GET | `/api/v1/teams/{id}/members` | getMembers | 无 |
-| GET | `/api/v1/teams/{id}/users` | getTeamUsers | 无 |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/teams` | 角色注解 |
+| PUT | `/api/v1/teams/{id}` | 数据级守卫 |
+| DELETE | `/api/v1/teams/{id}` | 数据级守卫 |
+| POST | `/api/v1/teams/{id}/members` | 数据级守卫 |
+| DELETE | `/api/v1/teams/{id}/members/{userId}` | 数据级守卫 |
+| GET | `/api/v1/teams/{id}/members` | 无 |
+| GET | `/api/v1/teams/{id}/users` | 无 |
 
 ### ToolController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/tools` | createTool | 仅登录(取当前用户) |
-| PUT | `/api/v1/tools/{id}` | updateTool | 无 |
-| DELETE | `/api/v1/tools/{id}` | deleteTool | 无 |
-| POST | `/api/v1/tools/{id}/download` | recordDownload | 仅登录(取当前用户) |
-| POST | `/api/v1/tools/{id}/file` | uploadToolFile | 仅登录(取当前用户) |
-| GET | `/api/v1/tools/{id}/download` | downloadToolFile | 仅登录(取当前用户) |
-| GET | `/api/v1/tools/{id}/download-count` | getDownloadCount | 无 |
-| POST | `/api/v1/tools/{id}/tags` | addTag | 无 |
-| DELETE | `/api/v1/tools/{id}/tags` | removeTag | 无 |
-| POST | `/api/v1/tools/{id}/versions` | uploadVersion | 无 |
-| GET | `/api/v1/tools/{id}/versions/{versionId}/download` | getCurrentUserId | 仅登录(取当前用户) |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/tools` | 仅登录(取当前用户) |
+| PUT | `/api/v1/tools/{id}` | 无 |
+| DELETE | `/api/v1/tools/{id}` | 无 |
+| POST | `/api/v1/tools/{id}/download` | 仅登录(取当前用户) |
+| POST | `/api/v1/tools/{id}/file` | 仅登录(取当前用户) |
+| GET | `/api/v1/tools/{id}/download` | 仅登录(取当前用户) |
+| GET | `/api/v1/tools/{id}/download-count` | 无 |
+| POST | `/api/v1/tools/{id}/tags` | 无 |
+| DELETE | `/api/v1/tools/{id}/tags` | 无 |
+| POST | `/api/v1/tools/{id}/versions` | 无 |
+| GET | `/api/v1/tools/{id}/versions/{versionId}/download` | 仅登录(取当前用户) |
 
 ### UserController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/users` | createUser | 角色注解 |
-| GET | `/api/v1/users/{id}` | getUserById | 无 |
-| GET | `/api/v1/users` | getUserList | 无 |
-| PUT | `/api/v1/users/{id}` | updateUser | 方法内角色 |
-| PATCH | `/api/v1/users/{id}/status` | updateUserStatus | 角色注解 |
-| DELETE | `/api/v1/users/{id}` | deleteUser | 角色注解 |
-| POST | `/api/v1/users/{id}/reset-password` | resetPassword | 角色注解 |
-| GET | `/api/v1/users/check-username` | checkUsername | 无 |
-| GET | `/api/v1/users/check-email` | checkEmail | 无 |
-| GET | `/api/v1/users/{id}/roles` | getUserRoles | 无 |
-| POST | `/api/v1/users/{id}/roles` | assignRoleToUser | 角色注解 |
-| DELETE | `/api/v1/users/{id}/roles/{roleId}` | revokeUserRole | 角色注解 |
-| POST | `/api/v1/users/{id}/permissions` | assignPermissionToUser | 角色注解 |
-| DELETE | `/api/v1/users/{id}/permissions/{permissionId}` | revokeUserPermission | 角色注解 |
-| GET | `/api/v1/users/me/permissions` | getCurrentUserPermissions | 仅登录(取当前用户) |
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/users` | 角色注解 |
+| GET | `/api/v1/users/{id}` | 无 |
+| GET | `/api/v1/users` | 无 |
+| PUT | `/api/v1/users/{id}` | 方法内角色 |
+| PATCH | `/api/v1/users/{id}/status` | 角色注解 |
+| DELETE | `/api/v1/users/{id}` | 角色注解 |
+| POST | `/api/v1/users/{id}/reset-password` | 角色注解 |
+| GET | `/api/v1/users/check-username` | 无 |
+| GET | `/api/v1/users/check-email` | 无 |
+| GET | `/api/v1/users/{id}/roles` | 无 |
+| POST | `/api/v1/users/{id}/roles` | 角色注解 |
+| DELETE | `/api/v1/users/{id}/roles/{roleId}` | 角色注解 |
+| POST | `/api/v1/users/{id}/permissions` | 角色注解 |
+| DELETE | `/api/v1/users/{id}/permissions/{permissionId}` | 角色注解 |
+| GET | `/api/v1/users/me/permissions` | 仅登录(取当前用户) |
 
 ### VulnerabilityController
-| 方法 | 端点 | 处理函数 | 校验 |
-|---|---|---|---|
-| POST | `/api/v1/vulnerabilities` | createVulnerability | 数据级守卫 |
-| PUT | `/api/v1/vulnerabilities/{id}` | updateVulnerability | 数据级守卫 |
-| DELETE | `/api/v1/vulnerabilities/{id}` | deleteVulnerability | 角色注解 |
-| PATCH | `/api/v1/vulnerabilities/{id}/workflow-status` | updateWorkflowStatus | 数据级守卫 |
-| PATCH | `/api/v1/vulnerabilities/{id}/customer-status` | updateCustomerStatus | 数据级守卫 |
-| PATCH | `/api/v1/vulnerabilities/{id}/disclosure-status` | updateDisclosureStatus | 数据级守卫 |
-| POST | `/api/v1/vulnerabilities/{id}/assign` | assignVulnerability | 数据级守卫 |
-| PATCH | `/api/v1/vulnerabilities/{id}/exploit-stage` | updateExploitStage | 数据级守卫 |
-| POST | `/api/v1/vulnerabilities/{id}/deliver` | deliverVulnerability | 数据级守卫 |
-| PATCH | `/api/v1/vulnerabilities/{id}/vendor-fix` | updateVendorFixStatus | 数据级守卫 |
-| GET | `/api/v1/vulnerabilities/statistics/workflow-status` | getWorkflowStatusStatistics | 方法内数据级 |
-| GET | `/api/v1/vulnerabilities/statistics/severity` | getSeverityStatistics | 方法内数据级 |
-| POST | `/api/v1/vulnerabilities/{id}/tags` | addVulnerabilityTag | 数据级守卫 |
-| DELETE | `/api/v1/vulnerabilities/{vulnerabilityId}/tags/{tagId}` | removeVulnerabilityTag | 数据级守卫 |
-| POST | `/api/v1/vulnerabilities/{id}/attachments` | uploadVulnerabilityAttachment | 数据级守卫 |
-| GET | `/api/v1/vulnerabilities/{id}/attachments/{attachmentId}/download` | deleteVulnerabilityAttachment | 数据级守卫 |
-| DELETE | `/api/v1/vulnerabilities/{vulnerabilityId}/attachments/{attachmentId}` | deleteVulnerabilityAttachment | 数据级守卫 |
-
+| 方法 | 端点 | 校验 |
+|---|---|---|
+| POST | `/api/v1/vulnerabilities` | 数据级守卫 |
+| PUT | `/api/v1/vulnerabilities/{id}` | 数据级守卫 |
+| DELETE | `/api/v1/vulnerabilities/{id}` | 角色注解 |
+| PATCH | `/api/v1/vulnerabilities/{id}/workflow-status` | 数据级守卫 |
+| PATCH | `/api/v1/vulnerabilities/{id}/customer-status` | 数据级守卫 |
+| PATCH | `/api/v1/vulnerabilities/{id}/disclosure-status` | 数据级守卫 |
+| POST | `/api/v1/vulnerabilities/{id}/assign` | 数据级守卫 |
+| PATCH | `/api/v1/vulnerabilities/{id}/exploit-stage` | 数据级守卫 |
+| POST | `/api/v1/vulnerabilities/{id}/deliver` | 数据级守卫 |
+| PATCH | `/api/v1/vulnerabilities/{id}/vendor-fix` | 数据级守卫 |
+| GET | `/api/v1/vulnerabilities/statistics/workflow-status` | 方法内数据级 |
+| GET | `/api/v1/vulnerabilities/statistics/severity` | 方法内数据级 |
+| POST | `/api/v1/vulnerabilities/{id}/tags` | 数据级守卫 |
+| DELETE | `/api/v1/vulnerabilities/{vulnerabilityId}/tags/{tagId}` | 数据级守卫 |
+| POST | `/api/v1/vulnerabilities/{id}/attachments` | 数据级守卫 |
+| GET | `/api/v1/vulnerabilities/{id}/attachments/{attachmentId}/download` | 数据级守卫 |
+| DELETE | `/api/v1/vulnerabilities/{vulnerabilityId}/attachments/{attachmentId}` | 数据级守卫 |
 
 ### 2.3 既无角色注解又无数据级守卫的端点（逐条结论）
 
@@ -393,40 +394,37 @@
 | 端点 | 校验 | 结论与依据 |
 |---|---|---|
 | `POST /auth/login`、`POST /auth/logout`、`POST /auth/refresh`、`GET /auth/me`、`POST /auth/change-password` | 仅登录 / 无 | **合理开放**：认证域，矩阵 2.1 全角色可用；`change-password` 只改本人密码 |
-| `POST /assets/{id}/access-requests`、`POST /assets/{id}/claims` | 仅登录 | **合理开放**：矩阵 2.4 全员可申请/认领；服务层校验资产存在性与重复申请 |
-| `GET /assets/my/access-requests`、`GET /assets/my/claims` | 仅登录 | **合理开放**：只返回当前用户数据 |
-| `POST /assets/{id}/tags` | 仅登录 | **合理开放**：标签属协作元数据（矩阵未单列）；写权应在资产级（见 §8 建议） |
+| `POST /assets/{id}/access-requests`、`POST /assets/{id}/claims`、`POST /assets/{id}/tags` | 仅登录 | **合理开放**：矩阵 2.4 全员可申请/认领；标签为协作元数据（写权建议随资产，见 §8） |
+| `GET /assets/my/access-requests`、`GET /assets/my/claims` | 仅登录 | **合理开放**：只返回当前用户数据（t39 起未认证一律拒绝，不再退化为全量） |
 | `PUT /dashboard/my`、`POST /dashboard/config`、`DELETE /dashboard/config`、`GET /dashboard/workload/stats/claims` | 仅登录 | **合理开放**：只读写当前用户的仪表盘配置与本人统计 |
 | `POST /notifications/{id}/read`、`POST /notifications/read-all`、`DELETE /notifications/{id}`、`GET/PUT /notifications/settings`、`POST/DELETE /notifications/subscriptions/{assetId}` | 仅登录 | **合理开放**：全部作用于当前用户的通知/设置/订阅（矩阵 2.12 全角色） |
-| `POST /tasks/{id}/comments`、`POST /tasks/{id}/attachments`、`PUT /tasks/{id}/status` | 仅登录 | **合理开放**：矩阵 2.9 全角色可协作；任务状态由业务流转约束 |
-| `POST /knowledge`、`POST /knowledge/{id}/comments`、`DELETE /knowledge/{id}/tags` | 仅登录 | **合理开放**：矩阵 2.10 发布与评论对全角色开放 |
+| `PUT /tasks/{id}`、`PUT /tasks/{id}/status`、`POST /tasks/{id}/comments`、`POST /tasks/{id}/attachments` | 仅登录 | **合理开放**：矩阵 2.9 全角色可协作；驳回/通过另有角色门槛 |
+| `POST /knowledge`、`PUT /knowledge/{id}`、`POST /knowledge/{id}/comments`、`POST|DELETE /knowledge/{id}/tags` | 仅登录 / 无 | **合理开放**：矩阵 2.10 文章发布/编辑/评论对全角色开放（删除见 §2.3.2 #7） |
 | `POST /documents`、`POST /documents/{id}/tags`、`DELETE /documents/{documentId}/tags/{tagId}` | 仅登录 / 无 | **合理开放**：矩阵 2.7 文档创建全角色；标签为协作元数据 |
-| `POST /tools`、`POST /tools/{id}/download`、`GET /tools/{id}/download`、`GET /tools/{id}/download-count` | 仅登录 / 无 | **合理开放**：矩阵 2.8 工具库创建/下载对全角色开放；`download-count` 仅返回计数 |
-| `POST /environments/{id}/snapshots`、`POST /environments/{id}/snapshots/{snapshotId}/rollback` | 仅登录 | **合理开放**：矩阵 2.6 快照对全角色开放 |
-| `GET /environment-templates`（EnvironmentTemplateController 唯一端点，非敏感只读） | 仅登录 | **合理开放**：只返回环境模板字典，无业务数据；矩阵未单列，建议后续补入矩阵 |
+| `POST /tools`、`POST /tools/{id}/file`、`POST /tools/{id}/download`、`GET /tools/{id}/download`、`GET /tools/{id}/download-count`、`POST|DELETE /tools/{id}/tags` | 仅登录 / 无 | **合理开放**：矩阵 2.8 工具库创建/下载/上传对全角色开放；`download-count` 仅返回计数 |
+| `GET /users/me/permissions` | 仅登录 | **合理开放**：只返回当前用户权限点（`permissionCount=90` 校验点） |
+| `GET /environment-templates`（EnvironmentTemplateController 唯一端点） | 仅登录 | **合理开放**：环境模板字典，无业务数据；建议后续补入矩阵 |
 
 #### 2.3.2 已知缺口（矩阵要求角色门槛或数据级校验，但当前仅"登录即可"）
 
 | # | 端点 | 当前校验 | 风险 | 说明与影响 | 建议 |
 |---|---|---|---|---|---|
 | 1 | `POST /assets`（创建资产） | 仅登录 | 中 | 矩阵 2.4 规定工程师不可创建资产，当前任意登录用户可建 | 补 `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')` 或按 `teamId` 收敛 |
-| 2 | `PUT /assets/{assetId}/versions/{id}/default`、`/latest` | 无 | 中 | 可切换任意资产的默认/最新版本（影响后续漏洞归属与文档绑定） | 补 `@accessGuard.canWriteAsset(#assetId, authentication)` |
-| 3 | `DELETE /assets/{assetId}/tags/{tagId}` | 无 | 低 | 可删除任意资产的标签（无归属校验） | 同上，复用 `canWriteAsset` |
+| 2 | `POST /assets/{assetId}/versions` | 仅登录 | 中 | 任意登录用户可给任意资产加版本（应随资产写权） | 补 `@accessGuard.canWriteAsset(#assetId, authentication)` |
+| 3 | `PUT /assets/{assetId}/versions/{id}/default`、`/latest` | 无 | 中 | 可切换任意资产的默认/最新版本（影响漏洞归属与文档绑定） | 同上，复用 `canWriteAsset` |
 | 4 | `GET /assets/{id}/access-requests` | 无 | 中 | 任意登录用户可读他人访问申请（含申请说明） | 补 `canReadAsset` 或限管理层/审批人 |
-| 5 | `POST /assets/claims/{claimId}/complete`、`/abandon` | 无 | 中（功能缺陷） | 控制器传 `userId=null`，服务层 `claim.getUserId().equals(null)` 恒假 → **恒 403**；即使修复传参也需认领人校验 | 改为传当前用户并保留服务层认领人校验（t39 建议项） |
+| 5 | `DELETE /assets/{assetId}/tags/{tagId}` | 无 | 低 | 可删除任意资产的标签（无归属校验） | 复用 `canWriteAsset` |
 | 6 | `POST /asset-groups`、`PUT/DELETE /asset-groups/{id}`、`POST/DELETE /asset-groups/{id}/assets` | 无 | 低 | 分组为展示用元数据，矩阵未纳入；任意登录用户可增删改任意分组 | 补角色门槛（管理层）或纳入矩阵后按资产写权收敛 |
-| 7 | `POST /teams`、`PUT/DELETE /teams/{id}`、`POST/DELETE /teams/{id}/members` | 仅登录 / 无 | 高 | 矩阵 2.3 规定建团队限 admin/project_leader、删团队限 admin；当前任何登录用户可改组织结构 | 补 `hasAnyRole`；`TeamServiceImpl` 无权限校验需同步 |
-| 8 | `GET /teams/{id}/members`、`GET /teams/{id}/users` | 无 | 低 | 矩阵 2.3 工程师不可读成员列表 | 补角色门槛（或按团队可见性收敛） |
-| 9 | `POST/PUT/DELETE /environments…`、`POST /environments/{id}/deploy|start|stop` | 仅登录 / 无 | 高 | 矩阵 2.6 规定环境增删改限 admin/project_leader、部署限管理层；当前任意登录用户可部署/删除环境 | 补角色门槛（`EnvironmentServiceImpl` 同步） |
-| 10 | `PUT/DELETE /knowledge/{id}`、`POST /knowledge/{id}/tags` | 无 | 中 | 矩阵 2.10 规定删除限 admin/project_leader/team_leader；当前任何登录用户可改删任意文章 | 补角色门槛或作者校验 |
-| 11 | `POST/PUT/DELETE /notifications/announcements…` | 无 | 高 | 公告为全站广播，应仅管理员可写；当前任意登录用户可发布/篡改/删除公告 | 补 `hasRole('ADMIN')` |
-| 12 | `POST /notifications/vulnerability-discovered` | 无 | 中 | 任意登录用户可向任意接收人批量发送"漏洞发现"通知（骚扰/钓鱼面） | 限管理层或系统内部调用（加角色/内部 token） |
-| 13 | `GET /notifications/{notificationId}/recipients` | 无 | 中 | 任意登录用户可读他人通知的投递记录（渠道、失败原因） | 限通知所属人或管理员 |
-| 14 | `POST /tasks`、`PUT /tasks/{id}`、`POST /tasks/{id}/submit-review` | 仅登录 | 中 | 矩阵 2.9 规定创建任务限管理层；当前工程师可建任务并提交审核 | 创建补角色门槛；修改/提交审核补负责人或协作者校验 |
-| 15 | `PUT/DELETE /tools/{id}`、`POST/DELETE /tools/{id}/tags`、`POST /tools/{id}/versions` | 无 | 中 | 矩阵 2.8 规定修改限 admin/project_leader/team_leader、删除限 admin/project_leader；当前任意登录用户可改删工具与上传版本 | 补角色门槛（或工具负责人校验） |
+| 7 | `DELETE /knowledge/{id}`（`PUT` 按矩阵对全角色开放） | 无 | 中 | 矩阵 2.10 规定删除限 admin/project_leader/team_leader；当前任何登录用户可删任意文章 | 补角色门槛或作者校验 |
+| 8 | `POST /notifications/vulnerability-discovered` | 无 | 中 | 任意登录用户可向任意接收人批量发送"漏洞发现"通知（骚扰/钓鱼面） | 限管理层或系统内部调用（加角色/内部 token） |
+| 9 | `GET /notifications/{notificationId}/recipients` | 无 | 中 | 任意登录用户可读他人通知的投递记录（渠道、失败原因） | 限通知所属人或管理员 |
+| 10 | `POST /tasks`、`POST /tasks/{id}/submit-review` | 仅登录 | 中 | 矩阵 2.9 规定创建任务限管理层；当前工程师可建任务并提交审核 | 创建补角色门槛；提交审核补负责人/协作者校验 |
+| 11 | `GET /teams/{id}/members`、`GET /teams/{id}/users` | 无 | 低 | 矩阵 2.3 工程师不可读成员列表 | 补角色门槛（或按团队可见性收敛） |
+| 12 | `PUT/DELETE /tools/{id}`、`POST /tools/{id}/versions` | 无 | 中 | 矩阵 2.8 规定修改限 admin/project_leader/team_leader、删除限 admin/project_leader；当前任意登录用户可改删工具与上传版本 | 补角色门槛（或工具负责人校验） |
+| 13 | `GET /users`、`GET /users/{id}`、`GET /users/{id}/roles`、`GET /users/check-username|check-email` | 无（仅登录态） | 中 | 矩阵 2.2 规定工程师不可读用户列表/详情；当前任意登录用户可枚举用户与邮箱/手机号（PII） | 补 `hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')`；`check-*` 保留匿名但加限流 |
 
-> 汇总：**已知缺口 15 组**（其中「高」3 组：团队 CRUD、环境增删改/部署、公告写操作；「中」8 组；「低」4 组）。
-> 这些问题**不影响功能验收**，但属于权限矩阵未落地的残余项，建议按 §8 逐项排期；其中 #5 是功能缺陷（认领完成/放弃恒 403），应在下一迭代优先修复。
+> 汇总：**已知缺口 13 组**（高 0 / 中 10 / 低 3）。原「高」3 组（团队 CRUD、环境增删改/部署、公告写）已于 t40 收口；原 #5「认领完成/放弃恒 403」的功能缺陷已于 t39 修复（见 §2.4）。
+> 这些问题**不影响功能验收**，但属于权限矩阵未落地的残余项，建议按 §8 逐项排期。
 
 ### 2.4 本轮已修复的鉴权缺口（回归证据）
 
@@ -439,6 +437,10 @@
 | 批量导入写侧越权（工程师可导入资产/漏洞） | t33：资产导入角色门槛 + 团队范围逐行校验；漏洞导入逐行 `canWriteAsset` | `ImportAuthorizationTest` 8 例（越权行不落库） |
 | 用户接口泄密/约束隐患 | t22：删 `setPasswordHash(null)` + `@JsonIgnore` | `UserPasswordIntegrityTest` 5 例（响应不含 passwordHash） |
 | 工具版本 `createdBy` 为空 | t23：`CurrentUserProvider` 统一注入 | `ToolVersionConcurrencyTest`（createdBy 非空） |
+| 团队 CRUD/成员管理无角色门槛（原 §2.3.2 #7，「高」） | t40：建团队 `hasAnyRole(ADMIN,PROJECT_LEADER)`；改/删团队与成员增删 `hasAnyRole(...) or @accessGuard.canManageTeam(#id, authentication)`（团队长仅自己领导的团队） | `PrivilegedWriteAuthorizationTest`（工程师建/改/删团队与加成员 403；团队长管理他人团队 403、自己团队 200；查询仍 200） |
+| 环境增删改/部署无角色门槛（原 §2.3.2 #9，「高」） | t40：`POST/PUT/DELETE /environments**`、`/deploy|/start|/stop`、`POST /snapshots`、`/snapshots/{id}/rollback` 统一 `hasAnyRole(ADMIN,PROJECT_LEADER,TEAM_LEADER)`；`GET` 保持开放 | 同上（工程师全部写操作 403；团队长/管理员 200） |
+| 公告写无角色门槛（原 §2.3.2 #11，「高」） | t40：`POST/PUT/DELETE /notifications/announcements**` → `hasAnyRole(ADMIN,PROJECT_LEADER)`；`GET` 列表/active 保持开放 | 同上（工程师与团队长发公告均 403、管理员 201 且列表可读） |
+| 认领「完成/放弃」恒 403、`my/claims` 可能退化为全量（原 §2.3.2 #5） | t39：控制器改用 `CurrentUserProvider.requireCurrentUserId()`（缺失 401）；服务层保留认领人校验（完成仅本人、管理员不放行），管理层可强制放弃并写 `reviewed_by/review_note`；`getMyClaims` 未认证不再走 `findAll` | `AssetClaimLifecycleTest` 13 例（本人完成 200、非本人与管理员完成 403、管理层强制放弃 200、pending 400、不存在 404、生命周期闭环） |
 
 ---
 
@@ -452,10 +454,10 @@
 | 3.3 文档管理 | **已实现** | 文档 CRUD、版本快照（创建 v1、编辑递增、回滚写新快照 `rollback from vN`）、访问授权、发布/取消发布、标签；`DocumentControllerTest` 14 例、`DocumentVersionConcurrencyTest` 3 例、`DocumentRollbackSnapshotTest` 4 例；缺口：文档删除仅数据级（矩阵 2.7 允许全角色，一致） |
 | 3.4 漏洞生命周期 | **已实现** | 创建/更新（DTO + camelCase + 部分更新）、状态机（workflow/customer/disclosure/exploitStage/vendorFix）、交付、指派、历史、标签、附件上传/下载、可见范围收敛、统计端点；`VulnerabilityDtoBindingTest` 9 例、`VulnerabilityAuthorizationTest` 10 例、`VulnerabilityAttachmentDownloadTest` 7 例 |
 | 3.5 工具资源库 | **已实现** | 工具 CRUD、分类、热门、标签、真实工具包上传/下载、版本（`versionNo` 唯一 + `hasFile` + 下载字节一致）、下载计数；`ToolVersionConcurrencyTest`；缺口：工具改删/版本上传无角色门槛（§2.3 #15） |
-| 3.6 团队协作 | **已实现** | 团队树（roots/tree/children）、成员管理、团队用户、任务（创建/指派/状态/评论/附件/协作者/审核）；`TeamControllerTest`、`TaskControllerTest`、`ApprovalFlowTest`；缺口：团队 CRUD/成员维护无角色门槛（§2.3 #7），任务创建无角色门槛（§2.3 #14） |
-| 3.7 权限与安全控制 | **已实现** | 角色注解 + 数据级 `AccessGuard`（资产/漏洞/文件/文档/任务）+ JWT + 登录限流 + CORS 白名单 + 审计；缺口见 §2.3（15 组），均不阻断功能 |
+| 3.6 团队协作 | **已实现** | 团队树（roots/tree/children）、成员管理、团队用户、任务（创建/指派/状态/评论/附件/协作者/审核）；`TeamControllerTest`、`TaskControllerTest`、`ApprovalFlowTest`、`PrivilegedWriteAuthorizationTest`；团队 CRUD/成员维护的角色与团队归属门槛已于 t40 收口，任务创建无角色门槛仍是已知缺口（§2.3.2 #14） |
+| 3.7 权限与安全控制 | **已实现** | 角色注解 + 数据级 `AccessGuard`（资产/漏洞/文件/文档/任务）+ JWT + 登录限流 + CORS 白名单 + 审计；缺口见 §2.3（13 组：中 10 / 低 3），均不阻断功能 |
 | 3.8 知识沉淀与传承 | **已实现** | 文章 CRUD、分类、标签、评论、搜索、热门、按作者/分类列表；`KnowledgeControllerTest`；缺口：改删文章无角色/作者校验（§2.3 #10） |
-| 3.9 消息通知模块 | **已实现** | 站内通知、未读数、已读/全部已读、删除、设置、公告、订阅、投递记录（channel/sendStatus/sentAt/errorMessage）、邮件/Webhook 通道（默认关闭）；缺口：公告写操作与主动发通知无角色门槛（§2.3 #11/#12/#13） |
+| 3.9 消息通知模块 | **已实现** | 站内通知、未读数、已读/全部已读、删除、设置、公告、订阅、投递记录（channel/sendStatus/sentAt/errorMessage）、邮件/Webhook 通道（默认关闭）；公告写操作的角色门槛已于 t40 收口；主动发通知与投递记录读取仍是已知缺口（§2.3.2 #12/#13） |
 | 3.10 仪表盘与统计 | **已实现** | 概览/资产统计/漏洞统计（角色门槛 + 可见范围收敛）、工作量、趋势（归日补零、`startDate/endDate`）、跨用户排行、配置、CSV 导出（管理层）；`DashboardControllerTest`、`DashboardTrendTest`、`DashboardRankingTest`、`DashboardStatsAuthorizationTest`、`DashboardExportAuthorizationTest` |
 | 4.5 数据迁移（导入导出） | **已实现** | 资产/漏洞/用户 CSV 导入（模板带 BOM、部分成功语义、逐行权限与数据边界、失败行回显）；审计与仪表盘 CSV 导出；用户导入一次性密码 |
 | 4.6 国际化 | **部分实现** | 界面与文案为中文单语；无 i18n 框架与语言切换（见 §8） |
@@ -493,6 +495,7 @@
 | 5 | **无 actuator**：`/actuator/health` 返回 500（`NoResourceFoundException`） | 项目未引入 `spring-boot-starter-actuator` | 健康检查用 `/v3/api-docs` 200 + `POST /auth/login` 200（t25 与空库引导均按此验证） |
 | 6 | **工具版本并发 409 线上未自然触发** | t28 行级锁把版本号分配串行化，3 并发实测 201/201/201 且 versionNo 唯一 | 409 分支由 `ToolVersionConcurrencyTest` 覆盖；线上不会出现 500 |
 | 7 | **`DELETE /assets/{id}` 为软删除**（置 archived） | 保留审计与引用完整性 | 需要物理删除时按 id 清关联表（`deploy/README.md` §18.4 已给 SQL 思路） |
+| 8 | **匿名请求统一返回 403**（未配置 `AuthenticationEntryPoint`） | Spring Security 默认入口，认证失败与权限不足的状态码不区分 | 客户端按「4xx 即拒绝」处理即可；冒烟对未认证用例接受 401/403 |
 
 ---
 
@@ -526,9 +529,9 @@
 
 | 维度 | 结果 | 证据 |
 |---|---|---|
-| 后端自动化（t25 验收级） | **452 用例 / 54 suite / 100% 通过**，同一快照连续两次 `mvn -B clean test`（16:17、16:42），Skipped=0、无 `@Disabled/@Ignore` | `deploy/regression-result.md`、`deploy/regression-manifest.txt`（manifest sha256 `77535ad2…`） |
+| 后端自动化（t25 + t41） | **475 用例 / 100% 通过**：t25 基线 452（同一快照连续两次全绿，manifest `77535ad2…`）+ t39 `AssetClaimLifecycleTest` 13 + t40 `PrivilegedWriteAuthorizationTest` 10；t41 在真实工作区 `mvn -B clean test` 56:54 全绿，Skipped=0、无 `@Disabled/@Ignore` | `deploy/regression-result.md`、`deploy/regression-manifest.txt`、`deploy/README.md` §20 |
 | 空库引导 | 56 张表、RBAC 90/261/4、admin 登录 200、`permissionCount=90`、`/v3/api-docs` 200 | t25 报告 §4 |
-| 线上冒烟（t13） | **92/92 PASS ×2**（部署后 + 清理后复跑），0 FAIL / 0 SKIP | `deploy/smoke-result.txt` |
+| 线上冒烟（t13 + t41） | **108/108 PASS**（92 基线 + t41 新增 16 条：认领生命周期/非本人完成 403/管理层强制放弃/鉴权收紧 403 与查询 200/未认证拒绝/公告不传 publishedAt/快照缺 name 400），t13 另有 92/92 连续两次全绿 | `deploy/smoke-result.txt`、`deploy/README.md` §20 |
 | 部署后专项核对 11a~11k | **13/13 PASS** | `deploy/smoke-result.txt` 第二节 |
 | 三账号交叉验证 | 管理员：全量可见 + 全部管理接口 200；小组长：统计/排行按本团队收敛、审计与导出 403、导入限本团队（越权行 `权限拒绝：` 且不落库）；工程师：资产/漏洞越权 403、审计/仪表盘统计与导出 403、导入资产 403、仅漏洞导入可用（自己的资产 200） | 冒烟脚本 `auth/*`、`audit/工程师403`、`dash/导出-工程师403`、`import/用户导入-工程师403`；`ImportAuthorizationTest`、`DashboardStatsAuthorizationTest`、`VulnerabilityAuthorizationTest` |
 | 前端构建 | `tsc -b && vite build` 成功（3680 modules，`index-DmCRvmQl.js` 2,224.37 kB），产物已上线 | t13 报告 A |
@@ -539,8 +542,8 @@
 
 | # | 事项 | 理由/建议 |
 |---|---|---|
-| 1 | 收紧 §2.3 的 15 组鉴权缺口（优先「高」：团队 CRUD、环境增删改/部署、公告写操作） | 权限矩阵未落地部分，建议按模块补 `@PreAuthorize` 并在服务层同步校验 |
-| 2 | 修复认领「完成/放弃」恒 403 | 控制器传 `userId=null` 导致服务层恒抛 FORBIDDEN；改为传当前用户并保留认领人校验 |
+| 1 | 收紧 §2.3.2 剩余的 13 组鉴权缺口 | 「高」3 组已于 t40 收口、认领 403 已于 t39 修复；其余 10 中 / 3 低建议按模块补 `@PreAuthorize` 与数据级守卫，优先 **#13 用户列表 PII**、**#1/#2/#3 资产与版本写权**、**#12 工具改删** |
+| 2 | 配置 `AuthenticationEntryPoint`，匿名请求返回 401 而非 403 | 当前未认证请求统一回 403（与 `/assets` 一致），客户端难以区分「未登录」与「无权限」；配置后需同步冒烟断言（t41 已按 401/403 双接受处理） |
 | 3 | 引入 `spring-boot-starter-actuator` 并提供 `/actuator/health` | 当前只能用 `/v3/api-docs` + 登录做健康检查，运维体验不足 |
 | 4 | 国际化（4.6） | 目前中文单语；如需多语言，建议引入 i18n 资源与文案抽离 |
 | 5 | 对象存储抽象 | 文件/附件/工具包当前落本地磁盘，多实例部署需共享存储或对象存储（S3/OSS） |
