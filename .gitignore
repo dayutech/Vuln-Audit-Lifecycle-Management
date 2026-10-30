@@ -91,3 +91,6 @@ uploads/
 
 # AgentTeams 运行时状态（不纳入版本管理）
 .agent-teams/
+
+# QA 鉴权矩阵扫描输出（scripts/qa）
+.qa-tmp/
