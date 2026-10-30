@@ -800,3 +800,53 @@ cd backend && mvn -B clean test                                   # 期望 490 p
 cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 128/128
 SUDO_PASS='***' bash deploy/sync-dist.sh                          # 前端发布
 ```
+
+---
+
+## 23. 冒烟残留清理（运维手册）
+
+`scripts/smoke.sh` 每次运行会创建 3 个夹具资产（`冒烟资产` 1 条 + `冒烟导入A/B` 2 条），并通过 `DELETE /api/v1/assets/{id}` 做**软删除**（置 `archived`）。由于脚本没有数据库权限，**软删除的记录会持续累积**，长期运行后资产列表会被历史夹具淹没。
+
+清理方式（把 `AST-YYYYMMDD-` 前缀换成实际运行日期；确认只删夹具、不动真实资产）：
+
+```sql
+-- 1) 先看清楚要删什么（必须是冒烟夹具，切勿误删业务数据）
+SELECT id, code, name, status FROM assets WHERE code LIKE 'AST-20261030-%';
+
+-- 2) 事务内按 asset_id 清理所有子表，再删主表
+START TRANSACTION;
+-- 子表清单来自 information_schema（表名不同版本可能增减，执行前请重查）
+DELETE FROM asset_metadata_base    WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM asset_metadata_account WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM asset_metadata_network WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM asset_metadata_extra   WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM asset_metadata_env     WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM asset_history          WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM asset_versions         WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM asset_files            WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM asset_deliverables     WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM asset_tags             WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM asset_access           WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM asset_claims           WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM asset_group_relations  WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM asset_subscriptions    WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM vulnerabilities        WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM tasks                  WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM documents              WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM environments           WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE 'AST-20261030-%');
+DELETE FROM assets                 WHERE code LIKE 'AST-20261030-%';
+COMMIT;
+
+-- 3) 校验：应只剩业务示例资产
+SELECT code, status FROM assets ORDER BY created_at;
+```
+
+批量生成子表删除语句（避免漏表）：
+
+```sql
+SELECT CONCAT('DELETE FROM ', TABLE_NAME, ' WHERE asset_id IN (SELECT id FROM assets WHERE code LIKE ''AST-20261030-%'');')
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA='vuln_audit' AND COLUMN_NAME='asset_id' AND TABLE_NAME<>'assets';
+```
+
+**建议**：每次冒烟后按此清理，或在专用测试库上跑冒烟，避免污染生产实例。
