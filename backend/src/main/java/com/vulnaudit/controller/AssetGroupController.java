@@ -20,6 +20,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -44,6 +45,7 @@ public class AssetGroupController {
     private final AssetGroupRelationRepository assetGroupRelationRepository;
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "创建资产分组", description = "创建新的资产分组")
     public ResponseEntity<ApiResponse<AssetGroup>> createGroup(@Valid @RequestBody @Nonnull AssetGroup group) {
         log.info("创建资产分组: name={}, type={}", group.getName(), group.getType());
@@ -111,6 +113,7 @@ public class AssetGroupController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "更新分组", description = "更新分组信息")
     public ResponseEntity<ApiResponse<AssetGroup>> updateGroup(
             @PathVariable @Nullable UUID id,
@@ -138,6 +141,7 @@ public class AssetGroupController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "删除分组", description = "删除资产分组")
     @Transactional
     public ResponseEntity<ApiResponse<Void>> deleteGroup(@PathVariable @Nullable UUID id) {
@@ -161,6 +165,7 @@ public class AssetGroupController {
     // ==================== 分组资产管理 ====================
 
     @PostMapping("/{id}/assets")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "添加资产到分组", description = "将资产添加到分组")
     public ResponseEntity<ApiResponse<Void>> addAssetToGroup(
             @PathVariable @Nullable UUID id,
@@ -193,6 +198,7 @@ public class AssetGroupController {
     }
 
     @DeleteMapping("/{groupId}/assets/{assetId}")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "从分组移除资产", description = "将资产从分组中移除")
     @Transactional
     public ResponseEntity<ApiResponse<Void>> removeAssetFromGroup(

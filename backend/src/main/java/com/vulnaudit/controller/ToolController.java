@@ -17,6 +17,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -104,6 +105,7 @@ public class ToolController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "更新工具", description = "更新工具信息")
     public ResponseEntity<ApiResponse<Tool>> updateTool(
             @PathVariable UUID id,
@@ -116,6 +118,7 @@ public class ToolController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
     @Operation(summary = "删除工具", description = "删除工具")
     public ResponseEntity<ApiResponse<Void>> deleteTool(@PathVariable UUID id) {
         log.info("删除工具: id={}", id);
@@ -142,6 +145,7 @@ public class ToolController {
      * 导致「工具资源库」只能存外链、无法真正分发工具包。
      */
     @PostMapping("/{id}/file")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "上传工具包", description = "为工具上传可执行包/压缩包")
     public ResponseEntity<ApiResponse<Tool>> uploadToolFile(@PathVariable UUID id,
                                                            @RequestParam("file") MultipartFile file) {
@@ -205,6 +209,7 @@ public class ToolController {
     }
 
     @PostMapping("/{id}/tags")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "添加工具标签", description = "为工具添加标签")
     public ResponseEntity<ApiResponse<Void>> addTag(
             @PathVariable UUID id,
@@ -217,6 +222,7 @@ public class ToolController {
     }
 
     @DeleteMapping("/{id}/tags")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "移除工具标签", description = "移除工具标签")
     public ResponseEntity<ApiResponse<Void>> removeTag(
             @PathVariable UUID id,
@@ -246,6 +252,7 @@ public class ToolController {
      * 上传新版本
      */
     @PostMapping("/{id}/versions")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
     @Operation(summary = "上传新版本", description = "为工具上传新版本；不带文件时创建「仅元数据」版本（hasFile=false）")
     public ResponseEntity<ApiResponse<ToolVersion>> uploadVersion(
             @PathVariable UUID id,

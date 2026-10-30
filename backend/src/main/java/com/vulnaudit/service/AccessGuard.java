@@ -12,6 +12,7 @@ import com.vulnaudit.repository.DocumentAccessRepository;
 import com.vulnaudit.repository.DocumentRepository;
 import com.vulnaudit.repository.TaskCollaboratorRepository;
 import com.vulnaudit.repository.TaskRepository;
+import com.vulnaudit.repository.TeamMemberRepository;
 import com.vulnaudit.repository.TeamRepository;
 import com.vulnaudit.repository.UserRepository;
 import com.vulnaudit.repository.VulnerabilityRepository;
@@ -57,6 +58,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AccessGuard {
 
+    /** 团队树下溯的最大层级（防止脏数据成环，t51） */
+    private static final int MAX_TEAM_DEPTH = 20;
+
     private final UserRepository userRepository;
     private final AssetRepository assetRepository;
     private final AssetAccessRepository assetAccessRepository;
@@ -67,7 +71,10 @@ public class AccessGuard {
     private final TaskRepository taskRepository;
     private final TaskCollaboratorRepository taskCollaboratorRepository;
     private final TeamRepository teamRepository;
+    private final TeamMemberRepository teamMemberRepository;
     private final VulnerabilityRepository vulnerabilityRepository;
+    private final com.vulnaudit.repository.KnowledgeArticleRepository knowledgeArticleRepository;
+    private final com.vulnaudit.repository.NotificationRecipientRepository notificationRecipientRepository;
 
     // ------------------------------------------------------------------ 角色
 
@@ -388,5 +395,215 @@ public class AccessGuard {
         Task task = taskRepository.findById(taskId).orElse(null);
         UUID userId = currentUserId(authentication);
         return task != null && userId != null && userId.equals(task.getAssignedBy());
+    }
+
+    /**
+     * 是否可提交任务审核（t50）
+     *
+     * <p>矩阵 2.9：提交审核由任务负责人发起，管理层可代为提交。
+     * 判定：管理层（admin / project_leader / team_leader）放行；其余需为任务负责人（assignedTo）
+     * 或协作者（task_collaborators）。创建者（assignedBy）不再默认放行 —— 与「谁负责谁提交」对齐。
+     */
+    public boolean canSubmitTaskReview(UUID taskId, Authentication authentication) {
+        if (isManager(authentication)) {
+            return true;
+        }
+        if (taskId == null) {
+            return false;
+        }
+        Task task = taskRepository.findById(taskId).orElse(null);
+        if (task == null) {
+            return false;
+        }
+        UUID userId = currentUserId(authentication);
+        if (userId == null) {
+            return false;
+        }
+        return userId.equals(task.getAssignedTo())
+                || taskCollaboratorRepository.existsByTaskIdAndUserId(taskId, userId);
+    }
+
+    /**
+     * 创建任务时的资产写权校验（t50）
+     *
+     * <p>不带资产的会议/杂项任务（{@code assetId == null}）视为通过；带资产的任务必须对该资产有写权，
+     * 避免在无权资产上创建审计任务造成数据污染。
+     */
+    public boolean canWriteAssetOrAbsent(UUID assetId, Authentication authentication) {
+        return assetId == null || canWriteAsset(assetId, authentication);
+    }
+
+    // ------------------------------------------------------------------ 知识库
+
+    /**
+     * 是否可删除知识文章（t50）
+     *
+     * <p>矩阵 2.10 规定删除限 admin/project_leader/team_leader；本方法同时放行<b>作者本人</b>，
+     * 原因：文章是协作产物，「作者删自己建的条目」属常规能力，只按角色会让工程师无法清理自己的草稿。
+     * 若后续要求严格按矩阵执行，只需把本方法改为 {@code return isManager(authentication);}。
+     */
+    public boolean canDeleteKnowledge(UUID articleId, Authentication authentication) {
+        if (isManager(authentication)) {
+            return true;
+        }
+        if (articleId == null) {
+            return false;
+        }
+        UUID userId = currentUserId(authentication);
+        if (userId == null) {
+            return false;
+        }
+        return knowledgeArticleRepository.findById(articleId)
+                .map(article -> userId.equals(article.getAuthorId()))
+                .orElse(false);
+    }
+
+    // ------------------------------------------------------------------ 通知
+
+    /**
+     * 是否可读取某条通知的投递记录（t50）
+     *
+     * <p>判定：admin / project_leader 全量可读；其余用户<strong>仅当自己是该通知的接收人之一</strong>
+     * 时可读；发送者与其他任何人一律 403（投递记录含渠道与失败原因，属敏感运行信息）。
+     */
+    public boolean canReadNotificationRecipients(UUID notificationId, Authentication authentication) {
+        if (notificationId == null) {
+            return false;
+        }
+        if (isGlobalReader(authentication)) {
+            return true;
+        }
+        UUID userId = currentUserId(authentication);
+        if (userId == null) {
+            return false;
+        }
+        return notificationRecipientRepository
+                .findByNotificationIdAndUserId(notificationId, userId)
+                .isPresent();
+    }
+
+    // ------------------------------------------------------------------ 资产域写权（t49）
+
+    /**
+     * 是否可在指定团队下创建资产（t49）
+     *
+     * <ul>
+     *   <li>admin / project_leader → 任意团队（含不指定团队，即 {@code teamId == null}）；</li>
+     *   <li>team_leader → 必须显式指定团队，且该团队为「自己领导」或「自己所属」的团队；</li>
+     *   <li>其它角色 / 解析不到用户 / 团队未指定 → 拒绝（fail-closed）。</li>
+     * </ul>
+     *
+     * @param teamId         资产归属团队（可空，空表示不归属任何团队）
+     * @param authentication 当前认证
+     * @return true 表示允许在该团队下创建资产
+     */
+    public boolean canCreateAssetInTeam(java.util.UUID teamId, Authentication authentication) {
+        if (isGlobalReader(authentication)) {
+            return true;
+        }
+        if (teamId == null) {
+            // 非管理层必须显式指定自己可见的团队，避免「不填团队即绕过」
+            return false;
+        }
+        java.util.UUID userId = currentUserId(authentication);
+        if (userId == null) {
+            return false;
+        }
+        if (isLeaderOfTeam(authentication, teamId)) {
+            return true;
+        }
+        // 团队成员（非领导）同样可向所属团队建资产
+        return teamMemberRepository.findTeamIdsByUserId(userId).contains(teamId);
+    }
+
+    /**
+     * 是否可查看某资产的访问申请明细（t49）
+     *
+     * <p>访问申请含申请说明等敏感信息，仅下列主体可见：
+     * 管理层（admin / project_leader / team_leader）、该资产负责人、以及该资产申请的审批人/评审人。
+     * 其它情况一律拒绝（fail-closed）。
+     *
+     * @param assetId        资产ID
+     * @param authentication 当前认证
+     * @return true 表示可见明细
+     */
+    public boolean canSeeAssetAccessDetails(java.util.UUID assetId, Authentication authentication) {
+        if (assetId == null) {
+            return false;
+        }
+        if (isManager(authentication)) {
+            return true;
+        }
+        java.util.UUID userId = currentUserId(authentication);
+        if (userId == null) {
+            return false;
+        }
+        Asset asset = assetRepository.findById(assetId).orElse(null);
+        if (asset != null && userId.equals(asset.getOwnerId())) {
+            return true;
+        }
+        // 该资产申请的审批人 / 实际评审人
+        return assetAccessRepository.findByAssetId(assetId).stream()
+                .anyMatch(access -> userId.equals(access.getApproverId()) || userId.equals(access.getReviewedBy()));
+    }
+
+    // ------------------------------------------------------------------ 团队读取范围（t51）
+
+    /**
+     * 是否可读取指定团队的成员/用户列表（t51）
+     *
+     * <p>团队结构属组织架构数据：成员列表对登录用户开放，但<b>只能看到自己可见的团队</b>。
+     * 判定顺序：
+     * <ol>
+     *   <li>admin / project_leader → 全量；</li>
+     *   <li>自己领导的团队、自己所属的团队 → 可见；</li>
+     *   <li>上述团队的<b>子团队</b>（descendants）→ 可见（团队树展开需要）；</li>
+     *   <li>其它情况（含解析不到用户、团队ID为空）→ 拒绝（fail-closed）。</li>
+     * </ol>
+     *
+     * @param teamId         目标团队ID
+     * @param authentication 当前认证
+     * @return true 表示可见
+     */
+    public boolean canReadTeam(java.util.UUID teamId, Authentication authentication) {
+        if (teamId == null) {
+            return false;
+        }
+        if (isGlobalReader(authentication)) {
+            return true;
+        }
+        java.util.UUID userId = currentUserId(authentication);
+        if (userId == null) {
+            return false;
+        }
+        Set<java.util.UUID> ownTeams = new java.util.HashSet<>();
+        teamRepository.findByLeaderId(userId).forEach(team -> ownTeams.add(team.getId()));
+        ownTeams.addAll(teamMemberRepository.findTeamIdsByUserId(userId));
+        if (ownTeams.isEmpty()) {
+            return false;
+        }
+        if (ownTeams.contains(teamId)) {
+            return true;
+        }
+        // 自己团队的子团队（团队树 / 子团队页签）：
+        // 这里用 findByParentId 逐层下溯，而不是团队仓储里的 native 递归 CTE
+        // （CTE 在 H2 测试库不可用，会在方法级守卫里抛异常变成 500）。
+        java.util.ArrayDeque<java.util.UUID> queue = new java.util.ArrayDeque<>(ownTeams);
+        java.util.Set<java.util.UUID> visited = new java.util.HashSet<>(ownTeams);
+        int guardDepth = 0;
+        while (!queue.isEmpty() && guardDepth++ < MAX_TEAM_DEPTH) {
+            java.util.UUID parent = queue.poll();
+            for (com.vulnaudit.entity.Team child : teamRepository.findByParentId(parent)) {
+                java.util.UUID childId = child.getId();
+                if (childId == null || !visited.add(childId)) {
+                    continue;
+                }
+                if (childId.equals(teamId)) {
+                    return true;
+                }
+                queue.add(childId);
+            }
+        }
+        return false;
     }
 }

@@ -243,7 +243,11 @@ public class ToolServiceImpl implements ToolService {
     public void addTag(UUID toolId, String tag) {
         log.info("添加工具标签: toolId={}, tag={}", toolId, tag);
         if (toolId == null) {
-            return;
+            throw new BusinessException(ErrorCode.TOOL_NOT_FOUND);
+        }
+        // t55：工具不存在时不得静默写入孤儿标签（写端点的授权收口后，这里也按资源存在性 fail-closed）
+        if (!toolRepository.existsById(toolId)) {
+            throw new BusinessException(ErrorCode.TOOL_NOT_FOUND);
         }
         ToolTag toolTag = ToolTag.builder()
                 .toolId(toolId)
@@ -256,9 +260,10 @@ public class ToolServiceImpl implements ToolService {
     @Transactional
     public void removeTag(UUID toolId, String tag) {
         log.info("移除工具标签: toolId={}, tag={}", toolId, tag);
-        if (toolId != null) {
-            toolTagRepository.deleteByToolIdAndTag(toolId, tag);
+        if (toolId == null || !toolRepository.existsById(toolId)) {
+            throw new BusinessException(ErrorCode.TOOL_NOT_FOUND);
         }
+        toolTagRepository.deleteByToolIdAndTag(toolId, tag);
     }
 
     /**

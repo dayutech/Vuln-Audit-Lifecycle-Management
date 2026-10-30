@@ -37,6 +37,7 @@ public class NotificationController {
 
     private final NotificationService notificationService;
     private final UserService userService;
+    private final com.vulnaudit.service.AccessGuard accessGuard;
 
     @GetMapping
     @Operation(summary = "获取通知列表", description = "分页获取用户的通知列表")
@@ -117,9 +118,19 @@ public class NotificationController {
 
     /**
      * 发送漏洞通知
+     *
+     * <p><b>授权选择（t50）</b>：本端点收敛为「限管理层」（admin / project_leader / team_leader），
+     * 未采用「仅允许以自己为发送者 + recipientIds 必须对漏洞可见」的方案，理由：
+     * <ol>
+     *   <li>该端点本质是<b>群发广播</b>（recipientIds 可为任意用户列表），与漏洞归属没有天然耦合；</li>
+     *   <li>按「可见性交集」放行后，任意工程师仍能对<b>自己可见</b>的漏洞向任意收件人群发，
+     *       骚扰/钓鱼面并未被消除，只是把范围从「全部漏洞」缩小到「自己可见漏洞」；</li>
+     *   <li>管理层代办广播符合 §2.3.2 的建议（「限管理层或系统内部调用」），也便于审计追责。</li>
+     * </ol>
      */
     @PostMapping("/vulnerability-discovered")
-    @Operation(summary = "发送漏洞通知", description = "发送漏洞发现通知给相关用户；type 缺省为 vulnerability_discovered（最长 50 字符）")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
+    @Operation(summary = "发送漏洞通知", description = "管理层发送漏洞发现通知给相关用户；type 缺省为 vulnerability_discovered（最长 50 字符）")
     public ResponseEntity<ApiResponse<Void>> sendVulnerabilityNotification(
             @Parameter(description = "漏洞ID") @RequestParam UUID vulnerabilityId,
             @Parameter(description = "通知类型，最长 50 字符")
@@ -134,9 +145,12 @@ public class NotificationController {
 
     /**
      * 获取通知发送记录
+     *
+     * <p>仅通知接收人本人或 admin/project_leader 可见（t50）；投递记录含渠道与失败原因，属敏感运行信息。
      */
     @GetMapping("/{notificationId}/recipients")
-    @Operation(summary = "获取通知发送记录", description = "获取指定通知的发送记录")
+    @PreAuthorize("@accessGuard.canReadNotificationRecipients(#notificationId, authentication)")
+    @Operation(summary = "获取通知发送记录", description = "获取指定通知的发送记录（接收人本人或管理员）")
     public ResponseEntity<ApiResponse<List<?>>> getNotificationRecipients(@PathVariable UUID notificationId) {
         log.info("获取通知发送记录: notificationId={}", notificationId);
         

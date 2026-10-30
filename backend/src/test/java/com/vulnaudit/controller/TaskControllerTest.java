@@ -32,6 +32,9 @@ public class TaskControllerTest extends BaseTest {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private com.vulnaudit.repository.AssetRepository assetRepository;
+
     private Task testTask;
     private User testAssignee;
 
@@ -112,7 +115,15 @@ public class TaskControllerTest extends BaseTest {
         @Test
         @DisplayName("创建任务 - 成功")
         void createTask_Success() throws Exception {
-            UUID assetId = UUID.randomUUID();
+            // t50：建任务需对目标资产有写权 —— 用「组长自己的真实资产」，随机 UUID 视为无权资产会 403
+            com.vulnaudit.entity.Asset ownAsset = assetRepository.save(
+                    Objects.requireNonNull(com.vulnaudit.entity.Asset.builder()
+                            .name("组长资产-" + UUID.randomUUID())
+                            .code("TASK-" + UUID.randomUUID().toString().substring(0, 8))
+                            .targetType("web").targetSource("internal").description("组长的资产")
+                            .priority("P2").status("active").ownerId(leaderUserId)
+                            .build()));
+            UUID assetId = ownAsset.getId();
             UUID assetVersionId = UUID.randomUUID();
             String taskJson = "{\"description\":\"新创建的任务\",\"assigneeId\":\"" + engineerUserId + "\",\"assetId\":\"" + assetId + "\",\"assetVersionId\":\"" + assetVersionId + "\",\"estimatedHours\":8.5,\"dueDate\":\"" + LocalDateTime.now().plusDays(3) + "\"}";
 

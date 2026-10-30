@@ -30,6 +30,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *   <li>51 字符返回 400（服务层前置校验），不再 500。</li>
  * </ul>
  */
+// t50：POST /notifications/vulnerability-discovered 已收敛为 ADMIN/PROJECT_LEADER/TEAM_LEADER，
+// 本类关注 type 列长与默认值语义，统一改用 adminToken 调用（校验未放宽）。
 @DisplayName("通知类型列长与默认值测试")
 class NotificationTypeLengthTest extends BaseTest {
 
@@ -55,7 +57,7 @@ class NotificationTypeLengthTest extends BaseTest {
     @DisplayName("不传 type - 200 且落库默认值 vulnerability_discovered（24 字符不被截断）")
     void sendWithoutType_persistsDefaultType() throws Exception {
         mockMvc.perform(post(sendUrl(UUID.randomUUID(), engineerUserId))
-                        .header("Authorization", engineerToken))
+                        .header("Authorization", adminToken))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
 
@@ -75,7 +77,7 @@ class NotificationTypeLengthTest extends BaseTest {
         String type50 = "t".repeat(NotificationTypes.MAX_LENGTH);
 
         mockMvc.perform(post(sendUrl(UUID.randomUUID(), engineerUserId))
-                        .header("Authorization", engineerToken)
+                        .header("Authorization", adminToken)
                         .param("type", type50))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
@@ -91,7 +93,7 @@ class NotificationTypeLengthTest extends BaseTest {
         String type51 = "t".repeat(NotificationTypes.MAX_LENGTH + 1);
 
         mockMvc.perform(post(sendUrl(UUID.randomUUID(), engineerUserId))
-                        .header("Authorization", engineerToken)
+                        .header("Authorization", adminToken)
                         .param("type", type51))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))

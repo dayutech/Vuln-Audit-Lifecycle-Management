@@ -68,6 +68,7 @@ public class AssetController {
     );
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER') and @accessGuard.canCreateAssetInTeam(#request.teamId, authentication)")
     @Operation(summary = "创建资产", description = "创建新的资产记录")
     public ResponseEntity<ApiResponse<Asset>> createAsset(@Valid @RequestBody AssetCreateRequest request) {
         log.info("创建资产: name={}", request.getName());
@@ -267,6 +268,7 @@ public class AssetController {
     }
 
     @GetMapping("/{id}/access-requests")
+    @PreAuthorize("@accessGuard.canReadAsset(#id, authentication) and @accessGuard.canSeeAssetAccessDetails(#id, authentication)")
     @Operation(summary = "获取资产访问申请列表", description = "获取指定资产的访问申请列表")
     public ResponseEntity<ApiResponse<PageResponse<AssetAccess>>> listAccessRequests(
             @PathVariable UUID id,
@@ -395,6 +397,7 @@ public class AssetController {
      * 添加标签到资产
      */
     @PostMapping("/{id}/tags")
+    @PreAuthorize("@accessGuard.canWriteAsset(#id, authentication)")
     @Operation(summary = "添加标签到资产", description = "为资产添加标签")
     public ResponseEntity<ApiResponse<AssetTag>> addAssetTag(
             @PathVariable UUID id,
@@ -426,6 +429,7 @@ public class AssetController {
      * 移除资产的标签
      */
     @DeleteMapping("/{assetId}/tags/{tagId}")
+    @PreAuthorize("@accessGuard.canWriteAsset(#assetId, authentication)")
     @Operation(summary = "移除资产的标签", description = "移除资产的指定标签")
     public ResponseEntity<ApiResponse<Void>> removeAssetTag(
             @PathVariable UUID assetId,

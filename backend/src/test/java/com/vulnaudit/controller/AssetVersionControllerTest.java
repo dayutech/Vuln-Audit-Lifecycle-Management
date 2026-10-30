@@ -134,7 +134,7 @@ public class AssetVersionControllerTest extends BaseTest {
             String payload = "{\"name\":\"初始版本\",\"description\":\"首版\"}";
 
             mockMvc.perform(post("/api/v1/assets/" + assetId + "/versions")
-                            .header("Authorization", engineerToken)
+                            .header("Authorization", adminToken)
                             .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                             .content(payload))
                     .andExpect(status().isCreated())
@@ -159,7 +159,7 @@ public class AssetVersionControllerTest extends BaseTest {
 
             mockMvc.perform(post("/api/v1/assets/" + assetId + "/versions")
                             .param("setDefault", "true")
-                            .header("Authorization", engineerToken)
+                            .header("Authorization", adminToken)
                             .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                             .content(payload))
                     .andExpect(status().isCreated())
@@ -201,7 +201,7 @@ public class AssetVersionControllerTest extends BaseTest {
             String payload = "{\"name\":\"v2\",\"inheritBaseOverview\":true,\"inheritFromVersionId\":\"" + sourceVersion.getId() + "\"}";
 
             mockMvc.perform(post("/api/v1/assets/" + assetId + "/versions")
-                            .header("Authorization", engineerToken)
+                            .header("Authorization", adminToken)
                             .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                             .content(payload))
                     .andExpect(status().isCreated())
@@ -241,7 +241,7 @@ public class AssetVersionControllerTest extends BaseTest {
                     .build()));
 
             mockMvc.perform(put("/api/v1/assets/" + assetId + "/versions/" + v2.getId() + "/default")
-                            .header("Authorization", engineerToken))
+                            .header("Authorization", adminToken))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.data.id").value(v2.getId().toString()))
                     .andExpect(jsonPath("$.data.isDefault").value(true));
@@ -275,7 +275,7 @@ public class AssetVersionControllerTest extends BaseTest {
                     .build()));
 
             mockMvc.perform(put("/api/v1/assets/" + assetId + "/versions/" + anotherAssetVersion.getId() + "/default")
-                            .header("Authorization", engineerToken))
+                            .header("Authorization", adminToken))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(false))
                     .andExpect(jsonPath("$.message").value("版本不存在"));

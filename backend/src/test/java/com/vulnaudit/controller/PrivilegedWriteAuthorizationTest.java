@@ -289,9 +289,15 @@ public class PrivilegedWriteAuthorizationTest extends BaseTest {
         mockMvc.perform(get("/api/v1/teams/" + ownTeam.getId()).header("Authorization", engineerToken))
                 .andExpect(status().isOk());
 
+        // t51：成员列表收敛到「可见团队」——团队长可读自己团队的成员
+        mockMvc.perform(get("/api/v1/teams/" + ownTeam.getId() + "/members")
+                        .header("Authorization", leaderToken))
+                .andExpect(status().isOk());
+
+        // 同一端点：非成员/非负责人的工程师不可读（可见团队收口后的预期行为）
         mockMvc.perform(get("/api/v1/teams/" + ownTeam.getId() + "/members")
                         .header("Authorization", engineerToken))
-                .andExpect(status().isOk());
+                .andExpect(status().isForbidden());
 
         mockMvc.perform(get("/api/v1/teams/" + ownTeam.getId() + "/tree")
                         .header("Authorization", engineerToken))

@@ -58,6 +58,7 @@ public class AssetVersionController {
     }
 
     @PostMapping
+    @PreAuthorize("@accessGuard.canWriteAsset(#assetId, authentication)")
     @Operation(summary = "创建资产版本", description = "为资产创建新版本")
     @Transactional
     public ResponseEntity<ApiResponse<AssetVersion>> createVersion(
@@ -113,6 +114,7 @@ public class AssetVersionController {
     }
 
     @PutMapping("/{id}/default")
+    @PreAuthorize("@accessGuard.canWriteAsset(#assetId, authentication)")
     @Operation(summary = "切换默认版本", description = "将指定版本设置为默认版本")
     @Transactional
     public ResponseEntity<ApiResponse<AssetVersion>> setDefaultVersion(
@@ -132,6 +134,7 @@ public class AssetVersionController {
     }
 
     @PutMapping("/{id}/latest")
+    @PreAuthorize("@accessGuard.canWriteAsset(#assetId, authentication)")
     @Operation(summary = "切换最新版本", description = "将指定版本设置为最新版本")
     @Transactional
     public ResponseEntity<ApiResponse<AssetVersion>> setLatestVersion(

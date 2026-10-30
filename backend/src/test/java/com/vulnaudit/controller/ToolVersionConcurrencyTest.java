@@ -86,6 +86,12 @@ class ToolVersionConcurrencyTest {
     private JwtUtils jwtUtils;
 
     @Autowired
+    private com.vulnaudit.repository.RoleRepository roleRepository;
+
+    @Autowired
+    private com.vulnaudit.repository.UserRoleRepository userRoleRepository;
+
+    @Autowired
     private PlatformTransactionManager transactionManager;
 
     private User user;
@@ -108,6 +114,28 @@ class ToolVersionConcurrencyTest {
                 .category("扫描器")
                 .createdBy(user.getId())
                 .build()));
+
+        // t55：POST /tools/{id}/versions 自 t51 起要求 ADMIN/PROJECT_LEADER/TEAM_LEADER。
+        // JWT 过滤器按「库内角色」还原权限（token 里的 authorities 不作准），
+        // 因此必须给夹具用户补一条真实 ADMIN 角色，否则并发用例会全部 403。
+        // 本类不继承 BaseTest，库内可能还没有角色 → 缺失时自建，确保 JWT 过滤器的
+        // userDetailsService 能解析出 ROLE_ADMIN（权限来自库内角色，不看 token 里的 authorities）
+        com.vulnaudit.entity.Role adminRole = roleRepository.findByCode("admin")
+                .orElseGet(() -> roleRepository.save(Objects.requireNonNull(
+                        com.vulnaudit.entity.Role.builder()
+                                .name("管理员")
+                                .code("admin")
+                                .description("t55 并发用例夹具")
+                                .isSystem(true)
+                                .build())));
+        if (userRoleRepository.findByUserId(user.getId()).isEmpty()) {
+            userRoleRepository.save(Objects.requireNonNull(com.vulnaudit.entity.UserRole.builder()
+                    .userId(user.getId())
+                    .roleId(adminRole.getId())
+                    .assignedBy(user.getId())
+                    .assignedAt(java.time.LocalDateTime.now())
+                    .build()));
+        }
 
         token = "Bearer " + jwtUtils.generateToken(user.getUsername(),
                 List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_ADMIN")));

@@ -13,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
@@ -125,7 +126,9 @@ public class KnowledgeController {
     }
 
     @DeleteMapping("/{id}")
-    @Operation(summary = "删除知识文章", description = "删除知识文章")
+    @PreAuthorize("@accessGuard.canDeleteKnowledge(#id, authentication)")
+    @Operation(summary = "删除知识文章",
+            description = "删除知识文章；管理员/项目负责人/团队负责人或文章作者本人可删除（t50）")
     public ResponseEntity<ApiResponse<Void>> deleteArticle(@PathVariable UUID id) {
         log.info("删除知识文章: id={}", id);
         

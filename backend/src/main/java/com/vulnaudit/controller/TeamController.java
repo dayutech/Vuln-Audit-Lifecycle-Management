@@ -166,6 +166,7 @@ public class TeamController {
     }
 
     @GetMapping("/{id}/members")
+    @PreAuthorize("@accessGuard.canReadTeam(#id, authentication)")
     @Operation(summary = "获取团队成员", description = "获取团队所有成员ID列表")
     public ResponseEntity<ApiResponse<List<UUID>>> getMembers(@PathVariable UUID id) {
         log.info("获取团队成员: teamId={}", id);
@@ -175,6 +176,7 @@ public class TeamController {
     }
 
     @GetMapping("/{id}/users")
+    @PreAuthorize("@accessGuard.canReadTeam(#id, authentication)")
     @Operation(summary = "获取团队所有用户", description = "获取团队及其子团队的所有用户ID")
     public ResponseEntity<ApiResponse<List<UUID>>> getTeamUsers(@PathVariable UUID id) {
         log.info("获取团队所有用户: teamId={}", id);

@@ -238,9 +238,9 @@ public class TaskServiceImpl implements TaskService {
         }
         Task task = taskRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.TASK_NOT_FOUND));
-        if (!operatorId.equals(task.getAssignedTo())) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "仅任务负责人可提交审核");
-        }
+        // 授权已上移到控制器：@PreAuthorize("@accessGuard.canSubmitTaskReview(#id, authentication)")
+        // （负责人 / 协作者 / 管理层可通过）。服务层此前硬编码「仅 assignedTo」，
+        // 导致管理层代办与协作者提交恒 403，与矩阵 2.9 不符（t50 校正）。
         if (!StringUtils.hasText(task.getAuditConclusion())) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "请先填写审计结论");
         }

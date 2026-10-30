@@ -126,7 +126,7 @@ public class AssetGroupControllerTest extends BaseTest {
             String groupJson = "{\"name\":\"新分组\",\"type\":\"project\",\"description\":\"新创建的分组\"}";
 
             mockMvc.perform(post("/api/v1/asset-groups")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(groupJson))
                     .andExpect(status().isCreated());
@@ -143,7 +143,7 @@ public class AssetGroupControllerTest extends BaseTest {
             String groupJson = "{\"name\":\"更新后的分组\",\"description\":\"更新后的描述\"}";
 
             mockMvc.perform(put("/api/v1/asset-groups/" + testGroup.getId())
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                     .content(groupJson))
                     .andExpect(status().isOk());
@@ -166,7 +166,7 @@ public class AssetGroupControllerTest extends BaseTest {
         @DisplayName("添加资产到分组 - 成功")
         void addAssetToGroup_Success() throws Exception {
             mockMvc.perform(post("/api/v1/asset-groups/" + testGroup.getId() + "/assets")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .param("assetId", testAsset.getId().toString()))
                     .andExpect(status().isOk());
         }
@@ -176,12 +176,12 @@ public class AssetGroupControllerTest extends BaseTest {
         void removeAssetFromGroup_Success() throws Exception {
             // 先添加资产
             mockMvc.perform(post("/api/v1/asset-groups/" + testGroup.getId() + "/assets")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .param("assetId", testAsset.getId().toString()));
 
             // 再移除资产
             mockMvc.perform(delete("/api/v1/asset-groups/" + testGroup.getId() + "/assets/" + testAsset.getId())
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }
     }

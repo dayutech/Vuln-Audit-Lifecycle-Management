@@ -44,7 +44,10 @@ public class TaskController {
     private final AuditLogService auditLogService;
 
     @PostMapping
-    @Operation(summary = "创建任务", description = "创建新任务")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER') "
+            + "and @accessGuard.canWriteAssetOrAbsent(#request.assetId, authentication)")
+    @Operation(summary = "创建任务",
+            description = "管理层创建任务；带 assetId 时需对该资产有写权（t50）")
     public ResponseEntity<ApiResponse<Task>> createTask(@Valid @RequestBody TaskCreateRequest request) {
         log.info("创建任务: title={}", request.getTitle());
         UUID currentUserId = getCurrentUserId();
@@ -179,7 +182,9 @@ public class TaskController {
     }
 
     @PostMapping("/{id}/submit-review")
-    @Operation(summary = "提交任务审核", description = "任务负责人提交审计任务进入待审核")
+    @PreAuthorize("@accessGuard.canSubmitTaskReview(#id, authentication)")
+    @Operation(summary = "提交任务审核",
+            description = "任务负责人/协作者本人提交审计任务进入待审核；管理层可代办（t50）")
     public ResponseEntity<ApiResponse<Task>> submitReview(@PathVariable UUID id) {
         UUID currentUserId = getCurrentUserId();
         if (currentUserId == null) {

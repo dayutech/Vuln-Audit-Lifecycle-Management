@@ -106,10 +106,10 @@ public class ToolControllerTest extends BaseTest {
     class DeleteToolTests {
 
         @Test
-        @DisplayName("删除工具 - 成功")
+        @DisplayName("删除工具 - 成功（管理员；t51 起删除限 ADMIN/PROJECT_LEADER）")
         void deleteTool_Success() throws Exception {
             mockMvc.perform(delete("/api/v1/tools/" + testTool.getId())
-                    .header("Authorization", engineerToken))
+                    .header("Authorization", adminToken))
                     .andExpect(status().isOk());
         }
     }

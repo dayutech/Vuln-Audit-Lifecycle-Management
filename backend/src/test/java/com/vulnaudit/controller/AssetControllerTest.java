@@ -274,7 +274,7 @@ public class AssetControllerTest extends BaseTest {
         @DisplayName("添加资产标签 - 成功")
         void addAssetTag_Success() throws Exception {
             mockMvc.perform(post("/api/v1/assets/" + testAsset.getId() + "/tags")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .param("tag", "高价值"))
                     .andExpect(status().isCreated());
         }
@@ -284,7 +284,7 @@ public class AssetControllerTest extends BaseTest {
         void removeAssetTag_Success() throws Exception {
             // 先添加标签
             mockMvc.perform(post("/api/v1/assets/" + testAsset.getId() + "/tags")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .param("tag", "测试标签"));
 
             // 获取标签ID后删除
