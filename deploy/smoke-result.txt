@@ -174,3 +174,16 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 冒烟复跑（前端发布后，同一后端）：TOTAL=108  PASS=108  FAIL=0  SKIP=0（脚本退出码 0）。
 - 新发现（已入验收报告 §2.3.2 #13）：工程师资产列表可见的 5 个资产中有 3 个详情返回 403（列表范围与 canReadAsset 规则不一致）。
 - 数据依赖说明：teams.leader_id 决定团队管理权（与角色无关）；实测 smoke_engineer 被某测试数据设为团队负责人，故其 /teams 顶部显示「团队长视角」，与后端行为一致。
+
+########## 七、最终发布与全链路验收（t47，2026-10-30 13:4x） ##########
+- 后端：jar 72,874,974 B（含 t45 用户域收敛/401、t46 资产可见性同源），服务 active；重启后 login=200、api-docs=200、未认证 /api/v1/users=401。
+- 回归：Tests run 490, Failures 0, Errors 0, Skipped 0（475 + t45 8 + t46 7），BUILD SUCCESS 20:58。
+- 前端：dist/static/index-BWmznSNU.js 2,231.44 kB（gzip 667.08 kB）；sync-dist --delete 后 /var/www/vuln-audit 仅 5 个文件，旧 index-CRqqK9hb.js 已清。
+- 冒烟：TOTAL=128 PASS=128 FAIL=0 SKIP=0（退出码 0）。新增 20 条：
+  未认证严格 401、无效 token 401、工程师 GET /users|/users/{id}|check-username|check-email 全 403、
+  GET /users/directory 200 且无 email/phone/roles/status/lastLoginAt/passwordHash、keyword 200、
+  /auth/me 与 /users/me/permissions 三角色均 200、资产可见性不变量（三账号：列表内逐条详情 200 / 列表外 403）。
+- 说明：/users/me 不存在（会被 /users/{id} 解析成 id 返回 400），「查看自己」的等价端点为 /auth/me 与 /users/me/permissions。
+- 页面补验（Playwright，三账号）：①工程师无「账号管理」菜单、直连 /users 无数据（管理员 10 行正常）；②工程师资产列表→详情正常（有 Tab、无 403 错误页）；
+  ③任务页人员下拉 5 个选项（目录接口 200 且无 PII）；④/teams 与公告区写入口按角色隐藏、管理员全可见。四项全 PASS。
+- RBAC 幂等与数据：permissions=90 / role_permissions=261 / roles=4 不变。

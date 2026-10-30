@@ -674,3 +674,129 @@ admin 全通；工程师读团队列表/环境详情/公告列表仍 200。
 cd backend && mvn -B clean test          # 期望 475 passed
 cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 108/108
 ```
+
+---
+
+## 21. 第十二轮（用户端点 PII 收敛 + 认证/授权状态码语义修正，t45）
+
+**问题**（验收报告 §2.3.2 原 #13 + §5 偏离 8）：
+1) `GET /users`、`GET /users/{id}`、`GET /users/{id}/roles`、`GET /users/check-username|email` **仅需登录即可读**，
+   而权限矩阵 2.2 规定工程师不可读用户管理数据 → 任意登录用户可批量枚举用户、邮箱、手机号、角色、最后登录时间（PII 面）；
+2) 未配置 `AuthenticationEntryPoint`，**未认证请求统一返回 403**，客户端无法区分「需要重新登录」与「确实无权限」。
+
+### 21.1 授权矩阵（用户域）
+
+| 端点 | 角色门槛 | 说明 |
+|---|---|---|
+| `GET /api/v1/users/directory` | **仅需登录（全员可用）** | 最小暴露目录：**只返回 `id / username / fullName`**（专用 record `UserDirectoryEntry`），不含 email/phone/status/roles/lastLoginAt；支持 `keyword`（只匹配 username/fullName）与 `limit`（默认 200，上限 500）；供任务负责人下拉、审批人展示、知识库作者名等 |
+| `GET /api/v1/users` | `hasAnyRole('ADMIN','PROJECT_LEADER')` | 用户列表（分页 + keyword/status 过滤） |
+| `GET /api/v1/users/{id}` | 同上 | 用户详情（响应仍不含 `passwordHash`，t22 的 `@JsonIgnore` 回归） |
+| `GET /api/v1/users/{id}/roles` | 同上 | 用户角色列表 |
+| `GET /api/v1/users/check-username`、`check-email` | 同上 | 存在性检查（用户管理场景） |
+| `GET /api/v1/users/me/permissions`、`GET /api/v1/auth/me` | **仅需登录** | 不能把自己锁死 |
+
+> 字段级兜底：目录接口用专用 record 而不是返回 `User` 实体，实体新增字段也不会意外泄漏；
+> 管理视角的详情复用 `User`（`passwordHash` 由 `@JsonIgnore` 保证不外泄）。
+
+### 21.2 认证 / 授权状态码语义
+
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| 未携带 token / token 无效 / 过期 | 403 | **401**（`AuthenticationEntryPoint`，统一 JSON `{"success":false,"code":401,...}`） |
+| 已认证但角色或数据级校验不通过 | 403 | 403（`AccessDeniedHandler`，统一 JSON `{"success":false,"code":403,...}`） |
+
+### 21.3 前端联动（必须同步，否则下拉会 403）
+
+以下页面当前用 `getUserList()`（`GET /users`）做人员下拉，需改调 `GET /users/directory`：
+`approval-scopes`、`assets/Detail`、`assets/AssetTagsPanel`、`audit-logs`、`knowledge`、`tasks`、`teams`、`tools`、
+`vulnerabilities/index`、`vulnerabilities/Detail`（共 10 处）；`pages/users`（账号管理页）继续用 `GET /users`（管理员页面）。
+
+### 21.4 验证
+
+```bash
+cd backend && mvn -B test -Dtest=UserDirectoryAuthorizationTest
+cd backend && mvn -B test -Dtest=UserControllerTest
+```
+
+三账号交叉验证：
+- 工程师：`/users`、`/users/{id}`、`/{id}/roles`、`check-*` → **403**；`/users/directory`、`/users/me/permissions` → **200** 且响应不含 email/phone/roles/status/lastLoginAt/passwordHash；
+- admin / project_leader：上述全部 → **200**（详情不含 `passwordHash`）；
+- 未认证：任意受保护端点 → **401**（不再是 403）；无效 token → **401**。
+
+---
+
+## 22. 第十三轮（资产可见性口径统一：列表与详情同源，t46）
+
+**问题**：`GET /assets` 列表此前**完全不做范围过滤**（任何登录用户看到全部资产），而 `GET /assets/{id}` 走
+`AccessGuard.canReadAsset` 的成员判定。两者不同源，导致「列表里能看到的资产，点进去 403」——
+t44 页面实测：工程师列表 5 个资产里 3 个详情 403，用户点列表项直接掉进错误页。
+
+**修复**：可见性收敛为**单一事实来源** `AccessGuard.visibleAssetIds(auth)`：
+
+| 位置 | 改动 |
+|---|---|
+| `AccessGuard.canReadAsset` | 直接实现为 `visibleAssetIds(...).contains(assetId)`；管理层 `null` = 不限制（不存在资源交由控制器返回 404） |
+| `GET /assets`（列表） | 控制器取 `visibleAssetIds` 传给 `AssetService.findAllWithDetails(..., visibleAssetIds)`；`null` = 不限制，**空集合直接返回空页**（不生成 `IN ()`） |
+| `canWriteAsset` | **写 ⊂ 读**：先要求 `canReadAsset` 通过，再判「管理层 or 资产负责人」 |
+| `canReadAssetFile` / `canReadDeliverable` / `canWriteAssetFile` / `canWriteDeliverable` | 去掉各自的 `isManager` 短路，全部委托 `canReadAsset` / `canWriteAsset` |
+| `canReadVulnerability` / `canWriteVulnerability` | 原本已委托资产口径，保持不变（漏洞列表与详情同源，t21 + t46 断言） |
+| `canReadDocument` | 作者/显式授权之外，资产部分仍走 `canReadAsset`（文档有独立 ACL，属合理叠加） |
+
+**语义变化（收窄，不是扩大）**：
+1. 列表从「全部资产」收窄为「负责人 ∪ 已获 approved 授权 ∪ 自己领导团队的资产」——与详情一致；
+2. `team_leader` 的写权由「任意资产」收窄为「本团队（自己领导）可见资产」，消除原先「能写但读不到」的不自洽；
+3. 普通团队成员仍**不**自动获得团队资产读权（SRS 3.7.3 口径未变）。
+
+**附带修掉的潜在 500**：`AssetServiceImpl.resolveTeamNames/resolveOwnerNames` 在“无团队/无负责人”时返回不可变
+`Map.of()`，调用方以 `asset.getTeamId()`（可能为 null）取值会抛 NPE —— 列表收敛后（单条资产、teamId 为空）必然触发；
+现改为可接受 null 键的 `HashMap`。
+
+**不变量（关键验收）**：
+
+```bash
+cd backend && mvn -B test -Dtest=AssetVisibilityConsistencyTest
+cd backend && mvn -B test -Dtest=AssetControllerTest
+```
+
+`AssetVisibilityConsistencyTest` 7 例，对 **负责人 / 团队成员 / 无关工程师 / 团队长 / 管理员** 逐个执行
+「列表 → 逐条取详情」，断言：
+
+| 断言 | 说明 |
+|---|---|
+| 列表内每个资产 → `GET /assets/{id}` **200** | 消灭「列表可见、详情 403」 |
+| 列表外资产 → 详情 **403** | 防枚举（无关工程师对全部资产 403，且列表为空） |
+| 漏洞列表内 → 详情 200；列表外 → 403 | 漏洞侧同源校验 |
+| 团队长对越界资产：详情 403 且 `PUT` 也 403 | 写 ⊂ 读 |
+
+**运维/前端注意**：资产列表数量会因角色不同而减少（工程师只看到自己负责/已授权资产），属预期；
+前端「我的资产」等页面无需改动；后端无 DDL、无迁移。
+
+## 22. 最终发布（t45 用户 PII/401 + t46 资产可见性统一 + t48 人员目录）
+
+时间：2026-10-30 13:0x–13:4x（Asia/Shanghai）。**无新增迁移**（V1…V17 不变），无需手工 DDL。
+
+| 项 | 结果 |
+|---|---|
+| 后端回归 | `mvn -B clean test` → **Tests run: 490, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS（20:58） |
+| 用例增量 | 475 + t45 `UserDirectoryAuthorizationTest` **8** + t46 `AssetVisibilityConsistencyTest` **7** = **490** |
+| 前端 | `npm run build` → `dist/static/index-BWmznSNU.js` 2,231.44 kB（gzip 667.08 kB）；sync-dist --delete 后站点仅 5 个文件，旧 `index-CRqqK9hb.js` 已清 |
+| 后端重建 | 远端 package BUILD SUCCESS 10.9s；jar **72,874,974 B**；restart 后 login=200、api-docs=200、未认证 `/api/v1/users`=**401** |
+| 冒烟 | **TOTAL=128 / PASS=128 / FAIL=0 / SKIP=0** |
+| 备份 | `~/backups/backend_20261030_*.jar`、`backend_src_20261030_*.tar.gz` |
+
+**t45（用户域）**：`GET /users`、`/users/{id}`、`/users/{id}/roles`、`check-username`、`check-email` → `hasAnyRole('ADMIN','PROJECT_LEADER')`；
+新增 `GET /users/directory`（仅登录，返回 `id/username/fullName`，不泄漏 email/phone/roles/status/passwordHash，支持 keyword/limit）；
+`AuthenticationEntryPoint`（未认证 401 + 统一 JSON）与 `AccessDeniedHandler`（无权限 403）已生效。
+**t46（可见性）**：`AccessGuard.visibleAssetIds` 成为唯一事实来源，列表与详情同源；`canWriteAsset ⊂ canReadAsset`；顺带修列表 NPE。
+
+**冒烟新增 20 条断言**：未认证严格 401、无效 token 401、工程师用户管理读 403×4、`/users/directory` 200 且无 PII×2、
+`/auth/me` 与 `/users/me/permissions` 三角色均 200×6、资产可见性不变量（列表内每条详情 200；列表外 403）三账号×6。
+
+**页面补验（Playwright）**：①工程师侧栏无「账号管理」菜单、直连 `/users` 无数据；②工程师资产列表点进详情正常（有 Tab、无 403）；
+③任务页人员下拉 5 个选项（目录接口 200）；④`/teams` 与公告区写入口按角色隐藏、管理员全可见。四项全 PASS。
+
+```bash
+cd backend && mvn -B clean test                                   # 期望 490 passed
+cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 128/128
+SUDO_PASS='***' bash deploy/sync-dist.sh                          # 前端发布
+```
