@@ -30,6 +30,7 @@ import java.util.UUID;
 public class TeamController {
 
     private final TeamService teamService;
+    private final com.vulnaudit.service.SubresourceGuard subresourceGuard;
     private final com.vulnaudit.security.CurrentUserProvider currentUserProvider;
 
     @PostMapping
@@ -160,7 +161,9 @@ public class TeamController {
             @PathVariable UUID userId) {
         
         log.info("移除团队成员: teamId={}, userId={}", id, userId);
-        
+
+        // t65：团队不存在或该用户不是团队成员 → 404（此前 deleteBy 删除 0 行仍返回 200）
+        subresourceGuard.requireTeamMember(id, userId);
         teamService.removeMember(id, userId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }

@@ -606,4 +606,61 @@ public class AccessGuard {
         }
         return false;
     }
+
+    // ------------------------------------------------------------------ 内容标签写权（t61）
+
+    /**
+     * 是否可修改知识库文章的标签（t61）
+     *
+     * <p>四类资源标签写权统一规则见 README §29：资产标签看资产写权、工具标签看管理层、
+     * 知识库/文档标签看「作者/创建者本人 或 管理层」。
+     *
+     * <p>资源不存在时返回 true，把 404 交给控制器（避免用 403 暴露资源是否存在）。
+     *
+     * @param articleId      文章ID
+     * @param authentication 当前认证
+     * @return true 表示允许修改标签
+     */
+    public boolean canWriteKnowledgeTags(java.util.UUID articleId, Authentication authentication) {
+        if (articleId == null) {
+            return false;
+        }
+        if (isManager(authentication)) {
+            return true;
+        }
+        java.util.UUID userId = currentUserId(authentication);
+        if (userId == null) {
+            return false;
+        }
+        return knowledgeArticleRepository.findById(articleId)
+                .map(article -> userId.equals(article.getAuthorId()))
+                // 不存在 → 放行，由控制器返回 404（不泄露存在性）
+                .orElse(true);
+    }
+
+    /**
+     * 是否可修改文档的标签（t61）
+     *
+     * <p>与 {@link #canWriteKnowledgeTags} 同一规则：作者本人 或 管理层；
+     * 文档不存在时返回 true，把 404 交给控制器。
+     *
+     * @param documentId     文档ID
+     * @param authentication 当前认证
+     * @return true 表示允许修改标签
+     */
+    public boolean canWriteDocumentTags(java.util.UUID documentId, Authentication authentication) {
+        if (documentId == null) {
+            return false;
+        }
+        if (isManager(authentication)) {
+            return true;
+        }
+        java.util.UUID userId = currentUserId(authentication);
+        if (userId == null) {
+            return false;
+        }
+        return documentRepository.findById(documentId)
+                .map(document -> userId.equals(document.getAuthorId()))
+                .orElse(true);
+    }
 }

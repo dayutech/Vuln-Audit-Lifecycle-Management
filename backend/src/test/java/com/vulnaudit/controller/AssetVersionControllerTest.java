@@ -274,11 +274,11 @@ public class AssetVersionControllerTest extends BaseTest {
                     .createdBy(engineerUserId)
                     .build()));
 
+            // t65：子资源不属于父资源时改为真正的 404（原为 HTTP 200 + body 404）
             mockMvc.perform(put("/api/v1/assets/" + assetId + "/versions/" + anotherAssetVersion.getId() + "/default")
                             .header("Authorization", adminToken))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.success").value(false))
-                    .andExpect(jsonPath("$.message").value("版本不存在"));
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.success").value(false));
         }
     }
 }

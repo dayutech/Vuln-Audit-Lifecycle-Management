@@ -42,6 +42,7 @@ public class TaskController {
     private final TaskService taskService;
     private final UserService userService;
     private final AuditLogService auditLogService;
+    private final com.vulnaudit.service.SubresourceGuard subresourceGuard;
 
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER') "
@@ -83,8 +84,9 @@ public class TaskController {
         
         return taskService.findById(id)
                 .map(task -> ResponseEntity.ok(ApiResponse.success(enrichTaskUsers(task))))
-                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(ApiResponse.error(404, "任务不存在")));
+                // 走全局异常处理器输出，文案经 i18n 解析（en / zh），响应结构不变
+                .orElseThrow(() -> new com.vulnaudit.exception.BusinessException(
+                        com.vulnaudit.exception.ErrorCode.TASK_NOT_FOUND));
     }
 
     @GetMapping
@@ -354,6 +356,8 @@ public class TaskController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error(401, "未授权"));
         }
+        // t65：任务不存在 → 404（此前会给不存在的任务写入附件行）
+        subresourceGuard.requireTask(id);
         taskService.addAttachment(id, fileName, filePath, currentUserId);
         auditLogService.log(currentUserId, "task_attachment_add", "task", id, "新增任务附件: " + fileName);
         return ResponseEntity.ok(ApiResponse.success(null));

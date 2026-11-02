@@ -38,6 +38,7 @@ public class NotificationController {
     private final NotificationService notificationService;
     private final UserService userService;
     private final com.vulnaudit.service.AccessGuard accessGuard;
+    private final com.vulnaudit.service.SubresourceGuard subresourceGuard;
 
     @GetMapping
     @Operation(summary = "获取通知列表", description = "分页获取用户的通知列表")
@@ -81,6 +82,8 @@ public class NotificationController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error(401, "未授权"));
         }
+        // t65：通知不存在或当前用户不是接收人 → 404（此前静默 no-op 仍返回 200）
+        subresourceGuard.requireNotificationRecipient(id, userId);
         notificationService.markAsRead(id, userId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
@@ -112,6 +115,8 @@ public class NotificationController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error(401, "未授权"));
         }
+        // t65：通知不存在或当前用户不是接收人 → 404（此前静默 no-op 仍返回 200）
+        subresourceGuard.requireNotificationRecipient(id, userId);
         notificationService.deleteNotification(id, userId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }

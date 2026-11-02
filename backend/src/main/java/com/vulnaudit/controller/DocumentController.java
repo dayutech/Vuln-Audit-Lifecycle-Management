@@ -321,14 +321,18 @@ public class DocumentController {
      * 添加标签到文档
      */
     @PostMapping("/{id}/tags")
-    @Operation(summary = "添加标签到文档", description = "为文档添加标签")
+    @PreAuthorize("@accessGuard.canWriteDocumentTags(#id, authentication)")
+    @Operation(summary = "添加标签到文档", description = "为文档添加标签（作者本人或管理层）")
     public ResponseEntity<ApiResponse<DocumentTag>> addDocumentTag(
             @PathVariable UUID id,
             @Parameter(description = "标签名称") @RequestParam String tag) {
         log.info("添加文档标签: documentId={}, tag={}", id, tag);
         
         UUID currentUserId = getCurrentUserId();
-        
+
+        // t61：文档不存在时返回 404，避免写入孤儿标签
+        requireDocumentExists(id);
+
         DocumentTag documentTag = DocumentTag.builder()
                 .documentId(id)
                 .tag(tag)
@@ -347,13 +351,19 @@ public class DocumentController {
      * 移除文档的标签
      */
     @DeleteMapping("/{documentId}/tags/{tagId}")
-    @Operation(summary = "移除文档的标签", description = "移除文档的指定标签")
+    @PreAuthorize("@accessGuard.canWriteDocumentTags(#documentId, authentication)")
+    @Operation(summary = "移除文档的标签", description = "移除文档的指定标签（作者本人或管理层）")
     public ResponseEntity<ApiResponse<Void>> removeDocumentTag(
             @PathVariable UUID documentId,
             @PathVariable UUID tagId) {
         log.info("移除文档标签: documentId={}, tagId={}", documentId, tagId);
-        
-        documentTagRepository.deleteById(Objects.requireNonNull(tagId, "tagId must not be null"));
+
+        // t65：文档必须存在、标签必须属于该文档，否则 404（此前 deleteById 对任意 tagId 都返回 200）
+        com.vulnaudit.entity.DocumentTag documentTag = documentTagRepository.findById(tagId)
+                .filter(item -> documentId.equals(item.getDocumentId()))
+                .orElseThrow(() -> new com.vulnaudit.exception.BusinessException(
+                        com.vulnaudit.exception.ErrorCode.NOT_FOUND, "文档标签不存在或不属于该文档"));
+        documentTagRepository.delete(documentTag);
         log.info("文档标签移除成功: documentId={}, tagId={}", documentId, tagId);
         
         return ResponseEntity.ok(ApiResponse.success(null));
@@ -381,6 +391,15 @@ public class DocumentController {
     /**
      * 获取当前用户ID的辅助方法
      */
+    /**
+     * 文档必须存在（t61）：标签写操作对不存在的文档返回 404。
+     */
+    private void requireDocumentExists(UUID documentId) {
+        documentService.findById(documentId)
+                .orElseThrow(() -> new com.vulnaudit.exception.BusinessException(
+                        com.vulnaudit.exception.ErrorCode.DOCUMENT_NOT_FOUND));
+    }
+
     private UUID getCurrentUserId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || authentication.getName() == null || "anonymousUser".equals(authentication.getName())) {

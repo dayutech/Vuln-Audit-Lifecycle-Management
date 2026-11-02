@@ -22,11 +22,11 @@ import lombok.NoArgsConstructor;
 public class LoginRequest {
 
     @Schema(description = "用户名", example = "admin", requiredMode = Schema.RequiredMode.REQUIRED)
-    @NotBlank(message = "用户名不能为空")
+    @NotBlank(message = "validation.auth.username.required")
     private String username;
 
     @Schema(description = "密码", example = "password123", requiredMode = Schema.RequiredMode.REQUIRED)
-    @NotBlank(message = "密码不能为空")
+    @NotBlank(message = "validation.auth.password.required")
     private String password;
 
 }

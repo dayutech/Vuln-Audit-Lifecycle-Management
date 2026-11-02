@@ -182,10 +182,10 @@ public class KnowledgeControllerTest extends BaseTest {
         }
 
         @Test
-        @DisplayName("添加文章标签 - 成功")
+        @DisplayName("添加文章标签 - 成功（t61 起需作者本人或管理层，夹具用管理员令牌）")
         void addArticleTag_Success() throws Exception {
             mockMvc.perform(post("/api/v1/knowledge/" + testArticle.getId() + "/tags")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .param("tag", "重要"))
                     .andExpect(status().isOk());
         }

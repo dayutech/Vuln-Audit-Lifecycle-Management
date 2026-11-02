@@ -1,8 +1,10 @@
 package com.vulnaudit.exception;
 
 import com.vulnaudit.dto.ApiResponse;
+import com.vulnaudit.i18n.ApiMessageResolver;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -35,10 +37,17 @@ import java.util.stream.Collectors;
  * - 记录异常日志
  * - 处理参数校验异常
  * - 处理安全相关异常
+ *
+ * <p>i18n（t60）：所有对外文案统一经 {@link ApiMessageResolver} 解析 ——
+ * {@code Accept-Language: en}（或 {@code ?lang=en}）返回英文；未传时返回中文（与既有行为一致）。
+ * 未纳入 i18n 的消息码回退到 {@link ErrorCode#getMessage()} 的中文文案，不抛异常。
  */
 @Slf4j
 @RestControllerAdvice
+@RequiredArgsConstructor
 public class GlobalExceptionHandler {
+
+    private final ApiMessageResolver messageResolver;
 
     /**
      * 处理业务异常
@@ -52,8 +61,11 @@ public class GlobalExceptionHandler {
         
         int code = e.getErrorCode().getCode();
         HttpStatus status;
-        
-        if (code >= 1000 && code < 2000) {
+
+        // 业务错误码区间：1000-2999（用户/角色/资产/漏洞/文档/环境/工具/任务/知识库/通知/团队）
+        // 说明（t65）：此前上限写成 < 2000，团队域错误码（2001-2003）会落到 else 分支，
+        // 被 clamp 成 599 并触发 HttpStatus.valueOf 抛 IllegalArgumentException → 500。
+        if (code >= 1000 && code < 3000) {
             if (code == 1003 || code == 1201 || code == 1301 || code == 1401 || 
                 code == 1501 || code == 1601 || code == 1701 || code == 1801 ||
                 code == 1901 || code == 2001 || code == 1205 || code == 1206 ||
@@ -64,7 +76,7 @@ public class GlobalExceptionHandler {
             } else if (code == 1005) {
                 status = HttpStatus.FORBIDDEN;
             } else if (code == 1001 || code == 1002 || code == 1102 || code == 1104 ||
-                       code == 1204 || code == 2002) {
+                       code == 1204 || code == 2002 || code == 2003) {
                 status = HttpStatus.CONFLICT;
             } else if (code == 1009 || code == 1010) {
                 status = HttpStatus.BAD_REQUEST;
@@ -72,12 +84,15 @@ public class GlobalExceptionHandler {
                 status = HttpStatus.BAD_REQUEST;
             }
         } else {
-            status = HttpStatus.valueOf(Math.min(Math.max(code, 400), 599));
+            // 形如 4xx/5xx 的业务码；非法值不得再抛异常（否则变成 500 掩盖真实原因）
+            int candidate = Math.min(Math.max(code, 400), 599);
+            HttpStatus resolved = HttpStatus.resolve(candidate);
+            status = resolved != null ? resolved : HttpStatus.BAD_REQUEST;
         }
         
         return ResponseEntity
                 .status(status)
-                .body(ApiResponse.error(e.getMessage()));
+                .body(ApiResponse.error(messageResolver.resolveForErrorCode(e.getErrorCode(), e.getMessage())));
     }
 
     /**
@@ -92,7 +107,8 @@ public class GlobalExceptionHandler {
         Map<String, String> errors = new HashMap<>();
         e.getBindingResult().getAllErrors().forEach(error -> {
             String fieldName = ((FieldError) error).getField();
-            String errorMessage = error.getDefaultMessage();
+            // 校验注解的 message 可能是消息码（validation.*），也可能已是写好的文案 → 解析或原样保留
+            String errorMessage = messageResolver.resolveOrKeep(error.getDefaultMessage());
             errors.put(fieldName, errorMessage);
         });
         log.warn("参数校验失败: {}", errors);
@@ -100,7 +116,7 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.<Map<String, String>>builder()
                         .success(false)
-                        .message("参数校验失败")
+                        .message(messageResolver.resolve(ErrorCode.VALIDATION_ERROR.messageKey(), "参数校验失败"))
                         .data(errors)
                         .build());
     }
@@ -117,14 +133,14 @@ public class GlobalExceptionHandler {
         Map<String, String> errors = e.getConstraintViolations().stream()
                 .collect(Collectors.toMap(
                         violation -> violation.getPropertyPath().toString(),
-                        ConstraintViolation::getMessage
+                        violation -> messageResolver.resolveOrKeep(violation.getMessage())
                 ));
         log.warn("约束违反: {}", errors);
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.<Map<String, String>>builder()
                         .success(false)
-                        .message("参数校验失败")
+                        .message(messageResolver.resolve(ErrorCode.VALIDATION_ERROR.messageKey(), "参数校验失败"))
                         .data(errors)
                         .build());
     }
@@ -140,7 +156,7 @@ public class GlobalExceptionHandler {
         log.warn("认证失败: {}", e.getMessage());
         return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
-                .body(ApiResponse.error(ErrorCode.UNAUTHORIZED.getMessage()));
+                .body(ApiResponse.error(messageResolver.resolveForErrorCode(ErrorCode.UNAUTHORIZED, null)));
     }
 
     /**
@@ -154,7 +170,7 @@ public class GlobalExceptionHandler {
         log.warn("凭证错误: {}", e.getMessage());
         return ResponseEntity
                 .status(HttpStatus.UNAUTHORIZED)
-                .body(ApiResponse.error(ErrorCode.PASSWORD_ERROR.getMessage()));
+                .body(ApiResponse.error(messageResolver.resolveForErrorCode(ErrorCode.PASSWORD_ERROR, null)));
     }
 
     /**
@@ -168,7 +184,7 @@ public class GlobalExceptionHandler {
         log.warn("访问被拒绝: {}", e.getMessage());
         return ResponseEntity
                 .status(HttpStatus.FORBIDDEN)
-                .body(ApiResponse.error(ErrorCode.FORBIDDEN.getMessage()));
+                .body(ApiResponse.error(messageResolver.resolveForErrorCode(ErrorCode.FORBIDDEN, null)));
     }
 
     /**
@@ -183,7 +199,7 @@ public class GlobalExceptionHandler {
         log.warn("请求方法不支持: {}", e.getMessage());
         return ResponseEntity
                 .status(HttpStatus.METHOD_NOT_ALLOWED)
-                .body(ApiResponse.error(ErrorCode.METHOD_NOT_ALLOWED.getMessage()));
+                .body(ApiResponse.error(messageResolver.resolve("error.method_not_allowed", ErrorCode.METHOD_NOT_ALLOWED.getMessage())));
     }
 
     /**
@@ -271,7 +287,7 @@ public class GlobalExceptionHandler {
         log.warn("资源未找到: {}", e.getRequestURL());
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
-                .body(ApiResponse.error(ErrorCode.NOT_FOUND.getMessage()));
+                .body(ApiResponse.error(messageResolver.resolveForErrorCode(ErrorCode.NOT_FOUND, null)));
     }
 
     /**
@@ -285,7 +301,7 @@ public class GlobalExceptionHandler {
         log.error("系统异常: ", e);
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ApiResponse.error(ErrorCode.INTERNAL_ERROR.getMessage()));
+                .body(ApiResponse.error(messageResolver.resolveForErrorCode(ErrorCode.INTERNAL_ERROR, null)));
     }
 
 }

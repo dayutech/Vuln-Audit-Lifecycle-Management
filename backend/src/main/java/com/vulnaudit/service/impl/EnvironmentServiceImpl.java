@@ -288,7 +288,8 @@ public class EnvironmentServiceImpl implements EnvironmentService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND));
         
         if (!snapshot.getEnvironmentId().equals(requiredId)) {
-            throw new BusinessException(ErrorCode.BAD_REQUEST, "快照不属于该环境");
+            // t65：子资源不属于父资源一律 404（此前 400，会与“参数错误”混淆且可枚举快照是否存在）
+            throw new BusinessException(ErrorCode.NOT_FOUND, "快照不存在或不属于该环境");
         }
         
         environment.setConfig(snapshot.getConfigSnapshot());

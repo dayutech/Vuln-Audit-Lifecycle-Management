@@ -211,10 +211,10 @@ public class DocumentControllerTest extends BaseTest {
         }
 
         @Test
-        @DisplayName("添加文档标签 - 成功")
+        @DisplayName("添加文档标签 - 成功（t61 起需作者本人或管理层，夹具用管理员令牌）")
         void addDocumentTag_Success() throws Exception {
             mockMvc.perform(post("/api/v1/documents/" + testDocument.getId() + "/tags")
-                    .header("Authorization", engineerToken)
+                    .header("Authorization", adminToken)
                     .param("tag", "重要"))
                     .andExpect(status().isCreated());
         }

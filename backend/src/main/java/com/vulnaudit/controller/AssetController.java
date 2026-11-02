@@ -49,6 +49,7 @@ public class AssetController {
     private final AssetClaimService assetClaimService;
     private final com.vulnaudit.security.CurrentUserProvider currentUserProvider;
     private final com.vulnaudit.service.AccessGuard accessGuard;
+    private final com.vulnaudit.service.SubresourceGuard subresourceGuard;
     private final AssetTagRepository assetTagRepository;
     private final AssetHistoryRepository assetHistoryRepository;
     private final AssetRepository assetRepository;
@@ -124,8 +125,9 @@ public class AssetController {
 
         return assetService.findByIdWithDetails(id)
                 .map(asset -> ResponseEntity.ok(ApiResponse.success(asset)))
-                .orElse(ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(ApiResponse.error(404, "资产不存在")));
+                // 走全局异常处理器输出，文案经 i18n 解析（en / zh），响应结构不变
+                .orElseThrow(() -> new com.vulnaudit.exception.BusinessException(
+                        com.vulnaudit.exception.ErrorCode.ASSET_NOT_FOUND));
     }
 
     @GetMapping
@@ -248,6 +250,9 @@ public class AssetController {
             @Valid @RequestBody AssetAccessRequest request) {
 
         log.info("申请资产访问权限: assetId={}", id);
+
+        // t65：父资源不存在 → 404（此前会写入指向不存在资产的访问申请）
+        subresourceGuard.requireAsset(id);
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         UUID currentUserId = getCurrentUserId(authentication);
@@ -406,7 +411,10 @@ public class AssetController {
         
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         UUID currentUserId = getCurrentUserId(authentication);
-        
+
+        // t65：父资源不存在 → 404（此前会对不存在的资产静默写入孤儿标签行）
+        subresourceGuard.requireAsset(id);
+
         if (assetTagRepository.existsByAssetIdAndTag(id, tag)) {
             return ResponseEntity.ok(ApiResponse.error(400, "标签已存在"));
         }
@@ -435,8 +443,10 @@ public class AssetController {
             @PathVariable UUID assetId,
             @PathVariable UUID tagId) {
         log.info("移除资产标签: assetId={}, tagId={}", assetId, tagId);
-        
-        assetTagRepository.deleteById(Objects.requireNonNull(tagId, "tagId must not be null"));
+
+        // t65：标签必须存在且属于该资产，否则 404（此前 deleteById 对任意 tagId 都返回 200）
+        AssetTag tag = subresourceGuard.requireAssetTag(assetId, tagId);
+        assetTagRepository.delete(tag);
         log.info("资产标签移除成功: assetId={}, tagId={}", assetId, tagId);
         
         return ResponseEntity.ok(ApiResponse.success(null));

@@ -283,8 +283,37 @@ public enum ErrorCode {
     private final Integer code;
 
     /**
-     * 错误描述
+     * 错误描述（中文默认文案，同时作为 i18n 的最终兜底）
      */
     private final String message;
+
+    /**
+     * i18n 消息码（t60）
+     *
+     * <p>返回 {@code null} 表示「本轮未纳入 i18n 覆盖」，此时对外文案仍使用 {@link #message}（中文）。
+     * 已覆盖范围：认证 / 资产 / 漏洞 / 任务 四类高频错误 + 通用错误。
+     */
+    public String messageKey() {
+        return switch (this) {
+            case BAD_REQUEST -> "error.bad_request";
+            case FORBIDDEN -> "error.forbidden";
+            case NOT_FOUND -> "error.not_found";
+            case CONFLICT -> "error.conflict";
+            case INTERNAL_ERROR -> "error.internal";
+            case VALIDATION_ERROR -> "error.validation";
+            case INVALID_STATUS -> "error.status.invalid";
+            case UNAUTHORIZED -> "error.auth.unauthorized";
+            case INVALID_CREDENTIALS -> "error.auth.invalid_credentials";
+            case PASSWORD_ERROR -> "error.auth.password_error";
+            case TOKEN_INVALID -> "error.auth.token_invalid";
+            case ASSET_NOT_FOUND -> "error.asset.not_found";
+            case ASSET_ACCESS_DENIED -> "error.asset.access_denied";
+            case VULNERABILITY_NOT_FOUND -> "error.vulnerability.not_found";
+            case VULNERABILITY_CVE_DUPLICATED -> "error.vulnerability.number_conflict";
+            case TASK_NOT_FOUND -> "error.task.not_found";
+            // 其余错误码（用户/角色/权限/文档/环境/工具/知识库/通知/团队等）本轮保留中文
+            default -> null;
+        };
+    }
 
 }

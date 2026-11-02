@@ -161,12 +161,13 @@ public class KnowledgeController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResponse.error(401, "未授权"));
         }
+        // t65：文章不存在 → 404（此前会写入孤儿评论行）
+        requireArticleExists(id);
         knowledgeService.addComment(id, userId, content);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
-    @GetMapping("/{id}/tags")
-    @Operation(summary = "获取文章标签", description = "获取文章的所有标签")
+    @GetMapping("/{id}/tags")    @Operation(summary = "获取文章标签", description = "获取文章的所有标签")
     public ResponseEntity<ApiResponse<List<String>>> getTags(@PathVariable UUID id) {
         log.info("获取文章标签: articleId={}", id);
         
@@ -175,27 +176,41 @@ public class KnowledgeController {
     }
 
     @PostMapping("/{id}/tags")
-    @Operation(summary = "添加文章标签", description = "为文章添加标签")
+    @PreAuthorize("@accessGuard.canWriteKnowledgeTags(#id, authentication)")
+    @Operation(summary = "添加文章标签", description = "为文章添加标签（作者本人或管理层）")
     public ResponseEntity<ApiResponse<Void>> addTag(
             @PathVariable UUID id,
             @Parameter(description = "标签") @RequestParam String tag) {
         
         log.info("添加文章标签: articleId={}, tag={}", id, tag);
-        
+
+        // t61：文章不存在时返回 404，避免写入孤儿标签
+        requireArticleExists(id);
         knowledgeService.addTag(id, tag);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
     @DeleteMapping("/{id}/tags")
-    @Operation(summary = "移除文章标签", description = "移除文章标签")
+    @PreAuthorize("@accessGuard.canWriteKnowledgeTags(#id, authentication)")
+    @Operation(summary = "移除文章标签", description = "移除文章标签（作者本人或管理层）")
     public ResponseEntity<ApiResponse<Void>> removeTag(
             @PathVariable UUID id,
             @Parameter(description = "标签") @RequestParam String tag) {
         
         log.info("移除文章标签: articleId={}, tag={}", id, tag);
-        
+
+        requireArticleExists(id);
         knowledgeService.removeTag(id, tag);
         return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    /**
+     * 文章必须存在（t61）：标签写操作对不存在的文章返回 404 而不是静默写入孤儿行。
+     */
+    private void requireArticleExists(UUID articleId) {
+        knowledgeService.findById(articleId)
+                .orElseThrow(() -> new com.vulnaudit.exception.BusinessException(
+                        com.vulnaudit.exception.ErrorCode.KNOWLEDGE_NOT_FOUND));
     }
 
     private UUID getCurrentUserId() {

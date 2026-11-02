@@ -13,25 +13,25 @@ import java.util.UUID;
 @Data
 public class AssetCreateRequest {
 
-    @NotBlank(message = "资产名称不能为空")
-    @Size(max = 200, message = "名称长度不能超过200个字符")
+    @NotBlank(message = "validation.asset.name.required")
+    @Size(max = 200, message = "validation.asset.name.too_long")
     private String name;
 
-    @NotBlank(message = "目标类型不能为空")
+    @NotBlank(message = "validation.asset.target_type.required")
     private String targetType;
 
-    @NotBlank(message = "目标来源不能为空")
+    @NotBlank(message = "validation.asset.target_source.required")
     private String targetSource;
 
-    @Size(max = 1000, message = "描述长度不能超过1000个字符")
+    @Size(max = 1000, message = "validation.asset.description.too_long")
     private String description;
 
-    @NotBlank(message = "优先级不能为空")
+    @NotBlank(message = "validation.asset.priority.required")
     private String priority;
 
-    @NotBlank(message = "资产状态不能为空")
+    @NotBlank(message = "validation.asset.status.required")
     private String status;
 
-    @NotNull(message = "所属团队不能为空")
+    @NotNull(message = "validation.asset.team.required")
     private UUID teamId;
 }

@@ -65,6 +65,14 @@ public class NotificationControllerTest extends BaseTest {
                 .isRead(false)
                 .build();
         recipientRepository.save(Objects.requireNonNull(recipient));
+
+        // t65：标记已读/删除通知现在要求「通知存在且当前用户是接收人」（否则 404），
+        // 而用例统一用 engineerToken 调用，因此把工程师也加为接收人（不是放宽校验）。
+        recipientRepository.save(Objects.requireNonNull(NotificationRecipient.builder()
+                .notificationId(testNotification.getId())
+                .userId(engineerUserId)
+                .isRead(false)
+                .build()));
     }
 
     @Nested

@@ -122,10 +122,9 @@ public class AssetVersionController {
             @PathVariable UUID id) {
         log.info("切换默认资产版本: assetId={}, versionId={}", assetId, id);
 
-        AssetVersion version = assetVersionRepository.findByIdAndAssetId(id, assetId).orElse(null);
-        if (version == null) {
-            return ResponseEntity.ok(ApiResponse.error(404, "版本不存在"));
-        }
+        // t65：版本不存在或不属于该资产 → HTTP 404（此前返回 200 + body code 404）
+        AssetVersion version = assetVersionRepository.findByIdAndAssetId(id, assetId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "版本不存在或不属于该资产"));
 
         assetVersionRepository.clearDefaultByAssetId(assetId);
         version.setIsDefault(true);
@@ -142,10 +141,9 @@ public class AssetVersionController {
             @PathVariable UUID id) {
         log.info("切换最新资产版本: assetId={}, versionId={}", assetId, id);
 
-        AssetVersion version = assetVersionRepository.findByIdAndAssetId(id, assetId).orElse(null);
-        if (version == null) {
-            return ResponseEntity.ok(ApiResponse.error(404, "版本不存在"));
-        }
+        // t65：版本不存在或不属于该资产 → HTTP 404（此前返回 200 + body code 404）
+        AssetVersion version = assetVersionRepository.findByIdAndAssetId(id, assetId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "版本不存在或不属于该资产"));
 
         assetVersionRepository.clearLatestByAssetId(assetId);
         version.setIsLatest(true);
