@@ -10,7 +10,7 @@
 
 ## 0. 验收结论
 
-**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**524 个后端用例 100% 通过**（452 + 13 + 10 + 8 + 7 + 7 + 15 + 7 + 5），线上冒烟 **154/154 全绿**（t13 的 92 + t41 的 16 + t47 的 20），三账号交叉验证通过。
+**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**557 个后端用例 100% 通过**（452 + 13 + 10 + 8 + 7 + 7 + 15 + 7 + 5 + t60 10 + t61 7 + t65 16），线上冒烟 **167/167 全绿**（t13 的 92 + t41 的 16 + t47 的 20），三账号交叉验证通过。
 
 第二批（t49/t50/t51/t55）之后**鉴权缺口清零（15 → 0 组）**：资产域 6 组、协作域 4 组、组织/工具域 2 组、工具域追加 3 个端点全部收口，资产可见性与团队可见性均统一为单一事实来源：3 组「高」severity 缺口（团队 CRUD、环境增删改与部署、公告写）已修复，资产认领「完成/放弃」状态机已打通（此前恒 403）。
 
@@ -18,8 +18,8 @@
 
 | 关键指标 | 数值 |
 |---|---|
-| 后端自动化测试 | **524 用例 / 通过率 100%**（第一批 490 + t49 7 + t50 15 + t51 7 + t55 5），`mvn -B clean test` 全绿；t25 另有同一快照连续两次 452/452 全绿 |
-| 线上冒烟 | **154 用例 / 154 PASS / 0 FAIL / 0 SKIP**（t13 92 + t41 16 + t47 20 + t54 26），第二批发布后复跑全绿 |
+| 后端自动化测试 | **557 用例 / 通过率 100%**（490 + 7 + 15 + 7 + 5 + t60 10 + t61 7 + t65 16），`mvn -B clean test` 全绿；t25 另有同一快照连续两次 452/452 全绿 |
+| 线上冒烟 | **167 用例 / 167 PASS / 0 FAIL / 0 SKIP**（92 + 16 + 20 + 26 + t63 13），第三批发布后复跑全绿 |
 | 部署后专项核对 | 11a~11k 共 **13 项实测全 PASS** |
 | 空库引导（真实建库路径） | 56 张表、RBAC 90 权限点 / 261 关联、admin 登录 200、`permissionCount=90` |
 | 接口总数 / 已做鉴权 | 263 个端点；角色注解 74、数据级守卫 79、方法内校验 12 → **165 个显式鉴权端点**（写端点 108/135 = 80%），其余见 §2 |
@@ -120,7 +120,7 @@
 | **写端点**（POST/PUT/PATCH/DELETE） | 135 | 55 | 47 | 6 | 23 | 4 |
 | GET 端点 | 128 | 19 | 32 | 6 | 29 | 42 |
 
-**关键结论**：写端点中 **108 个（80%）有显式鉴权**（角色注解 55 + 数据级守卫 47 + 方法内 6），其余 27 个写端点均为「合理开放」（本人数据、全员协作的评论/标签/申请、工具库创建与下载、认证域）；全端点显式鉴权 **165 个**（较第一批的 140 再增 25）。
+**关键结论**：写端点中 **108 个（80%）有显式鉴权**（角色注解 55 + 数据级守卫 47 + 方法内 6），其余 27 个写端点均为「合理开放」（本人数据、全员协作的评论/申请、工具库创建与下载、认证域）；**四类资源标签写权已于 t61 统一**（资产=资产写权、工具=管理层、文章/文档=作者或管理层，见 §2.6），故「标签」不再属于合理开放项；全端点显式鉴权 **169 个**（较第一批的 140 再增 29，t61 再 +4）。
 
 > **鉴权缺口轨迹**：`15 → 12（t40）→ 6（t49）→ 2（t50）→ 0（t51）→ 0（t55 收尾工具域）`，§2.3.2 现为**已知缺口 0 组**。
 > **可见性口径（t46 已统一）**：`GET /assets` 列表与 `GET /assets/{id}` 详情共用 `AccessGuard.visibleAssetIds`；`canWriteAsset ⊂ canReadAsset`。
@@ -399,13 +399,13 @@
 | 端点 | 校验 | 结论与依据 |
 |---|---|---|
 | `POST /auth/login`、`POST /auth/logout`、`POST /auth/refresh`、`GET /auth/me`、`POST /auth/change-password` | 仅登录 / 无 | **合理开放**：认证域，矩阵 2.1 全角色可用；`change-password` 只改本人密码 |
-| `POST /assets/{id}/access-requests`、`POST /assets/{id}/claims`、`POST /assets/{id}/tags` | 仅登录 | **合理开放**：矩阵 2.4 全员可申请/认领；标签为协作元数据（写权建议随资产，见 §8） |
+| `POST /assets/{id}/access-requests`、`POST /assets/{id}/claims` | 仅登录 | **合理开放**：矩阵 2.4 全员可申请/认领。（资产标签写权已于 **t49** 收口为 `canWriteAsset`，见 §2.4 与 §2.6 标签统一规则） |
 | `GET /assets/my/access-requests`、`GET /assets/my/claims` | 仅登录 | **合理开放**：只返回当前用户数据（t39 起未认证一律拒绝，不再退化为全量） |
 | `PUT /dashboard/my`、`POST /dashboard/config`、`DELETE /dashboard/config`、`GET /dashboard/workload/stats/claims` | 仅登录 | **合理开放**：只读写当前用户的仪表盘配置与本人统计 |
 | `POST /notifications/{id}/read`、`POST /notifications/read-all`、`DELETE /notifications/{id}`、`GET/PUT /notifications/settings`、`POST/DELETE /notifications/subscriptions/{assetId}` | 仅登录 | **合理开放**：全部作用于当前用户的通知/设置/订阅（矩阵 2.12 全角色） |
 | `PUT /tasks/{id}`、`PUT /tasks/{id}/status`、`POST /tasks/{id}/comments`、`POST /tasks/{id}/attachments` | 仅登录 | **合理开放**：矩阵 2.9 全角色可协作；驳回/通过另有角色门槛 |
-| `POST /knowledge`、`PUT /knowledge/{id}`、`POST /knowledge/{id}/comments`、`POST|DELETE /knowledge/{id}/tags` | 仅登录 / 无 | **合理开放**：矩阵 2.10 文章发布/编辑/评论对全角色开放（删除见 §2.3.2 #7） |
-| `POST /documents`、`POST /documents/{id}/tags`、`DELETE /documents/{documentId}/tags/{tagId}` | 仅登录 / 无 | **合理开放**：矩阵 2.7 文档创建全角色；标签为协作元数据 |
+| `POST /knowledge`、`PUT /knowledge/{id}`、`POST /knowledge/{id}/comments` | 仅登录 | **合理开放**：矩阵 2.10 文章发布/编辑/评论对全角色开放。（文章删除 t50 已收口；**文章标签增删 t61 收口为「作者本人 或 管理层」**，见 §2.6） |
+| `POST /documents` | 仅登录 | **合理开放**：矩阵 2.7 文档创建对全角色开放。（**文档标签增删 t61 收口为「作者本人 或 管理层」**，见 §2.6） |
 | `POST /tools`、`POST /tools/{id}/download`、`GET /tools/{id}/download`、`GET /tools/{id}/download-count`、`GET /tools/{id}/tags`、`GET /tools/{id}/versions` | 仅登录 | **合理开放**：矩阵 2.8 工具库创建/下载对全角色开放；`download-count` 仅返回计数（**写类已收口见 §2.4**：`POST /tools/{id}/file`、`POST|DELETE /tools/{id}/tags` 已于 t55 加 ADMIN/PL/TEAM_LEADER 门槛） |
 | `GET /users/me/permissions` | 仅登录 | **合理开放**：只返回当前用户权限点（`permissionCount=90` 校验点） |
 | `GET /environment-templates`（EnvironmentTemplateController 唯一端点） | 仅登录 | **合理开放**：环境模板字典，无业务数据；建议后续补入矩阵 |
@@ -421,6 +421,7 @@
 | t50 | 删他人文章、漏洞通知群发、投递记录、任务创建（4 组） | `CollaborationDomainAuthorizationTest` 15 例 |
 | t51 | 团队读（成员列表）、工具改删（2 组） + `POST /assets/{id}/tags` 追加项 | `OrgToolDomainAuthorizationTest` 7 例 |
 | t55 | 工具包上传、工具标签增删（3 个写端点，工具域收尾） | `ToolWriteAuthorizationTest` 5 例 |
+| t61 | 知识库文章标签、文档标签（统一为「作者本人 或 管理层」） | `TagWriteAuthorizationTest` 7 例 |
 
 > 仍为「仅登录 / 无注解」的端点（见 §2.3.1）全部经判定属**合理开放**：本人数据（我的申请/认领、仪表盘配置、通知已读与订阅）、认证域、矩阵对全角色开放的协作写（知识文章与评论、文档与任务协作、工具创建与下载）。
 ### 2.4 本轮已修复的鉴权缺口（回归证据）
@@ -472,6 +473,56 @@
 **证据**：`grep -rn "hasPermission(" backend/src/main/java | grep -v PermissionService` 无业务调用点；`grep -rn "hasAuthority" backend/src/main/java` 仅注释命中；`scripts/qa/scan-auth-*.py` 输出 134 个显式鉴权端点；`PrivilegedWriteAuthorizationTest` 10 例按角色/归属验证放行与拒绝。
 ---
 
+### 2.6 四类资源「标签」写权限统一规则（t61）
+
+历史遗留问题：同一个「标签」概念在不同资源上口径不一致 —— 资产标签 t49 已按资产写权收敛、
+工具标签 t55 已限管理层，但**知识库文章标签与文档标签仍对全员开放**（任何人可改他人内容的标签）。
+t61 统一为下表（规则同时写入 `deploy/README.md` §29）：
+
+| 资源 | 写标签所需权限 | 守卫 | 依据 |
+|---|---|---|---|
+| 资产 | **资产写权**（负责人 或 管理层） | `canWriteAsset(#assetId)` | t49；标签影响资产检索与分组归属，属资产元数据 |
+| 工具 | **管理层**（ADMIN / PROJECT_LEADER / TEAM_LEADER） | `hasAnyRole(...)` | t55；工具库是共享资产，标签用于分类检索 |
+| 知识库文章 | **作者本人 或 管理层** | `canWriteKnowledgeTags(#id)` | t61；文章属个人产出，协作编辑走 `PUT /knowledge/{id}`，标签不应被任意人改 |
+| 文档 | **作者本人 或 管理层** | `canWriteDocumentTags(#id)` | t61；同上（文档作者取 `documents.author_id`） |
+
+不变量：
+1) **查询类标签接口对所有登录用户开放**（列表/检索要用）：`GET /{id}/tags` 四类资源均未加门槛（资产标签跟随资产读范围 `canReadAsset`，t46 口径）；
+2) **资源不存在 → 404**：`canWriteKnowledgeTags`/`canWriteDocumentTags` 对不存在的资源返回 true，由控制器抛 `KNOWLEDGE_NOT_FOUND`/`DOCUMENT_NOT_FOUND`（避免用 403 暴露存在性）；
+3) 顺带修：`POST /knowledge/{id}/tags`、`POST /documents/{id}/tags` 此前对不存在的资源静默写入孤儿标签行，现均返回 404。
+
+### 2.7 子资源写操作的存在性统一（t65）
+
+同类缺陷在一个迭代内被**发现三次**（t55 工具标签、t61 文章/文档标签、更早的工具包上传），说明缺少统一约定，
+t65 做了一次全量扫描并在 `service/SubresourceGuard` 收敛为单点守卫。
+
+**统一规则**：父资源不存在 → **404**；子资源不属于该父资源 → **404**（与不存在同码，避免用状态码枚举）；正常路径语义不变。
+
+| 端点 | 修复前 | 现在 |
+|---|---|---|
+| `POST /assets/{id}/tags` | 写孤儿标签 → 201 | **404** |
+| `DELETE /assets/{assetId}/tags/{tagId}` | 可删他人资产标签，删 0 行 200 | **404** |
+| `PUT /assets/{aid}/versions/{vid}/default`、`/latest` | HTTP **200 + body code 404** | **HTTP 404** |
+| `POST /vulnerabilities/{id}/tags` | 写孤儿标签 → 201 | **404** |
+| `DELETE /vulnerabilities/{vid}/tags/{tagId}` | 可删其他漏洞标签 | **404** |
+| `POST /vulnerabilities/{id}/attachments` | 落库孤儿附件 + 建目录 | **404** |
+| `DELETE /vulnerabilities/{vid}/attachments/{aid}` | 可删其他漏洞附件 | **404** |
+| `POST /knowledge/{id}/comments` | 写孤儿评论 → 200 | **404** |
+| `DELETE /documents/{docId}/tags/{tagId}` | 可删其他文档标签 | **404** |
+| `DELETE /teams/{id}/members/{userId}` | 团队不存在也 200；非成员 200 | **404** |
+| `POST /notifications/{id}/read`、`DELETE /notifications/{id}` | 静默 no-op → 200 | **404** |
+| `POST /environments/{id}/snapshots/{sid}/rollback` | 快照不属于该环境 → 400 | **404** |
+| `POST /tasks/{id}/attachments` | 写孤儿附件 → 200 | **404** |
+| `POST /assets/{id}/access-requests` | 写孤儿访问申请 → 201 | **404** |
+| 工具标签/工具包/工具版本、文章标签、文档标签、文档版本回滚、任务提交审核、团队成员添加、环境快照创建、漏洞附件下载 | t23/t37/t55/t61 已正确 | 已正确 404（防回归） |
+
+**顺带修掉的 500**：`GlobalExceptionHandler` 业务码区间上限写成 `< 2000`，团队域错误码 2001/2002/2003 落到 else 分支
+被 clamp 成 599 → `HttpStatus.valueOf(599)` 抛 `IllegalArgumentException` → 500（团队不存在本该 404）。
+改为 `< 3000` 并用 `HttpStatus.resolve(...)` + 兜底 400，**非法业务码不再抛异常**。
+
+证据：`SubresourceExistenceTest` 16 例（含「孤儿行未被写入」断言）、回归 151 例全绿（Asset/Vulnerability/Document/Knowledge/Tool/Team/Task/Environment/Notification + 四个鉴权专项 + i18n）。
+规则与完整清单同步写入 `deploy/README.md` §31。
+
 ## 3. SRS 需求覆盖对照
 
 | SRS 章节 | 状态 | 已实现内容 / 缺口说明 |
@@ -488,7 +539,7 @@
 | 3.9 消息通知模块 | **已实现** | 站内通知、未读数、已读/全部已读、删除、设置、公告、订阅、投递记录（channel/sendStatus/sentAt/errorMessage）、邮件/Webhook 通道（默认关闭）；公告写操作的角色门槛已于 t40 收口；主动发通知与投递记录读取仍是已知缺口（§2.3.2 #12/#13） |
 | 3.10 仪表盘与统计 | **已实现** | 概览/资产统计/漏洞统计（角色门槛 + 可见范围收敛）、工作量、趋势（归日补零、`startDate/endDate`）、跨用户排行、配置、CSV 导出（管理层）；`DashboardControllerTest`、`DashboardTrendTest`、`DashboardRankingTest`、`DashboardStatsAuthorizationTest`、`DashboardExportAuthorizationTest` |
 | 4.5 数据迁移（导入导出） | **已实现** | 资产/漏洞/用户 CSV 导入（模板带 BOM、部分成功语义、逐行权限与数据边界、失败行回显）；审计与仪表盘 CSV 导出；用户导入一次性密码 |
-| 4.6 国际化 | **首批已实现（框架 + 5 处覆盖，其余待排期）** | t53 落地自建 i18n 框架：`i18n/index.tsx`（Provider + `useT()`、localStorage 持久化、`<html lang>`/dayjs/antd locale 同步）、`messages/zh-CN.ts` 84 词条与 `en-US.ts` 同构强校验、`LangSwitcher`（页头/登录页）；已覆盖：①登录页 ②侧边栏 3 分组 + 18 菜单 + 退出登录 ③通用组件（空态/加载/分页/403·404 页）④通知中心（3 页签/全部已读/公告/设置）⑤仪表盘（KPI/图表卡/导出/布局）。**未覆盖（23 个文件首行 `// TODO(i18n)`）**：资产 3 页、资产分组、漏洞 2 页、任务、工具、知识库、文档、团队、角色、用户、审批、审批范围、导入 2 页、审计日志、通知三个 Tab 内部明细、`dashboard/TrendChart` 与 `WorkloadRank` 内部文案；后端 `ApiResponse.message` 仍中文 |
+| 4.6 国际化 | **二期已实现（框架 + 31 个页面文件 / 553 词条，中英对等；1 个文件待迁移）** | 自建 i18n：`I18nProvider/useT`（84 → **553** 词条，`zh-CN.ts` 与 `en-US.ts` 各 553 条、`Record<MessageKey,string>` 强校验对等）、`LangSwitcher`、localStorage 持久化、`<html lang>`/dayjs/antd locale 同步、`ConfigProvider.form.validateMessages`（中英校验文案）、`utils/langHeader.ts`（请求带 `Accept-Language`，切换即时生效）+ 后端 `MessageSource`（`messages.properties` / `messages_en.properties`）→ **错误消息随语言切换**（`?lang=` → `Accept-Language` → 默认中文）。覆盖：登录、侧边栏 3 分组 18 菜单、通用组件与 403/404、通知中心（3 页签/公告/设置）、仪表盘（含 TrendChart/WorkloadRank 内部文案）、任务、文档（含标签抽屉）、工具、知识库（含标签抽屉）、团队、角色、用户、审批、审批范围、导入、审计日志、资产、漏洞等（31/33 个 tsx 使用 `useT`）。**仍未覆盖**：`pages/notifications/SettingsTab.tsx`（`// TODO(i18n)`，见 §8）。**4 条限制**：①后端仅错误消息已 i18n（`ErrorCode` 认证/资产/漏洞/任务四类 + 通用，其余码仍中文）；②`message.success` 等页面提示文案部分仍中文；③角色名/用户名等后端数据不随语言切换；④语言偏好仅存浏览器 localStorage，未做服务端用户级偏好 |
 | 4.7 接口需求 | **已实现** | REST `/api/v1/**` + 统一 `ApiResponse` 包装 + OpenAPI（`/v3/api-docs`）；262 个端点 |
 
 ---
@@ -618,6 +669,42 @@
 | 2 | 团队长：可建资产与建任务；工具上传可用、删除不可用 | **PASS**（`assets.create=1 / tasks.create=1 / tools.upload=enabled / tools.delete=0`） |
 | 3 | 管理员：全部可用（含删除工具） | **PASS**（`tools.upload=enabled / tools.delete=1 / assets.create=1 / tasks.create=1`） |
 | 4 | 中英切换：登录页立即英文、`<html lang=en-US>`、刷新保持；仪表盘/通知中心英文；切回中文恢复 | **PASS**（6 项断言全真，`pageErrors=[]`） |
+
+### 7.4 i18n 二批：资产域与漏洞域文案迁移（t57）
+
+| 项 | 结果 |
+|---|---|
+| 覆盖文件（7 个，全部移除首行 `// TODO(i18n)`） | `pages/assets/index.tsx`、`pages/assets/Detail.tsx`、`pages/assets/AssetTagsPanel.tsx`、`pages/asset-groups/index.tsx`、`pages/vulnerabilities/index.tsx`、`pages/vulnerabilities/Detail.tsx`、`pages/vulnerabilities/constants.ts` |
+| 新增词条 | **670 条**（中英各一份）：资产域 **436**（`asset.list.*` / `asset.status.*` / `asset.request.*` / `asset.form.*` / `asset.tags.*` / `asset.detail.*` / `assetGroup.*`）+ 漏洞域 **234**（`vuln.status.*` / `vuln.customer.*` / `vuln.disclosure.*` / `vuln.stage.*` / `vuln.fieldTest.*` / `vuln.severity.*` / `vuln.history.*` / `vuln.list.*` / `vuln.form.*` / `vuln.edit.*` / `vuln.detail.*`） |
+| 词条组织 | 新增 `i18n/messages/domains/assetMessages.ts` 与 `domains/vulnMessages.ts`（`assetZh/assetEn`、`vulnZh/vulnEn`），由 `zh-CN.ts` / `en-US.ts` 展开合并；**主词条表是并发任务共用文件，域文件拆分避免写冲突**，`MessageKey` 仍由 `keyof typeof zhCN` 统一推导，`en-US.ts` 的 `Record<MessageKey, string>` 继续兜底缺键 |
+| 枚举展示 | `vulnerabilities/constants.ts` 不再返回中文：`StatusOption` 改为 `labelKey: MessageKey`，导出 `workflowKey/customerKey/disclosureKey/exploitStageKey/fieldTestKey/severityKey`，颜色函数保持不变；组件内在 `useT()` 之上包一层同名 `workflowLabel/customerLabel/...` 兼容旧调用点，未知值回落原始枚举值。**接口枚举值与 `console` 日志未翻译**（如 `'探测'` 仍作为 PATCH 请求体） |
+| 验证（`T57_VERIFY: PASS`，`pageErrors=[]`） | 本地新 dist + 反代已部署后端（`192.168.188.200:8089`），`app.lang=en-US` 下：资产列表 → `Asset management`/`Asset name`/`Asset code`/`New asset`/状态 `Active·Under test·Suspended·Archived` 全英文且无中文标题；资产详情 → 页头按钮 `Request access · Claim asset · Subscribe · New version · Set as default · Set as latest · Back to list`、7 个 Tab（`Asset files / Product overview / Asset tags / Environments / Audit tasks / Vulnerabilities / Deliverables`）、5 步概览（`Basics & storage … Additional info`）、表单标签与 placeholder 全英文；资产分组 → `Asset groups` + `Name/Type/Description`；漏洞列表 → `Vulnerability management`、列头 `No./Title/Asset/Type/Severity/CVSS/Workflow/Customer/Disclosure/Actions`、筛选项与状态标签英文；漏洞详情 → `Workflow status / Customer status / Disclosure status` 三卡、`Description / Impact analysis` 分节、按钮 `Deliver to customer / Assign / Update fix status / Mark as disclosed` 英文；列表抽屉同样英文；切回 `zh-CN` 后恢复「漏洞管理 / 严重程度 / 查 询」。线上库当时资产与漏洞均为空，脚本临时 `POST /assets` + `POST /assets/{id}/versions` + `POST /vulnerabilities` 造数，验证后 `DELETE` 清理（返回 200/200） |
+| 构建 / 类型 / 规范 | `cd frontend && npm install --legacy-peer-deps && npm run build` → `✓ 3699 modules`，`dist/static/index-BZouiz1c.js` 2,391.75 kB（gzip 701.34 kB）；`npx tsc -p tsconfig.json --noEmit` 0 error；`npx eslint src/pages/assets src/pages/asset-groups src/pages/vulnerabilities src/i18n` 0 warning |
+| 仍留 `// TODO(i18n)` 的文件 | **本任务范围内 0 个**。全仓剩余 1 个：`pages/notifications/SettingsTab.tsx`（属 t53 遗留清单里的通知 Tab 内部明细，不在本任务覆盖范围，由后续批次接手） |
+
+
+### 7.5 第三批发布与回归（t63：i18n 二期 + 标签权限统一）
+
+| 项 | 结果 |
+|---|---|
+| 后端回归 | `mvn -B clean test` → **Tests run: 557, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS；`@Disabled/@Ignore` 0 命中。557 = 第二批 524 + t60 `ApiMessageI18nTest` 10 + t61 `TagWriteAuthorizationTest` 7 + t65 `SubresourceExistenceTest` 16；`ToolVersionConcurrencyTest` 在全量中通过（t51 曾漏测的点） |
+| 回归修复（测试跟随新契约，未放宽校验） | `AssetVersionControllerTest#setDefaultVersion_NotFoundWhenVersionNotBelongs`：t65 把「版本不属于资产」由「HTTP 200 + body 404」改为**真 404**，断言同步为 `isNotFound()` |
+| 前端构建 | `npm run build` → 3701 modules，`dist/static/index-BZouiz1c.js` 2,391.75 kB（gzip 701.34 kB）；产物含中英双套文案（Asset name / Vulnerability / Task / Tool / Audit / Notifications / Severity / Owner / Actual / estimated 等英文串 + 中文串均命中） |
+| i18n 覆盖 | 词条 **553 / 553**（中英对等），**31/33** 个 tsx 使用 `useT`；`grep -rn "TODO(i18n)" frontend/src` 仅剩 **1** 处：`pages/notifications/SettingsTab.tsx` |
+| 部署 | 后端 package BUILD SUCCESS 14.4s，jar **72,890,833 B**；重启后 login=200、api-docs=200；前端 sync-dist 后站点仅 5 个文件（`index-BZouiz1c.js`）；**无新增迁移** |
+| 冒烟 | **TOTAL=167 / PASS=167 / FAIL=0 / SKIP=0**（新增 13 条：i18n 404 英/中、403 英/中、越权 403 英文、知识库标签 5、文档标签 4、标签查询与父不存在 404 共 2） |
+
+| # | 页面验证（English 6 页 + 标签只读） | 结果 |
+|---|---|---|
+| 1 | 资产列表 / 资产详情英文 | **PASS**（Asset name / Target type / Owner / Priority；详情 Basic / Environment / Vulnerabilit / Metadata） |
+| 2 | 漏洞列表英文 | **PASS**（Vulnerabilit / Severity / Workflow） |
+| 3 | 任务页英文 | **PASS**（Task / Assignee / Status / Priority / Review） |
+| 4 | 工具页英文 | **PASS**（Tool / Categor / Download / Version / Tag） |
+| 5 | 审计日志英文 | **PASS**（Time / Action / Resource type / Resource ID / User / Details） |
+| 6 | 切回中文恢复 | **PASS**（资产名称 / 目标类型 / 负责人 / 优先级） |
+| 7 | 标签只读说明按角色 | **PASS**：管理员标签面板有输入框（可写）；工程师看他人文章 → 无输入框且显示「只读视图：仅作者或管理员可修改标签」 |
+
+> 后端消息 i18n 实测（线上 curl）：`Accept-Language: en` → `You do not have permission to access this resource` / 默认 → `无权限访问该资源`；管理员取不存在资产 → `Accept-Language: en` 得英文 404、默认得「不存在」。
 
 ---
 

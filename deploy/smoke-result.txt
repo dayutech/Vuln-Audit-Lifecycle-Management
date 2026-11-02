@@ -200,3 +200,16 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 回归期修测试契约（未放宽校验）：NotificationTypeLengthTest 改 adminToken（t50 群发收敛）；PrivilegedWriteAuthorizationTest 的 teams/{id}/members 断言改为「团队长 200 / 非成员工程师 403」（t51）。
 - 页面验证（Playwright，三账号 + 中英切换）：工程师 assets/groups/tasks 建入口=0、工具上传 disabled、删除=0；团队长 assets/tasks 可建、工具上传可用、删除=0；管理员全可用（工具删除=1）；
   i18n：登录页英文 + html lang=en-US + 刷新保持 + 仪表盘/通知中心英文 + 切回中文恢复 → 全 PASS。
+
+########## 九、第三批发布与回归（t63：i18n 二期 + 标签权限统一，2026-11-02 13:2x） ##########
+- 后端：jar 72,890,833 B（含 t60 消息 i18n、t61 标签守卫、t65 子资源存在性），login=200、api-docs=200；无新增迁移。
+- 回归：Tests run 557, Failures 0, Errors 0, Skipped 0（524 + t60 10 + t61 7 + t65 16），BUILD SUCCESS；@Disabled/@Ignore 0 命中；ToolVersionConcurrencyTest 通过。
+- 回归期修测试契约：AssetVersionControllerTest 的「版本不属于资产」断言由 200 改为 404（t65 语义）。
+- 前端：index-BZouiz1c.js 2,391.75 kB；词条 553/553 中英对等；31/33 tsx 用 useT；TODO(i18n) 剩 1 处（notifications/SettingsTab.tsx）。
+- 冒烟：TOTAL=167 PASS=167 FAIL=0 SKIP=0。新增 13 条：
+  i18n 404 英/中（管理员取不存在资产）、403 英/中（工程师 GET /users）、越权资产 403 英文；
+  知识库标签：他人 403 / 作者 2xx / 管理员 2xx / 不存在 404；
+  文档标签：他人 403 / 作者 201 / 管理员 201；标签查询 200。
+- 页面验证（Playwright）：English 下 资产列表/资产详情/漏洞/任务/工具/审计日志 6 页英文标记齐备，切回中文恢复；
+  标签面板：管理员有输入框（可写），工程师看他人文章无输入框且显示「只读视图：仅作者或管理员可修改标签」。
+- 后端消息 i18n 线上实测：en → "You do not have permission to access this resource"；默认 → "无权限访问该资源"。

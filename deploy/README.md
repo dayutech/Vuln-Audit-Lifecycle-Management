@@ -1061,3 +1061,237 @@ cd backend && mvn -B clean test                                   # 期望 524 p
 cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 154/154
 SUDO_PASS='***' bash deploy/sync-dist.sh                          # 前端发布
 ```
+
+---
+
+## 29. 第十七轮（四类资源标签写权限统一，t61）
+
+**问题**：同一个「标签」概念口径不一致——资产标签 t49 已按资产写权收敛、工具标签 t55 已限管理层，
+但**知识库文章标签与文档标签仍对全员开放**（任何登录用户可增删他人内容的标签）。
+
+### 29.1 统一规则（四类资源一张表）
+
+| 资源 | 写标签所需权限 | 守卫实现 | 说明 |
+|---|---|---|---|
+| 资产 | **资产写权**（负责人 或 管理层） | `@accessGuard.canWriteAsset(#assetId)` | t49；标签影响资产检索与分组 |
+| 工具 | **管理层**（ADMIN / PROJECT_LEADER / TEAM_LEADER） | `hasAnyRole(...)` | t55；工具库是共享资产 |
+| 知识库文章 | **作者本人 或 管理层** | `@accessGuard.canWriteKnowledgeTags(#id)` | **t61**；文章属个人产出，协作走 `PUT /knowledge/{id}` |
+| 文档 | **作者本人 或 管理层** | `@accessGuard.canWriteDocumentTags(#id)` | **t61**；文档作者取 `documents.author_id` |
+
+**为什么知识库/文档不是纯「管理层」**：这两类内容由工程师本人产出、日常需要自己打标签；
+但标签会影响全站检索与聚合，所以不能允许任意人改他人内容的标签 → 取「作者本人 ∪ 管理层」的折中。
+资产与工具则是组织级共享资源，故按「资产写权 / 管理层」。
+
+### 29.2 两条不变量
+
+1) **查询类标签接口保持全员开放**：四类资源的 `GET /{id}/tags` 均未加门槛（资产标签跟随资产读范围，
+即 t46 的 `canReadAsset`；看不到的资产其标签也 403，这是资产可见性口径而非标签口径）。
+2) **资源不存在 → 404，不用 403**：`canWriteKnowledgeTags` / `canWriteDocumentTags` 对不存在的资源
+返回 true，由控制器抛 `KNOWLEDGE_NOT_FOUND` / `DOCUMENT_NOT_FOUND`——避免用 403 泄露资源是否存在。
+   顺带修：`POST /knowledge/{id}/tags`、`POST /documents/{id}/tags` 此前对不存在的资源**静默写入孤儿标签行**，现统一 404。
+
+### 29.3 状态码
+
+| 场景 | 状态码 |
+|---|---|
+| 工程师改他人文章/文档标签（增或删） | **403** |
+| 作者本人改自己的文章/文档标签 | 200（知识库）/ 201（文档新增） |
+| 管理层改任意文章/文档标签 | 200 / 201 |
+| 文章/文档不存在 | **404** |
+| 工具标签：工程师 | **403**（t55 不回归） |
+| 资产标签：非负责人且非管理层 | **403**（t49 不回归） |
+
+### 29.4 验证
+
+```bash
+cd backend && mvn -B test -Dtest=TagWriteAuthorizationTest
+cd backend && mvn -B test -Dtest=KnowledgeControllerTest,DocumentControllerTest,ToolWriteAuthorizationTest
+```
+
+三账号交叉验证：工程师改他人文章/文档标签 403、改自己 200/201；管理层改他人 200；工具与资产标签口径未回归；
+四类资源标签查询对工程师 200（资产标签随资产可见性）。
+
+---
+
+## 30. 第十八轮（后端错误消息 i18n 基础设施，t60）
+
+### 30.1 机制
+
+| 组件 | 作用 |
+|---|---|
+| `i18n/I18nConfig` | 定义 `MessageSource`（basename `messages`，`defaultEncoding=UTF-8`、`fallbackToSystemLocale=false`、`useCodeAsDefaultMessage=false`） |
+| `resources/messages.properties` | 中文默认包（部署机 locale 不影响：未知语言回退中文） |
+| `resources/messages_en.properties` | 英文包（缺键自动回退中文包，再回退 `ErrorCode#getMessage()`） |
+| `i18n/ApiMessageResolver` | 语言选择顺序：`?lang=` 参数 → `Accept-Language` → 默认中文；提供 `resolve / resolveOrKeep / resolveForErrorCode`，**任何缺失都不抛异常** |
+| `ErrorCode#messageKey()` | 错误码 → 消息码（`null` 表示本轮未覆盖，仍输出中文 `message`） |
+| `GlobalExceptionHandler` | 所有出口统一经 resolver：业务异常、参数校验（逐字段）、认证/鉴权、404/405/500 |
+
+> 设计取舍：**没有**把 `ErrorCode.message` 直接替换成消息码，而是「消息码 + 中文 message 双字段」。
+> 原因：项目里仍有 `ErrorCode.X.getMessage()` 的直接引用（6 处，已全部改为 resolver）与大量“自定义中文文案”的业务异常；
+> 双字段能保证「未迁移的错误码/文案一字不变」，同时新增英文能力，回归风险最小。
+
+### 30.2 覆盖范围（四类高频，其余保留中文）
+
+| 域 | 消息码 |
+|---|---|
+| 认证 | `error.auth.unauthorized`、`error.auth.invalid_credentials`、`error.auth.password_error`、`error.auth.token_invalid` |
+| 资产 | `error.asset.not_found`、`error.asset.access_denied` |
+| 漏洞 | `error.vulnerability.not_found`、`error.vulnerability.version_not_in_asset`、`error.vulnerability.number_conflict` |
+| 任务 | `error.task.not_found`（+ 通用 `error.status.invalid`） |
+| 通用 | `error.bad_request`、`error.forbidden`、`error.not_found`、`error.conflict`、`error.internal`、`error.validation`、`error.method_not_allowed` |
+| 参数校验 | `validation.auth.*`（LoginRequest）、`validation.asset.*`（AssetCreateRequest） |
+
+**未覆盖（保留中文）**：用户/角色/权限/文档/环境/工具/知识库/通知/团队等错误码；各服务方法内自定义中文文案（如「请先填写审计结论」）；
+登录限流提示；上传/请求体解析类兜底文案。列入后续排期。
+
+### 30.3 行为契约
+
+| 请求 | 结果 |
+|---|---|
+| `Accept-Language: en` | 英文消息（如 `Asset not found` / `Validation failed` + 字段英文提示） |
+| `Accept-Language: zh-CN` 或**不传** | 中文消息（与 t60 之前完全一致） |
+| `?lang=en` | 覆盖请求头（即使头是 zh-CN） |
+| 其他语言（如 `fr-FR`） | 回退中文 |
+| 消息码缺失 | 回退 `ErrorCode#getMessage()`（中文），不抛异常、不把 `error.xxx` 原样返回 |
+
+响应结构不变：`{success, code, message, data}`。
+
+### 30.4 验证
+
+```bash
+cd backend && mvn -B test -Dtest=ApiMessageI18nTest
+cd backend && mvn -B test -Dtest=AuthControllerTest,AssetControllerTest,VulnerabilityControllerTest,TaskControllerTest
+```
+
+curl 对照（部署后）：
+
+```bash
+# 英文
+curl -s -H "Accept-Language: en" http://192.168.188.200:8089/api/v1/assets/00000000-0000-0000-0000-000000000000 \
+  -H "Authorization: Bearer $TOKEN" | grep message      # -> Asset not found
+# 中文（不传头）
+curl -s http://192.168.188.200:8089/api/v1/assets/00000000-0000-0000-0000-000000000000 \
+  -H "Authorization: Bearer $TOKEN" | grep message      # -> 资产不存在
+```
+
+`ApiMessageI18nTest` 10 例：404/403/400 的 en 与 zh 对照、`?lang=` 覆盖、认证失败文案、缺失码回退、非消息码文案原样保留、语言归一、未知码不泄漏。
+
+**无 DDL / 无迁移**；`messages*.properties` 随 jar 打包。
+
+> 顺带改动：资产/漏洞/任务详情端点的 404 由控制器内硬编码中文改为抛 `BusinessException`，
+> 使文案能经 i18n 解析（响应结构与中文文案均未变）。
+
+---
+
+## 31. 第十九轮（子资源写操作存在性统一，t65）
+
+### 31.1 为什么做这一轮
+
+同类缺陷在本轮被**发现三次**（t55 工具标签、t61 文章/文档标签、更早的工具包上传）：
+「路径里带父资源 id，写的是子资源，父资源不存在时静默成功」——写孤儿标签行、删 0 行仍返回 200。
+这些不是零散 bug，而是**没有统一约定**导致的系统性问题，因此做一次全量扫描 + 统一守卫。
+
+### 31.2 统一规则与实现
+
+| 规则 | 说明 |
+|---|---|
+| 父资源不存在 | **404**（不是 200 / 400 / 403） |
+| 子资源不属于该父资源 | **404**（与「不存在」同码，防止用状态码枚举资源） |
+| 正常路径 | 语义不变（`POST /assets/{id}/tags` 成功仍 201） |
+
+实现集中在 `service/SubresourceGuard`（单点入口，控制器只调一行）：
+
+```java
+public void requireAsset / requireVulnerability / requireKnowledgeArticle / requireDocument
+           / requireTool / requireTeam / requireEnvironment / requireTask / requireNotification
+public AssetTag requireAssetTag(UUID assetId, UUID tagId)              // 存在 + 归属
+public VulnerabilityTag requireVulnerabilityTag(...)
+public void requireDocumentTag(...) / requireVulnerabilityAttachment(...)
+public void requireTeamMember(teamId, userId) / requireEnvironmentSnapshot(envId, snapId)
+public void requireNotificationRecipient(notificationId, userId)
+```
+
+### 31.3 扫描清单（端点 → 修复前 → 现在）
+
+| 端点 | 修复前行为 | 结论 |
+|---|---|---|
+| `POST /assets/{id}/tags` | 资产不存在仍写入孤儿标签（管理员守卫放行）→ 201 | **已修 → 404** |
+| `DELETE /assets/{assetId}/tags/{tagId}` | `deleteById` 不校验归属：删 0 行返回 200，可删**他人资产**标签 | **已修 → 404**（归属不符也 404） |
+| `PUT /assets/{aid}/versions/{vid}/default` | 版本不存在返回 **HTTP 200 + body code 404** | **已修 → HTTP 404** |
+| `PUT /assets/{aid}/versions/{vid}/latest` | 同上 | **已修 → HTTP 404** |
+| `POST /vulnerabilities/{id}/tags` | 漏洞不存在仍写孤儿标签 → 201 | **已修 → 404** |
+| `DELETE /vulnerabilities/{vid}/tags/{tagId}` | 可删**其他漏洞**的标签，删 0 行 200 | **已修 → 404** |
+| `POST /vulnerabilities/{id}/attachments` | 漏洞不存在仍落库附件并创建上传目录 | **已修 → 404** |
+| `DELETE /vulnerabilities/{vid}/attachments/{aid}` | 可删**其他漏洞**附件，不存在也 200 | **已修 → 404** |
+| `GET /vulnerabilities/{id}/attachments/{aid}/download` | 已在 t15 校验归属 → 404 | 已正确 404 |
+| `POST /knowledge/{id}/comments` | 文章不存在仍写孤儿评论 → 200 | **已修 → 404** |
+| `POST /knowledge/{id}/tags`、`DELETE /knowledge/{id}/tags` | t61 已加 `requireArticleExists` | 已正确 404 |
+| `POST /documents/{id}/tags` | t61 已加 `requireDocumentExists` | 已正确 404 |
+| `DELETE /documents/{docId}/tags/{tagId}` | 可删**其他文档**标签，任意 tagId 都 200 | **已修 → 404** |
+| `POST /documents/{id}/versions/{version}/rollback` | t37 已校验目标版本 → 404 | 已正确 404 |
+| `POST /tools/{id}/file` | t23/t55 已校验工具存在 → 404 | 已正确 404 |
+| `POST /tools/{id}/tags`、`DELETE /tools/{id}/tags` | t55 已加 `existsById` → 404 | 已正确 404 |
+| `POST /tools/{id}/versions` | 服务层校验工具存在 → 404 | 已正确 404 |
+| `POST /teams/{id}/members` | `TeamServiceImpl` 校验团队与用户 → 404 | 已正确 404 |
+| `DELETE /teams/{id}/members/{userId}` | 团队不存在仍 200；非成员删 0 行仍 200 | **已修 → 404** |
+| `POST /notifications/{id}/read` | 通知不存在 / 非接收人静默 no-op → 200 | **已修 → 404** |
+| `DELETE /notifications/{id}` | 同上 | **已修 → 404** |
+| `POST /environments/{id}/snapshots` | 服务层校验环境存在 → 404 | 已正确 404 |
+| `POST /environments/{id}/snapshots/{sid}/rollback` | 快照不属于该环境返回 **400** | **已修 → 404** |
+| `POST /tasks/{id}/submit-review` | 服务层 `TASK_NOT_FOUND` → 404 | 已正确 404 |
+| `POST /tasks/{id}/comments` | 控制器显式 404 | 已正确 404 |
+| `POST /tasks/{id}/attachments` | 任务不存在仍写附件行 → 200 | **已修 → 404** |
+| `POST /assets/{id}/access-requests` | 资产不存在仍写访问申请 → 201 | **已修 → 404** |
+| `POST /assets/{id}/claims`、`/claims/{claimId}/*` | claim 自身按 claimId 定位，父资产不存在由 `canReadAsset` 拦成 403（不泄露） | 保持现状（非本类缺陷） |
+| `GET /*/tags` 等查询类 | 只读，不做存在性拦截 | 不涉及 |
+
+### 31.4 顺带修掉的真实缺陷（返回 500 的坑）
+
+`GlobalExceptionHandler` 的业务码区间上限写成了 `< 2000`，团队域错误码（2001/2002/2003）落到 else 分支，
+被 clamp 成 `599` 后 `HttpStatus.valueOf(599)` 抛 `IllegalArgumentException` → **500**（团队不存在本该 404）。
+现改为 `< 3000` 覆盖团队域，并把 else 分支换成 `HttpStatus.resolve(...)` + 兜底 400，**任何非法码都不再抛异常**。
+
+### 31.5 验证
+
+```bash
+cd backend && mvn -B test -Dtest=SubresourceExistenceTest
+cd backend && mvn -B -DskipTests compile
+```
+
+`SubresourceExistenceTest` 16 例（自建脚手架，不依赖 `BaseTest` 事务夹具）：每个修复点「父不存在 → 404」「子不属于父 → 404」，
+并保留正常路径断言（201/200）与已正确端点防回归；另断言孤儿行**未被写入**（`findByAssetId(MISSING).isEmpty()`）。
+
+同步修测试（未放宽校验）：`NotificationControllerTest` 夹具补「工程师也是接收人」（用例本来就用 engineerToken 调用）；
+`TagWriteAuthorizationTest` 里「删除随机 tagId → 200」改为「→ 404 + 删除真实标签 → 200」。
+
+**无 DDL / 无迁移。**
+
+## 32. 第三批发布（t60 后端消息 i18n + t61 标签权限统一 + t58/t59/t62/t64/t66 前端 i18n 二期）
+
+时间：2026-11-02 11:5x–13:2x（Asia/Shanghai）。**无新增迁移**（V1…V17 不变），无需手工 DDL。
+
+| 项 | 结果 |
+|---|---|
+| 后端回归 | `mvn -B clean test` → **Tests run: 557, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS；`@Disabled/@Ignore` 0 命中 |
+| 用例增量 | 第二批 524 + t60 `ApiMessageI18nTest` 10 + t61 `TagWriteAuthorizationTest` 7 + t65 `SubresourceExistenceTest` 16 = **557**；`ToolVersionConcurrencyTest` 在全量中通过 |
+| 前端 | `npm run build` → 3701 modules，`index-BZouiz1c.js` 2,391.75 kB（gzip 701.34 kB）；词条 **553/553**（中英对等）；31/33 tsx 使用 `useT` |
+| i18n 残留 | `grep -rn "TODO(i18n)" frontend/src` → **1 处**：`pages/notifications/SettingsTab.tsx` |
+| 后端重建 | 远端 package BUILD SUCCESS 14.4s，jar **72,890,833 B**；重启后 login=200、api-docs=200；`messages.properties` / `messages_en.properties` 已随包 |
+| 前端发布 | sync-dist --delete 后 `/var/www/vuln-audit` 仅 5 个文件（`index-BZouiz1c.js`），旧 hash 已清 |
+| 冒烟 | **TOTAL=167 / PASS=167 / FAIL=0 / SKIP=0**（新增 13 条） |
+
+**后端消息 i18n（t60）**：`?lang=` → `Accept-Language` → 默认中文；线上实测
+`Accept-Language: en` → `You do not have permission to access this resource` / 默认 → `无权限访问该资源`；
+管理员取不存在资产：en → 英文 404、默认 → 「不存在」。
+
+**标签写权限（t61）**：资产 = 资产写权；工具 = 管理层；知识库/文档 = 作者本人或管理层；`GET /{id}/tags` 四类均保持全员可读；父资源不存在一律 404（t65）。
+
+**回归期修测试契约（未放宽校验）**：`AssetVersionControllerTest#setDefaultVersion_NotFoundWhenVersionNotBelongs` —— t65 把「版本不属于资产」由 `200 + body 404` 改为真 404，断言同步 `isNotFound()`。
+
+**冒烟新增 13 条**：i18n 404 英/中（管理员）、403 英/中（工程师用户域）、越权访问 403 英文；知识库标签（他人 403 / 作者 2xx / 管理员 2xx / 不存在 404）；文档标签（他人 403 / 作者 201 / 管理员 201）；标签查询仍开放。
+
+```bash
+cd backend && mvn -B clean test                                   # 期望 557 passed
+cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 167/167
+curl -s -H 'Accept-Language: en' http://127.0.0.1:8089/api/v1/users            # 期望英文 401
+```
