@@ -11,10 +11,16 @@ import com.vulnaudit.entity.Team;
 import com.vulnaudit.entity.User;
 import com.vulnaudit.entity.Vulnerability;
 import com.vulnaudit.entity.enums.WorkflowStatus;
+import com.vulnaudit.entity.Customer;
+import com.vulnaudit.entity.Project;
 import com.vulnaudit.exception.BusinessException;
 import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.AssetVersionRepository;
+import com.vulnaudit.repository.CustomerRepository;
+import com.vulnaudit.repository.ProjectPhaseRepository;
+import com.vulnaudit.repository.ProjectRepository;
 import com.vulnaudit.repository.TeamRepository;
+import com.vulnaudit.service.AssetProjectLinkService;
 import com.vulnaudit.service.AssetService;
 import com.vulnaudit.service.AuditLogService;
 import com.vulnaudit.service.ImportService;
@@ -36,6 +42,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -71,6 +78,22 @@ public class ImportServiceImpl implements ImportService {
     private static final String COL_TEAM_ID = "teamid";
     private static final String COL_TEAM_CODE = "teamcode";
     private static final String COL_DESCRIPTION = "description";
+
+    // t78：资产导入必须挂项目 —— 客户 / 项目 / 期次列
+    /** 客户编码（可选，仅用于与 projectCode 交叉校验） */
+    private static final String COL_CUSTOMER_CODE = "customercode";
+    /** 项目编码（可选；不填则挂靠历史项目，并在 notes 里提示） */
+    private static final String COL_PROJECT_CODE = "projectcode";
+    /** 期次序号（可选；项目必须启用分期且期次存在） */
+    private static final String COL_PHASE_NO = "phaseno";
+
+    /** 未指定 projectCode 时的兜底：默认客户 + 历史项目（V18 迁移创建） */
+    private static final String DEFAULT_CUSTOMER_CODE = "CUST-DEFAULT";
+    private static final String HISTORY_PROJECT_CODE = "PRJ-HISTORY";
+
+    /** 成功行提示文案（放在 ImportResult.notes，不进 failedRows） */
+    private static final String IMPORT_NOTE_HISTORY_PROJECT =
+            "未指定项目，已挂靠历史项目（PRJ-HISTORY）";
 
     private static final String COL_TITLE = "title";
     private static final String COL_ASSET_CODE = "assetcode";
@@ -118,6 +141,10 @@ public class ImportServiceImpl implements ImportService {
     private final AuditLogService auditLogService;
     private final UserService userService;
     private final RoleService roleService;
+    private final AssetProjectLinkService assetProjectLinkService;
+    private final CustomerRepository customerRepository;
+    private final ProjectRepository projectRepository;
+    private final ProjectPhaseRepository projectPhaseRepository;
 
     // ================================================================== 资产导入
 
@@ -147,11 +174,19 @@ public class ImportServiceImpl implements ImportService {
 
         int successRows = 0;
         List<ImportFailedRow> failedRows = new ArrayList<>();
+        List<ImportResult.ImportNote> notes = new ArrayList<>();
 
         for (CsvSupport.CsvRecord record : parsed.records()) {
             try {
                 Asset asset = buildAsset(record, parsed.headerIndex(), operatorId, allowedTeamIds);
-                assetService.createAsset(asset);
+                // t78：资产必须挂项目 —— 与手建资产走同一条事务路径（资产 + 挂靠一起成功/回滚）
+                ImportTarget target = resolveImportTarget(record, parsed.headerIndex());
+                assetProjectLinkService.createAssetWithLink(asset, target.projectId(), target.phaseId(),
+                        target.linkType(), target.remark(), operatorId);
+                if (target.note() != null) {
+                    // 成功行上的提示：已有明确落点但不是「精确指定项目」，不能静默
+                    notes.add(new ImportResult.ImportNote(record.line(), target.note()));
+                }
                 successRows++;
             } catch (Exception e) {
                 failedRows.add(new ImportFailedRow(record.line(), reasonOf(e)));
@@ -159,13 +194,132 @@ public class ImportServiceImpl implements ImportService {
             }
         }
 
-        ImportResult result = ImportResult.of(parsed.records().size(), successRows, failedRows);
-        log.info("资产批量导入完成: file={}, total={}, success={}, failed={}, scoped={}, cost={}ms",
+        ImportResult result = ImportResult.of(parsed.records().size(), successRows, failedRows, notes);
+        log.info("资产批量导入完成: file={}, total={}, success={}, failed={}, notes={}, scoped={}, cost={}ms",
                 fileName, result.totalRows(), result.successRows(), result.failedRows().size(),
-                allowedTeamIds != null, System.currentTimeMillis() - startedAt);
+                result.notes().size(), allowedTeamIds != null, System.currentTimeMillis() - startedAt);
         audit(operatorId, "POST ImportController.importAssets",
                 describe("资产", fileName, result));
         return result;
+    }
+
+    /**
+     * 解析该行要挂靠的项目（t78）
+     *
+     * <ol>
+     *   <li>给了 {@code projectCode} → 按 code 查项目（不存在 → 该行失败）；</li>
+     *   <li>同时给了 {@code customerCode} → 必须与该项目的客户一致（不一致 → 该行失败）；</li>
+     *   <li>给了 {@code phaseNo}：项目必须 {@code isPhased=true} 且期次属于该项目（否则该行失败）；</li>
+     *   <li><b>未给 {@code projectCode}</b> → 挂到默认客户 {@code CUST-DEFAULT} 的 {@code PRJ-HISTORY}
+     *       （linkType=SHARED），并在 notes 里提示「未指定项目，已挂靠历史项目」：
+     *       这是<b>成功行</b>，但必须提示，不得静默。</li>
+     * </ol>
+     */
+    private ImportTarget resolveImportTarget(CsvSupport.CsvRecord record, Map<String, Integer> headerIndex) {
+        Map<String, String> cells = toCells(record, headerIndex);
+        String projectCode = optionalCell(cells, COL_PROJECT_CODE);
+        String customerCode = optionalCell(cells, COL_CUSTOMER_CODE);
+        String phaseNoText = optionalCell(cells, COL_PHASE_NO);
+
+        if (projectCode == null) {
+            if (customerCode != null || phaseNoText != null) {
+                // 只给客户/期次却没给项目：无法确定唯一项目，宁可失败也不“猜”
+                throw new BusinessException(ErrorCode.BAD_REQUEST,
+                        "指定 customerCode / phaseNo 时必须同时提供 projectCode");
+            }
+            return defaultHistoryTarget();
+        }
+
+        Project project = projectRepository.findByCode(projectCode)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PROJECT_NOT_FOUND,
+                        "项目不存在: " + projectCode));
+
+        if (customerCode != null) {
+            String actualCustomerCode = customerRepository.findById(project.getCustomerId())
+                    .map(Customer::getCode).orElse(null);
+            if (!customerCode.equalsIgnoreCase(actualCustomerCode)) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST,
+                        "客户与项目不匹配: customerCode=" + customerCode + " 但项目 "
+                                + projectCode + " 属于 " + actualCustomerCode);
+            }
+        }
+
+        UUID phaseId = null;
+        if (phaseNoText != null) {
+            if (!Boolean.TRUE.equals(project.getIsPhased())) {
+                throw new BusinessException(ErrorCode.PROJECT_NOT_PHASED,
+                        "项目未启用分期，不能指定 phaseNo: " + projectCode);
+            }
+            int phaseNo;
+            try {
+                phaseNo = Integer.parseInt(phaseNoText.trim());
+            } catch (NumberFormatException e) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "无效的 phaseNo: " + phaseNoText);
+            }
+            phaseId = projectPhaseRepository.findByProjectIdAndPhaseNo(project.getId(), phaseNo)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.PROJECT_PHASE_NOT_FOUND,
+                            "期次不存在: " + projectCode + " 第 " + phaseNo + " 期"))
+                    .getId();
+        }
+
+        return new ImportTarget(project.getId(), phaseId, "TARGET", null, null);
+    }
+
+    /**
+     * 「未指定项目」的兜底：默认客户 CUST-DEFAULT 下的历史项目 PRJ-HISTORY
+     *
+     * <p>两者由 V18 迁移创建；<b>缺失时按需补齐</b>（幂等，codes 唯一）—— 这样无论迁移是否执行过、
+     * 还是在测试库（{@code ddl-auto=create-drop}）里，导入都不会产生「无挂靠资产」。
+     * 补齐用 upsert 语义：先查 code，查不到才插入，并发下由唯一键兜底。
+     */
+    private ImportTarget defaultHistoryTarget() {
+        Customer defaultCustomer = customerRepository.findByCode(DEFAULT_CUSTOMER_CODE)
+                .orElseGet(() -> customerRepository.save(Objects.requireNonNull(Customer.builder()
+                        .code(DEFAULT_CUSTOMER_CODE)
+                        .name("历史数据")
+                        .industry("未分类")
+                        .level("C")
+                        .status("active")
+                        .description("CSV 导入兜底自动创建：承接未指定项目的资产")
+                        .build())));
+
+        Project historyProject = projectRepository.findByCode(HISTORY_PROJECT_CODE)
+                .orElseGet(() -> projectRepository.save(Objects.requireNonNull(Project.builder()
+                        .code(HISTORY_PROJECT_CODE)
+                        .customerId(defaultCustomer.getId())
+                        .name("历史项目")
+                        .type("OTHER")
+                        .status("ACTIVE")
+                        .managerId(resolveHistoryManagerId(defaultCustomer))
+                        .isPhased(false)
+                        .description("CSV 导入兜底自动创建：承接未指定项目的资产")
+                        .build())));
+
+        if (!defaultCustomer.getId().equals(historyProject.getCustomerId())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "历史项目 " + HISTORY_PROJECT_CODE + " 不属于默认客户 " + DEFAULT_CUSTOMER_CODE);
+        }
+        return new ImportTarget(historyProject.getId(), null, "SHARED",
+                IMPORT_NOTE_HISTORY_PROJECT, "CSV 导入未指定 projectCode，自动挂靠历史项目");
+    }
+
+    /** 历史项目的经理人：优先默认客户负责人，退化到当前操作者（projects.manager_id 非空） */
+    private UUID resolveHistoryManagerId(Customer defaultCustomer) {
+        if (defaultCustomer.getOwnerId() != null) {
+            return defaultCustomer.getOwnerId();
+        }
+        return userService.findAll(0, 1, null, null).getContent().stream()
+                .map(com.vulnaudit.entity.User::getId)
+                .findFirst()
+                .orElseGet(() -> {
+                    throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                            "无法确定历史项目的经理人（系统内没有用户）");
+                });
+    }
+
+    /** 单行的挂靠目标 */
+    private record ImportTarget(UUID projectId, @Nullable UUID phaseId, String linkType,
+                                @Nullable String note, @Nullable String remark) {
     }
 
     private Asset buildAsset(CsvSupport.CsvRecord record, Map<String, Integer> headerIndex, @Nullable UUID operatorId,
@@ -529,8 +683,11 @@ public class ImportServiceImpl implements ImportService {
 
     @Override
     public String assetTemplate() {
-        return "name,targetType,targetSource,priority,status,teamCode,description\n"
-                + "示例-客户门户Web应用,Web应用,客户委托,P2,active,红队一组,示例资产（导入前请删除本行）\n";
+        // t78：新增 customerCode / projectCode / phaseNo —— 资产必须挂项目；
+        // 第二行示例演示「不填 projectCode」的兜底语义（自动挂 PRJ-HISTORY 并在 notes 提示）
+        return "name,targetType,targetSource,priority,status,teamCode,customerCode,projectCode,phaseNo,description\n"
+                + "示例-客户门户Web应用,Web应用,客户委托,P2,active,红队一组,CUST-20250101-AB12,PRJ-20250101-CD34,1,示例资产（导入前请删除本行）\n"
+                + "示例-未指定项目的资产,Web应用,客户委托,P3,active,红队一组,,,,不填 projectCode 将自动挂靠历史项目 PRJ-HISTORY（导入前请删除本行）\n";
     }
 
     @Override

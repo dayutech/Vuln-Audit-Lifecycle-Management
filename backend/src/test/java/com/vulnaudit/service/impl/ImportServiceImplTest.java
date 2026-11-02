@@ -69,6 +69,19 @@ class ImportServiceImplTest {
     @Mock
     private com.vulnaudit.service.RoleService roleService;
 
+    // t78：导入资产必须挂项目 —— 追加的依赖
+    @Mock
+    private com.vulnaudit.service.AssetProjectLinkService assetProjectLinkService;
+
+    @Mock
+    private com.vulnaudit.repository.CustomerRepository customerRepository;
+
+    @Mock
+    private com.vulnaudit.repository.ProjectRepository projectRepository;
+
+    @Mock
+    private com.vulnaudit.repository.ProjectPhaseRepository projectPhaseRepository;
+
     private ImportServiceImpl importService;
 
     private final UUID operatorId = UUID.randomUUID();
@@ -77,7 +90,8 @@ class ImportServiceImplTest {
     @BeforeEach
     void setUp() {
         importService = new ImportServiceImpl(assetService, vulnerabilityService, teamRepository,
-                assetVersionRepository, auditLogService, userService, roleService);
+                assetVersionRepository, auditLogService, userService, roleService,
+                assetProjectLinkService, customerRepository, projectRepository, projectPhaseRepository);
 
         Team team = Team.builder().id(teamId).name("红队一组").leaderId(operatorId).createdBy(operatorId).build();
         when(teamRepository.findByName("红队一组")).thenReturn(Optional.of(team));
@@ -87,6 +101,23 @@ class ImportServiceImplTest {
                     .name(asset == null ? null : asset.getName())
                     .build();
         });
+
+        // t78：CSV 未指定 projectCode 时走「默认客户 + 历史项目」兜底，这里给出对应桩数据，
+        // 让既有用例继续验证「行级成功/失败统计」而不是被兜底逻辑打断。
+        com.vulnaudit.entity.Customer defaultCustomer = com.vulnaudit.entity.Customer.builder()
+                .id(UUID.randomUUID()).code("CUST-DEFAULT").name("历史数据").build();
+        com.vulnaudit.entity.Project historyProject = com.vulnaudit.entity.Project.builder()
+                .id(UUID.randomUUID()).code("PRJ-HISTORY").name("历史项目")
+                .customerId(defaultCustomer.getId()).build();
+        when(customerRepository.findByCode("CUST-DEFAULT")).thenReturn(Optional.of(defaultCustomer));
+        when(projectRepository.findByCode("PRJ-HISTORY")).thenReturn(Optional.of(historyProject));
+        when(assetProjectLinkService.createAssetWithLink(any(), any(), any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    Asset draft = invocation.getArgument(0);
+                    return Asset.builder().id(UUID.randomUUID())
+                            .name(draft == null ? null : draft.getName())
+                            .build();
+                });
     }
 
     private byte[] csv(String... lines) {
@@ -108,7 +139,10 @@ class ImportServiceImplTest {
         assertTrue(result.failedRows().isEmpty());
 
         ArgumentCaptor<Asset> captor = ArgumentCaptor.forClass(Asset.class);
-        verify(assetService, times(2)).createAsset(captor.capture());
+        // t78：资产由 assetProjectLinkService.createAssetWithLink 在同一事务内创建（含挂靠），
+        // 因此抓取它的第一个入参（资产草稿）来验证字段归一化
+        verify(assetProjectLinkService, times(2))
+                .createAssetWithLink(captor.capture(), any(), any(), any(), any(), any());
         List<Asset> assets = captor.getAllValues();
         assertEquals("资产A", assets.get(0).getName());
         assertEquals("P1", assets.get(0).getPriority());
@@ -136,15 +170,22 @@ class ImportServiceImplTest {
         assertEquals(1, result.failedRows().size());
         assertEquals(3, result.failedRows().get(0).line());
         assertTrue(result.failedRows().get(0).reason().contains("无效的优先级"));
-        verify(assetService, times(2)).createAsset(any());
+        verify(assetProjectLinkService, times(2))
+                .createAssetWithLink(any(), any(), any(), any(), any(), any());
     }
 
     @Test
     @DisplayName("资产导入 - 服务层异常（如团队被并发删除）只影响当前行")
     void importAssets_serviceThrows_continuesNextRow() {
+        // t78：资产导入改走 assetProjectLinkService.createAssetWithLink（同一事务建资产 + 挂靠），
+        // 因此「服务层抛错」要打在它上面，才能继续验证「单行失败不影响后续行」
         org.mockito.Mockito.doThrow(new BusinessException(com.vulnaudit.exception.ErrorCode.TEAM_NOT_FOUND))
-                .doAnswer(invocation -> Asset.builder().id(UUID.randomUUID()).build())
-                .when(assetService).createAsset(any());
+                .doAnswer(invocation -> {
+                    Asset draft = invocation.getArgument(0);
+                    return Asset.builder().id(UUID.randomUUID())
+                            .name(draft == null ? null : draft.getName()).build();
+                })
+                .when(assetProjectLinkService).createAssetWithLink(any(), any(), any(), any(), any(), any());
         byte[] content = csv(
                 "name,targetType,targetSource,priority,status,teamCode,description",
                 "资产A,Web应用,客户委托,P1,active,红队一组,描述A",
@@ -173,7 +214,9 @@ class ImportServiceImplTest {
         assertEquals(1, result.failedRows().size());
         assertEquals(2, result.failedRows().get(0).line());
         assertTrue(result.failedRows().get(0).reason().contains("团队不存在"));
-        verify(assetService, times(0)).createAsset(any());
+        // t78：团队校验发生在建资产之前 → 建资产 + 挂靠的方法一次都不该被调用
+        verify(assetProjectLinkService, times(0))
+                .createAssetWithLink(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -188,7 +231,7 @@ class ImportServiceImplTest {
 
         assertEquals(1, result.successRows());
         ArgumentCaptor<Asset> captor = ArgumentCaptor.forClass(Asset.class);
-        verify(assetService).createAsset(captor.capture());
+        verify(assetProjectLinkService).createAssetWithLink(captor.capture(), any(), any(), any(), any(), any());
         assertEquals(teamId, captor.getValue().getTeamId());
     }
 

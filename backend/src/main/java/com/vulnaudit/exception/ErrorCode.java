@@ -275,7 +275,62 @@ public enum ErrorCode {
     /**
      * 用户已在团队中
      */
-    USER_ALREADY_IN_TEAM(2003, "用户已在团队中");
+    USER_ALREADY_IN_TEAM(2003, "用户已在团队中"),
+
+    // 客户/项目/期次相关错误码 (2100-2399，t68)
+
+    /** 客户不存在 */
+    CUSTOMER_NOT_FOUND(404, "客户不存在"),
+
+    /** 客户编码已存在 */
+    CUSTOMER_CODE_EXISTS(409, "客户编码已存在"),
+
+    /** 客户下仍有项目，无法删除 */
+    CUSTOMER_HAS_PROJECTS(409, "该客户下仍有项目，无法删除"),
+
+    /** 项目不存在 */
+    PROJECT_NOT_FOUND(404, "项目不存在"),
+
+    /** 项目编码已存在 */
+    PROJECT_CODE_EXISTS(409, "项目编码已存在"),
+
+    /** 项目下仍有资产挂靠，无法删除 */
+    PROJECT_HAS_ASSET_LINKS(409, "该项目下仍有资产挂靠，请先解绑"),
+
+    /** 项目状态流转非法 */
+    PROJECT_INVALID_TRANSITION(400, "项目状态流转非法"),
+
+    /** 项目未启用分期，不能创建期次 */
+    PROJECT_NOT_PHASED(400, "该项目未启用分期，不能创建期次"),
+
+    /** 已存在按期次挂靠的记录，不能关闭分期 */
+    PROJECT_PHASED_HAS_LINKS(409, "该项目已存在按期次挂靠的记录，无法关闭分期"),
+
+    /** 期次不存在 */
+    PROJECT_PHASE_NOT_FOUND(404, "项目期次不存在"),
+
+    /** 期次下仍有资产挂靠，无法删除 */
+    PROJECT_PHASE_HAS_ASSET_LINKS(409, "该期次下仍有资产挂靠，请先解绑"),
+
+    /** 期次号在同项目内已存在 */
+    PROJECT_PHASE_NO_EXISTS(409, "该项目的期次号已存在"),
+
+    // ---------------- 资产—项目挂靠（t69） ----------------
+
+    /** 同一资产在同一项目（同期次）已挂靠，重复挂靠被拒 */
+    ASSET_PROJECT_LINK_EXISTS(409, "该资产已挂靠此项目（期次）"),
+
+    /** 挂靠记录不存在，或不属于该资产（防枚举，与不存在同码） */
+    ASSET_PROJECT_LINK_NOT_FOUND(404, "资产挂靠记录不存在"),
+
+    /** 解绑后资产将没有任何项目归属，违反「资产必须挂靠至少一个项目」的不变式 */
+    ASSET_LINK_REQUIRED(409, "资产必须至少挂靠一个项目，请先挂靠到其他项目再解绑"),
+
+    /** 创建资产缺少 projectId（硬约束：不提供无项目资产） */
+    ASSET_PROJECT_REQUIRED(400, "创建资产必须指定所属项目"),
+
+    /** 传入的期次不属于指定项目 */
+    PHASE_NOT_IN_PROJECT(400, "期次不属于该项目");
 
     /**
      * HTTP状态码

@@ -139,14 +139,17 @@ class ApiMessageI18nTest extends com.vulnaudit.controller.BaseTest {
                         .content(Objects.requireNonNull(objectMapper.writeValueAsString(body))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.data.name", containsString("Asset name must not be blank")))
-                .andExpect(jsonPath("$.data.targetType", containsString("Target type must not be blank")));
+                .andExpect(jsonPath("$.data.targetType", containsString("Target type must not be blank")))
+                // t69：建资产必须挂项目，该字段缺失同样要有英文文案
+                .andExpect(jsonPath("$.data.projectId", containsString("Creating an asset requires a project")));
 
         mockMvc.perform(post("/api/v1/assets")
                         .header("Authorization", adminToken)
                         .contentType(Objects.requireNonNull(MediaType.APPLICATION_JSON))
                         .content(Objects.requireNonNull(objectMapper.writeValueAsString(body))))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.data.name", containsString("资产名称不能为空")));
+                .andExpect(jsonPath("$.data.name", containsString("资产名称不能为空")))
+                .andExpect(jsonPath("$.data.projectId", containsString("创建资产必须指定所属项目")));
     }
 
     // ------------------------------------------------------------------ 认证消息

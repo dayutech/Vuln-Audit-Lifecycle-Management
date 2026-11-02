@@ -96,6 +96,23 @@ public interface AssetService {
                                                    @Nullable java.util.Set<UUID> visibleAssetIds);
 
     /**
+     * 分页查询资产列表（带数据级可见范围 + 归属筛选 + 归属摘要，t69）
+     *
+     * <p>新增两件事：
+     * <ol>
+     *   <li>{@code ownershipFilteredIds}：由 {@code AssetProjectLinkService.filterAssetIds} 预先算出的
+     *       资产 ID 集合（按 customerId / projectId / phaseId 命中挂靠），{@code null} = 不做归属筛选，
+     *       空集合 = 筛选无命中（直接空页）；</li>
+     *   <li>每条 VO 附带 {@code customers} / {@code projects} 摘要：本页资产**一次批量查询**组装，避免 N+1。</li>
+     * </ol>
+     */
+    @Nonnull
+    PageResponse<AssetResponse> findAllWithDetails(int page, int size, @Nullable String keyword, @Nullable String status,
+                                                   @Nullable UUID teamId, @Nullable String priority,
+                                                   @Nullable java.util.Set<UUID> visibleAssetIds,
+                                                   @Nullable java.util.Set<UUID> ownershipFilteredIds);
+
+    /**
      * 根据团队ID查询资产列表
      *
      * @param teamId 团队ID

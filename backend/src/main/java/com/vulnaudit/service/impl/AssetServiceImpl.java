@@ -56,6 +56,9 @@ public class AssetServiceImpl implements AssetService {
     private final AssetAccessRepository assetAccessRepository;
     private final TeamRepository teamRepository;
     private final UserRepository userRepository;
+    private final com.vulnaudit.repository.AssetProjectLinkRepository assetProjectLinkRepository;
+    private final com.vulnaudit.repository.ProjectRepository projectRepository;
+    private final com.vulnaudit.repository.CustomerRepository customerRepository;
 
     private static final List<String> VALID_PRIORITIES = List.of("P0", "P1", "P2", "P3");
     private static final List<String> VALID_STATUSES = List.of("active", "under_test", "suspended", "archived");
@@ -214,18 +217,33 @@ public class AssetServiceImpl implements AssetService {
                                                           @Nullable String status, @Nullable UUID teamId,
                                                           @Nullable String priority,
                                                           @Nullable Set<UUID> visibleAssetIds) {
-        log.debug("分页查询资产详情: page={}, size={}, keyword={}, status={}, teamId={}, priority={}, visibilityRestricted={}",
-                page, size, keyword, status, teamId, priority, visibleAssetIds != null);
+        return findAllWithDetails(page, size, keyword, status, teamId, priority, visibleAssetIds, null);
+    }
+
+    /**
+     * 分页查询资产列表（带数据级可见范围 + 归属筛选 + 归属摘要，t69）
+     *
+     * <p>归属摘要（customers / projects）**只对当前页**做一次批量查询组装：
+     * 1 次查挂靠 + 1 次查项目 + 1 次查客户，与页大小无关 → 无 N+1。
+     */
+    @Override
+    public PageResponse<AssetResponse> findAllWithDetails(int page, int size, @Nullable String keyword,
+                                                          @Nullable String status, @Nullable UUID teamId,
+                                                          @Nullable String priority,
+                                                          @Nullable Set<UUID> visibleAssetIds,
+                                                          @Nullable Set<UUID> ownershipFilteredIds) {
+        log.debug("分页查询资产详情: page={}, size={}, keyword={}, status={}, teamId={}, priority={}, "
+                        + "visibilityRestricted={}, ownershipFiltered={}",
+                page, size, keyword, status, teamId, priority, visibleAssetIds != null,
+                ownershipFilteredIds == null ? "none" : ownershipFilteredIds.size());
 
         if (visibleAssetIds != null && visibleAssetIds.isEmpty()) {
             // 无可见资产：直接返回空页，避免生成 IN () 的非法 SQL
-            return PageResponse.<AssetResponse>builder()
-                    .content(List.of())
-                    .totalElements(0L)
-                    .totalPages(0)
-                    .currentPage(page)
-                    .pageSize(size)
-                    .build();
+            return emptyPage(page, size);
+        }
+        if (ownershipFilteredIds != null && ownershipFilteredIds.isEmpty()) {
+            // 归属筛选无命中：同样直接返回空页
+            return emptyPage(page, size);
         }
 
         Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
@@ -235,6 +253,10 @@ public class AssetServiceImpl implements AssetService {
 
             if (visibleAssetIds != null) {
                 predicates.add(root.get("id").in(visibleAssetIds));
+            }
+
+            if (ownershipFilteredIds != null) {
+                predicates.add(root.get("id").in(ownershipFilteredIds));
             }
 
             if (StringUtils.hasText(keyword)) {
@@ -273,7 +295,10 @@ public class AssetServiceImpl implements AssetService {
                         ownerNameMap.get(asset.getOwnerId())
                 ))
                 .collect(Collectors.toList());
-        
+
+        // t69：一次性批量组装归属摘要（挂靠 → 项目 → 客户），与页大小无关
+        attachOwnership(responses);
+
         return PageResponse.<AssetResponse>builder()
                 .content(responses)
                 .totalElements(assetPage.getTotalElements())
@@ -281,6 +306,71 @@ public class AssetServiceImpl implements AssetService {
                 .currentPage(assetPage.getNumber())
                 .pageSize(assetPage.getSize())
                 .build();
+    }
+
+    private PageResponse<AssetResponse> emptyPage(int page, int size) {
+        return PageResponse.<AssetResponse>builder()
+                .content(List.of())
+                .totalElements(0L)
+                .totalPages(0)
+                .currentPage(page)
+                .pageSize(size)
+                .build();
+    }
+
+    /**
+     * 给当前页资产批量填充归属摘要（t69）
+     *
+     * <p>固定 3 次查询（挂靠 / 项目 / 客户），不做 per-asset 查询。
+     */
+    private void attachOwnership(List<AssetResponse> responses) {
+        if (responses.isEmpty()) {
+            return;
+        }
+        List<UUID> assetIds = responses.stream().map(AssetResponse::getId).filter(Objects::nonNull).toList();
+        if (assetIds.isEmpty()) {
+            return;
+        }
+        List<com.vulnaudit.entity.AssetProjectLink> links = assetProjectLinkRepository.findByAssetIdIn(assetIds);
+        if (links.isEmpty()) {
+            return;
+        }
+
+        Map<UUID, com.vulnaudit.entity.Project> projects = projectRepository.findAllById(
+                        links.stream().map(com.vulnaudit.entity.AssetProjectLink::getProjectId)
+                                .collect(Collectors.toSet()))
+                .stream().collect(Collectors.toMap(com.vulnaudit.entity.Project::getId, project -> project));
+        Map<UUID, com.vulnaudit.entity.Customer> customers = customerRepository.findAllById(
+                        links.stream().map(com.vulnaudit.entity.AssetProjectLink::getCustomerId)
+                                .collect(Collectors.toSet()))
+                .stream().collect(Collectors.toMap(com.vulnaudit.entity.Customer::getId, customer -> customer));
+
+        Map<UUID, java.util.LinkedHashMap<UUID, com.vulnaudit.dto.ProjectBrief>> projectsByAsset =
+                new java.util.HashMap<>();
+        Map<UUID, java.util.LinkedHashMap<UUID, com.vulnaudit.dto.CustomerBrief>> customersByAsset =
+                new java.util.HashMap<>();
+
+        for (com.vulnaudit.entity.AssetProjectLink link : links) {
+            com.vulnaudit.entity.Project project = projects.get(link.getProjectId());
+            if (project != null) {
+                projectsByAsset.computeIfAbsent(link.getAssetId(), key -> new java.util.LinkedHashMap<>())
+                        .put(project.getId(), new com.vulnaudit.dto.ProjectBrief(
+                                project.getId(), project.getCode(), project.getName(), project.getCustomerId()));
+            }
+            com.vulnaudit.entity.Customer customer = customers.get(link.getCustomerId());
+            if (customer != null) {
+                customersByAsset.computeIfAbsent(link.getAssetId(), key -> new java.util.LinkedHashMap<>())
+                        .put(customer.getId(), new com.vulnaudit.dto.CustomerBrief(
+                                customer.getId(), customer.getCode(), customer.getName()));
+            }
+        }
+
+        for (AssetResponse response : responses) {
+            response.setCustomers(new ArrayList<>(
+                    customersByAsset.getOrDefault(response.getId(), new java.util.LinkedHashMap<>()).values()));
+            response.setProjects(new ArrayList<>(
+                    projectsByAsset.getOrDefault(response.getId(), new java.util.LinkedHashMap<>()).values()));
+        }
     }
 
     /**

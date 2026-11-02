@@ -165,7 +165,8 @@ class ImportControllerTest extends BaseTest {
         mockMvc.perform(get("/api/v1/import/templates/assets")
                         .header("Authorization", leaderToken))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("name,targetType,targetSource,priority,status,teamCode,description")));
+                .// t78：资产模板新增 customerCode / projectCode / phaseNo（资产必须挂项目）
+                andExpect(content().string(containsString("name,targetType,targetSource,priority,status,teamCode,customerCode,projectCode,phaseNo,description")));
 
         mockMvc.perform(get("/api/v1/import/templates/vulnerabilities")
                         .header("Authorization", leaderToken))

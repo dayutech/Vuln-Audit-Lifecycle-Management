@@ -11,6 +11,8 @@ import com.vulnaudit.repository.AssetGroupRepository;
 import com.vulnaudit.repository.AssetRepository;
 import com.vulnaudit.repository.TeamRepository;
 import com.vulnaudit.repository.UserRepository;
+import com.vulnaudit.entity.Customer;
+import com.vulnaudit.entity.Project;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -44,10 +46,18 @@ public class AssetControllerTest extends BaseTest {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private com.vulnaudit.repository.CustomerRepository customerRepository;
+
+    @Autowired
+    private com.vulnaudit.repository.ProjectRepository projectRepository;
+
     private Asset testAsset;
     private AssetGroup testGroup;
     private Team testTeam;
     private User testUser;
+    private Customer customer;
+    private Project project;
 
     @BeforeEach
     void setUpAsset() {
@@ -94,6 +104,23 @@ public class AssetControllerTest extends BaseTest {
                 .description("用于测试的分组")
                 .build();
         testGroup = assetGroupRepository.save(Objects.requireNonNull(testGroup));
+
+        // t69：创建资产必须带 projectId（硬约束），故夹具建「客户 + 项目」
+        customer = customerRepository.save(Objects.requireNonNull(Customer.builder()
+                .code("CUST-AC-" + uniqueSuffix)
+                .name("资产控制器客户")
+                .status("active")
+                .createdBy(testUser.getId())
+                .build()));
+        project = projectRepository.save(Objects.requireNonNull(Project.builder()
+                .code("PRJ-AC-" + uniqueSuffix)
+                .customerId(customer.getId())
+                .name("资产控制器项目")
+                .managerId(testUser.getId())
+                .status("ACTIVE")
+                .isPhased(false)
+                .createdBy(testUser.getId())
+                .build()));
     }
 
     @Nested
@@ -181,6 +208,7 @@ public class AssetControllerTest extends BaseTest {
             request.setPriority("P2");
             request.setStatus("active");
             request.setTeamId(testTeam.getId());
+            request.setProjectId(project.getId());   // t69：建资产必须挂项目
 
             mockMvc.perform(post("/api/v1/assets")
                     .header("Authorization", adminToken)

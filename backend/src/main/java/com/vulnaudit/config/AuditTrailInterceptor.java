@@ -122,7 +122,19 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
             if (segment.isBlank() || UUID_PATTERN.matcher(segment).matches()) {
                 continue;
             }
-            return truncate(segment.toLowerCase(Locale.ROOT), 50);
+            String normalized = segment.toLowerCase(Locale.ROOT);
+            // t68：期次挂在 /projects/{id}/phases 下，按「最后一段是否为 phases」识别为 project-phase
+            if ("phases".equals(lastMeaningfulSegment(segments))) {
+                return "project-phase";
+            }
+            // t68：客户/项目/期次使用单数（含连字符）资源类型，其余沿用 URI 段原名
+            switch (normalized) {
+                case "customers" -> { return "customer"; }
+                case "projects" -> { return "project"; }
+                case "phases" -> { return "project-phase"; }
+                default -> { }
+            }
+            return truncate(normalized, 50);
         }
         return "unknown";
     }
@@ -130,6 +142,18 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
     /**
      * 取 URI 中第一个 UUID 作为资源 ID，没有则返回 null
      */
+    /**
+     * 取 URI 中最后一个「非空且非 UUID」的段（t68，用于识别 /projects/{id}/phases 这类嵌套资源）
+     */
+    private String lastMeaningfulSegment(String[] segments) {
+        for (int i = segments.length - 1; i >= 0; i--) {
+            String segment = segments[i];
+            if (!segment.isBlank() && !UUID_PATTERN.matcher(segment).matches()) {
+                return segment.toLowerCase(Locale.ROOT);
+            }
+        }
+        return "";
+    }
     private UUID resolveResourceId(String uri) {
         Matcher matcher = UUID_PATTERN.matcher(uri);
         if (matcher.find()) {

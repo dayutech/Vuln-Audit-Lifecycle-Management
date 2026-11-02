@@ -31,6 +31,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -47,6 +48,7 @@ public class AssetController {
     private final AssetService assetService;
     private final AssetAccessService assetAccessService;
     private final AssetClaimService assetClaimService;
+    private final com.vulnaudit.service.AssetProjectLinkService assetProjectLinkService;
     private final com.vulnaudit.security.CurrentUserProvider currentUserProvider;
     private final com.vulnaudit.service.AccessGuard accessGuard;
     private final com.vulnaudit.service.SubresourceGuard subresourceGuard;
@@ -70,9 +72,10 @@ public class AssetController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER') and @accessGuard.canCreateAssetInTeam(#request.teamId, authentication)")
-    @Operation(summary = "创建资产", description = "创建新的资产记录")
+    @Operation(summary = "创建资产", description = "创建资产并挂靠到指定项目（projectId 必填，t69 硬约束）")
     public ResponseEntity<ApiResponse<Asset>> createAsset(@Valid @RequestBody AssetCreateRequest request) {
-        log.info("创建资产: name={}", request.getName());
+        log.info("创建资产: name={}, projectId={}, phaseId={}",
+                request.getName(), request.getProjectId(), request.getPhaseId());
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         UUID currentUserId = getCurrentUserId(authentication);
@@ -81,18 +84,8 @@ public class AssetController {
                     .body(ApiResponse.error(401, "未授权"));
         }
 
-        Asset asset = Asset.builder()
-                .name(request.getName())
-                .targetType(request.getTargetType())
-                .targetSource(request.getTargetSource())
-                .description(request.getDescription())
-                .priority(request.getPriority())
-                .status(request.getStatus())
-                .teamId(request.getTeamId())
-                .ownerId(currentUserId)
-                .build();
-
-        Asset createdAsset = assetService.createAsset(asset);
+        // t69：资产与挂靠在同一事务内创建；缺 projectId → 400，项目/客户不存在 → 404
+        Asset createdAsset = assetProjectLinkService.createAssetWithProject(request, currentUserId);
         recordHistory(createdAsset.getId(), "created", null, createdAsset.getName(), currentUserId);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.success(createdAsset));
@@ -123,8 +116,19 @@ public class AssetController {
     public ResponseEntity<ApiResponse<AssetResponse>> getAsset(@PathVariable UUID id) {
         log.info("获取资产详情: id={}", id);
 
-        return assetService.findByIdWithDetails(id)
-                .map(asset -> ResponseEntity.ok(ApiResponse.success(asset)))
+        Optional<AssetResponse> detail = assetService.findByIdWithDetails(id);
+        detail.ifPresent(response -> {
+            // t69：详情附带完整挂靠明细（列表接口不填，避免响应体膨胀）
+            response.setProjectLinks(assetProjectLinkService.listByAsset(id));
+            Map<UUID, com.vulnaudit.service.AssetProjectLinkService.Ownership> ownership =
+                    assetProjectLinkService.ownershipOf(List.of(id));
+            com.vulnaudit.service.AssetProjectLinkService.Ownership own = ownership.get(id);
+            if (own != null) {
+                response.setCustomers(own.customers());
+                response.setProjects(own.projects());
+            }
+        });
+        return detail.map(asset -> ResponseEntity.ok(ApiResponse.success(asset)))
                 // 走全局异常处理器输出，文案经 i18n 解析（en / zh），响应结构不变
                 .orElseThrow(() -> new com.vulnaudit.exception.BusinessException(
                         com.vulnaudit.exception.ErrorCode.ASSET_NOT_FOUND));
@@ -132,25 +136,75 @@ public class AssetController {
 
     @GetMapping
     @Operation(summary = "分页查询资产列表",
-            description = "支持按关键词、状态、团队、优先级筛选；返回范围与详情共用同一可见性判定（AccessGuard.visibleAssetIds）")
+            description = "支持按关键词、状态、团队、优先级，以及归属筛选 customerId / projectId / phaseId；"
+                    + "返回范围与详情共用同一可见性判定（AccessGuard.visibleAssetIds）；"
+                    + "每条资产附带 customers / projects 摘要（一次批量查询组装，无 N+1）")
     public ResponseEntity<ApiResponse<PageResponse<AssetResponse>>> listAssets(
             @Parameter(description = "页码") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size,
             @Parameter(description = "搜索关键词") @RequestParam(required = false) String keyword,
             @Parameter(description = "资产状态") @RequestParam(required = false) String status,
             @Parameter(description = "团队ID") @RequestParam(required = false) UUID teamId,
-            @Parameter(description = "优先级") @RequestParam(required = false) String priority) {
+            @Parameter(description = "优先级") @RequestParam(required = false) String priority,
+            @Parameter(description = "客户ID（按挂靠筛选）") @RequestParam(required = false) UUID customerId,
+            @Parameter(description = "项目ID（按挂靠筛选）") @RequestParam(required = false) UUID projectId,
+            @Parameter(description = "期次ID（按挂靠筛选）") @RequestParam(required = false) UUID phaseId) {
 
-        log.info("分页查询资产: page={}, size={}, keyword={}, status={}", page, size, keyword, status);
+        log.info("分页查询资产: page={}, size={}, keyword={}, status={}, customerId={}, projectId={}, phaseId={}",
+                page, size, keyword, status, customerId, projectId, phaseId);
 
         // 单一事实来源：列表范围 = 详情判定（visibleAssetIds 为 null 表示管理层不限制）。
         // 此前列表未做任何过滤，导致「列表可见 → 点进去 403」。
         java.util.Set<UUID> visibleAssetIds = accessGuard.visibleAssetIds(
                 SecurityContextHolder.getContext().getAuthentication());
 
+        // t69：归属筛选 → 先取命中的资产 ID（null 表示未指定筛选）
+        java.util.Set<UUID> ownershipFilteredIds =
+                assetProjectLinkService.filterAssetIds(customerId, projectId, phaseId);
+
         PageResponse<AssetResponse> result = assetService.findAllWithDetails(
-                page, size, keyword, status, teamId, priority, visibleAssetIds);
+                page, size, keyword, status, teamId, priority, visibleAssetIds, ownershipFilteredIds);
         return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    // ------------------------------------------------------------------ 资产-项目挂靠（t69）
+
+    @GetMapping("/{assetId}/project-links")
+    @PreAuthorize("@accessGuard.canReadAsset(#assetId, authentication)")
+    @Operation(summary = "查询资产的项目挂靠", description = "返回项目与客户摘要；跨客户挂靠会返回多条")
+    public ResponseEntity<ApiResponse<List<AssetProjectLinkResponse>>> listProjectLinks(
+            @PathVariable UUID assetId) {
+
+        log.info("查询资产挂靠: assetId={}", assetId);
+        return ResponseEntity.ok(ApiResponse.success(assetProjectLinkService.listByAsset(assetId)));
+    }
+
+    @PostMapping("/{assetId}/project-links")
+    @PreAuthorize("@accessGuard.canWriteAsset(#assetId, authentication)")
+    @Operation(summary = "追加项目挂靠",
+            description = "同一 (资产, 项目, 期次) 重复挂靠 409；允许跨客户挂靠（同一资产服务多个客户的项目）")
+    public ResponseEntity<ApiResponse<AssetProjectLinkResponse>> addProjectLink(
+            @PathVariable UUID assetId,
+            @Valid @RequestBody AssetProjectLinkRequest request) {
+
+        log.info("追加资产挂靠: assetId={}, projectId={}, phaseId={}",
+                assetId, request.getProjectId(), request.getPhaseId());
+        AssetProjectLinkResponse created = assetProjectLinkService.link(
+                assetId, request, getCurrentUserId(SecurityContextHolder.getContext().getAuthentication()));
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(created));
+    }
+
+    @DeleteMapping("/{assetId}/project-links/{linkId}")
+    @PreAuthorize("@accessGuard.canWriteAsset(#assetId, authentication)")
+    @Operation(summary = "解除项目挂靠",
+            description = "挂靠记录不存在或不属于该资产 → 404；若为该资产最后一条挂靠 → 409（资产必须至少挂靠一个项目）")
+    public ResponseEntity<ApiResponse<Void>> removeProjectLink(
+            @PathVariable UUID assetId,
+            @PathVariable UUID linkId) {
+
+        log.info("解除资产挂靠: assetId={}, linkId={}", assetId, linkId);
+        assetProjectLinkService.unlink(assetId, linkId);
+        return ResponseEntity.ok(ApiResponse.success(null));
     }
 
     @PutMapping("/{id}")

@@ -4,6 +4,8 @@ import com.vulnaudit.entity.Asset;
 import com.vulnaudit.entity.AssetAccess;
 import com.vulnaudit.entity.AssetGroup;
 import com.vulnaudit.entity.AssetTag;
+import com.vulnaudit.entity.Customer;
+import com.vulnaudit.entity.Project;
 import com.vulnaudit.entity.AssetVersion;
 import com.vulnaudit.entity.Team;
 import com.vulnaudit.repository.AssetAccessRepository;
@@ -62,6 +64,12 @@ public class AssetDomainAuthorizationTest extends BaseTest {
     @Autowired
     private TeamRepository teamRepository;
 
+    @Autowired
+    private com.vulnaudit.repository.CustomerRepository customerRepository;
+
+    @Autowired
+    private com.vulnaudit.repository.ProjectRepository projectRepository;
+
     private Team ownTeam;
     private Team otherTeam;
     private Asset engineerAsset;
@@ -72,10 +80,28 @@ public class AssetDomainAuthorizationTest extends BaseTest {
     private AssetTag engineerTag;
     private AssetTag adminTag;
     private AssetGroup group;
+    private Project project;
 
     @BeforeEach
     void setUpAssetDomainData() {
         String suffix = String.valueOf(System.currentTimeMillis());
+
+        // t69：建资产必须挂项目 → 夹具建「客户 + 项目」
+        Customer fixtureCustomer = customerRepository.save(Objects.requireNonNull(Customer.builder()
+                .code("CUST-AD-" + suffix)
+                .name("资产授权客户")
+                .status("active")
+                .createdBy(adminUserId)
+                .build()));
+        project = projectRepository.save(Objects.requireNonNull(Project.builder()
+                .code("PRJ-AD-" + suffix)
+                .customerId(fixtureCustomer.getId())
+                .name("资产授权项目")
+                .managerId(adminUserId)
+                .status("ACTIVE")
+                .isPhased(false)
+                .createdBy(adminUserId)
+                .build()));
 
         ownTeam = teamRepository.save(Objects.requireNonNull(Team.builder()
                 .name("资产授权-小组长团队_" + suffix)
@@ -173,9 +199,11 @@ public class AssetDomainAuthorizationTest extends BaseTest {
     }
 
     private String assetBody(String name, UUID teamId) {
+        // t69：创建资产必须带 projectId（硬约束），夹具项目见 setUpAssetProject
         return "{\"name\":\"" + name + "\",\"targetType\":\"Web应用\",\"targetSource\":\"internal\","
                 + "\"priority\":\"P2\",\"status\":\"active\""
                 + (teamId == null ? "" : ",\"teamId\":\"" + teamId + "\"")
+                + ",\"projectId\":\"" + project.getId() + "\""
                 + "}";
     }
 

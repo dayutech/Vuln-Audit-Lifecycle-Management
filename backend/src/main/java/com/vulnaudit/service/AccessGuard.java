@@ -73,6 +73,8 @@ public class AccessGuard {
     private final TeamRepository teamRepository;
     private final TeamMemberRepository teamMemberRepository;
     private final VulnerabilityRepository vulnerabilityRepository;
+    private final com.vulnaudit.repository.ProjectRepository projectRepository;
+    private final com.vulnaudit.repository.ProjectPhaseRepository projectPhaseRepository;
     private final com.vulnaudit.repository.KnowledgeArticleRepository knowledgeArticleRepository;
     private final com.vulnaudit.repository.NotificationRecipientRepository notificationRecipientRepository;
 
@@ -662,5 +664,61 @@ public class AccessGuard {
         return documentRepository.findById(documentId)
                 .map(document -> userId.equals(document.getAuthorId()))
                 .orElse(true);
+    }
+
+    // ------------------------------------------------------------------ 项目写权（t68）
+
+    /**
+     * 是否可管理指定项目（项目/期次写操作的数据级守卫，t68）
+     *
+     * <ul>
+     *   <li>admin / project_leader → 任意项目；</li>
+     *   <li>team_leader（及其它角色）→ 仅当 {@code projects.manager_id == 当前用户}；</li>
+     *   <li>解析不到用户 / 项目ID为空 → 拒绝（fail-closed）。</li>
+     * </ul>
+     *
+     * <p>项目不存在时返回 false（不泄露存在性）；但控制器侧对「管理员/项目负责人」仍会走到服务层 404。
+     *
+     * @param projectId      项目ID
+     * @param authentication 当前认证
+     * @return true 表示可写
+     */
+    public boolean canManageProject(java.util.UUID projectId, Authentication authentication) {
+        if (projectId == null) {
+            return false;
+        }
+        if (isGlobalReader(authentication)) {
+            return true;
+        }
+        java.util.UUID userId = currentUserId(authentication);
+        if (userId == null) {
+            return false;
+        }
+        return projectRepository.findById(projectId)
+                .map(project -> userId.equals(project.getManagerId()))
+                .orElse(false);
+    }
+
+    /**
+     * 是否可管理指定项目期次（t68）
+     *
+     * <p>沿 phase → project → managerId 解析：admin / project_leader 放行；
+     * 其余仅当该期次所属项目的经理是自己。期次不存在 → false（不泄露存在性）。
+     */
+    public boolean canManagePhase(java.util.UUID phaseId, Authentication authentication) {
+        if (phaseId == null) {
+            return false;
+        }
+        if (isGlobalReader(authentication)) {
+            return true;
+        }
+        java.util.UUID userId = currentUserId(authentication);
+        if (userId == null) {
+            return false;
+        }
+        return projectPhaseRepository.findById(phaseId)
+                .flatMap(phase -> projectRepository.findById(phase.getProjectId()))
+                .map(project -> userId.equals(project.getManagerId()))
+                .orElse(false);
     }
 }

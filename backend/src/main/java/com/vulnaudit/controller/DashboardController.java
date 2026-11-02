@@ -40,6 +40,7 @@ public class DashboardController {
     private final DashboardService dashboardService;
     private final UserService userService;
     private final AccessGuard accessGuard;
+    private final com.vulnaudit.service.impl.CustomerProjectStatsService statsService;
 
     /**
      * 获取我的仪表盘
@@ -238,6 +239,32 @@ public class DashboardController {
 
         List<Map<String, Object>> ranking = dashboardService.getWorkloadRanking(limit, days, allUsers, userId);
         return ResponseEntity.ok(ApiResponse.success(ranking));
+    }
+
+    // ------------------------------------------------------------------ 客户 / 项目分布（t70）
+
+    @GetMapping("/customer-distribution")
+    @Operation(summary = "客户分布（t70）",
+            description = "按客户聚合可见资产数与项目数，按资产数倒序取 Top N（默认 10，上限 100）；"
+                    + "assetCount 按调用者可见资产范围收敛，projectCount 为组织结构事实")
+    public ResponseEntity<ApiResponse<List<com.vulnaudit.dto.ProjectStatsResponse.CustomerDistributionItem>>>
+            getCustomerDistribution(
+            @Parameter(description = "Top N（默认 10，上限 100）") @RequestParam(defaultValue = "10") int topN) {
+
+        return ResponseEntity.ok(ApiResponse.success(
+                statsService.customerDistribution(topN, currentVisibleAssets())));
+    }
+
+    @GetMapping("/project-distribution")
+    @Operation(summary = "项目分布（t70）",
+            description = "按项目聚合可见资产数，按资产数倒序取 Top N（默认 10，上限 100），支持 customerId 过滤")
+    public ResponseEntity<ApiResponse<List<com.vulnaudit.dto.ProjectStatsResponse.ProjectDistributionItem>>>
+            getProjectDistribution(
+            @Parameter(description = "客户ID（可选）") @RequestParam(required = false) UUID customerId,
+            @Parameter(description = "Top N（默认 10，上限 100）") @RequestParam(defaultValue = "10") int topN) {
+
+        return ResponseEntity.ok(ApiResponse.success(
+                statsService.projectDistribution(customerId, topN, currentVisibleAssets())));
     }
 
     @GetMapping("/trends/assets")

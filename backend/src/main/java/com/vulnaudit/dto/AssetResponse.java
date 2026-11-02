@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -68,6 +69,24 @@ public class AssetResponse {
     private LocalDateTime updatedAt;
 
     /**
+     * 归属客户摘要（t69）：由挂靠关系聚合而来，列表一次批量查询组装，避免 N+1。
+     * 跨客户挂靠时会有多个客户。
+     */
+    @Schema(description = "归属客户摘要（可多个）")
+    private List<CustomerBrief> customers;
+
+    /** 归属项目摘要（t69） */
+    @Schema(description = "归属项目摘要（可多个）")
+    private List<ProjectBrief> projects;
+
+    /**
+     * 完整挂靠明细（t69）：仅详情接口填充（{@code GET /assets/{id}}），
+     * 列表接口为 {@code null}，避免列表响应体膨胀。
+     */
+    @Schema(description = "挂靠明细（仅详情接口返回）")
+    private List<AssetProjectLinkResponse> projectLinks;
+
+    /**
      * 从Asset实体创建AssetResponse
      * 
      * @param asset 资产实体
@@ -94,6 +113,8 @@ public class AssetResponse {
                 .ownerName(ownerName)
                 .createdAt(asset.getCreatedAt())
                 .updatedAt(asset.getUpdatedAt())
+                .customers(List.of())
+                .projects(List.of())
                 .build();
     }
 }
