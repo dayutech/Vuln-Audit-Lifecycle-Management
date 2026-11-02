@@ -314,6 +314,52 @@ else
   skip "auth/登录-${LEADER_USER}" "-" "组长账号不可用（可用 LEADER_USER/LEADER_PASS 覆盖）"
 fi
 
+# ----------------------------------------------------------------------------- 客户 / 项目 / 期次前置（t75）
+# POST /assets 自 t69/t78 起强制要求 projectId（缺则 400），因此所有建资产用例都先用这里的前置数据。
+CUST_ID=""
+CUST2_ID=""
+PROJECT_ID=""
+PROJECT2_ID=""
+PHASE1_ID=""
+PHASE2_ID=""
+if need "cust/创建" "$ADMIN_TOKEN" "缺少 admin token"; then
+  api_json POST '/api/v1/customers' "$ADMIN_TOKEN" \
+    "{\"code\":\"SMK-CUST-${TAG}\",\"name\":\"冒烟客户 ${TAG}\",\"industry\":\"互联网\",\"level\":\"A\",\"contactName\":\"冒烟联系人\",\"description\":\"冒烟脚本创建\"}"
+  judge_ok "cust/创建" '"id"' "POST /customers"
+  CUST_ID="$(jfirst id)"
+
+  api_json POST '/api/v1/customers' "$ADMIN_TOKEN" \
+    "{\"code\":\"SMK-CUST2-${TAG}\",\"name\":\"冒烟客户二 ${TAG}\",\"industry\":\"制造业\",\"level\":\"B\",\"description\":\"冒烟脚本创建\"}"
+  judge_ok "cust/创建-第二个" '"id"' "POST /customers（跨客户挂靠用）"
+  CUST2_ID="$(jfirst id)"
+fi
+
+if [ -n "$CUST_ID" ]; then
+  api_json POST '/api/v1/projects' "$ADMIN_TOKEN" \
+    "{\"code\":\"SMK-PRJ-${TAG}\",\"name\":\"冒烟项目 ${TAG}\",\"customerId\":\"${CUST_ID}\",\"managerId\":\"${ADMIN_ID}\",\"type\":\"PENTEST\",\"isPhased\":true}"
+  judge_ok "proj/创建-分期" '"id"' "POST /projects（isPhased=true）"
+  PROJECT_ID="$(jfirst id)"
+
+  if [ -n "$PROJECT_ID" ]; then
+    api_json POST "/api/v1/projects/${PROJECT_ID}/phases" "$ADMIN_TOKEN" \
+      "{\"name\":\"一期 ${TAG}\",\"startDate\":\"2026-01-01\",\"endDate\":\"2026-03-31\"}"
+    judge_ok "proj/期次-创建1" '"id"' "POST /projects/{id}/phases"
+    PHASE1_ID="$(jfirst id)"
+    api_json POST "/api/v1/projects/${PROJECT_ID}/phases" "$ADMIN_TOKEN" \
+      "{\"name\":\"二期 ${TAG}\",\"startDate\":\"2026-04-01\",\"endDate\":\"2026-06-30\"}"
+    judge_ok "proj/期次-创建2" '"id"' "POST /projects/{id}/phases"
+    PHASE2_ID="$(jfirst id)"
+    request GET "/api/v1/projects/${PROJECT_ID}" "$ADMIN_TOKEN"
+    judge "proj/详情-含期次" 200 '"phases"' "GET /projects/{id}"
+  fi
+  if [ -n "$CUST2_ID" ]; then
+    api_json POST '/api/v1/projects' "$ADMIN_TOKEN" \
+      "{\"code\":\"SMK-PRJ2-${TAG}\",\"name\":\"冒烟项目二 ${TAG}\",\"customerId\":\"${CUST2_ID}\",\"managerId\":\"${ADMIN_ID}\",\"type\":\"PENTEST\",\"isPhased\":false}"
+    judge_ok "proj/创建-第二个(不分期)" '"id"' "POST /projects（跨客户挂靠用）"
+    PROJECT2_ID="$(jfirst id)"
+  fi
+fi
+
 if need "asset/列表" "$ADMIN_TOKEN" "缺少 admin token"; then
   request GET '/api/v1/assets?page=0&size=5' "$ADMIN_TOKEN"
   judge "asset/列表" 200 '"success"[[:space:]]*:[[:space:]]*true' "GET /assets"
@@ -326,6 +372,10 @@ if need "asset/创建" "$ADMIN_TOKEN" "缺少 admin token"; then
   [ "$LAST_STATUS" = "200" ] && TEAM_ID="$(jfirst id)"
   asset_payload="{\"name\":\"冒烟资产 ${TAG}\",\"targetType\":\"Web应用\",\"targetSource\":\"客户委托\",\"priority\":\"P3\",\"status\":\"active\",\"description\":\"冒烟脚本创建，可删除\""
   [ -n "$TEAM_ID" ] && asset_payload="${asset_payload},\"teamId\":\"${TEAM_ID}\""
+  # t69/t78：建资产必须挂项目（缺 projectId 直接 400）
+  [ -n "$PROJECT_ID" ] && asset_payload="${asset_payload},\"projectId\":\"${PROJECT_ID}\""
+  [ -n "$PHASE1_ID" ] && asset_payload="${asset_payload},\"phaseId\":\"${PHASE1_ID}\""
+  [ -n "$PROJECT_ID" ] && asset_payload="${asset_payload},\"linkType\":\"TARGET\""
   asset_payload="${asset_payload}}"
   api_json POST /api/v1/assets "$ADMIN_TOKEN" "$asset_payload"
   judge_ok "asset/创建" '"id"' "POST /assets"
@@ -576,13 +626,13 @@ fi
 if [ -n "$ADMIN_TOKEN" ] && [ -n "$ENGINEER_TOKEN" ] && [ -n "$LEADER_TOKEN" ]; then
   ALL_IDS="$(mktemp)"
   request GET '/api/v1/assets?page=0&size=200' "$ADMIN_TOKEN"
-  flatten | grep -o '"id"[[:space:]]*:[[:space:]]*"[0-9a-f-]\{36\}"' | sed 's/.*"id"[[:space:]]*:[[:space:]]*"//; s/"$//' | sort -u >"$ALL_IDS"
+  flatten | sed 's/"customers":\[[^]]*\]//g; s/"projects":\[[^]]*\]//g; s/"projectLinks":\[[^]]*\]//g' | grep -o '"id"[[:space:]]*:[[:space:]]*"[0-9a-f-]\{36\}"' | sed 's/.*"id"[[:space:]]*:[[:space:]]*"//; s/"$//' | sort -u >"$ALL_IDS"
 
   visibility_check() { # <name前缀> <token>
     local prefix="$1" tk="$2" list_ids bad seen=0 outside=""
     list_ids="$(mktemp)"
     request GET '/api/v1/assets?page=0&size=50' "$tk"
-    flatten | grep -o '"id"[[:space:]]*:[[:space:]]*"[0-9a-f-]\{36\}"' | sed 's/.*"id"[[:space:]]*:[[:space:]]*"//; s/"$//' | sort -u >"$list_ids"
+    flatten | sed 's/"customers":\[[^]]*\]//g; s/"projects":\[[^]]*\]//g; s/"projectLinks":\[[^]]*\]//g' | grep -o '"id"[[:space:]]*:[[:space:]]*"[0-9a-f-]\{36\}"' | sed 's/.*"id"[[:space:]]*:[[:space:]]*"//; s/"$//' | sort -u >"$list_ids"
     bad=0
     while IFS= read -r aid; do
       [ -z "$aid" ] && continue
@@ -922,8 +972,8 @@ if need "import/资产部分成功" "$ADMIN_TOKEN" "缺少 admin token"; then
   if [ "$LAST_STATUS" = "200" ]; then
     ok_rows="$(jnum successRows)"
     failed_rows="$(jcount failedRows)"
-    # failedRows 是数组：统计数组内元素个数（每个元素含 line/reason），用 line 出现次数更稳
-    failed_cnt="$(flatten | grep -o '"line":' | wc -l | tr -d ' ')"
+    # failedRows 是数组；t78 起响应还含 notes[]（同样是 {line,...}），因此按 reason 计数更准
+    failed_cnt="$(flatten | grep -o '"reason":' | wc -l | tr -d ' ')"
     if [ "$ok_rows" = "2" ] && [ "$failed_cnt" = "1" ]; then
       pass "import/资产部分成功" 200 "successRows=2 failedRows=1（真实服务端语义）"
     else
@@ -1201,6 +1251,7 @@ if [ -n "$ENGINEER_TOKEN" ] && [ -n "$ASSET_ID" ]; then
   # 资产域（t49）：建资产 / 版本 / 默认 / 最新 / 申请明细 / 标签删除 / 标签新增 / 分组写
   authz_asset_payload="{\"name\":\"冒烟越权资产 ${TAG}\",\"targetType\":\"Web应用\",\"targetSource\":\"客户委托\",\"priority\":\"P3\",\"status\":\"active\""
   [ -n "$TEAM_ID" ] && authz_asset_payload="${authz_asset_payload},\"teamId\":\"${TEAM_ID}\""
+  [ -n "$PROJECT_ID" ] && authz_asset_payload="${authz_asset_payload},\"projectId\":\"${PROJECT_ID}\""
   authz_asset_payload="${authz_asset_payload}}"
   api_json POST '/api/v1/assets' "$ENGINEER_TOKEN" "$authz_asset_payload"
   judge "authz2/工程师建资产-403" 403 '' "POST /assets 需管理层"
@@ -1372,6 +1423,129 @@ if [ -n "$ENGINEER_TOKEN" ] && [ -n "$ADMIN_TOKEN" ]; then
   judge "tags/不存在文章标签查询-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "标签查询保持开放"
   request POST "/api/v1/knowledge/${RAND3}/tags?tag=x" "$ENGINEER_TOKEN"
   judge "tags/不存在文章加标签-404" 404 '' "父资源不存在 → 404（t61/t65）"
+fi
+
+
+# ----------------------------------------------------------------------------- 客户 / 项目 / 期次 / 挂靠（t75）
+RAND4="00000000-0000-4000-8000-0000000ee75a"
+if [ -n "$ADMIN_TOKEN" ] && [ -n "$CUST_ID" ] && [ -n "$PROJECT_ID" ] && [ -n "$ASSET_ID" ]; then
+  # 1) 客户 stats 与库内一致（stats.assetCount 应为该客户可见资产数，admin 全量）
+  request GET "/api/v1/customers/${CUST_ID}/summary" "$ADMIN_TOKEN"
+  judge "cust/聚合-summary" 200 '"stats"' "GET /customers/{id}/summary（t76）"
+  SUMMARY_ASSETS="$(jnum assetCount)"
+  results_summary_ok=0
+  [ -n "$SUMMARY_ASSETS" ] && [ "$SUMMARY_ASSETS" -ge 1 ] && results_summary_ok=1
+  if [ "$results_summary_ok" = "1" ]; then
+    pass "cust/聚合-assetCount≥1" "200" "stats.assetCount=${SUMMARY_ASSETS}"
+  else
+    fail "cust/聚合-assetCount≥1" "$LAST_STATUS" "summary 未返回 assetCount 或为 0 ｜ $(snippet)"
+  fi
+
+  # 2) 资产详情含 projectLinks，且指向本项目
+  request GET "/api/v1/assets/${ASSET_ID}" "$ADMIN_TOKEN"
+  judge "link/资产详情-projectLinks" 200 '"projectLinks"' "GET /assets/{id}"
+  request GET "/api/v1/assets/${ASSET_ID}/project-links" "$ADMIN_TOKEN"
+  judge "link/挂靠列表" 200 '"projectId"' "GET /assets/{id}/project-links"
+
+  # 3) 建资产不带 projectId → 400（t69 强约束）
+  no_proj_payload="{\"name\":\"冒烟无项目资产 ${TAG}\",\"targetType\":\"Web应用\",\"targetSource\":\"客户委托\",\"priority\":\"P3\",\"status\":\"active\""
+  [ -n "$TEAM_ID" ] && no_proj_payload="${no_proj_payload},\"teamId\":\"${TEAM_ID}\""
+  no_proj_payload="${no_proj_payload}}"
+  api_json POST /api/v1/assets "$ADMIN_TOKEN" "$no_proj_payload"
+  judge "link/建资产缺projectId-400" 400 '' "POST /assets 必须挂项目"
+
+  # 4) projectId 不存在 → 404
+  bad_proj_payload="{\"name\":\"冒烟坏项目资产 ${TAG}\",\"targetType\":\"Web应用\",\"targetSource\":\"客户委托\",\"priority\":\"P3\",\"status\":\"active\",\"projectId\":\"${RAND4}\""
+  [ -n "$TEAM_ID" ] && bad_proj_payload="${bad_proj_payload},\"teamId\":\"${TEAM_ID}\""
+  bad_proj_payload="${bad_proj_payload}}"
+  api_json POST /api/v1/assets "$ADMIN_TOKEN" "$bad_proj_payload"
+  judge "link/建资产projectId不存在-404" 404 '' "不存在的项目 → 404"
+
+  # 5) 期次不属于该项目 → 400
+  if [ -n "$PROJECT2_ID" ] && [ -n "$PHASE1_ID" ]; then
+    cross_phase_payload="{\"name\":\"冒烟跨期次资产 ${TAG}\",\"targetType\":\"Web应用\",\"targetSource\":\"客户委托\",\"priority\":\"P3\",\"status\":\"active\",\"projectId\":\"${PROJECT2_ID}\",\"phaseId\":\"${PHASE1_ID}\""
+    [ -n "$TEAM_ID" ] && cross_phase_payload="${cross_phase_payload},\"teamId\":\"${TEAM_ID}\""
+    cross_phase_payload="${cross_phase_payload}}"
+    api_json POST /api/v1/assets "$ADMIN_TOKEN" "$cross_phase_payload"
+    judge "link/期次不属于项目-400" 400 '' "phaseId 与 projectId 不匹配 → 400"
+  else
+    skip "link/期次不属于项目-400" "-" "缺少第二个项目/期次样本"
+  fi
+
+  # 6) 跨客户挂靠 → 2xx；重复挂靠 → 409；解绑最后一条 → 409
+  if [ -n "$PROJECT2_ID" ]; then
+    api_json POST "/api/v1/assets/${ASSET_ID}/project-links" "$ADMIN_TOKEN" \
+      "{\"projectId\":\"${PROJECT2_ID}\",\"linkType\":\"SHARED\",\"remark\":\"跨客户挂靠\"}"
+    judge_ok "link/跨客户挂靠" '' "POST /assets/{id}/project-links（另一客户项目）"
+    api_json POST "/api/v1/assets/${ASSET_ID}/project-links" "$ADMIN_TOKEN" \
+      "{\"projectId\":\"${PROJECT2_ID}\",\"linkType\":\"SHARED\"}"
+    judge "link/重复挂靠-409" 409 '' "同一项目重复挂靠 → 409"
+    request GET "/api/v1/assets/${ASSET_ID}/project-links" "$ADMIN_TOKEN"
+    LINK2_ID="$(flatten | grep -o "\"linkId\"[[:space:]]*:[[:space:]]*\"[0-9a-f-]\{36\}\"" | tail -1 | sed 's/.*"\([0-9a-f-]\{36\}\)"/\1/')"
+    if [ -n "$LINK2_ID" ]; then
+      request DELETE "/api/v1/assets/${ASSET_ID}/project-links/${LINK2_ID}" "$ADMIN_TOKEN"
+      judge_ok "link/解绑一条" '' "DELETE /assets/{id}/project-links/{linkId}"
+    else
+      skip "link/解绑一条" "-" "未取到第二条挂靠 id"
+    fi
+    # 解绑最后一条（只剩主项目挂靠时）→ 409
+    request GET "/api/v1/assets/${ASSET_ID}/project-links" "$ADMIN_TOKEN"
+    LAST_LINK_ID="$(flatten | grep -o "\"linkId\"[[:space:]]*:[[:space:]]*\"[0-9a-f-]\{36\}\"" | head -1 | sed 's/.*"\([0-9a-f-]\{36\}\)"/\1/')"
+    if [ -n "$LAST_LINK_ID" ]; then
+      request DELETE "/api/v1/assets/${ASSET_ID}/project-links/${LAST_LINK_ID}" "$ADMIN_TOKEN"
+      judge "link/解绑最后一条-409" 409 '' "资产至少保留一个项目挂靠"
+    else
+      skip "link/解绑最后一条-409" "-" "未取到挂靠 id"
+    fi
+  fi
+
+  # 7) 删除有项目的客户 → 409；删除有挂靠的项目 → 409
+  request DELETE "/api/v1/customers/${CUST_ID}" "$ADMIN_TOKEN"
+  judge "cust/删除有项目客户-409" 409 '' "客户下仍有项目"
+  request DELETE "/api/v1/projects/${PROJECT_ID}" "$ADMIN_TOKEN"
+  judge "proj/删除有挂靠项目-409" 409 '' "项目下仍有资产挂靠"
+
+  # 8) 工程师建客户/项目 → 403
+  if [ -n "$ENGINEER_TOKEN" ]; then
+    api_json POST '/api/v1/customers' "$ENGINEER_TOKEN" \
+      "{\"code\":\"SMK-ENG-${TAG}\",\"name\":\"冒烟越权客户 ${TAG}\"}"
+    judge "cust/工程师建客户-403" 403 '' "POST /customers 需 ADMIN/PROJECT_LEADER"
+    api_json POST '/api/v1/projects' "$ENGINEER_TOKEN" \
+      "{\"code\":\"SMK-ENG-PRJ-${TAG}\",\"name\":\"冒烟越权项目 ${TAG}\",\"customerId\":\"${CUST_ID}\"}"
+    judge "proj/工程师建项目-403" 403 '' "POST /projects 需 ADMIN/PROJECT_LEADER"
+  fi
+
+  # 9) 团队长改自己项目 200 / 他人项目 403（项目 managerId）
+  if [ -n "$LEADER_TOKEN" ] && [ -n "$LEADER_ID" ]; then
+    api_json POST '/api/v1/projects' "$ADMIN_TOKEN" \
+      "{\"code\":\"SMK-LEAD-${TAG}\",\"name\":\"冒烟组长项目 ${TAG}\",\"customerId\":\"${CUST_ID}\",\"managerId\":\"${LEADER_ID}\"}"
+    LEADER_PROJECT_ID="$(jfirst id)"
+    if [ -n "$LEADER_PROJECT_ID" ]; then
+      api_json PUT "/api/v1/projects/${LEADER_PROJECT_ID}" "$LEADER_TOKEN" \
+        "{\"code\":\"SMK-LEAD-${TAG}\",\"name\":\"冒烟组长项目(改名) ${TAG}\",\"customerId\":\"${CUST_ID}\",\"managerId\":\"${LEADER_ID}\"}"
+      judge "proj/团队长改自己项目-2xx" 200 '"success"[[:space:]]*:[[:space:]]*true' "managerId=自己"
+      api_json PUT "/api/v1/projects/${PROJECT_ID}" "$LEADER_TOKEN" \
+        "{\"code\":\"SMK-PRJ-${TAG}\",\"name\":\"冒烟越权改名 ${TAG}\",\"customerId\":\"${CUST_ID}\",\"managerId\":\"${ADMIN_ID}\"}"
+      judge "proj/团队长改他人项目-403" 403 '' "managerId≠自己"
+    else
+      skip "proj/团队长改自己项目-2xx" "$LAST_STATUS" "组长项目创建失败"
+      skip "proj/团队长改他人项目-403" "$LAST_STATUS" "组长项目创建失败"
+    fi
+  fi
+
+  # 10) 项目资产清单：工程师只看到可见资产（admin 至少 1 条）
+  request GET "/api/v1/projects/${PROJECT_ID}/assets?page=0&size=20" "$ADMIN_TOKEN"
+  judge "proj/资产清单-admin" 200 '"success"[[:space:]]*:[[:space:]]*true' "GET /projects/{id}/assets"
+  if [ -n "$ENGINEER_TOKEN" ]; then
+    request GET "/api/v1/projects/${PROJECT_ID}/assets?page=0&size=20" "$ENGINEER_TOKEN"
+    judge "proj/资产清单-工程师" 200 '"success"[[:space:]]*:[[:space:]]*true' "工程师按可见范围返回"
+  fi
+
+  # 11) 仪表盘分布卡片接口（t70）
+  request GET '/api/v1/dashboard/customer-distribution?topN=5' "$ADMIN_TOKEN"
+  judge "dash/客户分布" 200 '"success"[[:space:]]*:[[:space:]]*true' "GET /dashboard/customer-distribution"
+  request GET '/api/v1/dashboard/project-distribution?topN=5' "$ADMIN_TOKEN"
+  judge "dash/项目分布" 200 '"success"[[:space:]]*:[[:space:]]*true' "GET /dashboard/project-distribution"
 fi
 
 printf '\n==== 冒烟汇总 ====\n'
