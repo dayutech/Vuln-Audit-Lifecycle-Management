@@ -97,4 +97,32 @@ export interface WorkloadRankingItem {
   actualHours: number;
 }
 
+/**
+ * 客户分布项（t70 GET /dashboard/customer-distribution）。
+ *
+ * 口径差异（t70 约定，勿混用）：
+ * - assetCount：**可见范围内**的去重资产数（按调用者可见范围收敛，管理层=全量）；
+ * - projectCount：项目数，**组织结构事实不收敛**（所有登录用户看到同一个数）。
+ */
+export interface CustomerDistributionItem {
+  customerId: string;
+  customerCode?: string | null;
+  customerName?: string | null;
+  assetCount: number;
+  projectCount: number;
+}
+
+/**
+ * 项目分布项（t70 GET /dashboard/project-distribution）。
+ * assetCount 同样按可见范围收敛。
+ */
+export interface ProjectDistributionItem {
+  projectId: string;
+  projectCode?: string | null;
+  projectName?: string | null;
+  customerId?: string | null;
+  status?: string | null;
+  assetCount: number;
+}
+
 export type ExportType = 'assets' | 'vulnerabilities' | 'workload';

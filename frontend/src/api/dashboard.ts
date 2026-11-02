@@ -1,7 +1,9 @@
 import request from '@/utils/request';
 import type {
   AssetStats,
+  CustomerDistributionItem,
   DashboardConfigPayload,
+  ProjectDistributionItem,
   ExportType,
   TrendResponse,
   VulnerabilityStats,
@@ -58,6 +60,37 @@ export const getTrend = async (
 ): Promise<TrendResponse | null> =>
   // silent：趋势失败由 TrendChart 统一降级并给出分级提示，避免每条曲线弹一次全局错误
   unwrap<TrendResponse>(await request.get(`/dashboard/trends/${kind}`, { params: { days }, silent: true }));
+
+/* ==================== 客户 / 项目分布（t70，t74 接入大盘） ==================== */
+
+/**
+ * 客户分布（Top N，按可见资产数倒序）。
+ *
+ * silent：403（无权限）/ 404（旧后端无此接口）/ 5xx 的分级提示由卡片自己渲染，
+ * 避免和其他统计卡片重复弹全局错误。
+ */
+export const getCustomerDistribution = async (params: { topN?: number } = {}): Promise<CustomerDistributionItem[]> => {
+  const payload = unwrap<CustomerDistributionItem[]>(
+    await request.get('/dashboard/customer-distribution', {
+      params: { topN: params.topN ?? 10 },
+      silent: true,
+    })
+  );
+  return Array.isArray(payload) ? payload : [];
+};
+
+/** 项目分布（Top N，按可见资产数倒序，支持 customerId 过滤）；silent 理由同上 */
+export const getProjectDistribution = async (
+  params: { customerId?: string; topN?: number } = {}
+): Promise<ProjectDistributionItem[]> => {
+  const payload = unwrap<ProjectDistributionItem[]>(
+    await request.get('/dashboard/project-distribution', {
+      params: { customerId: params.customerId || undefined, topN: params.topN ?? 10 },
+      silent: true,
+    })
+  );
+  return Array.isArray(payload) ? payload : [];
+};
 
 /* ==================== 工作量排行 ==================== */
 

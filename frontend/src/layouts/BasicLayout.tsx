@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Layout, Menu, Dropdown, Avatar, Badge } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, SettingOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined, AuditOutlined, FileSearchOutlined, CloudUploadOutlined } from '@ant-design/icons';
+import { BankOutlined, ProjectOutlined, UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, SettingOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined, AuditOutlined, FileSearchOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import { useUserStore } from '@/store/userStore';
 import { getCurrentUser, logout } from '@/api/auth';
 import { getUnreadNotificationCount } from '@/api/notification';
@@ -99,6 +99,8 @@ const BasicLayout: React.FC = () => {
       type: 'group' as const,
       children: [
                 { key: '/dashboard', icon: <DashboardOutlined />, label: t('menu.dashboard') },
+                { key: '/customers', icon: <BankOutlined />, label: t('menu.customers') },
+                { key: '/projects', icon: <ProjectOutlined />, label: t('menu.projects') },
                 { key: '/assets', icon: <AppstoreOutlined />, label: t('menu.assets') },
                 { key: '/asset-groups', icon: <AppstoreOutlined />, label: t('menu.assetGroups') },
                 { key: '/vulnerabilities', icon: <SafetyCertificateOutlined />, label: t('menu.vulnerabilities') },

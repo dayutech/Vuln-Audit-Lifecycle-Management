@@ -59,6 +59,7 @@ import type {
   WorkloadStats,
 } from '@/types/dashboard';
 import TrendChart from './dashboard/TrendChart';
+import { CustomerDistributionCard, ProjectDistributionCard } from './dashboard/CustomerProjectDistribution';
 import WorkloadRank from './dashboard/WorkloadRank';
 import LayoutSettings from './dashboard/LayoutSettings';
 import { decodeLayout, defaultLayout, encodeLayout } from './dashboard/layoutConfig';
@@ -536,6 +537,34 @@ const Dashboard: React.FC = () => {
             variant="borderless"
           >
             {renderVulnChart()}
+          </Card>
+        );
+      case 'chart-customer-dist':
+        return (
+          <Card
+            title={
+              <Space size={6}>
+                {t('dashboard.card.customerDistribution')}
+                <Tag color={statsScopeTagColor(scope.tone)}>{scopeLabel}</Tag>
+              </Space>
+            }
+            variant="borderless"
+          >
+            <CustomerDistributionCard scopeLabel={scopeLabel} scopeTone={scope.tone} />
+          </Card>
+        );
+      case 'chart-project-dist':
+        return (
+          <Card
+            title={
+              <Space size={6}>
+                {t('dashboard.card.projectDistribution')}
+                <Tag color={statsScopeTagColor(scope.tone)}>{scopeLabel}</Tag>
+              </Space>
+            }
+            variant="borderless"
+          >
+            <ProjectDistributionCard scopeLabel={scopeLabel} scopeTone={scope.tone} />
           </Card>
         );
       case 'rank-workload':

@@ -34,6 +34,39 @@ export interface AssetTagVO {
   created_at?: string;
 }
 
+/** 资产挂靠视图（后端 t69 AssetProjectLinkResponse） */
+export interface AssetProjectLinkVO {
+  linkId: string;
+  assetId: string;
+  projectId: string;
+  projectCode?: string | null;
+  projectName?: string | null;
+  customerId?: string | null;
+  customerName?: string | null;
+  phaseId?: string | null;
+  phaseName?: string | null;
+  /** TARGET / SHARED / REFERENCE */
+  linkType?: string | null;
+  remark?: string | null;
+  linkedBy?: string | null;
+  linkedAt?: string | null;
+}
+
+/** 资产列表/详情里的客户摘要（后端 CustomerBrief） */
+export interface AssetOwnerCustomerVO {
+  id: string;
+  code?: string | null;
+  name?: string | null;
+}
+
+/** 资产列表/详情里的项目摘要（后端 ProjectBrief，customerId 用于归组） */
+export interface AssetOwnerProjectVO {
+  id: string;
+  code?: string | null;
+  name?: string | null;
+  customerId?: string | null;
+}
+
 export interface AssetVO {
   id: string;
   name: string;
@@ -57,6 +90,11 @@ export interface AssetVO {
   owner?: UserVO;
   team?: any;
   vulnerability_count?: number;
+  /** t69：资产所属客户/项目摘要（列表与详情都会带） */
+  customers?: AssetOwnerCustomerVO[] | null;
+  projects?: AssetOwnerProjectVO[] | null;
+  /** t69：只在 GET /assets/{id} 返回明细 */
+  projectLinks?: AssetProjectLinkVO[] | null;
   created_at: string;
   createdAt?: string;
   updated_at?: string;
@@ -253,6 +291,13 @@ export interface CreateAssetRequest {
   priority: string;
   status: string;
   team_id: string;
+  /** t69 硬约束：创建资产必须挂靠一个项目 */
+  project_id: string;
+  /** 项目启用分期时可选期次 */
+  phase_id?: string;
+  /** TARGET / SHARED / REFERENCE，默认 TARGET */
+  link_type?: string;
+  remark?: string;
 }
 
 export interface UpdateAssetRequest {

@@ -1,5 +1,6 @@
 import request from '@/utils/request';
 import type {
+  AssetProjectLinkVO,
   AssetVO,
   CreateAssetRequest,
   UpdateAssetRequest,
@@ -67,7 +68,12 @@ export const createAsset = (data: CreateAssetRequest): Promise<AssetVO> => {
     priority: data.priority,
     status: data.status,
     teamId: data.team_id,
-  });
+    // t69：创建资产必须挂项目；phaseId 仅在分期项目且用户选择时提交
+    projectId: data.project_id,
+    phaseId: data.phase_id || undefined,
+    linkType: data.link_type || undefined,
+    remark: data.remark || undefined,
+  }, { silent: true } as any);
 };
 
 export const getAssetOptions = (): Promise<AssetOptionsResponse> => {
@@ -443,4 +449,40 @@ export const addAssetToGroup = (groupId: string, assetId: string): Promise<any> 
 /** 从分组移除资产（DELETE /asset-groups/{groupId}/assets/{assetId}） */
 export const removeAssetFromGroup = (groupId: string, assetId: string): Promise<any> => {
   return request.delete(`/asset-groups/${groupId}/assets/${assetId}`);
+};
+
+/* ==================== 项目挂靠（t69 / t73） ==================== */
+
+/** GET /assets/{id}/project-links —— 资产的项目挂靠明细（项目/客户摘要 + linkType/备注） */
+export const getAssetProjectLinks = (assetId: string): Promise<AssetProjectLinkVO[]> => {
+  return request.get(`/assets/${assetId}/project-links`);
+};
+
+/** POST /assets/{id}/project-links —— 追加挂靠；重复 (资产,项目,期次) 409；允许跨客户 */
+export const addAssetProjectLink = (
+  assetId: string,
+  data: { project_id: string; phase_id?: string | null; link_type?: string | null; remark?: string | null },
+): Promise<AssetProjectLinkVO> => {
+  return request.post(
+    `/assets/${assetId}/project-links`,
+    {
+      projectId: data.project_id,
+      phaseId: data.phase_id || null,
+      linkType: data.link_type || undefined,
+      remark: data.remark || undefined,
+    },
+    { silent: true } as any,
+  );
+};
+
+/** DELETE /assets/{id}/project-links/{linkId} —— 不存在/不属于该资产 404；最后一条 409 */
+export const removeAssetProjectLink = (assetId: string, linkId: string): Promise<any> => {
+  return request.delete(`/assets/${assetId}/project-links/${linkId}`, { silent: true } as any);
+};
+
+/** 解包挂靠列表（兼容 ApiResponse / 裸数组） */
+export const extractAssetProjectLinks = (res: any): AssetProjectLinkVO[] => {
+  const payload = res?.data ?? res ?? [];
+  const items = Array.isArray(payload) ? payload : payload?.content || payload?.items || [];
+  return Array.isArray(items) ? (items as AssetProjectLinkVO[]) : [];
 };

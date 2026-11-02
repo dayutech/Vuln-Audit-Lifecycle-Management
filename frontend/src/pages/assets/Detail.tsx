@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Tabs, Card, Button, Descriptions, Tag, Spin, Result, Form, Input, Select, Row, Col, Space, Upload, Table, message, Modal, Tooltip, Steps, Alert, Typography } from 'antd';
-import { AppstoreOutlined, BuildOutlined, FileZipOutlined, BugOutlined, SafetyCertificateOutlined, UploadOutlined, PlusOutlined, MinusCircleOutlined, UserOutlined, LockOutlined, TagOutlined, PlusCircleOutlined, CodeOutlined, SettingOutlined, NodeIndexOutlined, LinkOutlined, InfoCircleOutlined, PlayCircleOutlined, StopOutlined, CloudUploadOutlined, ReloadOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, BuildOutlined, FileZipOutlined, BugOutlined, SafetyCertificateOutlined, UploadOutlined, PlusOutlined, MinusCircleOutlined, UserOutlined, LockOutlined, TagOutlined, PlusCircleOutlined, CodeOutlined, SettingOutlined, NodeIndexOutlined, LinkOutlined, InfoCircleOutlined, PlayCircleOutlined, StopOutlined, CloudUploadOutlined, ReloadOutlined, ProjectOutlined } from '@ant-design/icons';
 import { 
   getAssetDetail, 
   getAssetVersions,
@@ -51,6 +51,7 @@ import type { UserDirectoryEntry } from '@/api/user';
 import type { AssetVO, AssetFileVO, AssetDeliverableVO, EnvironmentVO, AssetVersionVO, AssetAccessVO, AssetClaimVO } from '@/types/asset';
 
 import AssetTagsPanel from './AssetTagsPanel';
+import AssetProjectLinksPanel from './AssetProjectLinksPanel';
 import { useUserStore } from '@/store/userStore';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
 import { canWriteAsset, resolveCurrentUserId, ASSET_WRITE_FORBIDDEN_TIP } from '@/utils/accessRoles';
@@ -2171,6 +2172,9 @@ const AssetDetail: React.FC = () => {
           </TabPane>
           <TabPane tab={<span><TagOutlined />{t('asset.detail.tabTagsPlaceholder')}</span>} key="asset-tags">
             {asset?.id ? <AssetTagsPanel assetId={asset.id} canWrite={canWriteCurrentAsset} /> : null}
+          </TabPane>
+          <TabPane tab={<span><ProjectOutlined />{t('asset.projectLink.title')}</span>} key="project-links">
+            {asset?.id ? <AssetProjectLinksPanel assetId={asset.id} canWrite={canWriteCurrentAsset} /> : null}
           </TabPane>
           <TabPane tab={<span><BuildOutlined />{t('asset.detail.tabEnvironments')}</span>} key="environments">
             <div style={{ padding: '24px 0' }}>

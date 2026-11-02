@@ -3,6 +3,7 @@ import { createBrowserRouter, Navigate } from 'react-router-dom';
 import BasicLayout from '@/layouts/BasicLayout';
 import Login from '@/pages/Login';
 import Dashboard from '@/pages/Dashboard';
+import Customers from '@/pages/customers/index';
 import Assets from '@/pages/assets/index';
 import AssetDetail from '@/pages/assets/Detail';
 import Vulnerabilities from '@/pages/vulnerabilities/index';
@@ -20,6 +21,8 @@ import ApprovalScopes from '@/pages/approval-scopes/index';
 import AuditLogs from '@/pages/audit-logs/index';
 import { ErrorPage } from '@/components/Feedback';
 import ImportPage from '@/pages/import/index';
+import Projects from '@/pages/projects/index';
+import ProjectDetail from '@/pages/projects/Detail';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const token = localStorage.getItem('access_token');
@@ -46,6 +49,18 @@ const router = createBrowserRouter([
       {
         path: '/dashboard',
         element: <Dashboard />,
+      },
+      {
+        path: '/customers',
+        element: <Customers />,
+      },
+      {
+        path: '/projects',
+        element: <Projects />,
+      },
+      {
+        path: '/projects/:id',
+        element: <ProjectDetail />,
       },
       {
         path: '/assets',

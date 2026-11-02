@@ -74,6 +74,8 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
 
   const createdUsers = result?.createdUsers ?? [];
   const failedRows = result?.failedRows ?? [];
+  /** t78：成功行提示（旧后端无 notes 字段 → 空数组，不渲染区块） */
+  const notes = result?.notes ?? [];
   const { permissionDenied, dataErrors } = useMemo(
     () => splitImportFailures(failedRows),
     [failedRows],
@@ -390,9 +392,39 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
             }
           />
 
-          <Space size={48} wrap style={{ marginBottom: failedRows.length > 0 || createdUsers.length > 0 ? 16 : 0 }}>
-            <Statistic title="数据行总数" value={result.totalRows} />
-            <Statistic title="成功入库" value={result.successRows} valueStyle={{ color: '#389e0d' }} />
+          {notes.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16, borderColor: '#ffe58f', background: '#fffbe6' }}
+              message={t('import.notes.title')}
+              description={
+                <ul style={{ margin: 0, paddingLeft: 20 }}>
+                  {notes.map((note) => (
+                    <li key={`${note.line}-${note.message}`}>
+                      {t('import.notes.line', { line: note.line, message: note.message })}
+                    </li>
+                  ))}
+                </ul>
+              }
+            />
+          )}
+
+          <Space size={48} wrap style={{ marginBottom: failedRows.length > 0 || createdUsers.length > 0 || notes.length > 0 ? 16 : 0 }}>
+            <Statistic title={t('import.statTotalRows')} value={result.totalRows} />
+            <Statistic
+              title={t('import.statSuccessRows')}
+              value={result.successRows}
+              valueStyle={{ color: '#389e0d' }}
+              suffix={notes.length > 0 ? t('import.notes.successWithNotes', { count: notes.length }) : undefined}
+            />
+            {notes.length > 0 && (
+              <Statistic
+                title={t('import.notes.stat')}
+                value={notes.length}
+                valueStyle={{ color: '#d46b08' }}
+              />
+            )}
             <Statistic
               title="数据错误"
               value={dataErrors.length}

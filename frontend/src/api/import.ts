@@ -39,6 +39,12 @@ export interface ImportedUser {
 }
 
 /** 导入结果 */
+/** 成功行上的提示（t78）：该行已入库，但挂靠方式等需要提醒 */
+export interface ImportNote {
+  line: number;
+  message: string;
+}
+
 export interface ImportResult {
   /** 文件中的数据行数（不含表头与空行） */
   totalRows: number;
@@ -46,6 +52,11 @@ export interface ImportResult {
   successRows: number;
   /** 失败行明细 */
   failedRows: ImportFailedRow[];
+  /**
+   * 成功行提示（t78，仅资产导入「未指定项目」时产生）。
+   * 旧后端没有该字段 → 统一归一为空数组，调用方无需判空。
+   */
+  notes: ImportNote[];
   /** 仅用户导入返回：本次创建的用户与初始密码 */
   createdUsers?: ImportedUser[];
 }
@@ -91,6 +102,16 @@ export const extractImportResult = (res: unknown): { result: ImportResult; messa
     };
   });
 
+  // t78：成功行提示（旧后端无该字段 → 空数组）
+  const rawNotes = Array.isArray(payload.notes) ? (payload.notes as unknown[]) : [];
+  const notes: ImportNote[] = rawNotes.map((item) => {
+    const row = (item ?? {}) as Record<string, unknown>;
+    return {
+      line: Number(row.line ?? 0),
+      message: typeof row.message === 'string' ? row.message : String(row.message ?? ''),
+    };
+  });
+
   const rawCreated = Array.isArray(payload.createdUsers) ? (payload.createdUsers as unknown[]) : [];
   const createdUsers: ImportedUser[] = rawCreated.map((item) => {
     const row = (item ?? {}) as Record<string, unknown>;
@@ -109,6 +130,7 @@ export const extractImportResult = (res: unknown): { result: ImportResult; messa
       totalRows: Number(payload.totalRows ?? 0),
       successRows: Number(payload.successRows ?? 0),
       failedRows,
+      notes,
       createdUsers,
     },
     message: typeof envelope?.message === 'string' ? envelope.message : undefined,
@@ -146,8 +168,12 @@ export const IMPORT_TYPE_META: Record<ImportType, ImportTypeMeta> = {
   assets: {
     label: '资产导入',
     templateFile: 'assets_template.csv',
-    columns: 'name, targetType, targetSource, priority, status, teamCode（或 teamId）, description',
-    tips: 'teamCode 可填团队名称或团队 UUID；priority 取 P0/P1/P2/P3，status 取 active/under_test/suspended/archived。',
+    columns:
+      'name, targetType, targetSource, priority, status, teamCode（或 teamId）, customerCode, projectCode, phaseNo, description',
+    tips:
+      'teamCode 可填团队名称或团队 UUID；priority 取 P0/P1/P2/P3，status 取 active/under_test/suspended/archived。' +
+      'customerCode / projectCode / phaseNo 为可选列（t78）：填了 projectCode 就挂到该项目，同时填 customerCode 时必须与项目所属客户一致；' +
+      '不填 projectCode 的行会被自动挂到历史项目（CUST-DEFAULT / PRJ-HISTORY），导入结果里以「提示」形式列出，属于成功行。',
     listPath: '/assets',
     listLabel: '资产列表',
   },

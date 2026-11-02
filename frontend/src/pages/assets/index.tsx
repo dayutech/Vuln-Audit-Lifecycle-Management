@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   Table,
   Button,
   Space,
@@ -9,6 +10,7 @@ import {
   Modal,
   Form,
   Select,
+  Tooltip,
   message,
 } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
@@ -27,6 +29,11 @@ import type {
   UpdateAssetRequest,
 } from '@/types/asset';
 import { getTeamList } from '@/api/team';
+import { getCustomerOptions, extractCustomerPage } from '@/api/customer';
+import { getProjectDetail, getProjectList, extractPhaseList } from '@/api/project';
+import type { CustomerVO } from '@/types/customer';
+import type { PhaseVO, ProjectVO } from '@/types/project';
+import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
 import { canCreateAsset } from '@/utils/accessRoles';
 import type { TeamVO } from '@/types/team';
@@ -34,6 +41,17 @@ import { useT } from '@/i18n';
 import type { MessageKey } from '@/i18n/messages/zh-CN';
 
 const { TextArea } = Input;
+
+/** 项目详情响应里的期次在 data.phases（不是数组/分页），统一取一次 */
+const extractDetailPhases = (res: any): PhaseVO[] => {
+  const payload = res?.data ?? res;
+  const fromDetail = payload?.phases;
+  if (Array.isArray(fromDetail)) return fromDetail as PhaseVO[];
+  return extractPhaseList(res);
+};
+
+/** POST /assets 403 兜底（后端 canCreateAssetInTeam 拒绝） */
+const ASSET_CREATE_FORBIDDEN_FALLBACK = '无权在该团队下创建资产（需为管理员 / 项目负责人 / 小组长且有团队范围）';
 
 const Assets: React.FC = () => {
   const { t } = useT();
@@ -44,7 +62,14 @@ const Assets: React.FC = () => {
   const [data, setData] = useState<AssetVO[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
-  const [params, setParams] = useState({ page: 1, page_size: 10, search: '' });
+  const [params, setParams] = useState<{
+    page: number;
+    page_size: number;
+    search: string;
+    customer_id?: string;
+    project_id?: string;
+    phase_id?: string;
+  }>({ page: 1, page_size: 10, search: '' });
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [currentAsset, setCurrentAsset] = useState<AssetVO | null>(null);
@@ -54,6 +79,17 @@ const Assets: React.FC = () => {
   const [priorityOptions, setPriorityOptions] = useState<Array<{ label: string; value: string }>>([]);
   const [statusOptions, setStatusOptions] = useState<Array<{ label: string; value: string }>>([]);
   const [form] = Form.useForm();
+
+  /* ---- t73 项目挂靠：客户 → 项目 → 期次 三级联动 ---- */
+  const [customers, setCustomers] = useState<CustomerVO[]>([]);
+  /** 筛选区的项目/期次选项 */
+  const [filterProjects, setFilterProjects] = useState<ProjectVO[]>([]);
+  const [filterPhases, setFilterPhases] = useState<PhaseVO[]>([]);
+  /** 新建表单的项目/期次选项（按表单里选择的客户过滤） */
+  const [formProjects, setFormProjects] = useState<ProjectVO[]>([]);
+  const [formPhases, setFormPhases] = useState<PhaseVO[]>([]);
+  const [formCustomerId, setFormCustomerId] = useState<string | undefined>(undefined);
+  const [projectMissing, setProjectMissing] = useState(false);
 
   const unwrapPayload = (res: any) => (res?.data ? res.data : res);
   const normalizeAsset = (item: AssetVO): AssetVO => ({
@@ -66,6 +102,8 @@ const Assets: React.FC = () => {
     target_source: item.target_source ?? item.targetSource ?? '',
     created_at: item.created_at ?? item.createdAt ?? '',
     updated_at: item.updated_at ?? item.updatedAt,
+    customers: item.customers ?? [],
+    projects: item.projects ?? [],
   });
 
   const fetchData = async () => {
@@ -84,6 +122,78 @@ const Assets: React.FC = () => {
     }
   };
 
+  const loadCustomers = async () => {
+    try {
+      const res = await getCustomerOptions(undefined, 200);
+      setCustomers(extractCustomerPage(res).items);
+    } catch {
+      setCustomers([]);
+    }
+  };
+
+  /** 筛选区：选定客户后按客户过滤项目（未选客户 = 该项目列表为空，避免全量拉取） */
+  const loadFilterProjects = async (customerId?: string) => {
+    if (!customerId) {
+      setFilterProjects([]);
+      setFilterPhases([]);
+      return;
+    }
+    try {
+      const res = await getProjectList({ page: 1, page_size: 200, customerId });
+      const payload = (res as any)?.data ?? res;
+      const items = payload?.content || payload?.items || [];
+      setFilterProjects(Array.isArray(items) ? items : []);
+    } catch {
+      setFilterProjects([]);
+    }
+  };
+
+  /** 筛选区：选定项目后拉该项目的期次（仅分期项目有期次） */
+  const loadFilterPhases = async (projectId?: string) => {
+    if (!projectId) {
+      setFilterPhases([]);
+      return;
+    }
+    try {
+      const res = await getProjectDetail(projectId);
+      setFilterPhases(extractDetailPhases(res));
+    } catch {
+      setFilterPhases([]);
+    }
+  };
+
+  /** 新建表单：客户 → 项目 */
+  const loadFormProjects = async (customerId?: string) => {
+    if (!customerId) {
+      setFormProjects([]);
+      setFormPhases([]);
+      return;
+    }
+    try {
+      const res = await getProjectList({ page: 1, page_size: 200, customerId });
+      const payload = (res as any)?.data ?? res;
+      const items = payload?.content || payload?.items || [];
+      setFormProjects(Array.isArray(items) ? items : []);
+    } catch {
+      setFormProjects([]);
+    }
+  };
+
+  /** 新建表单：项目 → 期次（项目启用分期时才有意义） */
+  const loadFormPhases = async (projectId?: string) => {
+    const project = formProjects.find((item) => item.id === projectId);
+    if (!projectId || !project?.isPhased) {
+      setFormPhases([]);
+      return;
+    }
+    try {
+      const res = await getProjectDetail(projectId);
+      setFormPhases(extractDetailPhases(res));
+    } catch {
+      setFormPhases([]);
+    }
+  };
+
   const fetchTeams = async () => {
     try {
       const res = await getTeamList();
@@ -99,10 +209,23 @@ const Assets: React.FC = () => {
     try {
       const res: any = await getAssetOptions();
       const payload = res?.data?.data ?? res?.data ?? res;
-      setTargetTypeOptions(Array.isArray(payload?.targetTypes) ? payload.targetTypes : []);
-      setTargetSourceOptions(Array.isArray(payload?.targetSources) ? payload.targetSources : []);
-      setPriorityOptions(Array.isArray(payload?.priorities) ? payload.priorities : []);
-      setStatusOptions(Array.isArray(payload?.statuses) ? payload.statuses : []);
+      const types = Array.isArray(payload?.targetTypes) ? payload.targetTypes : [];
+      const sources = Array.isArray(payload?.targetSources) ? payload.targetSources : [];
+      const priorities = Array.isArray(payload?.priorities) ? payload.priorities : [];
+      const statuses = Array.isArray(payload?.statuses) ? payload.statuses : [];
+      setTargetTypeOptions(types);
+      setTargetSourceOptions(sources);
+      setPriorityOptions(priorities);
+      setStatusOptions(statuses);
+      /**
+       * 选项是异步到达的（handleCreate 时可能还是空数组），这里给「新建」表单补一次默认值，
+       * 避免四个必填下拉全空导致「确定」被表单静默拦下（t73 实测：请选择资产类型/来源）。
+       * 用户已手选的值不覆盖。
+       */
+      if (!form.getFieldValue('target_type') && types[0]) form.setFieldValue('target_type', types[0].value);
+      if (!form.getFieldValue('target_source') && sources[0]) form.setFieldValue('target_source', sources[0].value);
+      if (!form.getFieldValue('priority') && priorities[0]) form.setFieldValue('priority', priorities[0].value);
+      if (!form.getFieldValue('status') && statuses[0]) form.setFieldValue('status', statuses[0].value);
     } catch (error) {
       setTargetTypeOptions([]);
       setTargetSourceOptions([]);
@@ -113,19 +236,27 @@ const Assets: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, [params.page, params.page_size, params.search]);
+  }, [params.page, params.page_size, params.search, params.customer_id, params.project_id, params.phase_id]);
 
   useEffect(() => {
     fetchTeams();
     fetchAssetOptions();
+    loadCustomers();
   }, []);
 
   const handleCreate = () => {
+    setProjectMissing(true);
+    setFormProjects([]);
+    setFormPhases([]);
+    setFormCustomerId(undefined);
     setModalMode('create');
     form.resetFields();
     form.setFieldsValue({
       priority: priorityOptions[0]?.value,
       status: statusOptions[0]?.value,
+      // 类型/来源取首项默认值：必填项空着会让「确定」被表单静默拦下（t73 实测）
+      target_type: targetTypeOptions[0]?.value,
+      target_source: targetSourceOptions[0]?.value,
     });
     setCurrentAsset(null);
     setIsModalVisible(true);
@@ -205,18 +336,59 @@ const Assets: React.FC = () => {
     try {
       const values = await form.validateFields();
       if (modalMode === 'create') {
-        await createAsset(values as CreateAssetRequest);
+        // t69 硬约束：projectId 必填（表单里已禁用提交，这里再兜一层）
+        if (!values.project_id) {
+          setProjectMissing(true);
+          return;
+        }
+        await createAsset({
+          ...values,
+          project_id: values.project_id,
+          phase_id: values.phase_id || undefined,
+          link_type: values.link_type || undefined,
+          remark: values.remark || undefined,
+        } as CreateAssetRequest);
         message.success(t('asset.list.createSuccess'));
       } else {
         if (currentAsset) {
-          await updateAsset(currentAsset.id, values as UpdateAssetRequest);
+          // 编辑只改资产本体：项目挂靠走详情页「所属项目」页签（t73），
+          // 这里显式剔除挂靠字段（编辑态表单本来不渲染它们，保持防御）
+          const rest = { ...values } as Record<string, any>;
+          ['customer_id', 'project_id', 'phase_id', 'link_type', 'remark'].forEach((field) => {
+            delete rest[field];
+          });
+          await updateAsset(currentAsset.id, rest as UpdateAssetRequest);
           message.success(t('asset.list.updateSuccess'));
         }
       }
       setIsModalVisible(false);
       fetchData();
     } catch (error) {
-      // Form validation error or API error
+      if ((error as any)?.errorFields) {
+        // 表单校验失败：交给 Form 自己展示；缺项目时同步置灰提交
+        if ((error as any)?.errorFields?.some((item: any) => String(item?.name ?? '').includes('project_id'))) {
+          setProjectMissing(true);
+        }
+        return;
+      }
+      const status = getApiErrorStatus(error);
+      if (status === 400) {
+        message.error(getApiErrorMessage(error, t('asset.projectLink.createRequired')));
+        return;
+      }
+      if (status === 404) {
+        message.error(t('asset.projectLink.notFound'));
+        return;
+      }
+      if (status === 409) {
+        message.error(getApiErrorMessage(error, t('asset.projectLink.duplicate')));
+        return;
+      }
+      if (status === 403) {
+        message.error(getApiErrorMessage(error, ASSET_CREATE_FORBIDDEN_FALLBACK));
+        return;
+      }
+      message.error(getApiErrorMessage(error, t('common.operationFailed')));
     }
   };
 
@@ -242,8 +414,108 @@ const Assets: React.FC = () => {
       key: 'owner_name',
       render: (text: string) => text || '-'
     },
-    { title: t('asset.list.colType'), dataIndex: 'target_type', key: 'target_type' },
-    { title: t('asset.list.colSource'), dataIndex: 'target_source', key: 'target_source' },
+    {
+      title: t('asset.list.colCustomer'),
+      key: 'customers',
+      width: 200,
+      render: (_: unknown, record: AssetVO) => {
+        const list = record.customers ?? [];
+        if (list.length === 0) return '-';
+        const visible = list.slice(0, 2);
+        const rest = list.length - visible.length;
+        return (
+          <Space size={4} wrap>
+            {visible.map((item) => (
+              <Tag key={item.id} color="geekblue">{item.name ?? item.code ?? item.id}</Tag>
+            ))}
+            {rest > 0 ? (
+              <Tooltip title={list.slice(2).map((item) => item.name ?? item.code ?? item.id).join('、')}>
+                <Tag>{t('asset.list.moreLinks', { count: rest })}</Tag>
+              </Tooltip>
+            ) : null}
+          </Space>
+        );
+      },
+    },
+    {
+      title: t('asset.list.colProject'),
+      key: 'projects',
+      width: 240,
+      render: (_: unknown, record: AssetVO) => {
+        const list = record.projects ?? [];
+        if (list.length === 0) return '-';
+        const visible = list.slice(0, 2);
+        const rest = list.length - visible.length;
+        return (
+          <Space size={4} wrap>
+            {visible.map((item) => (
+              <Tag key={item.id} color="blue" style={{ cursor: 'pointer' }} onClick={() => navigate(`/projects/${item.id}`)}>
+                {item.name ?? item.code ?? item.id}
+              </Tag>
+            ))}
+            {rest > 0 ? (
+              <Tooltip title={list.slice(2).map((item) => item.name ?? item.code ?? item.id).join('、')}>
+                <Tag>{t('asset.list.moreLinks', { count: rest })}</Tag>
+              </Tooltip>
+            ) : null}
+          </Space>
+        );
+      },
+    },
+    {
+      title: t('asset.list.colCustomer'),
+      key: 'customers',
+      width: 200,
+      render: (_: unknown, record: AssetVO) => {
+        const list = record.customers ?? [];
+        if (list.length === 0) return '-';
+        const visible = list.slice(0, 2);
+        const rest = list.length - visible.length;
+        return (
+          <Space size={4} wrap>
+            {visible.map((item) => (
+              <Tag key={item.id} color="geekblue">{item.name ?? item.code ?? item.id}</Tag>
+            ))}
+            {rest > 0 ? (
+              <Tooltip title={list.slice(2).map((item) => item.name ?? item.code ?? item.id).join('、')}>
+                <Tag>{t('asset.list.moreLinks', { count: rest })}</Tag>
+              </Tooltip>
+            ) : null}
+          </Space>
+        );
+      },
+    },
+    {
+      title: t('asset.list.colProject'),
+      key: 'projects',
+      width: 240,
+      render: (_: unknown, record: AssetVO) => {
+        const list = record.projects ?? [];
+        if (list.length === 0) return '-';
+        const visible = list.slice(0, 2);
+        const rest = list.length - visible.length;
+        return (
+          <Space size={4} wrap>
+            {visible.map((item) => (
+              <Tag
+                key={item.id}
+                color="blue"
+                style={{ cursor: 'pointer' }}
+                onClick={() => navigate(`/projects/${item.id}`)}
+              >
+                {item.name ?? item.code ?? item.id}
+              </Tag>
+            ))}
+            {rest > 0 ? (
+              <Tooltip title={list.slice(2).map((item) => item.name ?? item.code ?? item.id).join('、')}>
+                <Tag>{t('asset.list.moreLinks', { count: rest })}</Tag>
+              </Tooltip>
+            ) : null}
+          </Space>
+        );
+      },
+    },
+    { title: t('asset.list.colType'), dataIndex: 'target_type', key: 'target_type' },    { title: t('asset.list.colSource'), dataIndex: 'target_source', key: 'target_source' },
     { 
       title: t('asset.list.colPriority'), 
       dataIndex: 'priority', 
@@ -296,14 +568,62 @@ const Assets: React.FC = () => {
         ) : null
       }
     >
-      <div style={{ marginBottom: 16 }}>
-        <Input 
-          placeholder={t('asset.list.searchPlaceholder')} 
-          prefix={<SearchOutlined />} 
-          style={{ width: 300 }} 
+      <Space wrap style={{ marginBottom: 16 }}>
+        <Input
+          placeholder={t('asset.list.searchPlaceholder')}
+          prefix={<SearchOutlined />}
+          style={{ width: 260 }}
+          allowClear
           onPressEnter={(e) => setParams({ ...params, search: e.currentTarget.value, page: 1 })}
         />
-      </div>
+        <Select
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          style={{ width: 200 }}
+          placeholder={t('asset.list.filterCustomerPlaceholder')}
+          value={params.customer_id}
+          options={customers.map((customer) => ({ value: customer.id, label: customer.name }))}
+          onChange={(value) => {
+            setParams((prev) => ({ ...prev, customer_id: value, project_id: undefined, phase_id: undefined, page: 1 }));
+            loadFilterProjects(value);
+          }}
+        />
+        <Select
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          style={{ width: 220 }}
+          disabled={!params.customer_id}
+          placeholder={t('asset.list.filterProjectPlaceholder')}
+          value={params.project_id}
+          options={filterProjects.map((project) => ({ value: project.id, label: `${project.name}（${project.code}）` }))}
+          onChange={(value) => {
+            setParams((prev) => ({ ...prev, project_id: value, phase_id: undefined, page: 1 }));
+            loadFilterPhases(value);
+          }}
+        />
+        <Select
+          allowClear
+          style={{ width: 180 }}
+          disabled={!params.project_id || filterPhases.length === 0}
+          placeholder={t('asset.list.filterPhasePlaceholder')}
+          value={params.phase_id}
+          options={filterPhases.map((phase) => ({ value: phase.id, label: `${phase.phaseNo ?? '-'}. ${phase.name ?? ''}` }))}
+          onChange={(value) => setParams((prev) => ({ ...prev, phase_id: value, page: 1 }))}
+        />
+        {params.customer_id || params.project_id || params.phase_id ? (
+          <Button
+            onClick={() => {
+              setParams((prev) => ({ ...prev, customer_id: undefined, project_id: undefined, phase_id: undefined, page: 1 }));
+              setFilterProjects([]);
+              setFilterPhases([]);
+            }}
+          >
+            {t('asset.list.clearLinkFilter')}
+          </Button>
+        ) : null}
+      </Space>
       <Table 
         columns={columns} 
         dataSource={data} 
@@ -323,11 +643,86 @@ const Assets: React.FC = () => {
         onOk={handleModalOk}
         onCancel={() => setIsModalVisible(false)}
         destroyOnClose
+        okButtonProps={{ disabled: modalMode === 'create' && projectMissing }}
+        okText={t('common.confirm')}
+        cancelText={t('common.cancel')}
       >
         <Form form={form} layout="vertical">
           <Form.Item name="name" label={t('asset.list.colName')} rules={[{ required: true, message: t('asset.form.nameRequired') }]}>
             <Input />
           </Form.Item>
+          {modalMode === 'create' ? (
+            <>
+              <Alert
+                type={projectMissing ? 'warning' : 'info'}
+                showIcon
+                style={{ marginBottom: 12 }}
+                message={t('asset.projectLink.createRequired')}
+              />
+              <Form.Item
+                name="customer_id"
+                label={t('asset.projectLink.customerLabel')}
+                rules={[{ required: true, message: t('asset.projectLink.customerPlaceholder') }]}
+              >
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder={t('asset.projectLink.customerPlaceholder')}
+                  options={customers.map((customer) => ({ value: customer.id, label: customer.name }))}
+                  onChange={(value) => {
+                    setFormCustomerId(value);
+                    form.setFieldValue('project_id', undefined);
+                    form.setFieldValue('phase_id', undefined);
+                    setFormPhases([]);
+                    setProjectMissing(true);
+                    loadFormProjects(value);
+                  }}
+                />
+              </Form.Item>
+              <Form.Item
+                name="project_id"
+                label={t('asset.projectLink.projectLabel')}
+                rules={[{ required: true, message: t('asset.projectLink.projectRequired') }]}
+              >
+                <Select
+                  showSearch
+                  optionFilterProp="label"
+                  disabled={!formCustomerId}
+                  placeholder={t('asset.projectLink.projectPlaceholder')}
+                  options={formProjects.map((project) => ({ value: project.id, label: `${project.name}（${project.code}）` }))}
+                  onChange={(value) => {
+                    form.setFieldValue('phase_id', undefined);
+                    setProjectMissing(!value);
+                    loadFormPhases(value);
+                  }}
+                />
+              </Form.Item>
+              <Form.Item
+                name="phase_id"
+                label={t('asset.projectLink.phaseLabel')}
+                extra={formPhases.length === 0 ? t('asset.projectLink.phasePlaceholder') : undefined}
+              >
+                <Select
+                  allowClear
+                  disabled={formPhases.length === 0}
+                  placeholder={t('asset.projectLink.phasePlaceholder')}
+                  options={formPhases.map((phase) => ({ value: phase.id, label: `${phase.phaseNo ?? '-'}. ${phase.name ?? ''}` }))}
+                />
+              </Form.Item>
+              <Form.Item name="link_type" label={t('asset.projectLink.linkTypeLabel')} initialValue="TARGET">
+                <Select
+                  options={[
+                    { value: 'TARGET', label: t('asset.projectLink.linkTypeTARGET') },
+                    { value: 'SHARED', label: t('asset.projectLink.linkTypeSHARED') },
+                    { value: 'REFERENCE', label: t('asset.projectLink.linkTypeREFERENCE') },
+                  ]}
+                />
+              </Form.Item>
+              <Form.Item name="remark" label={t('asset.projectLink.remarkLabel')}>
+                <Input.TextArea rows={2} maxLength={500} placeholder={t('asset.projectLink.remarkPlaceholder')} />
+              </Form.Item>
+            </>
+          ) : null}
           <Form.Item name="team_id" label={t('asset.list.colTeam')} rules={[{ required: true, message: t('asset.form.teamRequired') }]}>
             <Select placeholder={t('asset.form.teamRequired')} showSearch optionFilterProp="label" options={teams.map((team) => ({ label: team.name, value: team.id }))} />
           </Form.Item>

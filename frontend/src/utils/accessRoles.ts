@@ -248,3 +248,33 @@ export const canSendVulnerabilityNotification = (profile: MyAccessProfile | null
 
 /** GET /teams/{id}/members：非可见团队后端 403，前端展示可读提示而不是空白表 */
 export const TEAM_MEMBERS_FORBIDDEN_MESSAGE = '无权查看该团队成员（仅可查看自己领导或所属团队）';
+
+/* ---------- 项目 / 期次（t72，对接后端 t68） ---------- */
+
+/**
+ * 项目写权限：ADMIN / PROJECT_LEADER 全量；team_leader 仅自己担任经理（managerId）的项目。
+ *
+ * 与后端保持一致：读全员开放；写为
+ * `hasAnyRole('ADMIN','PROJECT_LEADER') or @accessGuard.canManageProject(#id)`。
+ * 注意**不用** `isManagementProfile`：它带 audit 权限点兜底，会把审计读者误判成可写项目。
+ */
+export const canManageProject = (
+  profile: MyAccessProfile | null,
+  managerId: string | null | undefined,
+  currentUserId?: string | null,
+): boolean => {
+  if (!profile) return false;
+  if (includesRole(profile, MANAGEMENT_ROLES)) return true;
+  if (!managerId) return false;
+  const userId = profile.userId || currentUserId || undefined;
+  return Boolean(userId && userId === managerId);
+};
+
+/** 创建项目：POST /projects 没有 id，后端只允许 ADMIN / PROJECT_LEADER */
+export const canCreateProject = (profile: MyAccessProfile | null): boolean =>
+  includesRole(profile, MANAGEMENT_ROLES);
+
+export const PROJECT_FORBIDDEN_MESSAGE = '无权管理该项目（需为管理员 / 项目负责人或该项目经理）';
+export const PROJECT_CREATE_FORBIDDEN_MESSAGE = '无权创建项目（仅管理员 / 项目负责人可创建）';
+export const PROJECT_READONLY_HINT =
+  '只读视图：项目的创建 / 编辑 / 删除与状态流转仅管理员、项目负责人或该项目经理可用';

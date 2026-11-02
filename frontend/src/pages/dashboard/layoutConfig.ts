@@ -10,6 +10,8 @@ export const DASHBOARD_CARDS: DashboardCardDef[] = [
   { id: 'chart-trends', title: '趋势折线', defaultSpan: 24, description: '资产/漏洞/任务按天新增趋势' },
   { id: 'chart-asset-type', title: '资产分布', defaultSpan: 12, description: '资产类型与优先级分布' },
   { id: 'chart-vuln-severity', title: '漏洞分布', defaultSpan: 12, description: '漏洞严重程度与工作流状态' },
+  { id: 'chart-customer-dist', title: '按客户分布', defaultSpan: 12, description: 'Top N 客户：可见资产数与项目数' },
+  { id: 'chart-project-dist', title: '按项目分布', defaultSpan: 12, description: 'Top N 项目：可见资产数，可按客户过滤' },
   { id: 'rank-workload', title: '工作量排行', defaultSpan: 24, description: '按任务负责人聚合的排行' },
 ];
 
@@ -23,6 +25,8 @@ export const CARD_TITLE_KEYS: Record<string, MessageKey> = {
   'chart-asset-type': 'dashboard.card.assetDistribution',
   'chart-vuln-severity': 'dashboard.card.vulnDistribution',
   'rank-workload': 'dashboard.card.rankWorkload',
+  'chart-customer-dist': 'dashboard.card.customerDistribution',
+  'chart-project-dist': 'dashboard.card.projectDistribution',
 };
 
 export const cardTitleKey = (id: string): MessageKey =>
