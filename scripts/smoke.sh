@@ -1297,6 +1297,83 @@ if [ -n "$ENGINEER_TOKEN" ] && [ -n "$ASSET_ID" ]; then
   fi
 fi
 
+
+# ----------------------------------------------------------------------------- 第三批：后端消息 i18n + 四类资源标签写权限（t60/t61）
+RAND3="00000000-0000-4000-8000-0000000dd63a"
+if [ -n "$ENGINEER_TOKEN" ] && [ -n "$ADMIN_TOKEN" ]; then
+  # 1) 后端消息 i18n：Accept-Language: en → 英文；不带 → 中文
+  # 404 用管理员取（工程师访问随机资产会先被数据级守卫拦成 403，拿不到 404 文案）
+  request GET "/api/v1/assets/${RAND3}" "$ADMIN_TOKEN" -H 'Accept-Language: en'
+  judge "i18n/404-英文消息" 404 '(not found|Not found|not exist|Not exist)' "Accept-Language: en"
+  request GET "/api/v1/assets/${RAND3}" "$ADMIN_TOKEN"
+  judge "i18n/404-中文消息" 404 '不存在' "默认中文"
+  # 403 用工程师取（数据级守卫拒绝，文案应随语言切换）
+  request GET "/api/v1/assets/${RAND3}" "$ENGINEER_TOKEN" -H 'Accept-Language: en'
+  judge "i18n/403-越权访问-英文消息" 403 '(permission|Permission|forbidden|Forbidden|access)' "Accept-Language: en"
+  request GET '/api/v1/users?page=0&size=1' "$ENGINEER_TOKEN" -H 'Accept-Language: en'
+  judge "i18n/403-英文消息" 403 '(Forbidden|forbidden|permission|Permission|access|Access)' "Accept-Language: en"
+  request GET '/api/v1/users?page=0&size=1' "$ENGINEER_TOKEN"
+  judge "i18n/403-中文消息" 403 '(无权|权限|禁止|拒绝)' "默认中文"
+
+  # 2) 知识库文章标签：作者本人 200 / 他人 403 / 管理员 200（t61）
+  api_json POST '/api/v1/knowledge' "$ENGINEER_TOKEN" \
+    "{\"title\":\"冒烟工程师文章 ${TAG}\",\"category\":\"技术\",\"summary\":\"冒烟\",\"content\":\"冒烟内容\"}"
+  ENG_ARTICLE_ID="$(jfirst id)"
+  api_json POST '/api/v1/knowledge' "$ADMIN_TOKEN" \
+    "{\"title\":\"冒烟管理员文章 ${TAG}\",\"category\":\"技术\",\"summary\":\"冒烟\",\"content\":\"冒烟内容\"}"
+  ADMIN_ARTICLE_ID="$(jfirst id)"
+
+  if [ -n "$ADMIN_ARTICLE_ID" ]; then
+    request POST "/api/v1/knowledge/${ADMIN_ARTICLE_ID}/tags?tag=t63_other" "$ENGINEER_TOKEN"
+    judge "tags/工程师改他人文章标签-403" 403 '' "知识库标签：作者或管理层"
+  else
+    skip "tags/工程师改他人文章标签-403" "-" "文章样本创建失败"
+  fi
+  if [ -n "$ENG_ARTICLE_ID" ]; then
+    request POST "/api/v1/knowledge/${ENG_ARTICLE_ID}/tags?tag=t63_mine" "$ENGINEER_TOKEN"
+    judge_ok "tags/作者改自己文章标签-2xx" '' "知识库标签：作者本人"
+    request POST "/api/v1/knowledge/${ENG_ARTICLE_ID}/tags?tag=t63_admin" "$ADMIN_TOKEN"
+    judge_ok "tags/管理员改他人文章标签-2xx" '' "知识库标签：管理层"
+    request DELETE "/api/v1/knowledge/${ENG_ARTICLE_ID}" "$ADMIN_TOKEN" >/dev/null 2>&1
+  else
+    skip "tags/作者改自己文章标签-2xx" "-" "文章样本创建失败"
+    skip "tags/管理员改他人文章标签-2xx" "-" "文章样本创建失败"
+  fi
+  [ -n "$ADMIN_ARTICLE_ID" ] && request DELETE "/api/v1/knowledge/${ADMIN_ARTICLE_ID}" "$ADMIN_TOKEN" >/dev/null 2>&1
+
+  # 3) 文档标签：作者本人 201 / 他人 403 / 管理员 201 / 文档不存在 404（t61 + t65）
+  api_json POST '/api/v1/documents' "$ENGINEER_TOKEN" \
+    "{\"title\":\"冒烟工程师文档 ${TAG}\",\"category\":\"技术\",\"summary\":\"冒烟\",\"content\":\"冒烟文档内容\"}"
+  ENG_DOC_ID="$(jfirst id)"
+  api_json POST '/api/v1/documents' "$ADMIN_TOKEN" \
+    "{\"title\":\"冒烟管理员文档 ${TAG}\",\"category\":\"技术\",\"summary\":\"冒烟\",\"content\":\"冒烟文档内容\"}"
+  ADMIN_DOC_ID="$(jfirst id)"
+
+  if [ -n "$ADMIN_DOC_ID" ]; then
+    request POST "/api/v1/documents/${ADMIN_DOC_ID}/tags?tag=t63_other" "$ENGINEER_TOKEN"
+    judge "tags/工程师改他人文档标签-403" 403 '' "文档标签：作者或管理层"
+    request DELETE "/api/v1/documents/${ADMIN_DOC_ID}" "$ADMIN_TOKEN" >/dev/null 2>&1
+  else
+    skip "tags/工程师改他人文档标签-403" "-" "文档样本创建失败"
+  fi
+  if [ -n "$ENG_DOC_ID" ]; then
+    request POST "/api/v1/documents/${ENG_DOC_ID}/tags?tag=t63_mine" "$ENGINEER_TOKEN"
+    judge "tags/作者改自己文档标签-201" 201 '"success"[[:space:]]*:[[:space:]]*true' "文档标签：作者本人（201）"
+    request POST "/api/v1/documents/${ENG_DOC_ID}/tags?tag=t63_admin" "$ADMIN_TOKEN"
+    judge "tags/管理员改他人文档标签-201" 201 '"success"[[:space:]]*:[[:space:]]*true' "文档标签：管理层（201）"
+    request DELETE "/api/v1/documents/${ENG_DOC_ID}" "$ADMIN_TOKEN" >/dev/null 2>&1
+  else
+    skip "tags/作者改自己文档标签-201" "-" "文档样本创建失败"
+    skip "tags/管理员改他人文档标签-201" "-" "文档样本创建失败"
+  fi
+
+  # 4) 四类资源口径一致性：工具/资产标签仍按管理层与资产写权（不回归）
+  request GET "/api/v1/knowledge/${RAND3}/tags" "$ENGINEER_TOKEN"
+  judge "tags/不存在文章标签查询-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "标签查询保持开放"
+  request POST "/api/v1/knowledge/${RAND3}/tags?tag=x" "$ENGINEER_TOKEN"
+  judge "tags/不存在文章加标签-404" 404 '' "父资源不存在 → 404（t61/t65）"
+fi
+
 printf '\n==== 冒烟汇总 ====\n'
 printf 'TOTAL=%d  PASS=%d  FAIL=%d  SKIP=%d\n' "$TOTAL" "$PASSED" "$FAILED" "$SKIPPED"
 if [ "$FAILED" -gt 0 ]; then
