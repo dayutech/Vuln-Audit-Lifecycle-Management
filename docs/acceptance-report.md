@@ -10,7 +10,7 @@
 
 ## 0. 验收结论
 
-**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**557 个后端用例 100% 通过**（452 + 13 + 10 + 8 + 7 + 7 + 15 + 7 + 5 + t60 10 + t61 7 + t65 16），线上冒烟 **167/167 全绿**（t13 的 92 + t41 的 16 + t47 的 20），三账号交叉验证通过。
+**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**621 个后端用例 100% 通过**（历批累计 + t67–t78 客户/项目/挂靠域新增 64 例），线上冒烟 **195/195 全绿**（t13 的 92 + t41 的 16 + t47 的 20），三账号交叉验证通过。
 
 第二批（t49/t50/t51/t55）之后**鉴权缺口清零（15 → 0 组）**：资产域 6 组、协作域 4 组、组织/工具域 2 组、工具域追加 3 个端点全部收口，资产可见性与团队可见性均统一为单一事实来源：3 组「高」severity 缺口（团队 CRUD、环境增删改与部署、公告写）已修复，资产认领「完成/放弃」状态机已打通（此前恒 403）。
 
@@ -18,8 +18,8 @@
 
 | 关键指标 | 数值 |
 |---|---|
-| 后端自动化测试 | **557 用例 / 通过率 100%**（490 + 7 + 15 + 7 + 5 + t60 10 + t61 7 + t65 16），`mvn -B clean test` 全绿；t25 另有同一快照连续两次 452/452 全绿 |
-| 线上冒烟 | **167 用例 / 167 PASS / 0 FAIL / 0 SKIP**（92 + 16 + 20 + 26 + t63 13），第三批发布后复跑全绿 |
+| 后端自动化测试 | **621 用例 / 通过率 100%**（含客户/项目/挂靠域 CustomerProjectApi 14、AssetProjectLink 15、CustomerSummary 8、ImportAssetProject 10 等），`mvn -B clean test` 35:26 全绿 |
+| 线上冒烟 | **195 用例 / 195 PASS / 0 FAIL / 0 SKIP**（含 t75 新增 28 条客户/项目/挂靠用例），发布后复跑全绿 |
 | 部署后专项核对 | 11a~11k 共 **13 项实测全 PASS** |
 | 空库引导（真实建库路径） | 56 张表、RBAC 90 权限点 / 261 关联、admin 登录 200、`permissionCount=90` |
 | 接口总数 / 已做鉴权 | 263 个端点；角色注解 74、数据级守卫 79、方法内校验 12 → **165 个显式鉴权端点**（写端点 108/135 = 80%），其余见 §2 |
@@ -523,6 +523,34 @@ t65 做了一次全量扫描并在 `service/SubresourceGuard` 收敛为单点守
 证据：`SubresourceExistenceTest` 16 例（含「孤儿行未被写入」断言）、回归 151 例全绿（Asset/Vulnerability/Document/Knowledge/Tool/Team/Task/Environment/Notification + 四个鉴权专项 + i18n）。
 规则与完整清单同步写入 `deploy/README.md` §31。
 
+### 2.8 客户 / 项目 / 期次 / 资产挂靠 领域模型（t67，第一批：仅模型与迁移）
+
+新增业务归属层：**客户 → 项目 → 期次 → 资产挂靠**。本批只落实体、仓储与 V18 迁移，不含 API（下一批）。
+
+| 实体 / 表 | 要点 |
+|---|---|
+| `Customer` / `customers` | code 唯一(64)、name、industry、level(A/B/C)、contact_*、owner_id(客户经理)、status(active/inactive)；索引 status/owner |
+| `Project` / `projects` | code 唯一、customer_id 非空、type(PENTEST/CODE_AUDIT/EMERGENCY/COMPLIANCE/TRAINING/OTHER)、status(DRAFT/ACTIVE/PAUSED/CLOSED)、manager_id 非空、start/end_date、is_phased 默认 false、contract_no；索引 customer/manager/status |
+| `ProjectPhase` / `project_phases` | project_id 非空、phase_no、status(PLANNED/ACTIVE/DONE)；唯一 `(project_id, phase_no)` |
+| `AssetProjectLink` / `asset_project_links` | asset_id/project_id/customer_id(冗余) 非空、phase_id 可空、link_type(TARGET/SHARED/REFERENCE)、remark、linked_by/linked_at；唯一 `(asset_id, project_id, phase_key)` |
+
+**唯一约束的 NULL 方案**：MariaDB 唯一索引对 NULL 不去重，`UNIQUE(asset_id, project_id, phase_id)` 会放过重复的「项目级」挂靠。
+采用任务书允许的 **`phase_key` 计算列**（非 MariaDB 生成列）：`phase_key` 为普通 NOT NULL 列，
+`phase_id` 为空时写全 0 哨兵，由 `@PrePersist/@PreUpdate` 维护，唯一索引建在 `(asset_id, project_id, phase_key)`。
+不用 `AS (...) STORED` 生成列的原因：那是 MariaDB/MySQL 方言，H2 测试库语法不同，迁移脚本就无法在测试里原样执行验证。
+
+**`Asset` 不加 projectId 的原因**：资产常同时服务多个客户/项目（多对多）；单值外键会把历史挂靠覆盖掉，
+与审计可追溯相冲突；挂靠还需携带 link_type/remark/期次等自身属性；存量回填若走外键等于断言所有历史资产同属一个项目。
+
+**迁移 V18**：四张表 + 索引（`IF NOT EXISTS`）→ 默认客户 `CUST-DEFAULT`（「历史数据」）→ 历史项目 `PRJ-HISTORY`
+（customer=默认客户、ACTIVE、manager 取首个 admin，退化到首个用户/全 0 哨兵）→ 存量资产全部回填一条
+`phase_id=NULL / phase_key=全 0 / link_type=SHARED` 的挂靠。全部语句 `WHERE NOT EXISTS`，**可重复执行**；
+不使用窗口函数，MariaDB 10.x 与 H2 共同可执行。
+
+证据：`CustomerProjectModelTest` 7 例（空库执行迁移、存量回填、重复执行不重复、迁移不覆盖已有业务挂靠、
+仓储按 project/phase/customer 查询、`phase_key` 唯一性、期次号与 code 唯一）、回归 88 例全绿（Asset/Dashboard/Team/RBAC/Subresource）。
+详细表结构与选型见 `deploy/README.md` §33。
+
 ## 3. SRS 需求覆盖对照
 
 | SRS 章节 | 状态 | 已实现内容 / 缺口说明 |
@@ -541,6 +569,70 @@ t65 做了一次全量扫描并在 `service/SubresourceGuard` 收敛为单点守
 | 4.5 数据迁移（导入导出） | **已实现** | 资产/漏洞/用户 CSV 导入（模板带 BOM、部分成功语义、逐行权限与数据边界、失败行回显）；审计与仪表盘 CSV 导出；用户导入一次性密码 |
 | 4.6 国际化 | **二期已实现（框架 + 31 个页面文件 / 553 词条，中英对等；1 个文件待迁移）** | 自建 i18n：`I18nProvider/useT`（84 → **553** 词条，`zh-CN.ts` 与 `en-US.ts` 各 553 条、`Record<MessageKey,string>` 强校验对等）、`LangSwitcher`、localStorage 持久化、`<html lang>`/dayjs/antd locale 同步、`ConfigProvider.form.validateMessages`（中英校验文案）、`utils/langHeader.ts`（请求带 `Accept-Language`，切换即时生效）+ 后端 `MessageSource`（`messages.properties` / `messages_en.properties`）→ **错误消息随语言切换**（`?lang=` → `Accept-Language` → 默认中文）。覆盖：登录、侧边栏 3 分组 18 菜单、通用组件与 403/404、通知中心（3 页签/公告/设置）、仪表盘（含 TrendChart/WorkloadRank 内部文案）、任务、文档（含标签抽屉）、工具、知识库（含标签抽屉）、团队、角色、用户、审批、审批范围、导入、审计日志、资产、漏洞等（31/33 个 tsx 使用 `useT`）。**仍未覆盖**：`pages/notifications/SettingsTab.tsx`（`// TODO(i18n)`，见 §8）。**4 条限制**：①后端仅错误消息已 i18n（`ErrorCode` 认证/资产/漏洞/任务四类 + 通用，其余码仍中文）；②`message.success` 等页面提示文案部分仍中文；③角色名/用户名等后端数据不随语言切换；④语言偏好仅存浏览器 localStorage，未做服务端用户级偏好 |
 | 4.7 接口需求 | **已实现** | REST `/api/v1/**` + 统一 `ApiResponse` 包装 + OpenAPI（`/v3/api-docs`）；262 个端点 |
+
+---
+
+### 2.8 客户 / 项目 / 期次 API（t68）
+
+四个新 Controller 端点共 **16 个**（客户 6 / 项目 7 / 期次 3），权限口径与状态码：
+
+| 资源 | 读 | 写 | 备注 |
+|---|---|---|---|
+| 客户 | 全员 | ADMIN / PROJECT_LEADER | 删除保护：有项目 → 409 |
+| 项目 | 全员 | ADMIN/PL 或该项目经理（`canManageProject`） | 状态机 + 删除保护（有挂靠 409） |
+| 期次 | 全员 | ADMIN/PL 或所属项目经理（`canManagePhase`） | 仅分期项目可建；有挂靠删 409 |
+
+项目状态机（`DRAFT→ACTIVE→PAUSED↔ACTIVE→CLOSED`，CLOSED 为终态，非法流转 400 且消息含当前状态与合法下一步）：
+
+```
+DRAFT ──► ACTIVE ──► PAUSED ──► ACTIVE
+             │           │
+             └──► CLOSED ◄┘     （CLOSED 终态）
+```
+
+证据：`CustomerProjectApiTest` 14 例（CRUD / 编码冲突 409 / 删除保护 409 ×3 / 状态机合法与非法 /
+期次仅分期可建 / 关闭分期约束 409 / team_leader 自己项目 200 他人 403 / 工程师写 403 读 200 / 审计落库）。
+审计资源类型经 `AuditTrailInterceptor` 映射为 `customer` / `project` / `project-phase`
+（其中 `/projects/{id}/phases` 通过「最后一段是否为 phases」识别，t68 新增）。
+### 3.1 客户与项目管理（t67–t78）
+
+**领域模型**：`customers 1 ── N projects 1 ── N project_phases`，`assets ↔ projects` 通过 `asset_project_links` 多对多（同一资产可同时服务多个客户/项目）。
+
+```
+customers(id, code uk, name, industry, level, owner_id, status) 
+   └─ projects(id, code uk, customer_id fk, name, type, status, manager_id, is_phased, start/end_date, contract_no)
+        ├─ project_phases(id, project_id fk, phase_no, name, status)     uk(project_id, phase_no)
+        └─ asset_project_links(id, asset_id, project_id, customer_id, phase_id, link_type, remark)
+             uk(asset_id, project_id, phase_id)   ← 同一资产同一项目同一期次唯一
+```
+
+| 接口 | 权限 | 说明 |
+|---|---|---|
+| `GET /customers`、`GET /customers/{id}`、`GET /customers/{id}/summary`、`/{id}/stats` | 全员可读 | summary 一次返回 stats + projects(含 phaseCount/assetCount/managerName) + recentAssets（t76，固定约 8 次查询） |
+| `POST/PUT /customers`、`PATCH /customers/{id}/status`、`DELETE /customers/{id}` | ADMIN / PROJECT_LEADER | `PATCH` 的 `status` 是 **query 参数**；删除有项目的客户 → 409 |
+| `GET /projects`、`GET /projects/{id}`、`/{id}/stats`、`/{projectId}/phases`、`/{projectId}/assets` | 全员可读（`/assets` 按 `visibleAssetIds` 收敛） | 列表支持 customerId/status/type/keyword |
+| `POST/PUT /projects`、`PATCH /projects/{id}/status`、`DELETE /projects/{id}` | ADMIN / PROJECT_LEADER | PUT 需 `code`；删除有挂靠的项目 → 409 |
+| `POST /projects/{projectId}/phases`、`PUT/DELETE /phases/{phaseId}` | ADMIN / PROJECT_LEADER | 期次号 `phase_no` 由服务端分配 |
+| `POST/GET /assets/{id}/project-links`、`DELETE /assets/{id}/project-links/{linkId}` | 写需资产写权（`canWriteAsset`） | 跨客户挂靠允许；重复挂靠 → 409；**解绑最后一条 → 409** |
+| `GET /dashboard/customer-distribution`、`/project-distribution` | 管理层（300/301） | `assetCount` 按可见范围收敛，`projectCount` 为组织全量口径 |
+
+**状态机**：`DRAFT → ACTIVE → PAUSED → ACTIVE`，`ACTIVE/PAUSED → CLOSED`，**CLOSED 为终态**（不可编辑/删除/新建期次/流转）。
+**类型枚举**：`PENTEST / REAUDIT / CONSULTING / TRAINING`。
+
+**约束与不变式（已在测试与冒烟中硬断言）**
+1. `assets` 必须挂至少一个项目：`POST /assets` 缺 `projectId` → **400**；`projectId` 不存在 → **404**；`phaseId` 不属于该项目 → **400**；解绑最后一条挂靠 → **409**。
+2. **无挂靠资产数必须为 0**：`SELECT COUNT(*) FROM assets a WHERE NOT EXISTS(SELECT 1 FROM asset_project_links l WHERE l.asset_id=a.id)` —— 迁移后与冒烟后各查一次均为 **0**。
+3. 客户下仍有项目 → 删除客户 **409**；项目下仍有资产挂靠 → 删除项目 **409**。
+4. 写权限：客户/项目写仅 ADMIN/PROJECT_LEADER；项目更新/期次另需「经理本人或管理层」；工程师建客户/项目 **403**。
+5. CSV 导入也遵守上表：未给 `projectCode` 时自动挂 `CUST-DEFAULT / PRJ-HISTORY`（`linkType=SHARED`）并在 `notes[]` 提示（成功行，不静默；t78）。
+
+**迁移（V18）**：纯新增四表 + 唯一约束 + 种子行（`CUST-DEFAULT`、`PRJ-HISTORY`）+ 存量资产回填，全部 `IF NOT EXISTS` / `WHERE NOT EXISTS` 幂等。生产 Flyway 关闭，等价脚本已并入 `deploy/manual-ddl.sql` 第 4 段（含校验查询）。
+
+**已知限制**
+1. 客户下「资产明细」走 `GET /assets?customerId=` 分页（t77），不是客户内嵌数组；
+2. `projectCount`/`phaseCount` 为组织全量口径，与 `assetCount`（可见范围）不同，页面上已用口径 Tag 标注；
+3. 项目列表的期次数/资产数来自按页并发 `GET /projects/{id}`（上限 20，失败不影响列表）；详情页已改用 summary 聚合（t76/t77），列表仍未批量接口；
+4. `POST /projects` 缺 `manager_id` 时数据库约束报 **500**（建议改为 400 校验，见 §8）。
 
 ---
 
@@ -706,6 +798,31 @@ t65 做了一次全量扫描并在 `service/SubresourceGuard` 收敛为单点守
 
 > 后端消息 i18n 实测（线上 curl）：`Accept-Language: en` → `You do not have permission to access this resource` / 默认 → `无权限访问该资源`；管理员取不存在资产 → `Accept-Language: en` 得英文 404、默认得「不存在」。
 
+
+### 7.6 客户/项目/挂靠发布与回归（t75）
+
+| 项 | 结果 |
+|---|---|
+| 后端回归 | `mvn -B clean test`（独占 target）→ **Tests run: 621, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS（35:26）；`@Disabled/@Ignore` 0 命中 |
+| 用例增量 | 557 + t67–t78 新增（CustomerProjectApi 14、AssetProjectLink 15、Dashboard 16、CustomerSummary 8、ImportAssetProject 10 等）= **621** |
+| 迁移验证（空库） | 新建 `vuln_audit_tmp` → jar 以 `ddl-auto=update` 建出基线 56 表 → 执行 V18 **两次均成功（幂等）**；四表（customers/projects/project_phases/asset_project_links）+ 四个唯一索引齐全；种子 `CUST-DEFAULT`/`PRJ-HISTORY` 各 1；空库孤儿资产 0；验后删库 |
+| 迁移验证（生产） | 执行前 mysqldump 备份（约 105 KB）→ V18 执行成功 → customers=1、projects=1、project_phases=0（尚无分期项目）、asset_project_links=3；**孤儿资产 = 0**（硬断言） |
+| 手工 DDL | `deploy/manual-ddl.sql` 追加第 4 段（V18 等价脚本 + 回填 + 4 条校验查询），整体在线上库执行通过（幂等，orphan_assets=0） |
+| 部署 | 后端 package BUILD SUCCESS 15.7s，jar **73,020,174 B**；重启后 login=200、`/customers`=200、`/projects`=200、`/dashboard/customer-distribution`=200；前端 `index-DUbPqUnS.js` 2,481.31 kB，sync-dist 后站点仅 5 文件；`/customers`、`/projects` 路由 200 |
+| 前端构建 | 3712 modules；词条 **648 / 648**（中英对等）；`/customers`、`/projects` 页面文案与 `Customers/Projects/Customer code/Manager/Phases/Linked projects/By customer/By project` 均在产物中 |
+| 冒烟 | **TOTAL=195 / PASS=195 / FAIL=0 / SKIP=0**（新增 28 条，见下）；**冒烟后孤儿资产复查 = 0** |
+
+**冒烟新增（客户/项目/挂靠全链路）**：建客户 ×2 → 建项目（分期/不分期）→ 建两期 → 建资产（带 projectId+phaseId）→ 资产详情 projectLinks 正确；缺 projectId **400**；projectId 不存在 **404**；期次不属于项目 **400**；跨客户挂靠 2xx；重复挂靠 **409**；解绑一条 2xx；解绑最后一条 **409**；删除有项目的客户 **409**；删除有挂靠的项目 **409**；工程师建客户/项目 **403**；团队长改自己项目 2xx / 他人项目 **403**；客户 summary 的 assetCount ≥1；`projects/{id}/assets` 对工程师按可见范围返回；仪表盘两张分布接口 200。
+
+| # | 页面验证 | 结果 |
+|---|---|---|
+| 1 | 客户管理（列表/详情/新建入口） | **PASS**：列表含新建客户，详情抽屉含「项目」与「资产」聚合 |
+| 2 | 项目管理（期次/状态机/资产清单） | **PASS**：详情含期次「一期-」、状态流转按钮、资产清单区 |
+| 3 | 资产详情「所属项目」页签 | **PASS**：页签存在，点开后可见项目/客户/期次挂靠行 |
+| 4 | 资产列表客户/项目列与筛选 | **PASS**：列表含客户/项目列，新建资产可见 |
+| 5 | 仪表盘「按客户分布」「按项目分布」 | **PASS**：两张卡片均渲染 |
+| 6 | English 切换（新增页面） | **PASS**：`/customers`、`/projects` 文案英文；切回中文恢复 |
+
 ---
 
 ## 8. 仍建议后续跟进的事项（不阻塞验收）
@@ -761,3 +878,112 @@ curl -s http://127.0.0.1:8089/api/v1/permissions -H "Authorization: Bearer $A" |
 # 5) 手工 DDL 效果
 MYSQL_PWD='<pwd>' mariadb -uvulnapp vuln_audit -e "SHOW COLUMNS FROM notifications LIKE 'type';"   # varchar(50) / NO
 ```
+
+### 2.9 资产—项目挂靠 API + 「建资产必须挂项目」硬约束（t69）
+
+在 t67（模型+迁移）与 t68（客户/项目 API）之上补齐**资产与项目的关联能力**，并把「添加资产必须挂靠项目」落成硬约束。
+
+| 能力 | 端点 | 权限 |
+|---|---|---|
+| 建资产（含挂靠，同一事务） | `POST /assets`（**projectId 必填**） | ADMIN / PROJECT_LEADER / TEAM_LEADER + 团队归属 |
+| 挂靠查询 / 追加 / 解绑 | `GET`/`POST` `/assets/{assetId}/project-links`、`DELETE .../{linkId}` | 读 `canReadAsset`；写 `canWriteAsset` |
+| 反向查询项目资产 | `GET /projects/{projectId}/assets?phaseId&page&size` | 全员可读（与项目读口径一致） |
+| 资产列表归属筛选 | `GET /assets?customerId&projectId&phaseId` | 全员（结果再与可见范围取交集） |
+| 资产详情挂靠明细 | `GET /assets/{id}` → `projectLinks[]` | `canReadAsset` |
+
+**状态码与不变式**：
+
+| 场景 | 状态码 |
+|---|---|
+| 缺 `projectId` | 400「创建资产必须指定所属项目」 |
+| 项目 / 客户 / 期次不存在 | 404 |
+| 期次不属于该项目、项目未启用分期 | 400 |
+| 重复挂靠同一 (资产, 项目, 期次) | 409「该资产已挂靠此项目（期次）」 |
+| 解绑最后一条挂靠 | 409「资产必须至少挂靠一个项目，请先挂靠到其他项目再解绑」 |
+| 挂靠不存在 / 不属于该资产 | 404（防枚举） |
+
+**跨客户挂靠允许**：同一资产可同时服务多个客户的项目，挂靠行的 `customer_id` 取自该项目所属客户；
+这正是 t67 不给 `assets` 加 `project_id` 单值外键的原因（多对多）。
+
+**性能**：`GET /assets` 的 `customers` / `projects` 摘要是**固定 3 次批量查询**（挂靠 → 项目 → 客户）后在内存聚合，
+与页大小无关，不做 per-asset 查询；归属筛选与 `visibleAssetIds` 在同一 `Specification` 内取交集，筛选无命中直接空页。
+
+**既有测试适配（改夹具，不放宽约束）**：`POST /assets` 新增必填字段影响 3 个 suite 的前置数据 ——
+`AssetControllerTest`（补 Customer/Project 夹具 + `createAsset_Success` 设 projectId）、
+`AssetDomainAuthorizationTest`（`assetBody()` 统一追加 projectId，5 处调用点用例数不变）、
+`ApiMessageI18nTest`（补 `$.data.projectId` 中英文案断言）。
+
+证据：`AssetProjectLinkTest` 15 例全绿（建资产带项目 201+挂靠落库、不带 400、项目 404、期次错配/未分期 400、
+重复 409、跨客户成功、解绑最后一条 409 / 非最后一条 200、他人资产 404、列表三种筛选、列表摘要、
+详情 projectLinks、挂靠列表、项目资产按期次过滤与分组、工程师 403/201）；接口与不变式见 README §35。
+### 2.10 客户/项目统计 + 仪表盘分布 + 挂靠越权复核（t70）
+
+**新增接口**：`GET /customers/{id}/stats`、`GET /projects/{id}/stats`、
+`GET /dashboard/customer-distribution`（Top N 默认 10/上限 100）、
+`GET /dashboard/project-distribution`（支持 `customerId` 过滤）。
+
+**计数口径差异**（同一接口里两类数字语义不同，前端展示需注意）：
+
+| 类别 | 是否随可见性收敛 | 依据 |
+|---|---|---|
+| `projectCount` / `activeProjectCount` / `phasedProjectCount` / `byStatus` / `phaseCount` | **否** | 项目与期次是组织结构事实，对所有登录用户可见（t46 决策：项目不作为权限边界） |
+| `assetCount` / `distinctAssetCount` / `vulnerabilityCount` / `taskCount` / `byPhase` / distribution 的 `assetCount` | **是** | 按 `AccessGuard.visibleAssetIds(auth)` 过滤；管理层 `null` = 全量 |
+
+**越权复核两条结论**：
+
+| # | 检查项 | 结论 |
+|---|---|---|
+| ① | `POST /assets/{assetId}/project-links` 能否给他人资产挂靠 | **已受控**（t69 已挂 `canWriteAsset`）：工程师 → 403 且挂靠数不变（本轮补断言） |
+| ② | `GET /projects/{projectId}/assets` 是否泄露不可见资产 | **本次修复**：原实现按项目维度返回全部挂靠资产，现传入 `visibleAssetIds` 过滤（项目可见 ≠ 资产可见）；工程师在含 3 个资产的项目下只看到自己那 1 个 |
+
+复核 ③（删除一致性）：客户有项目 → 409、项目有挂靠 → 409，故不存在「客户/项目已删而 link 残留」；
+用例断言「解绑后删项目 200 且挂靠记录为空」。
+
+证据：`CustomerProjectStatsTest` 10 例（统计与库内一致 / 工程师计数收敛 / 两条越权复核 / Top N 与
+customerId 过滤 / 删除一致性 / 不存在资源 404）。接口与口径见 README §37。
+
+### 2.11 客户详情聚合接口（t76：消除前端 N+1）
+
+**问题**：`GET /customers/{id}` 只给三个计数，前端要渲染客户详情必须
+`GET /projects?customerId=` → 再对每个项目 `GET /projects/{id}` 取 `phases`/`assetCount`（上限 20 个并行请求）。
+
+**新增**：`GET /api/v1/customers/{id}/summary`，一次返回
+`{customer, stats{projectCount, activeProjectCount, phasedProjectCount, assetCount, vulnerabilityCount},
+projects[{id,code,name,type,status,isPhased,phaseCount,assetCount,managerName}],
+recentAssets[{id,code,name,targetType,status,projectNames[]}]}`（最近 10 条）。
+
+| 实现要点 | 说明 |
+|---|---|
+| 聚合查询 | `projects[].phaseCount` 与 `projects[].assetCount` 各用**一次 group by**（`countGroupedByProjectIds`、`countAssetsGroupedByProjectIds`），禁止逐项目查询 |
+| recentAssets | 客户挂靠按 `linked_at desc` 一次取出 → 去重取前 10 → `projectNames` 从同一结果集过滤（不回表） |
+| 查询次数 | 固定约 8 次，与项目数/资产数无关（旧流程 `1 + 1 + 项目数`，20 个项目 = 22 次） |
+
+**数据边界（与 t70 §2.10 口径一致）**：`stats.assetCount` / `stats.vulnerabilityCount` / `recentAssets`
+按 `AccessGuard.visibleAssetIds(auth)` 收敛（资产是权限边界）；`projects` 列表与
+`stats.projectCount/activeProjectCount/phasedProjectCount`、项目级 `phaseCount/assetCount` 为**全量组织口径**，
+不随权限收敛 —— 「资产列表会因权限变短，但组织结构不会」。
+
+证据：`CustomerSummaryTest` 8 例（完整结构 / 与库内一致 / 工程师 recentAssets 只含可见资产且
+`stats.assetCount` 小于 admin 而 `projects` 列表一致 / 空客户 / 404 / recentAssets 上限 10 与 projectNames /
+团队长可读）。回归 53 例（AssetProjectLink 15 + CustomerProjectApi 14 + Dashboard 16 + 本测试 8）全绿。
+
+### 2.12 CSV 导入资产必须挂项目（t78）
+
+**缺口**：t69 的「建资产必须挂项目」只落在 DTO/控制器；批量导入走 `ImportServiceImpl → AssetService.createAsset`，
+绕过该约束 → 导入资产**无任何挂靠**，破坏「资产至少挂靠一个项目」不变式（也让「无挂靠资产 = 0」的验收 SQL 失败）。
+
+**修复**：
+
+| 项 | 内容 |
+|---|---|
+| 模板 | `name,targetType,targetSource,priority,status,teamCode,customerCode,projectCode,phaseNo,description`（新列可选，模板仍带 BOM） |
+| 有 `projectCode` | 按 code 查项目；`customerCode` 必须与项目客户一致；`phaseNo` 要求项目已分期且期次存在 |
+| 无 `projectCode` | 挂 `CUST-DEFAULT` / `PRJ-HISTORY`（`linkType=SHARED`），**成功行**但在 `ImportResult.notes` 提示「未指定项目，已挂靠历史项目」——不静默 |
+| 兜底缺失 | 默认客户 / 历史项目缺失时**按需补齐**（幂等），任何环境都不产生无挂靠资产 |
+| 事务 | 复用 t69 `AssetProjectLinkService.createAssetWithLink`（同一事务建资产 + 挂靠），失败行零残留 |
+| 兼容 | `ImportResult` 新增 `notes`，3 参 `of(...)` 保留 → 前端旧代码不受影响 |
+
+证据：`ImportAssetProjectTest` 10 例（带项目成功 / 项目不存在 / 客户不匹配 / 未带项目走历史项目 + notes /
+期次不存在 / 未分期 / 混合批次「无挂靠资产 = 0」/ 只给期次 / 模板新列 / 历史项目按需补齐幂等 / 接口回查）；
+导入相关四个 suite 36 例全绿（ImportAssetProject 10 + ImportController 5 + ImportAuthorization 8 + ImportServiceImpl 13）。
+接口与规则见 README §38。

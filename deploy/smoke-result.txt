@@ -213,3 +213,15 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 页面验证（Playwright）：English 下 资产列表/资产详情/漏洞/任务/工具/审计日志 6 页英文标记齐备，切回中文恢复；
   标签面板：管理员有输入框（可写），工程师看他人文章无输入框且显示「只读视图：仅作者或管理员可修改标签」。
 - 后端消息 i18n 线上实测：en → "You do not have permission to access this resource"；默认 → "无权限访问该资源"。
+
+########## 十、第四批发布与回归（t75：客户/项目/期次/挂靠，2026-11-02 19:2x） ##########
+- 迁移：V18 空库执行两次均成功（幂等）；四表 + 四唯一索引 + 种子 CUST-DEFAULT/PRJ-HISTORY；空库孤儿资产 0。
+- 生产：备份后执行 V18 → customers=1 / projects=1 / project_phases=0 / links=3 / assets=3；孤儿资产 = 0。
+- manual-ddl.sql 第 4 段（V18 等价 + 回填 + 校验）在线上整体执行通过，输出 orphan_assets=0。
+- 后端：jar 73,020,174 B；login=200、/customers=200、/projects=200、/dashboard/customer-distribution=200。
+- 前端：index-DUbPqUnS.js 2,481.31 kB；词条 648/648；/customers、/projects 路由 200。
+- 回归：Tests run 621, Failures 0, Errors 0, Skipped 0（35:26）；@Disabled 0。
+- 冒烟：TOTAL=195 PASS=195 FAIL=0 SKIP=0（新增 28 条客户/项目/挂靠用例）；冒烟后孤儿资产复查 = 0。
+- 页面验证（Playwright）：客户管理（列表/详情/新建）、项目管理（期次/状态机/资产清单）、资产详情「所属项目」页签、
+  资产列表客户·项目列与筛选、仪表盘「按客户分布/按项目分布」两张卡片、English 切换 → 6 项全 PASS。
+- 已知问题：POST /projects 缺 manager_id → 500（应 400）；项目列表期次/资产数仍逐项目拉取（上限 20）。
