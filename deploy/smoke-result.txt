@@ -225,3 +225,13 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 页面验证（Playwright）：客户管理（列表/详情/新建）、项目管理（期次/状态机/资产清单）、资产详情「所属项目」页签、
   资产列表客户·项目列与筛选、仪表盘「按客户分布/按项目分布」两张卡片、English 切换 → 6 项全 PASS。
 - 已知问题：POST /projects 缺 manager_id → 500（应 400）；项目列表期次/资产数仍逐项目拉取（上限 20）。
+
+########## 十一、t81：t80 上线与冒烟 198 条（2026-11-02 19:4x） ##########
+- 部署：jar 73,020,205 B；login=200、/projects=200；无新增迁移。
+- 线上实测：POST /projects 缺 managerId → 400（data.managerId="项目经理不能为空"），修复前为 500；
+  POST /projects 带不存在 managerId → 404（项目经理不存在）。
+- 冒烟新增 3 条：proj/new-缺managerId-400、proj/update-缺managerId-400、proj/new-managerId不存在-404
+  → TOTAL=198 PASS=198 FAIL=0 SKIP=0。
+- 冒烟适配：工程师「建项目 403」补 managerId（否则 400 先于角色守卫）。
+- 残留清理（README §23.1 客户/项目/期次/挂靠域）：assets 9→3、customers 5→1、projects 7→1、phases 4→0、links 9→3；
+  终态 orphan_assets = 0（硬断言），customers=1(CUST-DEFAULT) / projects=1(PRJ-HISTORY) / assets=3 / links=3。

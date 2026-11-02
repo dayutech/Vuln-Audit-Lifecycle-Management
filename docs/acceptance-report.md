@@ -987,3 +987,46 @@ recentAssets[{id,code,name,targetType,status,projectNames[]}]}`（最近 10 条�
 期次不存在 / 未分期 / 混合批次「无挂靠资产 = 0」/ 只给期次 / 模板新列 / 历史项目按需补齐幂等 / 接口回查）；
 导入相关四个 suite 36 例全绿（ImportAssetProject 10 + ImportController 5 + ImportAuthorization 8 + ImportServiceImpl 13）。
 接口与规则见 README §38。
+### 2.13 新域 NOT NULL 兜底 + 四实体扫描（t80）
+
+**缺陷**：`POST /api/v1/projects` 缺 `managerId` 时返回 **500**（`projects.manager_id` NOT NULL 撞库），
+而非 400 —— 与 t22（passwordHash）、t34（漏洞必填）、t40（公告 publishedAt）同一「依赖数据库约束」模式。
+
+**修复**：`ProjectRequest.managerId` 补 `@NotNull`（400 + `data.managerId`），服务层保留
+客户/经理存在性校验（404）。`PUT /projects/{id}` 同一 DTO，同步生效。
+
+**四实体 NOT NULL 扫描表**（无「缺校验 → 依赖 DB 约束」条目）：
+
+| 实体 | NOT NULL 列 | 校验 / 兜底 |
+|---|---|---|
+| customers | code / name | DTO `@NotBlank` → 400（code 重复 409） |
+| | status | 服务层默认 `active`，非法值 400 |
+| | created_at / updated_at | `@PrePersist` / `@PreUpdate` |
+| projects | code / name | DTO `@NotBlank` → 400 |
+| | customer_id | DTO `@NotNull` → 400；不存在 404 |
+| | manager_id | **DTO `@NotNull`（本次新增）→ 400**；不存在 404 |
+| | type / status / is_phased | 服务层默认 `PENTEST` / `DRAFT` / false |
+| | created_at / updated_at | `@PrePersist` / `@PreUpdate` |
+| project_phases | project_id | 路径 → 不存在 404 |
+| | phase_no | 服务层 `max+1` 自增；重复 409 |
+| | name | DTO `@NotBlank` → 400 |
+| | status | 服务层默认 `PLANNED` |
+| asset_project_links | asset_id / project_id | 路径守卫（403/404）/ DTO `@NotNull` → 400 |
+| | phase_key | 服务层哨兵 `PHASE_KEY_NONE`（永不 NULL） |
+| | customer_id | 服务层从项目反查 |
+| | link_type | 服务层默认 `TARGET` |
+| | linked_at | `@PrePersist` |
+
+同类端点：`POST /projects/{id}/phases`、`POST /assets/{id}/project-links` 已按同标准核对通过。
+
+**已知模式（列入团队规则）**：新增 NOT NULL 列必须同时给出 DTO 注解（400）或服务层默认值；
+漏掉的症状是 **500 且 `data` 无字段名**，前端无法定位。
+
+证据：`NewDomainValidationTest` 9 例（缺 4 个必填字段逐个 400 带字段名 / 客户与经理不存在 404 /
+更新路径同样兜底 / 期次 name 缺失 400 且 phaseNo 留空自增 / 挂靠缺 projectId 400 且 linkType 默认 TARGET /
+phaseKey 非空 / 统一「绝无 5xx」断言）。接口与扫描表见 README §39。
+
+**线上证据（t81 部署后实测，2026-11-02）**：
+- `POST /api/v1/projects` 不带 `managerId` → **400** `{"success":false,"message":"参数校验失败","data":{"managerId":"项目经理不能为空"}}`（修复前为 500）；
+- `POST /api/v1/projects` 带不存在 `managerId` → **404** `项目经理不存在: …ff81a`（存在性校验保留）；
+- 冒烟新增 3 条长期守卫（`proj/new-缺managerId-400`、`proj/update-缺managerId-400`、`proj/new-managerId不存在-404`），全量 **198/198 全绿**。

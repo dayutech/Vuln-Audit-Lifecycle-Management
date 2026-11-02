@@ -850,6 +850,57 @@ WHERE TABLE_SCHEMA='vuln_audit' AND COLUMN_NAME='asset_id' AND TABLE_NAME<>'asse
 ```
 
 **建议**：每次冒烟后按此清理，或在专用测试库上跑冒烟，避免污染生产实例。
+
+### 23.1 客户 / 项目 / 期次 / 挂靠域（t67 起新增三张表，冒烟每轮必造数据）
+
+`scripts/smoke.sh` 自 t75 起会先建 **客户 ×2 → 项目（分期/不分期）→ 期次 ×2 → 资产（带 projectId+phaseId）→ 挂靠**，
+这些数据不会被 API 清理（客户/项目删除受 409 保护），因此需要单独清理。**只删夹具前缀，勿动真实数据**：
+
+| 表 | 夹具识别特征 |
+|---|---|
+| `customers` | `code LIKE 'SMK-%'`（保留 `CUST-DEFAULT`） |
+| `projects` | `code LIKE 'SMK-%'`（保留 `PRJ-HISTORY`） |
+| `project_phases` | 属于被删项目的期次 |
+| `asset_project_links` | 指向被删资产 / 被删项目的挂靠 |
+| `assets` | `name LIKE '冒烟%'`（兼容历史 `smoke%` / `探针%` / `T7%` 前缀） |
+
+```sql
+-- 校验：清理前先看清要删什么
+SELECT code, name FROM customers WHERE code LIKE 'SMK-%';
+SELECT code, name FROM projects  WHERE code LIKE 'SMK-%';
+SELECT id, name FROM assets WHERE name LIKE '冒烟%';
+
+-- 清理（外键关闭仅限本次会话，脚本记录在 scripts/qa 之外，仅供手工执行）
+SET FOREIGN_KEY_CHECKS = 0;
+DELETE l FROM asset_project_links l JOIN assets a   ON a.id = l.asset_id
+ WHERE a.name LIKE '冒烟%' OR a.name LIKE 'smoke%' OR a.name LIKE '探针%' OR a.name LIKE 'T7%';
+DELETE l FROM asset_project_links l JOIN projects p ON p.id = l.project_id
+ WHERE p.code LIKE 'SMK-%';
+DELETE FROM asset_tags          WHERE asset_id IN (SELECT id FROM assets WHERE name LIKE '冒烟%');
+DELETE FROM asset_versions      WHERE asset_id IN (SELECT id FROM assets WHERE name LIKE '冒烟%');
+DELETE FROM vulnerabilities     WHERE asset_id IN (SELECT id FROM assets WHERE name LIKE '冒烟%');
+DELETE FROM tasks               WHERE asset_id IN (SELECT id FROM assets WHERE name LIKE '冒烟%');
+DELETE FROM environments        WHERE asset_id IN (SELECT id FROM assets WHERE name LIKE '冒烟%');
+DELETE FROM documents           WHERE asset_id IN (SELECT id FROM assets WHERE name LIKE '冒烟%');
+DELETE FROM assets              WHERE name LIKE '冒烟%' OR name LIKE 'smoke%' OR name LIKE '探针%' OR name LIKE 'T7%';
+DELETE FROM project_phases      WHERE project_id IN (SELECT id FROM projects WHERE code LIKE 'SMK-%');
+DELETE FROM projects            WHERE code LIKE 'SMK-%' AND code <> 'PRJ-HISTORY';
+DELETE FROM customers           WHERE code LIKE 'SMK-%' AND code <> 'CUST-DEFAULT';
+SET FOREIGN_KEY_CHECKS = 1;
+
+-- 校验（终态）：customers=1(CUST-DEFAULT) / projects=1(PRJ-HISTORY) / assets=3 / links=3
+SELECT (SELECT COUNT(*) FROM customers)           AS customers,
+       (SELECT COUNT(*) FROM projects)            AS projects,
+       (SELECT COUNT(*) FROM project_phases)      AS phases,
+       (SELECT COUNT(*) FROM assets)              AS assets,
+       (SELECT COUNT(*) FROM asset_project_links) AS links;
+
+-- 硬断言【必须为 0】：无挂靠资产
+SELECT COUNT(*) AS orphan_assets FROM assets a
+WHERE NOT EXISTS (SELECT 1 FROM asset_project_links l WHERE l.asset_id = a.id);
+```
+
+> t81 实测终态：`assets=3 / customers=1 / projects=1 / phases=0 / links=3 / orphan=0`。
 ---
 
 ## 24. 第十三轮（资产域 6 组鉴权缺口收口，t49）
@@ -1727,4 +1778,86 @@ cd backend && mvn -B clean test
 cd backend && mvn -B clean test                                   # 期望 621 passed
 cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 195/195
 MYSQL_PWD='***' mariadb -uvulnapp vuln_audit < deploy/manual-ddl.sql           # 幂等执行 V18（含校验输出）
+```
+
+---
+
+## 39. 第二十六轮（新域 NOT NULL 兜底 + 四实体扫描，t80）
+
+### 39.1 修复本体：`POST/PUT /projects` 缺 `managerId` 由 500 → 400
+
+`projects.manager_id` 是 NOT NULL，但 `ProjectRequest.managerId` 此前**没有校验注解**：Jackson 反序列化出
+`null` → 服务层 `requireUser(null)` 直接 return → `INSERT` 撞数据库约束 → **500**。
+
+现在 `@NotNull(message = "项目经理不能为空")`，校验失败由 `GlobalExceptionHandler` 统一返回
+**400 + `data: {managerId: "项目经理不能为空"}`**（字段名可见）。服务层仍保留存在性校验：
+客户不存在 → 404、经理不存在 → 404。
+
+### 39.2 四实体 NOT NULL 扫描表
+
+「校验位置」列不存在「依赖 DB 约束」的条目，即没有任何 NOT NULL 列靠数据库兜底。
+
+| 实体 | NOT NULL 列 | 校验 / 兜底位置 |
+|---|---|---|
+| `customers` | `code` | `CustomerRequest` `@NotBlank` → 400（另 `existsByCode` → 409） |
+| | `name` | `CustomerRequest` `@NotBlank` → 400 |
+| | `status` | 服务层 `normalizeStatus(..., "active")`，非法值 → 400 |
+| | `created_at` / `updated_at` | 实体 `@PrePersist` / `@PreUpdate` 自动填充 |
+| `projects` | `code` | `ProjectRequest` `@NotBlank` → 400（另 `existsByCode` → 409） |
+| | `name` | `ProjectRequest` `@NotBlank` → 400 |
+| | `customer_id` | `ProjectRequest` `@NotNull` → 400；`requireCustomer` 不存在 → 404 |
+| | `manager_id` | **`ProjectRequest` `@NotNull`（t80 新增）→ 400**；`requireUser` 不存在 → 404 |
+| | `type` | 服务层 `normalizeType(..., "PENTEST")`，非法值 → 400 |
+| | `status` | 服务层固定 `DRAFT`；变更只走状态机 `PATCH /status`（非法流转 400） |
+| | `is_phased` | 服务层 `Boolean.TRUE.equals(...)` 兜底为 false |
+| | `created_at` / `updated_at` | `@PrePersist` / `@PreUpdate` |
+| `project_phases` | `project_id` | 路径参数 → `requireProject` 不存在 → 404 |
+| | `phase_no` | 请求可空 → 服务层取 `max(phaseNo)+1` 自增；显式重复 → 409 |
+| | `name` | `PhaseRequest` `@NotBlank` → 400 |
+| | `status` | 服务层默认 `PLANNED` |
+| | `created_at` / `updated_at` | `@PrePersist` / `@PreUpdate` |
+| `asset_project_links` | `asset_id` | 路径参数 → `canWriteAsset`（403，fail-closed）+ 资产不存在 404 |
+| | `project_id` | `AssetProjectLinkRequest` `@NotNull` → 400；项目不存在 → 404 |
+| | `phase_key` | 服务层 `phase != null ? phase.getId() : AssetProjectLink.PHASE_KEY_NONE`（哨兵值，永不 NULL） |
+| | `customer_id` | 服务层从项目反查写入（项目本身 customer_id NOT NULL） |
+| | `link_type` | 服务层 `normalizeLinkType(...)` 默认 `TARGET` |
+| | `linked_at` | `@PrePersist` 自动填充 |
+
+同类端点复核：`POST /projects/{id}/phases`（`name` 必填、`phaseNo` 服务层自增）、
+`POST /assets/{id}/project-links`（`projectId` 必填、`linkType` 默认 TARGET、`phaseKey` 哨兵）均符合标准。
+
+### 39.3 已知模式「NOT NULL 必须由 DTO/服务层兜底」
+
+同类历史缺陷：t22 `passwordHash`、t34 漏洞创建必填字段、t40 公告 `publishedAt`、t75 发现的 `managerId`。
+统一规则：**新增 NOT NULL 列时，必须同时给出 DTO 注解（400）或服务层默认值，不得留给数据库约束**；
+漏掉时症状是 500 而非 400，且 `data` 里没有字段名，前端无法定位。
+
+### 39.4 验证
+
+```bash
+cd backend && mvn -B test -Dtest=NewDomainValidationTest    # 9 例
+cd backend && mvn -B clean test                             # 全量回归
+```
+
+`NewDomainValidationTest` 断言：缺 `managerId`/`customerId`/`code`/`name` 逐个 400 且 `data` 带字段名；
+客户/经理不存在 404；期次 `name` 缺失 400 且 `phaseNo` 留空能自增；挂靠缺 `projectId` 400 且
+`linkType` 落库默认 `TARGET`、`phaseKey` 非空；最后一条统一断言「状态码只能是 400/404，绝无 5xx」。
+
+## 40. 第二十七轮（t80 上线 + 冒烟补 3 条 + 残留清理手册扩展，t81）
+
+时间：2026-11-02 19:2x–19:4x（Asia/Shanghai）。**无新增迁移**。
+
+| 项 | 结果 |
+|---|---|
+| 修复上线 | `ProjectRequest.managerId` 补 `@NotNull` → `POST/PUT /projects` 缺经理由 **500 → 400 + data.managerId**；存在性校验保留（404） |
+| 后端重建 | `mvn -B -DskipTests package` BUILD SUCCESS 11.3s，jar **73,020,205 B**；重启后 login=200、`/projects`=200 |
+| 线上实测 | 缺 `managerId` → **400** `data.{"managerId":"项目经理不能为空"}`；不存在 `managerId` → **404** `项目经理不存在: …ff81a` |
+| 冒烟 | 新增 3 条守卫（`proj/new-缺managerId-400`、`proj/update-缺managerId-400`、`proj/new-managerId不存在-404`）→ **TOTAL=198 / PASS=198 / FAIL=0 / SKIP=0** |
+| 冒烟适配 | 工程师「建项目 403」用例补 `managerId`（否则参数校验 400 先于角色守卫，掩盖越权断言） |
+| 残留清理 | 按 §23.1 清理后终态 **assets=3 / customers=1 / projects=1 / phases=0 / links=3 / orphan=0** |
+| 回归 | 未重跑（t80 已 `mvn -B clean test` 630/630 全绿） |
+
+```bash
+cd backend && mvn -B -DskipTests package && systemctl --user restart vuln-audit-backend
+cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 198/198
 ```
