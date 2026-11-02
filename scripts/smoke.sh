@@ -1511,7 +1511,7 @@ if [ -n "$ADMIN_TOKEN" ] && [ -n "$CUST_ID" ] && [ -n "$PROJECT_ID" ] && [ -n "$
       "{\"code\":\"SMK-ENG-${TAG}\",\"name\":\"冒烟越权客户 ${TAG}\"}"
     judge "cust/工程师建客户-403" 403 '' "POST /customers 需 ADMIN/PROJECT_LEADER"
     api_json POST '/api/v1/projects' "$ENGINEER_TOKEN" \
-      "{\"code\":\"SMK-ENG-PRJ-${TAG}\",\"name\":\"冒烟越权项目 ${TAG}\",\"customerId\":\"${CUST_ID}\"}"
+      "{\"code\":\"SMK-ENG-PRJ-${TAG}\",\"name\":\"冒烟越权项目 ${TAG}\",\"customerId\":\"${CUST_ID}\",\"managerId\":\"${ADMIN_ID}\"}"
     judge "proj/工程师建项目-403" 403 '' "POST /projects 需 ADMIN/PROJECT_LEADER"
   fi
 
@@ -1546,6 +1546,28 @@ if [ -n "$ADMIN_TOKEN" ] && [ -n "$CUST_ID" ] && [ -n "$PROJECT_ID" ] && [ -n "$
   judge "dash/客户分布" 200 '"success"[[:space:]]*:[[:space:]]*true' "GET /dashboard/customer-distribution"
   request GET '/api/v1/dashboard/project-distribution?topN=5' "$ADMIN_TOKEN"
   judge "dash/项目分布" 200 '"success"[[:space:]]*:[[:space:]]*true' "GET /dashboard/project-distribution"
+fi
+
+
+# ----------------------------------------------------------------------------- 新域必填兜底（t80/t81）
+RAND5="00000000-0000-4000-8000-0000000ff81a"
+if [ -n "$ADMIN_TOKEN" ] && [ -n "$CUST_ID" ]; then
+  # 缺 managerId：t80 前会撞 projects.manager_id NOT NULL → 500；现为 400 且带字段名
+  api_json POST '/api/v1/projects' "$ADMIN_TOKEN" \
+    "{\"code\":\"SMK-NOMGR-${TAG}\",\"name\":\"冒烟缺经理项目 ${TAG}\",\"customerId\":\"${CUST_ID}\"}"
+  judge "proj/new-缺managerId-400" 400 '"managerId"' "POST /projects 缺 managerId → 400 + 字段名（t80）"
+
+  if [ -n "$PROJECT_ID" ]; then
+    api_json PUT "/api/v1/projects/${PROJECT_ID}" "$ADMIN_TOKEN" \
+      "{\"code\":\"SMK-PRJ-${TAG}\",\"name\":\"冒烟项目 ${TAG}\",\"customerId\":\"${CUST_ID}\"}"
+    judge "proj/update-缺managerId-400" 400 '"managerId"' "PUT /projects/{id} 缺 managerId → 400（同 DTO）"
+  else
+    skip "proj/update-缺managerId-400" "-" "缺少项目样本"
+  fi
+
+  api_json POST '/api/v1/projects' "$ADMIN_TOKEN" \
+    "{\"code\":\"SMK-BADMGR-${TAG}\",\"name\":\"冒烟坏经理项目 ${TAG}\",\"customerId\":\"${CUST_ID}\",\"managerId\":\"${RAND5}\"}"
+  judge "proj/new-managerId不存在-404" 404 '' "经理不存在 → 404（存在性校验保留）"
 fi
 
 printf '\n==== 冒烟汇总 ====\n'
