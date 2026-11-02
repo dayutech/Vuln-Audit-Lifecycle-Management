@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Card, Spin, Tabs, Typography } from 'antd';
 import {
@@ -10,6 +9,7 @@ import { useSearchParams } from 'react-router-dom';
 import ImportPanel from './ImportPanel';
 import { getMyAccessProfile } from '@/api/permission';
 import { canImportAssets, canImportUsers, isTeamLeaderScope } from '@/api/import';
+import { useT } from '@/i18n';
 
 type ImportTabKey = 'assets' | 'vulnerabilities' | 'users';
 
@@ -33,6 +33,7 @@ const isTabKey = (value: string | null): value is ImportTabKey =>
  * 深链：?tab=assets|vulnerabilities|users。
  */
 const ImportPage: React.FC = () => {
+  const { t } = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const [roles, setRoles] = useState<string[]>([]);
   /** 权限画像返回前不渲染 Tab，避免先渲染无权 Tab 再跳走的闪烁 */
@@ -106,7 +107,7 @@ const ImportPage: React.FC = () => {
   const blockedByRole = requested !== null && !allowedKeys.includes(requested);
 
   return (
-    <Card title="数据导入">
+    <Card title={t('import.title')}>
       {profileLoaded ? (
         <>
           {blockedByRole && (

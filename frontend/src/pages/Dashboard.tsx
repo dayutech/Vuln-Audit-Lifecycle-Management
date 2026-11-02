@@ -49,7 +49,7 @@ import { getMyAccessProfile, type MyAccessProfile } from '@/api/permission';
 import { getApiErrorMessage, getApiErrorStatus, getBlobErrorMessage } from '@/utils/errorMessage';
 import { saveBlobAsFile } from '@/utils/download';
 import { describeApiFailure } from './dashboard/apiFailure';
-import { useT } from '@/i18n';
+import { useT, type MessageKey } from '@/i18n';
 import { canExportReports, resolveStatsScope, statsScopeTagColor } from './dashboard/statsScope';
 import type {
   AssetStats,
@@ -66,11 +66,12 @@ import { decodeLayout, defaultLayout, encodeLayout } from './dashboard/layoutCon
 const { Title, Text } = Typography;
 
 const TYPE_COLORS = ['#1890ff', '#13c2c2', '#722ed1', '#eb2f96', '#fa8c16', '#52c41a'];
-const SEVERITY_META: Record<string, { label: string; color: string }> = {
-  critical: { label: '严重', color: '#f5222d' },
-  high: { label: '高危', color: '#fa8c16' },
-  medium: { label: '中危', color: '#1890ff' },
-  low: { label: '低危', color: '#52c41a' },
+const SEVERITY_META: Record<string, { labelKey: MessageKey; color: string }> = {
+  critical: { labelKey: 'dashboard.severity.critical', color: '#f5222d' },
+  high: { labelKey: 'dashboard.severity.high', color: '#fa8c16' },
+  medium: { labelKey: 'dashboard.severity.medium', color: '#1890ff' },
+  low: { labelKey: 'dashboard.severity.low', color: '#52c41a' },
+  info: { labelKey: 'dashboard.severity.info', color: '#8c8c8c' },
 };
 const PRIORITY_META: Record<string, { label: string; color: string }> = {
   P0: { label: 'P0', color: '#f5222d' },
@@ -78,22 +79,22 @@ const PRIORITY_META: Record<string, { label: string; color: string }> = {
   P2: { label: 'P2', color: '#1890ff' },
   P3: { label: 'P3', color: '#8c8c8c' },
 };
-const ASSET_STATUS_LABEL: Record<string, string> = {
-  active: '在用',
-  under_test: '测试中',
-  suspended: '暂停',
-  archived: '归档',
+const ASSET_STATUS_KEYS: Record<string, MessageKey> = {
+  active: 'dashboard.assetStatus.active',
+  under_test: 'dashboard.assetStatus.underTest',
+  suspended: 'dashboard.assetStatus.suspended',
+  archived: 'dashboard.assetStatus.archived',
 };
-const WORKFLOW_LABEL: Record<string, string> = {
-  new: '新建',
-  discovered: '已发现',
-  in_progress: '处理中',
-  resolved: '已解决',
-  fixed: '已修复',
-  verified: '已验证',
-  reopened: '重新打开',
-  closed: '已关闭',
-  wontfix: '不修复',
+const WORKFLOW_KEYS: Record<string, MessageKey> = {
+  new: 'dashboard.workflow.new',
+  discovered: 'dashboard.workflow.discovered',
+  in_progress: 'dashboard.workflow.inProgress',
+  resolved: 'dashboard.workflow.resolved',
+  fixed: 'dashboard.workflow.fixed',
+  verified: 'dashboard.workflow.verified',
+  reopened: 'dashboard.workflow.reopened',
+  closed: 'dashboard.workflow.closed',
+  wontfix: 'dashboard.workflow.wontfix',
 };
 
 /** 严重程度/工作流状态的小写归一（t29：库中大写、响应小写；兼容旧版本可能返回的大写键） */
@@ -165,7 +166,7 @@ const Dashboard: React.FC = () => {
       setAssetStats(assetsResult.value);
     } else {
       setAssetStats(null);
-      setRefreshError(getApiErrorMessage(assetsResult.reason, '资产统计加载失败'));
+      setRefreshError(getApiErrorMessage(assetsResult.reason, t('dashboard.statsAssetsFailed')));
     }
 
     if (workloadResult.status === 'fulfilled') {
@@ -183,13 +184,13 @@ const Dashboard: React.FC = () => {
       if (status === 403) {
         setVulnStatsError({
           forbidden: true,
-          message: '漏洞统计仅管理层（管理员 / 项目负责人 / 小组长）可见，当前账号无统计准入权限。',
+          message: t('dashboard.vulnForbiddenInline'),
         });
       } else {
         const failure = describeApiFailure(status);
         setVulnStatsError({
           forbidden: false,
-          message: `漏洞统计${failure.label}：${failure.hint}`,
+          message: `${t(failure.labelKey, failure.vars)}：${t(failure.hintKey)}`,
         });
       }
     }
@@ -226,9 +227,9 @@ const Dashboard: React.FC = () => {
       await saveDashboardConfig(encodeLayout(draftLayout));
       setLayout(draftLayout.map((row) => ({ ...row })));
       setLayoutModalOpen(false);
-      message.success('大盘布局已保存');
+      message.success(t('dashboard.layoutSaved'));
     } catch (error: any) {
-      if (!error?.response) message.error('布局保存失败，已保留当前布局');
+      if (!error?.response) message.error(t('dashboard.layoutSaveFailed'));
     } finally {
       setLayoutSaving(false);
     }
@@ -242,9 +243,9 @@ const Dashboard: React.FC = () => {
       setLayout(next);
       setDraftLayout(next);
       setLayoutModalOpen(false);
-      message.success('已恢复默认布局');
+      message.success(t('dashboard.layoutResetDone'));
     } catch (error: any) {
-      if (!error?.response) message.error('恢复默认布局失败');
+      if (!error?.response) message.error(t('dashboard.layoutResetFailed'));
     } finally {
       setLayoutSaving(false);
     }
@@ -268,13 +269,13 @@ const Dashboard: React.FC = () => {
     try {
       const blob = await exportDashboardReport(type, 'csv');
       if (!(blob instanceof Blob)) {
-        message.error('导出失败：响应不是文件流');
+        message.error(t('dashboard.exportNotBlob'));
         return;
       }
       // 防御：少数代理会把错误 JSON 以 200 返回，按 content-type 分流而不是直接落盘
       if (blob.type.includes('json')) {
         const text = await blob.text();
-        let detail = '导出失败';
+        let detail = t('dashboard.exportFailed');
         try {
           detail = (JSON.parse(text) as { message?: string })?.message ?? detail;
         } catch {
@@ -284,19 +285,19 @@ const Dashboard: React.FC = () => {
         return;
       }
       if (blob.size === 0) {
-        message.error('导出文件为空，请检查服务端导出实现');
+        message.error(t('dashboard.exportEmpty'));
         return;
       }
       saveBlobAsFile(blob, `${type}.csv`);
-      message.success(`已导出 ${type}.csv（${(blob.size / 1024).toFixed(1)} KB）`);
+      message.success(t('dashboard.exportSuccess', { type, size: (blob.size / 1024).toFixed(1) }));
     } catch (error) {
       const status = getApiErrorStatus(error);
       if (status === 403) {
-        message.error('当前账号无导出权限（仅管理员 / 项目负责人可导出报表）');
+        message.error(t('dashboard.exportForbidden'));
         return;
       }
       // 错误体是 Blob，全局拦截器读不到 message，这里解析后端原始提示
-      message.error(await getBlobErrorMessage(error, '导出失败'));
+      message.error(await getBlobErrorMessage(error, t('dashboard.exportFailed')));
     } finally {
       setExportingType(null);
     }
@@ -304,9 +305,14 @@ const Dashboard: React.FC = () => {
 
   const renderAssetTypeChart = () => {
     const typeData = toChartData(assetStats?.by_type);
-    const priorityData = toChartData(assetStats?.by_priority, { P0: 'P0 紧急', P1: 'P1 高', P2: 'P2 中', P3: 'P3 低' });
+    const priorityData = toChartData(assetStats?.by_priority, {
+      P0: t('dashboard.priority.P0'),
+      P1: t('dashboard.priority.P1'),
+      P2: t('dashboard.priority.P2'),
+      P3: t('dashboard.priority.P3'),
+    });
     if (typeData.length === 0 && priorityData.length === 0) {
-      return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无资产数据" />;
+      return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('dashboard.emptyAssets')} />;
     }
     return (
       <Row gutter={8}>
@@ -330,7 +336,7 @@ const Dashboard: React.FC = () => {
               <XAxis dataKey="name" />
               <YAxis allowDecimals={false} />
               <ChartTooltip />
-              <Bar dataKey="value" name="资产数">
+              <Bar dataKey="value" name={t('dashboard.seriesAssets')}>
                 {priorityData.map((entry) => (
                   <Cell key={`priority-${entry.rawKey}`} fill={PRIORITY_META[entry.rawKey]?.color ?? '#1890ff'} />
                 ))}
@@ -360,14 +366,17 @@ const Dashboard: React.FC = () => {
     if (loading) return <Skeleton active paragraph={{ rows: 6 }} />;
     const severityData = toChartData(
       normalizeEnumMap(vulnStats?.by_severity),
-      Object.fromEntries(Object.entries(SEVERITY_META).map(([key, meta]) => [key, meta.label]))
+      Object.fromEntries(Object.entries(SEVERITY_META).map(([key, meta]) => [key, t(meta.labelKey)]))
     );
-    const workflowData = toChartData(normalizeEnumMap(vulnStats?.by_workflow_status), WORKFLOW_LABEL);
+    const workflowData = toChartData(
+      normalizeEnumMap(vulnStats?.by_workflow_status),
+      Object.fromEntries(Object.entries(WORKFLOW_KEYS).map(([key, labelKey]) => [key, t(labelKey)]))
+    );
     if (severityData.length === 0 && workflowData.length === 0) {
       return (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description="当前可见范围内还没有漏洞记录，提交漏洞后这里会显示分布"
+          description={t('dashboard.emptyVulns')}
         />
       );
     }
@@ -380,7 +389,7 @@ const Dashboard: React.FC = () => {
               <XAxis dataKey="name" />
               <YAxis allowDecimals={false} />
               <ChartTooltip />
-              <Bar dataKey="value" name="漏洞数">
+              <Bar dataKey="value" name={t('dashboard.seriesVulns')}>
                 {severityData.map((entry) => (
                   <Cell key={`sev-${entry.rawKey}`} fill={SEVERITY_META[entry.rawKey]?.color ?? '#8c8c8c'} />
                 ))}
@@ -395,7 +404,7 @@ const Dashboard: React.FC = () => {
               <XAxis dataKey="name" />
               <YAxis allowDecimals={false} />
               <ChartTooltip />
-              <Bar dataKey="value" name="漏洞数" fill="#2f54eb" />
+              <Bar dataKey="value" name={t('dashboard.seriesVulns')} fill="#2f54eb" />
             </BarChart>
           </ResponsiveContainer>
         </Col>
@@ -422,7 +431,7 @@ const Dashboard: React.FC = () => {
             <Space size={4} wrap style={{ marginTop: 8 }}>
               {Object.entries(assetStats?.by_status ?? {}).map(([key, value]) => (
                 <Tag key={key} color={key === 'active' ? 'green' : 'default'}>
-                  {ASSET_STATUS_LABEL[key] ?? key} {value}
+                  {t(ASSET_STATUS_KEYS[key] ?? 'dashboard.assetStatus.active')} {value}
                 </Tag>
               ))}
             </Space>
@@ -444,17 +453,17 @@ const Dashboard: React.FC = () => {
             />
             {vulnAccessBlocked ? (
               <Text type="secondary" style={{ fontSize: 12 }}>
-                仅管理层可见（当前角色：{scope.roleLabel}）
+                {t('dashboard.managerOnly', { role: scope.roleLabel })}
               </Text>
             ) : vulnUnavailable ? (
               <Text type="secondary" style={{ fontSize: 12 }}>
-                统计加载失败，可稍后刷新
+                {t('dashboard.statsLoadFailed')}
               </Text>
             ) : (
               <Space size={4} wrap style={{ marginTop: 8 }}>
                 {Object.entries(normalizeEnumMap(vulnStats?.by_severity) ?? {}).map(([key, value]) => (
                   <Tag key={key} color={SEVERITY_META[key]?.color ?? 'default'}>
-                    {SEVERITY_META[key]?.label ?? key} {value}
+                    {SEVERITY_META[key] ? t(SEVERITY_META[key].labelKey) : key} {value}
                   </Tag>
                 ))}
               </Space>
@@ -473,9 +482,9 @@ const Dashboard: React.FC = () => {
               valueStyle={{ color: '#52c41a' }}
             />
             <Space size={4} wrap style={{ marginTop: 8 }}>
-              <Tag color="orange">待处理 {workload?.tasks?.pending ?? 0}</Tag>
-              <Tag color="blue">进行中 {workload?.tasks?.in_progress ?? 0}</Tag>
-              <Tag color="green">已完成 {workload?.tasks?.completed ?? 0}</Tag>
+              <Tag color="orange">{t('dashboard.taskPending', { count: workload?.tasks?.pending ?? 0 })}</Tag>
+              <Tag color="blue">{t('dashboard.taskInProgress', { count: workload?.tasks?.in_progress ?? 0 })}</Tag>
+              <Tag color="green">{t('dashboard.taskCompleted', { count: workload?.tasks?.completed ?? 0 })}</Tag>
             </Space>
           </Card>
         );
@@ -489,9 +498,9 @@ const Dashboard: React.FC = () => {
               valueStyle={{ color: '#faad14' }}
             />
             <Space size={4} wrap style={{ marginTop: 8 }}>
-              <Tag color="orange">待审批 {workload?.claims?.pending ?? 0}</Tag>
-              <Tag color="blue">已通过 {workload?.claims?.approved ?? 0}</Tag>
-              <Tag color="green">已完成 {workload?.claims?.completed ?? 0}</Tag>
+              <Tag color="orange">{t('dashboard.claimPending', { count: workload?.claims?.pending ?? 0 })}</Tag>
+              <Tag color="blue">{t('dashboard.claimApproved', { count: workload?.claims?.approved ?? 0 })}</Tag>
+              <Tag color="green">{t('dashboard.claimCompleted', { count: workload?.claims?.completed ?? 0 })}</Tag>
             </Space>
           </Card>
         );
@@ -572,7 +581,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       {refreshError ? <Alert type="warning" showIcon style={{ marginTop: 16 }} message={refreshError} /> : null}
-      {!configLoaded ? <Alert type="info" showIcon style={{ marginTop: 16 }} message="正在加载个性化布局…" /> : null}
+      {!configLoaded ? <Alert type="info" showIcon style={{ marginTop: 16 }} message={t('dashboard.layoutLoading')} /> : null}
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         {layout
@@ -586,22 +595,19 @@ const Dashboard: React.FC = () => {
 
       {layout.every((row) => !row.visible) ? (
         <Card variant="borderless" style={{ marginTop: 16 }}>
-          <Empty description="所有卡片都已隐藏，可在「布局设置」中重新勾选">
+          <Empty description={t('dashboard.allCardsHidden')}>
             <Button type="primary" onClick={handleOpenLayout}>
-              去设置
+              {t('dashboard.goSettings')}
             </Button>
           </Empty>
         </Card>
       ) : null}
 
       <Text type="secondary" style={{ display: 'block', marginTop: 16, fontSize: 12 }}>
-        数据来源：/dashboard/assets/stats、/dashboard/vulnerabilities/stats、/dashboard/workload/stats、/dashboard/trends/*；
-        统计口径：{scopeLabel}
-        {scope.tone === 'full'
-          ? '（管理员 / 项目负责人可见全部资产与漏洞）'
-          : '（仅统计你可访问的资产及其漏洞；漏洞统计仅管理层可用）'}
-        ；布局保存在 /dashboard/config（未保存时使用默认布局）
-        {canExport ? '；导出报表仅管理员 / 项目负责人可用。' : '；当前角色不展示导出入口（仅管理员 / 项目负责人可导出）。'}
+        {t('dashboard.footerSources')}；{t('dashboard.footerScope', { scope: scopeLabel })}
+        {scope.tone === 'full' ? t('dashboard.footerScopeFull') : t('dashboard.footerScopeScoped')}
+        ；{t('dashboard.footerLayout')}
+        {canExport ? t('dashboard.footerExportAllowed') : t('dashboard.footerExportDenied')}
       </Text>
 
       <LayoutSettings

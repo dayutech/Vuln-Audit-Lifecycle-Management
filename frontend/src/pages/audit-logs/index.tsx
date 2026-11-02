@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -28,7 +27,8 @@ import { exportAuditLogs, getAuditLogDetail, getAuditLogList } from '@/api/audit
 import { getMyAccessProfile, isManagementProfile, type MyAccessProfile } from '@/api/permission';
 import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
 import type { AuditLogQuery, AuditLogVO } from '@/types/audit';
-import { AUDIT_ACTION_HINT, AUDIT_RESOURCE_TYPE_OPTIONS } from '@/types/audit';
+import { AUDIT_ACTION_HINT_KEY, AUDIT_RESOURCE_TYPE_KEYS } from '@/types/audit';
+import { useT } from '@/i18n';
 import { formatDateTime } from '@/utils/datetime';
 import { getApiErrorStatus, getBlobErrorMessage } from '@/utils/errorMessage';
 import { saveBlobAsFile } from '@/utils/download';
@@ -128,7 +128,7 @@ const AuditLogs: React.FC = () => {
           setRows([]);
           setTotal(0);
         } else {
-          message.error(await getBlobErrorMessage(error, '审计日志加载失败，请稍后重试'));
+          message.error(await getBlobErrorMessage(error, t('audit.loadFailed')));
         }
       } finally {
         setLoading(false);
@@ -163,37 +163,37 @@ const AuditLogs: React.FC = () => {
     try {
       const blob = await exportAuditLogs(applied);
       if (!(blob instanceof Blob)) {
-        message.error('导出失败：响应不是文件流');
+        message.error(t('audit.exportNotBlob'));
         return;
       }
       // 防御：少数代理会把错误 JSON 以 200 返回，按 content-type 分流而不是直接落盘
       if (blob.type.includes('json')) {
         const text = await blob.text();
-        let detail = '导出失败';
+        let detail = t('audit.exportFailed');
         try {
           detail = (JSON.parse(text) as { message?: string })?.message ?? detail;
         } catch {
           detail = text.slice(0, 160) || detail;
         }
-        const hint = /参数格式错误/.test(detail) ? '（后端可能尚未部署 /audit-logs/export）' : '';
+        const hint = /参数格式错误/.test(detail) ? t('audit.exportNotDeployed') : '';
         message.error(`${detail}${hint}`);
         return;
       }
       if (blob.size === 0) {
-        message.error('导出文件为空，请检查服务端导出实现');
+        message.error(t('audit.exportEmpty'));
         return;
       }
       saveBlobAsFile(blob, 'audit-logs.csv');
-      message.success(`已导出 audit-logs.csv（${(blob.size / 1024).toFixed(1)} KB）`);
+      message.success(t('audit.exportSuccess', { size: (blob.size / 1024).toFixed(1) }));
     } catch (error) {
       const status = getApiErrorStatus(error);
       if (status === 403) {
-        message.error('当前账号无导出权限（仅 admin / 项目负责人可导出）');
+        message.error(t('audit.exportForbidden'));
         return;
       }
       // 错误体是 Blob，全局拦截器读不到 message，这里解析后端原始提示
-      const detail = await getBlobErrorMessage(error, '导出失败');
-      const hint = /参数格式错误|未部署/.test(detail) ? '（后端可能尚未部署 /audit-logs/export）' : '';
+      const detail = await getBlobErrorMessage(error, t('audit.exportFailed'));
+      const hint = /参数格式错误|未部署/.test(detail) ? t('audit.exportNotDeployed') : '';
       message.error(`${detail}${hint}`);
     } finally {
       setExporting(false);
@@ -213,28 +213,30 @@ const AuditLogs: React.FC = () => {
     }
   };
 
+  const { t } = useT();
+
   /** 导出受后端 @PreAuthorize 限制（admin / project_leader）；未知画像时先放行，由 403 兜底 */
   const canExport = profile ? isManagementProfile(profile) : true;
 
   const resourceTypeOptions = useMemo(() => {
-    const merged = new Map(AUDIT_RESOURCE_TYPE_OPTIONS.map((item) => [item.value, item.label]));
+    const merged = new Map(AUDIT_RESOURCE_TYPE_KEYS.map((item) => [item.value, t(item.key)]));
     observedTypes.forEach((type) => {
       if (!merged.has(type)) merged.set(type, type);
     });
     return Array.from(merged.entries()).map(([value, label]) => ({ value, label }));
-  }, [observedTypes]);
+  }, [observedTypes, t]);
 
   const columns: ColumnsType<AuditLogVO> = useMemo(
     () => [
       {
-        title: '时间',
+        title: t('audit.col.time'),
         dataIndex: 'createdAt',
         key: 'createdAt',
         width: 180,
         render: (value?: string) => <Text style={{ whiteSpace: 'nowrap' }}>{formatDateTime(value)}</Text>,
       },
       {
-        title: '操作',
+        title: t('audit.col.action'),
         dataIndex: 'action',
         key: 'action',
         ellipsis: { showTitle: false },
@@ -245,14 +247,14 @@ const AuditLogs: React.FC = () => {
         ),
       },
       {
-        title: '资源类型',
+        title: t('audit.col.resourceType'),
         dataIndex: 'resourceType',
         key: 'resourceType',
         width: 150,
         render: (value?: string) => (value ? <Tag color="geekblue">{value}</Tag> : '-'),
       },
       {
-        title: '资源ID',
+        title: t('audit.col.resourceId'),
         dataIndex: 'resourceId',
         key: 'resourceId',
         width: 120,
@@ -268,7 +270,7 @@ const AuditLogs: React.FC = () => {
           ),
       },
       {
-        title: '用户',
+        title: t('audit.col.user'),
         dataIndex: 'userId',
         key: 'userId',
         width: 130,
@@ -289,20 +291,20 @@ const AuditLogs: React.FC = () => {
         },
       },
       {
-        title: 'IP',
+        title: t('audit.col.ip'),
         dataIndex: 'ipAddress',
         key: 'ipAddress',
         width: 130,
         render: (value?: string | null) => value || '-',
       },
       {
-        title: '详情',
+        title: t('audit.col.details'),
         dataIndex: 'details',
         key: 'details',
         ellipsis: { showTitle: false },
         render: (value: string | null | undefined, record) => (
-          <Tooltip title={value || '无详情'}>
-            <a onClick={() => openDetail(record)}>{value || '查看'}</a>
+          <Tooltip title={value || t('audit.noDetails')}>
+            <a onClick={() => openDetail(record)}>{value || t('audit.view')}</a>
           </Tooltip>
         ),
       },
@@ -317,18 +319,18 @@ const AuditLogs: React.FC = () => {
       <Result
         status="403"
         icon={<SafetyCertificateOutlined style={{ color: '#faad14' }} />}
-        title="无权限访问审计日志"
+        title={t('audit.forbiddenTitle')}
         subTitle={
           profile?.roles?.length
-            ? `当前账号角色：${profile.roles.join('、')}；审计日志仅管理员（admin）与项目负责人（project_leader）可查看。`
-            : '审计日志仅管理员（admin）与项目负责人（project_leader）可查看，如需访问请联系管理员授权。'
+            ? t('audit.forbiddenWithRoles', { roles: profile.roles.join(' / ') })
+            : t('audit.forbiddenNoRoles')
         }
         extra={
           <Space>
             <Button type="primary" onClick={() => navigate('/dashboard')}>
-              返回大盘
+              {t('audit.backHome')}
             </Button>
-            <Button onClick={() => load(1, applied)}>重试</Button>
+            <Button onClick={() => load(1, applied)}>{t('audit.retry')}</Button>
           </Space>
         }
       />
@@ -339,13 +341,13 @@ const AuditLogs: React.FC = () => {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
         <Typography.Title level={3} style={{ margin: 0 }}>
-          审计日志
+          {t('audit.title')}
         </Typography.Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={() => load(page, applied)} loading={loading}>
-            刷新
+            {t('audit.refresh')}
           </Button>
-          <Tooltip title={canExport ? '' : '仅管理员 / 项目负责人可导出 CSV'}>
+          <Tooltip title={canExport ? '' : t('audit.exportDisabledTip')}>
             <Button
               type="primary"
               icon={<DownloadOutlined />}
@@ -353,7 +355,7 @@ const AuditLogs: React.FC = () => {
               loading={exporting}
               disabled={!canExport}
             >
-              导出 CSV
+              {t('audit.export')}
             </Button>
           </Tooltip>
         </Space>
@@ -363,10 +365,10 @@ const AuditLogs: React.FC = () => {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="筛选说明"
+        message={t('audit.filterHintTitle')}
         description={
           <span>
-            时间范围为闭区间（ISO-8601）；关键词对「操作 / 资源类型 / 详情」做模糊匹配。{AUDIT_ACTION_HINT}
+            {t('audit.filterHintBody', { actionHint: t(AUDIT_ACTION_HINT_KEY) })}
           </span>
         }
       />
@@ -375,38 +377,38 @@ const AuditLogs: React.FC = () => {
         <Form form={form} layout="vertical" onFinish={handleSearch}>
           <Row gutter={12}>
             <Col xs={24} md={10} lg={9}>
-              <Form.Item name="range" label="时间范围">
+              <Form.Item name="range" label={t('audit.filter.range')}>
                 <RangePicker showTime style={{ width: '100%' }} format="YYYY-MM-DD HH:mm:ss" allowEmpty={[true, true]} />
               </Form.Item>
             </Col>
             <Col xs={24} md={7} lg={5}>
-              <Form.Item name="resourceType" label="资源类型">
+              <Form.Item name="resourceType" label={t('audit.filter.resourceType')}>
                 <Select
                   allowClear
                   showSearch
-                  placeholder="全部资源类型"
+                  placeholder={t('audit.filter.resourceTypePlaceholder')}
                   options={resourceTypeOptions}
                   optionFilterProp="label"
                 />
               </Form.Item>
             </Col>
             <Col xs={24} md={7} lg={4}>
-              <Form.Item name="action" label="操作（等值）">
-                <Input allowClear placeholder="如 DELETE TeamController.deleteTeam" />
+              <Form.Item name="action" label={t('audit.filter.action')}>
+                <Input allowClear placeholder={t('audit.filter.actionPlaceholder')} />
               </Form.Item>
             </Col>
             <Col xs={24} md={12} lg={6}>
-              <Form.Item name="keyword" label="关键词">
-                <Input allowClear placeholder="匹配操作/资源类型/详情" />
+              <Form.Item name="keyword" label={t('audit.filter.keyword')}>
+                <Input allowClear placeholder={t('audit.filter.keywordPlaceholder')} />
               </Form.Item>
             </Col>
           </Row>
           <Space>
             <Button type="primary" htmlType="submit" icon={<SearchOutlined />} loading={loading}>
-              查询
+              {t('audit.filter.search')}
             </Button>
-            <Button onClick={handleReset}>重置</Button>
-            <Text type="secondary">共 {total} 条</Text>
+            <Button onClick={handleReset}>{t('audit.filter.reset')}</Button>
+            <Text type="secondary">{t('audit.total', { count: total })}</Text>
           </Space>
         </Form>
       </Card>
@@ -423,9 +425,9 @@ const AuditLogs: React.FC = () => {
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={
                 <span>
-                  当前筛选条件下没有审计记录；清空条件或放宽时间范围后再试。
+                  {t('audit.emptyTitle')}
                   <br />
-                  注：超过保留期（默认 180 天）的日志由后端每日 03:30 自动清理，属于预期行为，不代表数据丢失。
+                  {t('audit.emptyRetention')}
                 </span>
               }
             />
@@ -436,7 +438,7 @@ const AuditLogs: React.FC = () => {
           pageSize: PAGE_SIZE,
           total,
           showSizeChanger: false,
-          showTotal: (count) => `共 ${count} 条`,
+          showTotal: (count) => t('audit.total', { count }),
           onChange: (next) => {
             setPage(next);
             load(next, applied);
@@ -448,26 +450,26 @@ const AuditLogs: React.FC = () => {
         open={!!detail}
         onClose={() => setDetail(null)}
         width={620}
-        title="审计日志详情"
+        title={t('audit.detailTitle')}
         loading={detailLoading}
       >
         {detail ? (
           <div>
             <Descriptions column={1} bordered size="small">
-              <Descriptions.Item label="时间">{formatDateTime(detail.createdAt)}</Descriptions.Item>
-              <Descriptions.Item label="操作">
+              <Descriptions.Item label={t('audit.col.time')}>{formatDateTime(detail.createdAt)}</Descriptions.Item>
+              <Descriptions.Item label={t('audit.col.action')}>
                 <Text code>{detail.action || '-'}</Text>
               </Descriptions.Item>
-              <Descriptions.Item label="资源类型">{detail.resourceType || '-'}</Descriptions.Item>
-              <Descriptions.Item label="资源ID">{detail.resourceId || '-'}</Descriptions.Item>
-              <Descriptions.Item label="用户">
+              <Descriptions.Item label={t('audit.col.resourceType')}>{detail.resourceType || '-'}</Descriptions.Item>
+              <Descriptions.Item label={t('audit.col.resourceId')}>{detail.resourceId || '-'}</Descriptions.Item>
+              <Descriptions.Item label={t('audit.col.user')}>
                 {userNames[detail.userId] ? `${userNames[detail.userId]}（${detail.userId}）` : detail.userId || '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="IP 地址">{detail.ipAddress || '-'}</Descriptions.Item>
+              <Descriptions.Item label={t('audit.col.ip')}>{detail.ipAddress || '-'}</Descriptions.Item>
               <Descriptions.Item label="User-Agent">{detail.userAgent || '-'}</Descriptions.Item>
             </Descriptions>
             <Typography.Title level={5} style={{ marginTop: 16 }}>
-              详情
+              {t('audit.detail.details')}
             </Typography.Title>
             <Paragraph>
               <pre

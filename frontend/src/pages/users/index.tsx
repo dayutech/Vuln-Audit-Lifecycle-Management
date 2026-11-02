@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -40,6 +39,7 @@ import type { RoleVO } from '@/types/role';
 import { isSystemRole } from '@/types/role';
 import { formatDateTime } from '@/utils/datetime';
 import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
+import { useT } from '@/i18n';
 
 const { Text } = Typography;
 
@@ -62,6 +62,7 @@ const statusMeta: Record<string, { color: string; label: string }> = {
  * 页面显式区分这两种结果，不做静默吞掉。
  */
 const Users: React.FC = () => {
+  const { t } = useT();
   const [data, setData] = useState<UserVO[]>([]);
   const [roles, setRoles] = useState<RoleVO[]>([]);
   const [loading, setLoading] = useState(false);
@@ -198,7 +199,7 @@ const Users: React.FC = () => {
 
   const handleDelete = (record: UserVO) => {
     Modal.confirm({
-      title: '确认删除',
+      title: t('users.deleteTitle'),
       content: `确定要删除用户 [${record.username}] 吗？删除为软删除（状态置为 deactivated）。`,
       okButtonProps: { danger: true },
       onOk: async () => {
@@ -321,7 +322,7 @@ const Users: React.FC = () => {
   const handleRevokeRole = (role: RoleVO) => {
     if (!roleUser) return;
     Modal.confirm({
-      title: '移除角色',
+      title: t('users.removeRoleTitle'),
       content: `确定要移除「${role.name}」吗？用户将立即失去该角色对应的权限点。`,
       okButtonProps: { danger: true },
       onOk: async () => {
@@ -345,13 +346,13 @@ const Users: React.FC = () => {
   };
 
   const columns = [
-    { title: '用户名', dataIndex: 'username', key: 'username' },
+    { title: t('users.colUsername'), dataIndex: 'username', key: 'username' },
     {
-      title: '姓名',
+      title: t('users.colFullName'),
       key: 'fullName',
       render: (_: unknown, record: UserVO) => displayName(record) || <Text type="secondary">-</Text>,
     },
-    { title: '邮箱', dataIndex: 'email', key: 'email' },
+    { title: t('users.colEmail'), dataIndex: 'email', key: 'email' },
     {
       title: '状态',
       dataIndex: 'status',
@@ -362,17 +363,17 @@ const Users: React.FC = () => {
       },
     },
     {
-      title: '最后登录',
+      title: t('users.colLastLogin'),
       key: 'lastLogin',
       render: (_: unknown, record: UserVO) => formatDateTime(record.lastLogin ?? record.last_login),
     },
     {
-      title: '创建时间',
+      title: t('users.colCreated'),
       key: 'createdAt',
       render: (_: unknown, record: UserVO) => formatDateTime(record.createdAt ?? record.created_at),
     },
     {
-      title: '操作',
+      title: t('users.colAction'),
       key: 'action',
       render: (_: unknown, record: UserVO) => (
         <Space size="middle" wrap>
@@ -392,7 +393,7 @@ const Users: React.FC = () => {
 
   if (accessDenied) {
     return (
-      <Card title="账号管理">
+      <Card title={t('users.title')}>
         <Alert
           type="warning"
           showIcon
@@ -413,10 +414,10 @@ const Users: React.FC = () => {
 
   return (
     <Card
-      title="账号管理"
+      title={t('users.title')}
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} loading={loading} onClick={fetchData}>刷新</Button>
+          <Button icon={<ReloadOutlined />} loading={loading} onClick={fetchData}>{t('common.refresh')}</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>创建用户</Button>
         </Space>
       }
@@ -570,7 +571,7 @@ const Users: React.FC = () => {
           loading={userRoleLoading}
           dataSource={userRoles}
           pagination={false}
-          locale={{ emptyText: '该用户暂无角色' }}
+          locale={{ emptyText: t('users.emptyRoles') }}
           columns={[
             { title: '角色名称', dataIndex: 'name', key: 'name' },
             {
@@ -586,7 +587,7 @@ const Users: React.FC = () => {
                 isSystemRole(role) ? <Tag color="gold">内置</Tag> : <Tag color="green">自定义</Tag>,
             },
             {
-              title: '操作',
+              title: t('users.colAction'),
               key: 'action',
               render: (_: unknown, role: RoleVO) => (
                 <Tooltip title="移除后用户立即失去该角色的权限点">

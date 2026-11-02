@@ -7,6 +7,8 @@
  * 必须原样展示给用户，不能统一成「操作失败」。
  */
 
+import { translate } from '@/i18n';
+
 interface ApiErrorLike {
   response?: {
     status?: number;
@@ -39,8 +41,14 @@ const parseMessageFromJson = (payload: unknown): string | undefined => {
   return undefined;
 };
 
-/** 同步取错误 message（普通 JSON 响应体） */
-export const getApiErrorMessage = (error: unknown, fallback: string): string => {
+/**
+ * 同步取错误 message（普通 JSON 响应体）。
+ *
+ * t64：fallback 变为可选——缺省时按当前界面语言取 i18n 的 error.requestFailed，
+ * 不再依赖调用方硬编码中文兜底；后端 message 仍原样优先展示（t60 起按 Accept-Language 返回）。
+ */
+export const getApiErrorMessage = (error: unknown, fallback?: string): string => {
+  const message = fallback ?? translate('error.requestFailed');
   const err = error as ApiErrorLike | undefined;
   const parsed = parseMessageFromJson(err?.response?.data);
   if (parsed) {
@@ -48,9 +56,9 @@ export const getApiErrorMessage = (error: unknown, fallback: string): string => 
   }
   // 网络错误（无 response）时给出可读提示
   if (!err?.response) {
-    return err?.message ? `${fallback}：${err.message}` : fallback;
+    return err?.message ? `${message}：${err.message}` : message;
   }
-  return fallback;
+  return message;
 };
 
 /** 取错误状态码（403/404/503 等，用于分支提示） */
@@ -59,8 +67,9 @@ export const getApiErrorStatus = (error: unknown): number | undefined => {
   return err?.response?.status;
 };
 
-/** 异步取错误 message（responseType=blob 的接口） */
-export const getBlobErrorMessage = async (error: unknown, fallback: string): Promise<string> => {
+/** 异步取错误 message（responseType=blob 的接口）；fallback 缺省同 getApiErrorMessage */
+export const getBlobErrorMessage = async (error: unknown, fallback?: string): Promise<string> => {
+  const message = fallback ?? translate('error.requestFailed');
   const err = error as ApiErrorLike | undefined;
   const data = err?.response?.data;
   if (data instanceof Blob) {
@@ -73,14 +82,14 @@ export const getBlobErrorMessage = async (error: unknown, fallback: string): Pro
     } catch {
       // 读取 Blob 失败则回落
     }
-    return fallback;
+    return message;
   }
   const parsed = parseMessageFromJson(data);
   if (parsed) {
     return parsed;
   }
   if (!err?.response) {
-    return err?.message ? `${fallback}：${err.message}` : fallback;
+    return err?.message ? `${message}：${err.message}` : message;
   }
-  return fallback;
+  return message;
 };

@@ -1,5 +1,11 @@
 import request from '@/utils/request';
-import type { DocumentListResponse, DocumentVO, CreateDocumentRequest, UpdateDocumentRequest } from '@/types/document';
+import type {
+  DocumentListResponse,
+  DocumentVO,
+  CreateDocumentRequest,
+  UpdateDocumentRequest,
+  DocumentTagVO,
+} from '@/types/document';
 import type { PaginationParams } from '@/types/common';
 
 export interface DocumentQueryParams extends PaginationParams {
@@ -54,4 +60,39 @@ export const publishDocument = (id: string): Promise<any> => {
 
 export const unpublishDocument = (id: string): Promise<any> => {
   return request.post(`/documents/${id}/unpublish`);
+};
+
+/* ==================== 文档标签（t66） ==================== */
+
+/**
+ * 文档标签接口（路径与参数以后端 DocumentController 为准）：
+ * - GET    /documents/{id}/tags                → DocumentTag[]（全员可读）
+ * - POST   /documents/{id}/tags?tag=xxx        → DocumentTag（作者本人或管理层，t61）
+ * - DELETE /documents/{documentId}/tags/{tagId} → 204（作者本人或管理层；标签不属于该文档时 404，t65）
+ */
+export const getDocumentTags = (documentId: string): Promise<any> => {
+  return request.get(`/documents/${documentId}/tags`);
+};
+
+export const addDocumentTag = (documentId: string, tag: string): Promise<any> => {
+  return request.post(`/documents/${documentId}/tags`, null, { params: { tag } });
+};
+
+export const removeDocumentTag = (documentId: string, tagId: string): Promise<any> => {
+  return request.delete(`/documents/${documentId}/tags/${tagId}`);
+};
+
+/** 统一解包文档标签响应（兼容裸数组 / 分页包装 / ApiResponse） */
+export const extractDocumentTags = (res: any): DocumentTagVO[] => {
+  const payload = res?.data ?? res;
+  const items = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.content)
+      ? payload.content
+      : Array.isArray(payload?.items)
+        ? payload.items
+        : [];
+  return items.filter(
+    (item: any) => item && typeof item === 'object' && typeof item.tag === 'string' && item.tag.length > 0,
+  );
 };

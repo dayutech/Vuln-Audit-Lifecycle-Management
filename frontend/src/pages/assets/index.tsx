@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useState } from 'react';
 import {
   Table,
@@ -31,10 +30,13 @@ import { getTeamList } from '@/api/team';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
 import { canCreateAsset } from '@/utils/accessRoles';
 import type { TeamVO } from '@/types/team';
+import { useT } from '@/i18n';
+import type { MessageKey } from '@/i18n/messages/zh-CN';
 
 const { TextArea } = Input;
 
 const Assets: React.FC = () => {
+  const { t } = useT();
   const navigate = useNavigate();
   // t49 起 POST /assets 仅 admin/project_leader/team_leader：工程师不渲染新建入口
   const { profile, loaded: profileLoaded } = useAccessProfile();
@@ -146,12 +148,12 @@ const Assets: React.FC = () => {
 
   const handleDelete = (id: string) => {
     Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除该资产吗？此操作不可恢复。',
+      title: t('common.deleteConfirmTitle'),
+      content: t('asset.list.deleteContent'),
       onOk: async () => {
         try {
           await deleteAsset(id);
-          message.success('删除成功');
+          message.success(t('asset.list.deleteSuccess'));
           fetchData();
         } catch (error) {
           // Error handled by interceptor
@@ -169,31 +171,31 @@ const Assets: React.FC = () => {
   const handleRequestAccess = (record: AssetVO) => {
     let canViewFiles = true;
     Modal.confirm({
-      title: `申请访问「${record.name}」`,
+      title: t('asset.request.title', { name: record.name }),
       content: (
         <div style={{ marginTop: 12 }}>
-          <div style={{ marginBottom: 8, color: '#888' }}>提交后由上级审批，通过后即可查看该资产的文件与配置。</div>
+          <div style={{ marginBottom: 8, color: '#888' }}>{t('asset.request.tip')}</div>
           <Select
             defaultValue={true}
             style={{ width: '100%' }}
             onChange={(value) => { canViewFiles = value; }}
             options={[
-              { value: true, label: '需要查看文件' },
-              { value: false, label: '仅需查看基本信息' },
+              { value: true, label: t('asset.request.needFiles') },
+              { value: false, label: t('asset.request.basicOnly') },
             ]}
           />
         </div>
       ),
-      okText: '提交申请',
+      okText: t('asset.request.submit'),
       onOk: async () => {
         try {
           await createAssetAccessRequest(record.id, {
             can_view_files: canViewFiles,
-            request_note: '列表页发起访问申请',
+            request_note: t('asset.request.note'),
           });
-          message.success('访问申请已提交，等待审批');
+          message.success(t('asset.request.success'));
         } catch (error: any) {
-          message.error(error?.response?.data?.message || '提交失败');
+          message.error(error?.response?.data?.message || t('asset.request.failed'));
         }
       }
     });
@@ -204,11 +206,11 @@ const Assets: React.FC = () => {
       const values = await form.validateFields();
       if (modalMode === 'create') {
         await createAsset(values as CreateAssetRequest);
-        message.success('创建成功');
+        message.success(t('asset.list.createSuccess'));
       } else {
         if (currentAsset) {
           await updateAsset(currentAsset.id, values as UpdateAssetRequest);
-          message.success('更新成功');
+          message.success(t('asset.list.updateSuccess'));
         }
       }
       setIsModalVisible(false);
@@ -220,30 +222,30 @@ const Assets: React.FC = () => {
 
   const columns = [
     { 
-      title: '资产名称', 
+      title: t('asset.list.colName'), 
       dataIndex: 'name', 
       key: 'name',
       render: (text: string, record: AssetVO) => (
         <a onClick={() => navigate(`/assets/${record.id}`)} style={{ fontWeight: 500 }}>{text}</a>
       )
     },
-    { title: '资产编码', dataIndex: 'code', key: 'code' },
+    { title: t('asset.list.colCode'), dataIndex: 'code', key: 'code' },
     { 
-      title: '所属团队', 
+      title: t('asset.list.colTeam'), 
       dataIndex: 'team_name', 
       key: 'team_name',
       render: (text: string) => text || '-'
     },
     { 
-      title: '负责人', 
+      title: t('asset.list.colOwner'), 
       dataIndex: 'owner_name', 
       key: 'owner_name',
       render: (text: string) => text || '-'
     },
-    { title: '类型', dataIndex: 'target_type', key: 'target_type' },
-    { title: '来源', dataIndex: 'target_source', key: 'target_source' },
+    { title: t('asset.list.colType'), dataIndex: 'target_type', key: 'target_type' },
+    { title: t('asset.list.colSource'), dataIndex: 'target_source', key: 'target_source' },
     { 
-      title: '优先级', 
+      title: t('asset.list.colPriority'), 
       dataIndex: 'priority', 
       key: 'priority',
       render: (text: string) => {
@@ -252,7 +254,7 @@ const Assets: React.FC = () => {
       }
     },
     { 
-      title: '状态', 
+      title: t('asset.list.colStatus'), 
       dataIndex: 'status', 
       key: 'status',
       render: (text: string) => {
@@ -262,24 +264,24 @@ const Assets: React.FC = () => {
           suspended: 'warning',
           archived: 'default',
         };
-        const labels: Record<string, string> = {
-          active: '活跃',
-          under_test: '测试中',
-          suspended: '暂停',
-          archived: '已归档',
+        const labels: Record<string, MessageKey> = {
+          active: 'asset.status.active',
+          under_test: 'asset.status.underTest',
+          suspended: 'asset.status.suspended',
+          archived: 'asset.status.archived',
         };
-        return <Tag color={colors[text] || 'default'}>{labels[text] || text}</Tag>;
+        return <Tag color={colors[text] || 'default'}>{labels[text] ? t(labels[text]) : text}</Tag>;
       }
     },
     {
-      title: '操作',
+      title: t('asset.list.colAction'),
       key: 'action',
       render: (_: any, record: AssetVO) => (
         <Space size="middle">
-          <a onClick={() => navigate(`/assets/${record.id}`)}>进入工作台</a>
-          <a onClick={() => handleRequestAccess(record)}>申请访问</a>
-          <a onClick={() => handleEdit(record)}>编辑</a>
-          <a style={{ color: 'red' }} onClick={() => handleDelete(record.id)}>删除</a>
+          <a onClick={() => navigate(`/assets/${record.id}`)}>{t('asset.list.enter')}</a>
+          <a onClick={() => handleRequestAccess(record)}>{t('asset.list.requestAccess')}</a>
+          <a onClick={() => handleEdit(record)}>{t('asset.list.editAsset')}</a>
+          <a style={{ color: 'red' }} onClick={() => handleDelete(record.id)}>{t('asset.list.deleteAsset')}</a>
         </Space>
       ),
     },
@@ -287,16 +289,16 @@ const Assets: React.FC = () => {
 
   return (
     <Card
-      title="资产管理"
+      title={t('asset.list.title')}
       extra={
         allowCreateAsset ? (
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>新建资产</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('asset.list.new')}</Button>
         ) : null
       }
     >
       <div style={{ marginBottom: 16 }}>
         <Input 
-          placeholder="搜索资产名称/编码" 
+          placeholder={t('asset.list.searchPlaceholder')} 
           prefix={<SearchOutlined />} 
           style={{ width: 300 }} 
           onPressEnter={(e) => setParams({ ...params, search: e.currentTarget.value, page: 1 })}
@@ -316,40 +318,40 @@ const Assets: React.FC = () => {
       />
 
       <Modal
-        title={modalMode === 'create' ? '新建资产' : '编辑资产'}
+        title={modalMode === 'create' ? t('asset.form.createTitle') : t('asset.form.editTitle')}
         open={isModalVisible}
         onOk={handleModalOk}
         onCancel={() => setIsModalVisible(false)}
         destroyOnClose
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="资产名称" rules={[{ required: true, message: '请输入资产名称' }]}>
+          <Form.Item name="name" label={t('asset.list.colName')} rules={[{ required: true, message: t('asset.form.nameRequired') }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="team_id" label="所属团队" rules={[{ required: true, message: '请选择所属团队' }]}>
-            <Select placeholder="请选择所属团队" showSearch optionFilterProp="label" options={teams.map((team) => ({ label: team.name, value: team.id }))} />
+          <Form.Item name="team_id" label={t('asset.list.colTeam')} rules={[{ required: true, message: t('asset.form.teamRequired') }]}>
+            <Select placeholder={t('asset.form.teamRequired')} showSearch optionFilterProp="label" options={teams.map((team) => ({ label: team.name, value: team.id }))} />
           </Form.Item>
-          <Form.Item name="target_type" label="资产类型" rules={[{ required: true, message: '请选择资产类型' }]}>
+          <Form.Item name="target_type" label={t('asset.form.targetType')} rules={[{ required: true, message: t('asset.form.targetTypeRequired') }]}>
             <Select
-              placeholder="请选择资产类型"
+              placeholder={t('asset.form.targetTypeRequired')}
               options={targetTypeOptions}
               disabled={targetTypeOptions.length === 0}
             />
           </Form.Item>
-          <Form.Item name="target_source" label="资产来源" rules={[{ required: true, message: '请选择资产来源' }]}>
+          <Form.Item name="target_source" label={t('asset.form.targetSource')} rules={[{ required: true, message: t('asset.form.targetSourceRequired') }]}>
             <Select
-              placeholder="请选择资产来源"
+              placeholder={t('asset.form.targetSourceRequired')}
               options={targetSourceOptions}
               disabled={targetSourceOptions.length === 0}
             />
           </Form.Item>
-          <Form.Item name="priority" label="优先级" rules={[{ required: true, message: '请选择优先级' }]}>
-            <Select placeholder="请选择优先级" options={priorityOptions} />
+          <Form.Item name="priority" label={t('asset.list.colPriority')} rules={[{ required: true, message: t('asset.form.priorityRequired') }]}>
+            <Select placeholder={t('asset.form.priorityRequired')} options={priorityOptions} />
           </Form.Item>
-          <Form.Item name="status" label="状态" rules={[{ required: true, message: '请选择状态' }]}>
-            <Select placeholder="请选择状态" options={statusOptions} />
+          <Form.Item name="status" label={t('asset.list.colStatus')} rules={[{ required: true, message: t('asset.form.statusRequired') }]}>
+            <Select placeholder={t('asset.form.statusRequired')} options={statusOptions} />
           </Form.Item>
-          <Form.Item name="description" label="描述">
+          <Form.Item name="description" label={t('asset.form.description')}>
             <TextArea rows={4} />
           </Form.Item>
         </Form>

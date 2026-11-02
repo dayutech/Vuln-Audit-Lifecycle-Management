@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Empty, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
@@ -6,6 +5,7 @@ import { getWorkloadRanking, listTasksForDashboard } from '@/api/dashboard';
 import { getApiErrorStatus } from '@/utils/errorMessage';
 import { useT } from '@/i18n';
 import { describeApiFailure } from './apiFailure';
+import type { MessageKey } from '@/i18n';
 import { buildLocalRows, mapServerRows, type RankRow } from './rankMapping';
 
 const { Text } = Typography;
@@ -25,18 +25,19 @@ interface RankNotice {
   level: 'warning' | 'error' | 'info';
 }
 
-/** 排行接口失败 → 分级提示文案（403 / 404 / 5xx 各不相同，避免都写成“暂无数据”） */
-const buildRankNotice = (status: number | undefined, fallbackUsed: boolean): RankNotice => {
+/** 排行接口失败 → 分级提示文案（403 / 404 / 5xx 各不相同，避免都写成“暂无数据”）；t59 起文案走 i18n */
+const buildRankNotice = (
+  status: number | undefined,
+  fallbackUsed: boolean,
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string
+): RankNotice => {
   const failure = describeApiFailure(status);
-  const suffix = fallbackUsed ? '已切换为本地聚合口径。' : '本地聚合同样没有任务数据。';
-  const scopeHint =
-    failure.kind === 'forbidden'
-      ? '后端对跨用户排行做了数据边界：管理员 / 项目负责人 / 小组长看全量，其他角色只返回自己一行。'
-      : '';
+  const suffix = fallbackUsed ? t('dashboard.rank.noticeFallbackSuffix') : t('dashboard.rank.noticeNothingLocal');
+  const scopeHint = failure.kind === 'forbidden' ? t('dashboard.rank.noticeScopeHint') : '';
   return {
     status,
-    title: `排行接口${failure.label}`,
-    detail: `${scopeHint}${failure.hint}${suffix}`,
+    title: t('dashboard.rank.noticeTitle', { label: t(failure.labelKey, failure.vars) }),
+    detail: `${scopeHint}${t(failure.hintKey)}${suffix}`,
     level: failure.level,
   };
 };
@@ -71,11 +72,11 @@ const WorkloadRank: React.FC = () => {
       setSource(local.length > 0 ? 'local' : null);
       setNotice({
         status: 200,
-        title: '排行接口返回空数据',
+        title: t('dashboard.rank.noticeEmptyTitle'),
         detail:
           local.length > 0
-            ? '服务端排行没有数据，已切换为本地聚合口径（按 /tasks 最近任务）。'
-            : '服务端排行与本地聚合都没有数据，分配任务后再来看。',
+            ? t('dashboard.rank.noticeEmptyFallback')
+            : t('dashboard.rank.noticeEmptyNone'),
         level: 'info',
       });
     } catch (error) {
@@ -83,7 +84,7 @@ const WorkloadRank: React.FC = () => {
       const local = buildLocalRows(await listTasksForDashboard(TASK_SCAN_SIZE).catch(() => []));
       setRows(local);
       setSource(local.length > 0 ? 'local' : null);
-      setNotice(buildRankNotice(status, local.length > 0));
+      setNotice(buildRankNotice(status, local.length > 0, t));
     } finally {
       setLoading(false);
     }
@@ -96,7 +97,7 @@ const WorkloadRank: React.FC = () => {
   const columns = useMemo(() => {
     const base = [
       {
-        title: '排名',
+        title: t('dashboard.rank.colRank'),
         key: 'rank',
         width: 70,
         render: (_: unknown, __: RankRow, index: number) => {
@@ -105,13 +106,13 @@ const WorkloadRank: React.FC = () => {
         },
       },
       {
-        title: '负责人',
+        title: t('dashboard.rank.colAssignee'),
         dataIndex: 'assignee',
         key: 'assignee',
-        render: (value: string) => <Text strong>{value || '未分配'}</Text>,
+        render: (value: string) => <Text strong>{value || t('dashboard.rank.unassigned')}</Text>,
       },
       {
-        title: '任务数',
+        title: t('dashboard.rank.colTasks'),
         dataIndex: 'total',
         key: 'total',
         sorter: (a: RankRow, b: RankRow) => a.total - b.total,
@@ -124,19 +125,19 @@ const WorkloadRank: React.FC = () => {
       return [
         ...base,
         {
-          title: '预估工时',
+          title: t('dashboard.rank.colEstimated'),
           dataIndex: 'estimatedHours',
           key: 'estimatedHours',
           width: 110,
           render: (value: number) => <span>{value}</span>,
         },
         {
-          title: '实际工时',
+          title: t('dashboard.rank.colActual'),
           dataIndex: 'actualHours',
           key: 'actualHours',
           width: 110,
           render: (value: number, record: RankRow) => (
-            <Tooltip title={`实际 ${value} / 预估 ${record.estimatedHours}`}>
+            <Tooltip title={t('dashboard.rank.hoursTip', { actual: value, estimated: record.estimatedHours })}>
               <span>{value}</span>
             </Tooltip>
           ),
@@ -147,15 +148,15 @@ const WorkloadRank: React.FC = () => {
     // 本地兜底口径才有状态明细（服务端排行只提供任务数与工时）
     return [
       ...base,
-      { title: '进行中', dataIndex: 'inProgress', key: 'inProgress', width: 90 },
-      { title: '待处理', dataIndex: 'pending', key: 'pending', width: 90 },
-      { title: '已完成', dataIndex: 'completed', key: 'completed', width: 90 },
+      { title: t('dashboard.rank.colInProgress'), dataIndex: 'inProgress', key: 'inProgress', width: 90 },
+      { title: t('dashboard.rank.colPending'), dataIndex: 'pending', key: 'pending', width: 90 },
+      { title: t('dashboard.rank.colCompleted'), dataIndex: 'completed', key: 'completed', width: 90 },
       {
-        title: '实际/预估工时',
+        title: t('dashboard.rank.colHours'),
         key: 'hours',
         width: 140,
         render: (_: unknown, record: RankRow) => (
-          <Tooltip title={`实际 ${record.actualHours} / 预估 ${record.estimatedHours}`}>
+          <Tooltip title={t('dashboard.rank.hoursTip', { actual: record.actualHours, estimated: record.estimatedHours })}>
             <span>
               {record.actualHours} / {record.estimatedHours}
             </span>
@@ -163,15 +164,15 @@ const WorkloadRank: React.FC = () => {
         ),
       },
     ];
-  }, [source]);
+  }, [source, t]);
 
   return (
     <div>
       <Space style={{ marginBottom: 8, justifyContent: 'flex-end', width: '100%' }}>
         {source === 'local' ? (
-          <Tag color="orange">本兜底口径</Tag>
+          <Tag color="orange">{t('dashboard.rank.localTag')}</Tag>
         ) : source === 'server' ? (
-          <Tag color="green">服务端口径</Tag>
+          <Tag color="green">{t('dashboard.rank.serverTag')}</Tag>
         ) : null}
         <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={load}>
           {t('common.refresh')}
@@ -187,7 +188,7 @@ const WorkloadRank: React.FC = () => {
           description={notice.detail}
           action={
             <Button size="small" onClick={load} loading={loading}>
-              重试
+              {t('dashboard.rank.retry')}
             </Button>
           }
         />
@@ -207,8 +208,8 @@ const WorkloadRank: React.FC = () => {
               image={Empty.PRESENTED_IMAGE_SIMPLE}
               description={
                 notice
-                  ? '排行数据为空（原因见上方提示）'
-                  : `近 ${RANK_DAYS} 天内没有带负责人的任务，分配任务后这里会出现排行榜`
+                  ? t('dashboard.rank.emptyWithNotice')
+                  : t('dashboard.rank.empty', { days: RANK_DAYS })
               }
             />
           ),
@@ -216,8 +217,8 @@ const WorkloadRank: React.FC = () => {
       />
       <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
         {source === 'local'
-          ? `当前为本兜底口径：排行接口不可用或为空，改按 /tasks 最近 ${TASK_SCAN_SIZE} 条任务本地聚合（可见范围随任务数据权限）。`
-          : `数据来源：GET /dashboard/workload/ranking（近 ${RANK_DAYS} 天，按任务数倒序，取前 ${RANK_LIMIT}）。可见范围：管理员 / 项目负责人 / 小组长=全量排行，其他角色=仅自己一行。`}
+          ? t('dashboard.rank.footLocal', { scan: TASK_SCAN_SIZE })
+          : t('dashboard.rank.footServer', { days: RANK_DAYS, limit: RANK_LIMIT })}
       </Text>
     </div>
   );

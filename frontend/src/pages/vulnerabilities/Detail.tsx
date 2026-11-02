@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -71,21 +70,23 @@ import {
   HISTORY_STATUS_TYPES,
   WORKFLOW_STATUS_OPTIONS,
   customerColor,
-  customerLabel,
+  customerKey,
   disclosureColor,
-  disclosureLabel,
+  disclosureKey,
   exploitStageColor,
-  exploitStageLabel,
+  exploitStageKey,
   fieldTestColor,
-  fieldTestLabel,
+  fieldTestKey,
   formatFileSize,
   nextWorkflowStatuses,
   severityColor,
-  severityLabel,
+  severityKey,
   workflowColor,
   workflowIndex,
-  workflowLabel,
+  workflowKey,
 } from './constants';
+import { useT } from '@/i18n';
+import type { MessageKey } from '@/i18n/messages/zh-CN';
 
 const { TextArea } = Input;
 
@@ -122,14 +123,14 @@ const renderBlock = (content?: string) => (
   <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, minHeight: 24 }}>{content?.trim() || '-'}</div>
 );
 
-const ACTION_TITLES: Record<ActionKind, string> = {
-  workflow: '工作流状态流转',
-  customer: '客户确认状态',
-  disclosure: '公开披露状态',
-  exploit: '更新利用阶段',
-  vendor: '更新厂商修复状态',
-  deliver: '交付漏洞',
-  assign: '分配处理人',
+const ACTION_TITLE_KEYS: Record<ActionKind, MessageKey> = {
+  workflow: 'vuln.detail.action.workflow',
+  customer: 'vuln.detail.action.customer',
+  disclosure: 'vuln.detail.action.disclosure',
+  exploit: 'vuln.detail.action.exploit',
+  vendor: 'vuln.detail.action.vendor',
+  deliver: 'vuln.detail.action.deliver',
+  assign: 'vuln.detail.action.assign',
 };
 
 const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
@@ -138,6 +139,18 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
   onChanged,
   onClose,
 }) => {
+  const { t } = useT();
+  /** 枚举展示统一走 t()：常量只保留 labelKey，未知值回落原始英文/中文值 */
+  const labelOf = useCallback(
+    (key: MessageKey | undefined, fallback?: string | null) => (key ? t(key) : fallback || '-'),
+    [t],
+  );
+  const workflowLabel = useCallback((v?: string | null) => labelOf(workflowKey(v), v), [labelOf]);
+  const customerLabel = useCallback((v?: string | null) => labelOf(customerKey(v), v), [labelOf]);
+  const disclosureLabel = useCallback((v?: string | null) => labelOf(disclosureKey(v), v), [labelOf]);
+  const exploitStageLabel = useCallback((v?: string | null) => labelOf(exploitStageKey(v), v), [labelOf]);
+  const fieldTestLabel = useCallback((v?: string | null) => labelOf(fieldTestKey(v), v), [labelOf]);
+  const severityLabel = useCallback((v?: string | null) => labelOf(severityKey(v), v), [labelOf]);
   const [detail, setDetail] = useState<VulnerabilityVO | null>(null);
   const [loading, setLoading] = useState(false);
   const [notFound, setNotFound] = useState(false);
@@ -329,7 +342,7 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
         default:
           break;
       }
-      message.success(`${ACTION_TITLES[action.kind]}成功`);
+      message.success(t('vuln.detail.action.success', { action: t(ACTION_TITLE_KEYS[action.kind]) }));
       setAction(null);
       await Promise.all([loadDetail(), loadHistory()]);
       onChanged?.();
@@ -343,13 +356,13 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
   const handleAddTag = async () => {
     const value = tagInput.trim();
     if (!value) {
-      message.warning('请输入标签名称');
+      message.warning(t('vuln.detail.tag.inputRequired'));
       return;
     }
     setTagSubmitting(true);
     try {
       await addVulnerabilityTag(vulnerabilityId, value);
-      message.success('标签已添加');
+      message.success(t('vuln.detail.tag.addSuccess'));
       setTagInput('');
       await loadTags();
       onChanged?.();
@@ -363,7 +376,7 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
   const handleRemoveTag = async (record: VulnerabilityTagVO) => {
     try {
       await deleteVulnerabilityTag(vulnerabilityId, record.id);
-      message.success('标签已移除');
+      message.success(t('vuln.detail.tag.removeSuccess'));
       await loadTags();
       onChanged?.();
     } catch (error) {
@@ -375,17 +388,17 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
     setUploading(true);
     try {
       await uploadVulnerabilityAttachment(vulnerabilityId, file);
-      message.success('附件上传成功');
+      message.success(t('vuln.detail.att.uploadSuccess'));
       await loadAttachments();
       onChanged?.();
     } catch (error) {
       const status = getApiErrorStatus(error);
       if (status === 413) {
-        message.error('附件上传失败：文件超出服务端允许的大小');
+        message.error(t('vuln.detail.att.uploadTooLarge'));
       } else if (status === 403) {
-        message.error('附件上传失败：没有该漏洞的写权限');
+        message.error(t('vuln.detail.att.uploadForbidden'));
       } else {
-        message.error(getApiErrorMessage(error, '附件上传失败，请稍后重试'));
+        message.error(getApiErrorMessage(error, t('vuln.detail.att.uploadFailed')));
       }
     } finally {
       setUploading(false);
@@ -394,23 +407,25 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
 
   const handleDeleteAttachment = (record: VulnerabilityAttachmentVO) => {
     Modal.confirm({
-      title: '确认删除附件',
-      content: `确定删除「${pickText(record, 'fileName', 'file_name') ?? '该附件'}」吗？删除后不可恢复。`,
+      title: t('vuln.detail.att.deleteTitle'),
+      content: t('vuln.detail.att.deleteContent', {
+        name: pickText(record, 'fileName', 'file_name') ?? t('vuln.detail.att.unnamed'),
+      }),
       okType: 'danger',
       onOk: async () => {
         try {
           await deleteVulnerabilityAttachment(vulnerabilityId, record.id);
-          message.success('附件已删除');
+          message.success(t('vuln.detail.att.deleteSuccess'));
           await loadAttachments();
           onChanged?.();
         } catch (error) {
           const status = getApiErrorStatus(error);
           if (status === 404) {
-            message.error('附件删除失败：附件不存在或已被删除');
+            message.error(t('vuln.detail.att.deleteNotFound'));
           } else if (status === 403) {
-            message.error('附件删除失败：没有该漏洞的写权限');
+            message.error(t('vuln.detail.att.deleteForbidden'));
           } else {
-            message.error(getApiErrorMessage(error, '附件删除失败，请稍后重试'));
+            message.error(getApiErrorMessage(error, t('vuln.detail.att.deleteFailed')));
           }
           // 404/403 时刷新列表，避免界面停留在过期数据
           await loadAttachments();
@@ -428,40 +443,40 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
     try {
       const download = await downloadVulnerabilityAttachment(vulnerabilityId, record.id);
       if (!download.blob || download.blob.size === 0) {
-        message.error('附件下载失败：服务端返回了空文件');
+        message.error(t('vuln.detail.att.downloadEmpty'));
         return;
       }
       saveBlobAsFile(download.blob, download.fileName || fallbackName);
-      message.success(`附件已开始下载：${download.fileName || fallbackName}`);
+      message.success(t('vuln.detail.att.downloadStarted', { name: download.fileName || fallbackName }));
     } catch (error) {
       const status = getApiErrorStatus(error);
       if (status === 404) {
         // 后端会区分「附件不属于该漏洞」与「磁盘文件缺失」，直接展示其 message
-        message.error(await getBlobErrorMessage(error, '附件不存在或已被移除'));
+        message.error(await getBlobErrorMessage(error, t('vuln.detail.att.downloadNotFound')));
       } else if (status === 403) {
-        message.error('没有下载该附件的权限：需要对附件所属资产的访问权限');
+        message.error(t('vuln.detail.att.downloadForbidden'));
       } else if (status === 401) {
-        message.error('登录状态已失效，请重新登录后再下载');
+        message.error(t('vuln.detail.att.downloadUnauthorized'));
       } else {
-        message.error(await getBlobErrorMessage(error, '附件下载失败，请稍后重试'));
+        message.error(await getBlobErrorMessage(error, t('vuln.detail.att.downloadFailed')));
       }
     }
   };
 
   const attachmentColumns = [
     {
-      title: '文件名',
+      title: t('vuln.detail.att.colName'),
       key: 'fileName',
       render: (_: unknown, record: VulnerabilityAttachmentVO) => pickText(record, 'fileName', 'file_name') ?? '-',
     },
     {
-      title: '类型',
+      title: t('vuln.detail.att.colType'),
       key: 'fileType',
       width: 160,
       render: (_: unknown, record: VulnerabilityAttachmentVO) => pickText(record, 'fileType', 'file_type') ?? '-',
     },
     {
-      title: '大小',
+      title: t('vuln.detail.att.colSize'),
       key: 'fileSize',
       width: 110,
       render: (_: unknown, record: VulnerabilityAttachmentVO) => {
@@ -470,31 +485,27 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
       },
     },
     {
-      title: '上传人',
+      title: t('vuln.detail.att.colUploader'),
       key: 'uploadedBy',
       width: 140,
       render: (_: unknown, record: VulnerabilityAttachmentVO) =>
         userNameOf((record as any).uploadedBy ?? (record as any).uploaded_by),
     },
     {
-      title: '上传时间',
+      title: t('vuln.detail.att.colUploadedAt'),
       key: 'createdAt',
       width: 180,
       render: (_: unknown, record: VulnerabilityAttachmentVO) =>
         formatDateTime((record as any).createdAt ?? (record as any).created_at),
     },
     {
-      title: '操作',
+      title: t('vuln.detail.att.colAction'),
       key: 'action',
       width: 150,
       render: (_: unknown, record: VulnerabilityAttachmentVO) => (
         <Space size="small">
-          <Button type="link" size="small" icon={<DownloadOutlined />} onClick={() => handleDownloadAttachment(record)}>
-            下载
-          </Button>
-          <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteAttachment(record)}>
-            删除
-          </Button>
+          <Button type="link" size="small" icon={<DownloadOutlined />} onClick={() => handleDownloadAttachment(record)}>{t('vuln.detail.att.download')}</Button>
+          <Button type="link" size="small" danger icon={<DeleteOutlined />} onClick={() => handleDeleteAttachment(record)}>{t('vuln.detail.att.delete')}</Button>
         </Space>
       ),
     },
@@ -526,16 +537,16 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
       children: (
         <div>
           <Space size={8} wrap>
-            <Tag color={meta.color}>{meta.label}</Tag>
+            <Tag color={meta.color}>{t(meta.labelKey)}</Tag>
             <Typography.Text>
               {fromLabel} <Typography.Text type="secondary">→</Typography.Text> <strong>{toLabel}</strong>
             </Typography.Text>
             <Typography.Text type="secondary">{formatDateTime(createdAt)}</Typography.Text>
-            <Typography.Text type="secondary">操作人：{userNameOf(changedBy)}</Typography.Text>
+            <Typography.Text type="secondary">{t('vuln.detail.timelineOperator', { name: userNameOf(changedBy) })}</Typography.Text>
           </Space>
           {item.comment ? (
             <div style={{ marginTop: 4 }}>
-              <Typography.Text type="secondary">说明：{item.comment}</Typography.Text>
+              <Typography.Text type="secondary">{t('vuln.detail.timelineComment', { comment: item.comment })}</Typography.Text>
             </div>
           ) : null}
         </div>
@@ -557,26 +568,26 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
-              message={`即将把工作流状态从「${workflowLabel(currentWorkflow)}」流转到「${workflowLabel(action.target)}」`}
+              message={t('vuln.detail.transitionHint', { from: workflowLabel(currentWorkflow), to: workflowLabel(action.target) })}
             />
-            <Form.Item name="comment" label="变更说明">
-              <TextArea rows={3} placeholder="例如：复现环境已搭建，漏洞可稳定触发" />
+            <Form.Item name="comment" label={t('vuln.detail.field.comment')}>
+              <TextArea rows={3} placeholder={t('vuln.detail.field.commentPlaceholder')} />
             </Form.Item>
           </>
         );
       case 'customer':
         return (
           <>
-            <Form.Item label="目标状态">
+            <Form.Item label={t('vuln.detail.field.targetStatus')}>
               <Tag color={customerColor(action.target)}>{customerLabel(action.target)}</Tag>
             </Form.Item>
             {action.target === 'rejected' ? (
               <Form.Item
                 name="rejectReason"
-                label="拒绝原因"
-                rules={[{ required: true, message: '请填写客户拒绝原因' }]}
+                label={t('vuln.detail.field.rejectReason')}
+                rules={[{ required: true, message: t('vuln.detail.field.rejectReasonRequired') }]}
               >
-                <TextArea rows={3} placeholder="客户拒绝的说明，会写入状态历史" />
+                <TextArea rows={3} placeholder={t('vuln.detail.field.rejectReasonPlaceholder')} />
               </Form.Item>
             ) : null}
           </>
@@ -584,57 +595,57 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
       case 'disclosure':
         return (
           <>
-            <Form.Item label="目标状态">
+            <Form.Item label={t('vuln.detail.field.targetStatus')}>
               <Tag color={disclosureColor(action.target)}>{disclosureLabel(action.target)}</Tag>
             </Form.Item>
-            <Form.Item name="disclosureDate" label="披露日期">
+            <Form.Item name="disclosureDate" label={t('vuln.detail.field.disclosureDate')}>
               <DatePicker showTime style={{ width: '100%' }} />
             </Form.Item>
-            <Form.Item name="disclosureSource" label="披露来源">
-              <Input placeholder="例如：官方公告 / CNVD / 供应商通告" />
+            <Form.Item name="disclosureSource" label={t('vuln.detail.field.disclosureSource')}>
+              <Input placeholder={t('vuln.detail.field.disclosureSourcePlaceholder')} />
             </Form.Item>
           </>
         );
       case 'exploit':
         return (
           <>
-            <Form.Item name="exploitStage" label="利用阶段" rules={[{ required: true, message: '请选择利用阶段' }]}>
-              <Select options={EXPLOIT_STAGE_OPTIONS.map((item) => ({ value: item.value, label: item.label }))} />
+            <Form.Item name="exploitStage" label={t('vuln.detail.field.stage')} rules={[{ required: true, message: t('vuln.detail.field.stageRequired') }]}>
+              <Select options={EXPLOIT_STAGE_OPTIONS.map((item) => ({ value: item.value, label: t(item.labelKey) }))} />
             </Form.Item>
-            <Form.Item name="exploitCode" label="利用代码">
-              <TextArea rows={4} placeholder="可留空，仅更新阶段" />
+            <Form.Item name="exploitCode" label={t('vuln.detail.field.exploitCode')}>
+              <TextArea rows={4} placeholder={t('vuln.detail.field.exploitCodePlaceholder')} />
             </Form.Item>
           </>
         );
       case 'vendor':
         return (
           <>
-            <Form.Item name="vendorFixed" label="厂商是否修复" rules={[{ required: true, message: '请选择是否已修复' }]}>
+            <Form.Item name="vendorFixed" label={t('vuln.detail.field.vendorFixed')} rules={[{ required: true, message: t('vuln.detail.field.vendorFixedRequired') }]}>
               <Select
                 options={[
-                  { value: true, label: '是' },
-                  { value: false, label: '否' },
+                  { value: true, label: t('vuln.detail.field.yes') },
+                  { value: false, label: t('vuln.detail.field.no') },
                 ]}
               />
             </Form.Item>
-            <Form.Item name="vendorFixVersion" label="修复版本">
-              <Input placeholder="例如：v1.0.3" />
+            <Form.Item name="vendorFixVersion" label={t('vuln.detail.field.fixVersion')}>
+              <Input placeholder={t('vuln.detail.field.fixVersionPlaceholder')} />
             </Form.Item>
           </>
         );
       case 'deliver':
         return (
-          <Form.Item name="deliveryNote" label="交付备注">
-            <TextArea rows={3} placeholder="交付范围、客户接收人等说明" />
+          <Form.Item name="deliveryNote" label={t('vuln.detail.field.deliveryNote')}>
+            <TextArea rows={3} placeholder={t('vuln.detail.field.deliveryNotePlaceholder')} />
           </Form.Item>
         );
       case 'assign':
         return (
-          <Form.Item name="assignedTo" label="处理人" rules={[{ required: true, message: '请选择处理人' }]}>
+          <Form.Item name="assignedTo" label={t('vuln.detail.field.assignee')} rules={[{ required: true, message: t('vuln.detail.field.assigneeRequired') }]}>
             <Select
               showSearch
               optionFilterProp="label"
-              placeholder="请选择处理人"
+              placeholder={t('vuln.detail.field.assigneeRequired')}
               options={users.map((user) => ({ value: user.id, label: user.fullName || user.username }))}
             />
           </Form.Item>
@@ -655,11 +666,9 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
   if (!detail) {
     return (
       <Card>
-        <Empty description={notFound ? '漏洞不存在或无权限查看' : '暂无数据'} />
+        <Empty description={notFound ? t('vuln.detail.notFound') : t('common.empty')} />
         <div style={{ textAlign: 'center', marginTop: 16 }}>
-          <Button icon={<ReloadOutlined />} onClick={reloadAll}>
-            重新加载
-          </Button>
+          <Button icon={<ReloadOutlined />} onClick={reloadAll}>{t('vuln.detail.reload')}</Button>
         </div>
       </Card>
     );
@@ -678,7 +687,7 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
   const workflowSteps = {
     current: currentStepIndex,
     items: WORKFLOW_STATUS_OPTIONS.map((item, index) => ({
-      title: item.label,
+      title: t(item.labelKey),
       status: index < currentStepIndex ? ('finish' as const) : index === currentStepIndex ? ('process' as const) : ('wait' as const),
     })),
   };
@@ -686,10 +695,10 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
   const tabs = [
     {
       key: 'overview',
-      label: '概览',
+      label: t('vuln.detail.overview'),
       children: (
         <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <Card size="small" title="工作流状态机">
+          <Card size="small" title={t('vuln.detail.workflowMachine')}>
             <Steps size="small" labelPlacement="vertical" current={workflowSteps.current} items={workflowSteps.items} />
           </Card>
           <Descriptions
@@ -697,43 +706,43 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
             bordered
             size="small"
             items={[
-              { key: 'no', label: '漏洞编号', children: pickText(detail, 'vulnerabilityNo', 'vulnerability_no') ?? '-' },
-              { key: 'type', label: '漏洞类型', children: (detail as any).type ?? '-' },
+              { key: 'no', label: t('vuln.list.colNo'), children: pickText(detail, 'vulnerabilityNo', 'vulnerability_no') ?? '-' },
+              { key: 'type', label: t('vuln.field.type'), children: (detail as any).type ?? '-' },
               {
                 key: 'severity',
-                label: '严重程度',
+                label: t('vuln.field.severity'),
                 children: <Tag color={severityColor(severity)}>{severityLabel(severity)}</Tag>,
               },
-              { key: 'asset', label: '所属资产', children: assetName },
+              { key: 'asset', label: t('vuln.field.asset'), children: assetName },
               {
                 key: 'version',
-                label: '发现版本',
+                label: t('vuln.field.discoveredVersion'),
                 children: pickText(detail, 'discoveredVersionId', 'discovered_version_id') ?? '-',
               },
               {
                 key: 'affected',
-                label: '受影响版本',
+                label: t('vuln.field.affectedVersions'),
                 children: pickText(detail, 'affectedVersions', 'affected_versions') ?? '-',
               },
-              { key: 'cve', label: 'CVE编号', children: pickText(detail, 'cveId', 'cve_id') ?? '-' },
+              { key: 'cve', label: t('vuln.field.cveId'), children: pickText(detail, 'cveId', 'cve_id') ?? '-' },
               {
                 key: 'cvss',
-                label: 'CVSS评分',
+                label: t('vuln.detail.cvss'),
                 children: (detail as any).cvssScore ?? (detail as any).cvss_score ?? '-',
               },
               {
                 key: 'discoverer',
-                label: '发现者',
+                label: t('vuln.detail.colDiscoverer'),
                 children:
                   (detail as any).discoverer?.full_name ||
                   (detail as any).discoverer?.username ||
                   userNameOf(pickText(detail, 'discovererId', 'discoverer_id') ?? (detail as any).discoverer_id),
               },
-              { key: 'assignee', label: '当前处理人', children: userNameOf(currentAssigneeId) },
-              { key: 'exploitStage', label: '利用阶段', children: exploitStageLabel(currentExploitStage) },
+              { key: 'assignee', label: t('vuln.detail.assigneeCard'), children: userNameOf(currentAssigneeId) },
+              { key: 'exploitStage', label: t('vuln.detail.field.stage'), children: exploitStageLabel(currentExploitStage) },
               {
                 key: 'fieldTest',
-                label: '出场测试状态',
+                label: t('vuln.edit.fieldTestStatus'),
                 children: (
                   <Tag color={fieldTestColor((detail as any).fieldTestStatus ?? (detail as any).field_test_status)}>
                     {fieldTestLabel((detail as any).fieldTestStatus ?? (detail as any).field_test_status)}
@@ -742,36 +751,36 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
               },
               {
                 key: 'vendorFixed',
-                label: '厂商修复',
+                label: t('vuln.detail.vendorCard'),
                 children: (
-                  <Tag color={currentVendorFixed ? 'success' : 'default'}>{currentVendorFixed ? '已修复' : '未修复'}</Tag>
+                  <Tag color={currentVendorFixed ? 'success' : 'default'}>{currentVendorFixed ? t('vuln.detail.vendorFixedYes') : t('vuln.detail.vendorFixedNo')}</Tag>
                 ),
               },
-              { key: 'vendorVersion', label: '修复版本', children: vendorFixVersion ?? '-' },
-              { key: 'disclosureSource', label: '披露来源', children: disclosureSource ?? '-' },
-              { key: 'disclosureDate', label: '披露日期', children: formatDateTime(disclosureDate) },
+              { key: 'vendorVersion', label: t('vuln.detail.field.fixVersion'), children: vendorFixVersion ?? '-' },
+              { key: 'disclosureSource', label: t('vuln.detail.field.disclosureSource'), children: disclosureSource ?? '-' },
+              { key: 'disclosureDate', label: t('vuln.detail.field.disclosureDate'), children: formatDateTime(disclosureDate) },
               {
                 key: 'createdAt',
-                label: '创建时间',
+                label: t('vuln.detail.colCreatedAt'),
                 children: formatDateTime(pickText(detail, 'createdAt', 'created_at')),
               },
               {
                 key: 'updatedAt',
-                label: '更新时间',
+                label: t('vuln.detail.colUpdatedAt'),
                 children: formatDateTime(pickText(detail, 'updatedAt', 'updated_at')),
               },
             ]}
           />
-          <Card size="small" title="漏洞描述">
+          <Card size="small" title={t('vuln.detail.sectionDescription')}>
             {renderBlock(detail.description)}
           </Card>
-          <Card size="small" title="漏洞详情">
+          <Card size="small" title={t('vuln.detail.sectionDetail')}>
             {renderBlock(detail.detail)}
           </Card>
-          <Card size="small" title="影响分析">
+          <Card size="small" title={t('vuln.detail.sectionImpact')}>
             {renderBlock(pickText(detail, 'impact', 'impact'))}
           </Card>
-          <Card size="small" title="POC / 测试结果 / 交付备注">
+          <Card size="small" title={t('vuln.detail.sectionPoc')}>
             {renderBlock(
               [
                 pickText(detail, 'pocCode', 'poc_code'),
@@ -787,7 +796,7 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
     },
     {
       key: 'attachments',
-      label: `附件 (${attachments.length})`,
+      label: t('vuln.detail.tabAttachments', { count: attachments.length }),
       children: (
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
           <Space wrap>
@@ -798,13 +807,9 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
                 return false;
               }}
             >
-              <Button icon={<UploadOutlined />} loading={uploading}>
-                上传附件
-              </Button>
+              <Button icon={<UploadOutlined />} loading={uploading}>{t('vuln.detail.uploadAttachment')}</Button>
             </Upload>
-            <Button icon={<ReloadOutlined />} onClick={loadAttachments} loading={attachmentLoading}>
-              刷新
-            </Button>
+            <Button icon={<ReloadOutlined />} onClick={loadAttachments} loading={attachmentLoading}>{t('vuln.detail.refresh')}</Button>
           </Space>
           <Table
             rowKey="id"
@@ -813,30 +818,28 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
             columns={attachmentColumns}
             dataSource={attachments}
             pagination={false}
-            locale={{ emptyText: '暂无附件' }}
+            locale={{ emptyText: t('vuln.detail.emptyAttachments') }}
           />
         </Space>
       ),
     },
     {
       key: 'tags',
-      label: `标签 (${tags.length})`,
+      label: t('vuln.detail.tabTags', { count: tags.length }),
       children: (
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
           <Space.Compact style={{ maxWidth: 420 }}>
             <Input
-              placeholder="输入标签名称后回车添加"
+              placeholder={t('vuln.detail.tagPlaceholder')}
               value={tagInput}
               maxLength={50}
               onChange={(event) => setTagInput(event.target.value)}
               onPressEnter={handleAddTag}
             />
-            <Button type="primary" icon={<PlusOutlined />} loading={tagSubmitting} onClick={handleAddTag}>
-              添加标签
-            </Button>
+            <Button type="primary" icon={<PlusOutlined />} loading={tagSubmitting} onClick={handleAddTag}>{t('vuln.detail.addTag')}</Button>
           </Space.Compact>
           {tags.length === 0 ? (
-            <Empty description="暂无标签" />
+            <Empty description={t('vuln.detail.emptyTags')} />
           ) : (
             <Space wrap size={[8, 8]}>
               {tags.map((tag) => (
@@ -859,16 +862,14 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
     },
     {
       key: 'history',
-      label: `状态历史 (${history.length})`,
+      label: t('vuln.detail.tabHistory', { count: history.length }),
       children: (
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
           <Space>
-            <Button icon={<ReloadOutlined />} onClick={loadHistory} loading={historyLoading}>
-              刷新历史
-            </Button>
+            <Button icon={<ReloadOutlined />} onClick={loadHistory} loading={historyLoading}>{t('vuln.detail.refreshHistory')}</Button>
           </Space>
           <Spin spinning={historyLoading}>
-            {timelineItems.length === 0 ? <Empty description="暂无状态变更记录" /> : <Timeline items={timelineItems} />}
+            {timelineItems.length === 0 ? <Empty description={t('vuln.detail.emptyHistory')} /> : <Timeline items={timelineItems} />}
           </Spin>
         </Space>
       ),
@@ -882,7 +883,7 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
           <Col xs={24} lg={8}>
             <Card
               size="small"
-              title="工作流状态"
+              title={t('vuln.detail.workflowCard')}
               extra={<Tag color={workflowColor(currentWorkflow)}>{workflowLabel(currentWorkflow)}</Tag>}
             >
               <Progress
@@ -891,15 +892,15 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
                 format={() => `${currentStepIndex + 1}/${WORKFLOW_STATUS_OPTIONS.length}`}
               />
               <div style={{ marginTop: 12 }}>
-                <Typography.Text type="secondary">合法流转</Typography.Text>
+                <Typography.Text type="secondary">{t('vuln.detail.legalTransition')}</Typography.Text>
                 <div style={{ marginTop: 8 }}>
                   {nextStatuses.length === 0 ? (
-                    <Typography.Text type="secondary">当前状态没有可流转的下一步</Typography.Text>
+                    <Typography.Text type="secondary">{t('vuln.detail.noNextStatus')}</Typography.Text>
                   ) : (
                     <Space wrap>
                       {nextStatuses.map((status) => (
                         <Button key={status} type="primary" size="small" onClick={() => openAction('workflow', status)}>
-                          流转到 {workflowLabel(status)}
+                          {t('vuln.detail.transitionTo', { status: workflowLabel(status) })}
                         </Button>
                       ))}
                     </Space>
@@ -907,15 +908,13 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
                 </div>
               </div>
               <div style={{ marginTop: 12 }}>
-                <Tooltip title="调用 POST /vulnerabilities/{id}/deliver，记录 workflow 历史">
+                <Tooltip title={t('vuln.detail.deliverTooltip')}>
                   <Button
                     size="small"
                     icon={<SendOutlined />}
                     disabled={currentWorkflow === 'delivered' || currentWorkflow === 'closed'}
                     onClick={() => openAction('deliver')}
-                  >
-                    交付客户
-                  </Button>
+                  >{t('vuln.detail.deliver')}</Button>
                 </Tooltip>
               </div>
             </Card>
@@ -923,7 +922,7 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
           <Col xs={24} lg={8}>
             <Card
               size="small"
-              title="客户确认状态"
+              title={t('vuln.detail.customerCard')}
               extra={<Tag color={customerColor(currentCustomer)}>{customerLabel(currentCustomer)}</Tag>}
             >
               <Space wrap>
@@ -932,34 +931,28 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
                   type="primary"
                   disabled={currentCustomer === 'confirmed'}
                   onClick={() => openAction('customer', 'confirmed')}
-                >
-                  客户已确认
-                </Button>
+                >{t('vuln.detail.customerConfirmed')}</Button>
                 <Button
                   size="small"
                   danger
                   disabled={currentCustomer === 'rejected'}
                   onClick={() => openAction('customer', 'rejected')}
-                >
-                  客户拒绝
-                </Button>
+                >{t('vuln.detail.customerRejected')}</Button>
                 <Button
                   size="small"
                   disabled={currentCustomer === 'pending' || !currentCustomer}
                   onClick={() => openAction('customer', 'pending')}
-                >
-                  重置为待确认
-                </Button>
+                >{t('vuln.detail.customerReset')}</Button>
               </Space>
               {customerRejectReason ? (
-                <Alert style={{ marginTop: 12 }} type="warning" showIcon message={`拒绝原因：${customerRejectReason}`} />
+                <Alert style={{ marginTop: 12 }} type="warning" showIcon message={t('vuln.detail.rejectReasonAlert', { reason: customerRejectReason ?? '' })} />
               ) : null}
             </Card>
           </Col>
           <Col xs={24} lg={8}>
             <Card
               size="small"
-              title="公开披露状态"
+              title={t('vuln.detail.disclosureCard')}
               extra={<Tag color={disclosureColor(currentDisclosure)}>{disclosureLabel(currentDisclosure)}</Tag>}
             >
               <Space wrap>
@@ -968,27 +961,21 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
                   type="primary"
                   disabled={currentDisclosure === 'disclosed'}
                   onClick={() => openAction('disclosure', 'disclosed')}
-                >
-                  标记已披露
-                </Button>
+                >{t('vuln.detail.markDisclosed')}</Button>
                 <Button
                   size="small"
                   disabled={currentDisclosure === 'has_cve'}
                   onClick={() => openAction('disclosure', 'has_cve')}
-                >
-                  标记已分配CVE
-                </Button>
+                >{t('vuln.detail.markHasCve')}</Button>
                 <Button
                   size="small"
                   disabled={currentDisclosure === 'undisclosed'}
                   onClick={() => openAction('disclosure', 'undisclosed')}
-                >
-                  撤销披露
-                </Button>
+                >{t('vuln.detail.revokeDisclosure')}</Button>
               </Space>
               <div style={{ marginTop: 12 }}>
                 <Typography.Text type="secondary">
-                  披露来源：{disclosureSource ?? '-'} ｜ 披露日期：{formatDateTime(disclosureDate)}
+                  {t('vuln.detail.disclosureMeta', { source: disclosureSource ?? '-', date: formatDateTime(disclosureDate) })}
                 </Typography.Text>
               </div>
             </Card>
@@ -999,48 +986,40 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
           <Col xs={24} lg={8}>
             <Card
               size="small"
-              title="利用阶段"
+              title={t('vuln.detail.field.stage')}
               extra={<Tag color={exploitStageColor(currentExploitStage)}>{exploitStageLabel(currentExploitStage)}</Tag>}
             >
-              <Button size="small" onClick={() => openAction('exploit')}>
-                更新利用阶段
-              </Button>
+              <Button size="small" onClick={() => openAction('exploit')}>{t('vuln.detail.updateStage')}</Button>
             </Card>
           </Col>
           <Col xs={24} lg={8}>
             <Card
               size="small"
-              title="厂商修复"
-              extra={<Tag color={currentVendorFixed ? 'success' : 'default'}>{currentVendorFixed ? '已修复' : '未修复'}</Tag>}
+              title={t('vuln.detail.vendorCard')}
+              extra={<Tag color={currentVendorFixed ? 'success' : 'default'}>{currentVendorFixed ? t('vuln.detail.vendorFixedYes') : t('vuln.detail.vendorFixedNo')}</Tag>}
             >
               <Space wrap>
-                <Typography.Text type="secondary">修复版本：{vendorFixVersion ?? '-'}</Typography.Text>
-                <Button size="small" onClick={() => openAction('vendor')}>
-                  更新修复状态
-                </Button>
+                <Typography.Text type="secondary">{t('vuln.detail.fixVersion', { version: vendorFixVersion ?? '-' })}</Typography.Text>
+                <Button size="small" onClick={() => openAction('vendor')}>{t('vuln.detail.updateVendor')}</Button>
               </Space>
             </Card>
           </Col>
           <Col xs={24} lg={8}>
-            <Card size="small" title="处理人" extra={<Tag>{userNameOf(currentAssigneeId)}</Tag>}>
-              <Button size="small" icon={<UserSwitchOutlined />} onClick={() => openAction('assign')}>
-                分配处理人
-              </Button>
+            <Card size="small" title={t('vuln.detail.field.assignee')} extra={<Tag>{userNameOf(currentAssigneeId)}</Tag>}>
+              <Button size="small" icon={<UserSwitchOutlined />} onClick={() => openAction('assign')}>{t('vuln.detail.assign')}</Button>
             </Card>
           </Col>
         </Row>
 
         <Card
           size="small"
-          title="最近状态变更"
+          title={t('vuln.detail.recentChanges')}
           extra={
-            <Button type="link" size="small" onClick={() => setActiveTab('history')}>
-              查看全部历史
-            </Button>
+            <Button type="link" size="small" onClick={() => setActiveTab('history')}>{t('vuln.detail.viewAllHistory')}</Button>
           }
         >
           {recentHistory.length === 0 ? (
-            <Typography.Text type="secondary">暂无状态变更记录</Typography.Text>
+            <Typography.Text type="secondary">{t('vuln.detail.emptyHistory')}</Typography.Text>
           ) : (
             <Timeline items={timelineItems.slice(0, 3)} />
           )}
@@ -1050,13 +1029,13 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
       </Space>
 
       <Modal
-        title={action ? `${ACTION_TITLES[action.kind]}` : ''}
+        title={action ? t(ACTION_TITLE_KEYS[action.kind]) : ''}
         open={Boolean(action)}
         onCancel={() => setAction(null)}
         onOk={handleActionSubmit}
         confirmLoading={actionSubmitting}
         destroyOnClose
-        okText="确认"
+        okText={t('common.confirm')}
       >
         <Form form={actionForm} layout="vertical" preserve={false}>
           {renderActionFields()}
@@ -1068,7 +1047,7 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
   const title = (
     <Space wrap>
       <Typography.Text strong style={{ fontSize: 16 }}>
-        {(detail as any).title || '未命名漏洞'}
+        {(detail as any).title || t('vuln.edit.unnamed')}
       </Typography.Text>
       <Tag color={severityColor(severity)}>{severityLabel(severity)}</Tag>
       <Tag color={workflowColor(currentWorkflow)}>{workflowLabel(currentWorkflow)}</Tag>
@@ -1090,16 +1069,10 @@ const VulnerabilityDetail: React.FC<VulnerabilityDetailProps> = ({
         title={title}
         extra={
           <Space wrap>
-            <Button icon={<ReloadOutlined />} onClick={reloadAll}>
-              刷新
-            </Button>
-            <Button type="primary" icon={<EditOutlined />} href={`/vulnerabilities/${vulnerabilityId}/edit`}>
-              编辑漏洞
-            </Button>
+            <Button icon={<ReloadOutlined />} onClick={reloadAll}>{t('vuln.detail.refresh')}</Button>
+            <Button type="primary" icon={<EditOutlined />} href={`/vulnerabilities/${vulnerabilityId}/edit`}>{t('vuln.detail.editVuln')}</Button>
             {onClose ? (
-              <Button icon={<ArrowLeftOutlined />} onClick={onClose}>
-                返回列表
-              </Button>
+              <Button icon={<ArrowLeftOutlined />} onClick={onClose}>{t('vuln.detail.backList')}</Button>
             ) : null}
           </Space>
         }

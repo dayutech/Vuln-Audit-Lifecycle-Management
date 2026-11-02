@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Tabs, Card, Button, Descriptions, Tag, Spin, Result, Form, Input, Select, Row, Col, Space, Upload, Table, message, Modal, Tooltip, Steps, Alert, Typography } from 'antd';
@@ -55,12 +54,15 @@ import AssetTagsPanel from './AssetTagsPanel';
 import { useUserStore } from '@/store/userStore';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
 import { canWriteAsset, resolveCurrentUserId, ASSET_WRITE_FORBIDDEN_TIP } from '@/utils/accessRoles';
+import { useT } from '@/i18n';
+import type { MessageKey } from '@/i18n/messages/zh-CN';
 
 const { TabPane } = Tabs;
 const { Option } = Select;
 const { TextArea } = Input;
 
 const renderListFormItem = (
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
   name: string, 
   label: string, 
   placeholder: string, 
@@ -71,10 +73,10 @@ const renderListFormItem = (
   <Form.Item label={hideLabel ? null : label}>
     <div style={{ border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
       <div style={{ background: '#fafafa', padding: '12px 16px', borderBottom: '1px solid #e8e8e8', display: 'flex', fontWeight: 500, color: '#595959' }}>
-        <div style={{ flex: '1', paddingRight: 8 }}>{label}内容</div>
+        <div style={{ flex: '1', paddingRight: 8 }}>{t('asset.detail.contentSuffix', { label })}</div>
         {extraField && <div style={{ flex: '0 0 140px', paddingRight: 8 }}>{extraField.label}</div>}
-        <div style={{ flex: '1', paddingRight: 8 }}>用途备注</div>
-        <div style={{ flex: '0 0 50px', textAlign: 'center' }}>操作</div>
+        <div style={{ flex: '1', paddingRight: 8 }}>{t('asset.detail.purposeNote')}</div>
+        <div style={{ flex: '0 0 50px', textAlign: 'center' }}>{t('asset.detail.colAction')}</div>
       </div>
       <div style={{ padding: '12px 16px 0' }}>
         <Form.List name={name}>
@@ -97,13 +99,13 @@ const renderListFormItem = (
                     )}
                     <div style={{ flex: '1', paddingRight: 8 }}>
                       <Form.Item {...restField} name={[fieldName, 'note']} style={{ marginBottom: 0 }}>
-                        <Input placeholder="如：生产环境 / 内网访问" prefix={<TagOutlined style={{ color: '#bfbfbf' }} />} />
+                        <Input placeholder={t('asset.detail.notePlaceholder')} prefix={<TagOutlined style={{ color: '#bfbfbf' }} />} />
                       </Form.Item>
                     </div>
                     <div style={{ flex: '0 0 50px', display: 'flex', justifyContent: 'center', paddingTop: 4 }}>
                       <Space size={8}>
                         {fields.length > 1 && (
-                          <Tooltip title="移除">
+                          <Tooltip title={t('asset.detail.remove')}>
                             <MinusCircleOutlined 
                               style={{ color: '#ff4d4f', fontSize: 16, cursor: 'pointer' }} 
                               onClick={() => remove(fieldName)} 
@@ -111,7 +113,7 @@ const renderListFormItem = (
                           </Tooltip>
                         )}
                         {index === fields.length - 1 && (
-                          <Tooltip title="添加">
+                          <Tooltip title={t('asset.detail.add')}>
                             <PlusCircleOutlined 
                               style={{ color: '#1890ff', fontSize: 16, cursor: 'pointer' }} 
                               onClick={() => add({ value: '', note: '', ...(extraField ? { [extraField.name]: extraField.options[0].value } : {}) })} 
@@ -150,9 +152,7 @@ const renderListFormItem = (
               ))}
               {fields.length === 0 && (
                 <div style={{ marginBottom: 12 }}>
-                  <Button type="dashed" onClick={() => add({ value: '', note: '', ...(extraField ? { [extraField.name]: extraField.options[0].value } : {}) })} block icon={<PlusOutlined />}>
-                    添加
-                  </Button>
+                  <Button type="dashed" onClick={() => add({ value: '', note: '', ...(extraField ? { [extraField.name]: extraField.options[0].value } : {}) })} block icon={<PlusOutlined />}>{t('asset.detail.add')}</Button>
                 </div>
               )}
             </>
@@ -164,6 +164,7 @@ const renderListFormItem = (
 );
 
 const AssetDetail: React.FC = () => {
+  const { t } = useT();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [asset, setAsset] = useState<AssetVO | null>(null);
@@ -333,7 +334,7 @@ const AssetDetail: React.FC = () => {
     if (!versionId) return '-';
     const found = assetVersions.find((item) => item.id === versionId);
     if (!found) return versionId;
-    return `${found.name || `v${found.versionNo}`}${found.isDefault ? ' - 默认' : ''}${found.isLatest ? ' - 最新' : ''}`;
+    return `${found.name || `v${found.versionNo}`}${found.isDefault ? t('asset.detail.versionDefaultSuffix') : ''}${found.isLatest ? t('asset.detail.versionLatestSuffix') : ''}`;
   };
 
   const stepToModule = ['base', 'network', 'env', 'account', 'extra'] as const;
@@ -368,7 +369,7 @@ const AssetDetail: React.FC = () => {
           }
           if (accountCredentials.length === 0 && data.adminUsername) {
             accountCredentials = [{
-              usageNote: '管理员登录',
+              usageNote: t('asset.detail.adminLogin'),
               username: data.adminUsername,
               password: '',
             }];
@@ -612,21 +613,21 @@ const AssetDetail: React.FC = () => {
         <div>
           <p style={{ marginBottom: 8 }}>
             {statusCode ? <Tag color="orange">HTTP {statusCode}</Tag> : null}
-            {backendMessage || '未知错误'}
+            {backendMessage || t('asset.detail.envUnknownError')}
           </p>
           {failReason ? (
             <div>
-              <div style={{ color: '#8c8c8c', marginBottom: 4 }}>失败原因（后端写入 environment.failReason）：</div>
+              <div style={{ color: '#8c8c8c', marginBottom: 4 }}>{t('asset.detail.envFailReasonLabel')}</div>
               <Typography.Paragraph
                 style={{ marginBottom: 0, color: '#cf1322' }}
                 copyable={{ text: failReason }}
-                ellipsis={{ rows: 3, expandable: true, symbol: '展开' }}
+                ellipsis={{ rows: 3, expandable: true, symbol: t('asset.detail.expand') }}
               >
                 {failReason}
               </Typography.Paragraph>
             </div>
           ) : (
-            <div style={{ color: '#8c8c8c' }}>后端未返回 failReason（可能未写入环境状态）。</div>
+            <div style={{ color: '#8c8c8c' }}>{t('asset.detail.envNoFailReason')}</div>
           )}
         </div>
       ),
@@ -642,10 +643,10 @@ const AssetDetail: React.FC = () => {
       return;
     }
     if (envProvisioner.available === false) {
-      message.warning(envProvisioner.message || '当前部署未启用容器编排');
+      message.warning(envProvisioner.message || t('asset.detail.envOrchestrationDisabled'));
       return;
     }
-    const actionLabel = action === 'deploy' ? '部署' : action === 'start' ? '启动' : '停止';
+    const actionKey: MessageKey = action === 'deploy' ? 'asset.detail.envDeploy' : action === 'start' ? 'asset.detail.envStart' : 'asset.detail.envStop';
     setEnvActionLoading(`${record.id}:${action}`);
     try {
       if (action === 'deploy') {
@@ -655,11 +656,11 @@ const AssetDetail: React.FC = () => {
       } else {
         await stopEnvironment(record.id);
       }
-      message.success(`环境${actionLabel}成功`);
+      message.success(t('asset.detail.envActionSuccess', { action: t(actionKey) }));
       await pollEnvironmentConvergence(asset.id, record.id);
     } catch (error) {
       const statusCode = getApiErrorStatus(error);
-      const backendMessage = getApiErrorMessage(error, `环境${actionLabel}失败`);
+      const backendMessage = getApiErrorMessage(error, t('asset.detail.envActionFailed', { action: t(actionKey) }));
       // 失败后后端已把 status 置 failed 并写 failReason，重新拉详情用于展示
       const detailRes: any = await getEnvironmentDetail(record.id).catch(() => null);
       const detail = (detailRes?.data ? detailRes.data : detailRes) as EnvironmentVO | null;
@@ -669,7 +670,7 @@ const AssetDetail: React.FC = () => {
         );
       }
       showEnvActionError(
-        `环境${actionLabel}失败`,
+        t('asset.detail.envActionFailed', { action: t(actionKey) }),
         backendMessage,
         detail?.failReason ?? record.failReason,
         statusCode,
@@ -757,12 +758,12 @@ const AssetDetail: React.FC = () => {
 
   const handleDeleteVuln = async (id: string) => {
     Modal.confirm({
-      title: '确认删除',
-      content: '您确定要删除此漏洞吗？',
+      title: t('common.deleteConfirmTitle'),
+      content: t('asset.detail.deleteVulnContent'),
       onOk: async () => {
         try {
           await deleteVulnerability(id);
-          message.success('删除成功');
+          message.success(t('asset.detail.deleteSuccess'));
           if (asset?.id) loadVulnerabilities(asset.id);
         } catch (error) {
           console.error(error);
@@ -779,18 +780,18 @@ const AssetDetail: React.FC = () => {
         await createVulnerability(
           toVulnerabilityCreatePayload(values, asset?.id || '') as unknown as Parameters<typeof createVulnerability>[0]
         );
-        message.success('漏洞创建成功');
+        message.success(t('asset.detail.vulnCreateSuccess'));
       } else {
         // t35：更新走 camelCase + DTO 白名单字段（PUT 为部分更新语义，状态字段不提交）
         await updateVulnerability(currentVulnId, toVulnerabilityUpdatePayload(values));
-        message.success('漏洞更新成功');
+        message.success(t('asset.detail.vulnUpdateSuccess'));
       }
       setVulnModalVisible(false);
       if (asset?.id) loadVulnerabilities(asset.id);
     } catch (error) {
       if (!isFormValidationError(error)) {
         message.error(
-          vulnMode === 'create' ? describeVulnCreateFailure(error) : describeVulnUpdateFailure(error, '漏洞保存失败')
+          vulnMode === 'create' ? describeVulnCreateFailure(error) : describeVulnUpdateFailure(error, t('asset.detail.vulnSaveFailed'))
         );
       }
     } finally {
@@ -816,12 +817,12 @@ const AssetDetail: React.FC = () => {
 
   const handleDeleteTask = async (id: string) => {
     Modal.confirm({
-      title: '确认删除',
-      content: '您确定要删除此任务吗？',
+      title: t('common.deleteConfirmTitle'),
+      content: t('asset.detail.deleteTaskContent'),
       onOk: async () => {
         try {
           await deleteTask(id);
-          message.success('删除成功');
+          message.success(t('asset.detail.deleteSuccess'));
           if (asset?.id) loadTasks(asset.id);
         } catch (error) {
           console.error(error);
@@ -836,10 +837,10 @@ const AssetDetail: React.FC = () => {
       setTaskSubmitting(true);
       if (taskMode === 'create') {
         await createTask({ ...values, reference_id: asset?.id, asset_id: asset?.id, asset_version_id: selectedVersionId });
-        message.success('任务创建成功');
+        message.success(t('asset.detail.taskCreateSuccess'));
       } else {
         await updateTask(currentTaskId, values);
-        message.success('任务更新成功');
+        message.success(t('asset.detail.taskUpdateSuccess'));
       }
       setTaskModalVisible(false);
       if (asset?.id) loadTasks(asset.id);
@@ -855,7 +856,7 @@ const AssetDetail: React.FC = () => {
     try {
       setTaskStatusUpdatingId(record.id);
       await updateTaskStatus(record.id, { status });
-      message.success('任务状态更新成功');
+      message.success(t('asset.detail.taskStatusUpdateSuccess'));
       if (asset?.id) loadTasks(asset.id);
     } catch (error) {
       console.error(error);
@@ -905,14 +906,14 @@ const AssetDetail: React.FC = () => {
       if (subscribed) {
         await unsubscribeAsset(asset.id);
         setSubscribed(false);
-        message.success('已取消订阅该资产动态');
+        message.success(t('asset.detail.unsubscribeSuccess'));
       } else {
         await subscribeAsset(asset.id);
         setSubscribed(true);
-        message.success('已订阅该资产动态，漏洞/任务变化会推送到通知中心');
+        message.success(t('asset.detail.subscribeSuccess'));
       }
     } catch (error: any) {
-      if (!error?.response) message.error('订阅操作失败');
+      if (!error?.response) message.error(t('asset.detail.subscribeFailed'));
     } finally {
       setSubscribeLoading(false);
     }
@@ -930,7 +931,7 @@ const AssetDetail: React.FC = () => {
         allowed_file_types: values.allowedFileTypes,
         request_note: values.requestNote,
       });
-      message.success('访问申请已提交，等待审批');
+      message.success(t('asset.detail.accessSuccess'));
       setAccessModalVisible(false);
       accessForm.resetFields();
       const payload: any = (created as any)?.data ?? created;
@@ -938,7 +939,7 @@ const AssetDetail: React.FC = () => {
       loadMyAccessAndClaim(asset.id);
     } catch (error: any) {
       if (error?.errorFields) return; // 表单校验失败，交由表单展示
-      message.error(error?.response?.data?.message || '提交访问申请失败');
+      message.error(error?.response?.data?.message || t('asset.detail.accessFailed'));
     } finally {
       setAccessSubmitting(false);
     }
@@ -950,7 +951,7 @@ const AssetDetail: React.FC = () => {
       const values = await claimForm.validateFields();
       setClaimSubmitting(true);
       const created = await createAssetClaim(asset.id, values.note);
-      message.success('认领申请已提交');
+      message.success(t('asset.detail.claimSuccess'));
       setClaimModalVisible(false);
       claimForm.resetFields();
       const payload: any = (created as any)?.data ?? created;
@@ -958,7 +959,7 @@ const AssetDetail: React.FC = () => {
       loadMyAccessAndClaim(asset.id);
     } catch (error: any) {
       if (error?.errorFields) return;
-      message.error(error?.response?.data?.message || '提交认领申请失败');
+      message.error(error?.response?.data?.message || t('asset.detail.claimFailed'));
     } finally {
       setClaimSubmitting(false);
     }
@@ -1108,7 +1109,7 @@ const AssetDetail: React.FC = () => {
       }
 
       await updateAssetMetadata(asset.id, currentModule, payload, overviewVersionId);
-      message.success('扩展信息更新成功');
+      message.success(t('asset.detail.metadataSaveSuccess'));
       setMetadataExists(true);
     } catch (error) {
       console.error(error);
@@ -1129,7 +1130,7 @@ const AssetDetail: React.FC = () => {
         inherit_base_overview: values.inheritBaseOverview,
         inherit_from_version_id: values.inheritFromVersionId,
       }, values.setDefault);
-      message.success('资产版本创建成功');
+      message.success(t('asset.detail.versionCreateSuccess'));
       setCreateVersionVisible(false);
       versionForm.resetFields();
       await loadVersions(asset.id);
@@ -1142,18 +1143,18 @@ const AssetDetail: React.FC = () => {
 
   const handleSetDefaultVersion = async () => {
     if (!asset || !selectedVersionId) {
-      message.warning('请先选择版本');
+      message.warning(t('asset.detail.versionSelectFirst'));
       return;
     }
     const selected = assetVersions.find((item) => item.id === selectedVersionId);
     if (selected?.isDefault) {
-      message.info('当前已是默认版本');
+      message.info(t('asset.detail.versionAlreadyDefault'));
       return;
     }
     try {
       setSetDefaultLoading(true);
       await setDefaultAssetVersion(asset.id, selectedVersionId);
-      message.success('默认版本切换成功');
+      message.success(t('asset.detail.versionDefaultSuccess'));
       await loadVersions(asset.id);
     } catch (error) {
       console.error(error);
@@ -1164,18 +1165,18 @@ const AssetDetail: React.FC = () => {
 
   const handleSetLatestVersion = async () => {
     if (!asset || !selectedVersionId) {
-      message.warning('请先选择版本');
+      message.warning(t('asset.detail.versionSelectFirst'));
       return;
     }
     const selected = assetVersions.find((item) => item.id === selectedVersionId);
     if (selected?.isLatest) {
-      message.info('当前已是最新版本');
+      message.info(t('asset.detail.versionAlreadyLatest'));
       return;
     }
     try {
       setSetLatestLoading(true);
       await setLatestAssetVersion(asset.id, selectedVersionId);
-      message.success('最新版本设置成功');
+      message.success(t('asset.detail.versionLatestSuccess'));
       await loadVersions(asset.id);
     } catch (error) {
       console.error(error);
@@ -1192,12 +1193,12 @@ const AssetDetail: React.FC = () => {
       const setUploadList = target === 'asset_file' ? setAssetFileUploadList : setDeliverableUploadList;
       const values = await uploadForm.validateFields();
       if (uploadList.length === 0) {
-        message.error('请先选择文件');
+        message.error(t('asset.detail.noFileSelected'));
         return;
       }
       const selectedFile = uploadList[0]?.originFileObj ?? uploadList[0];
       if (!(selectedFile instanceof Blob)) {
-        message.error('请选择有效文件后再上传');
+        message.error(t('asset.detail.invalidFile'));
         return;
       }
       if (target === 'asset_file') {
@@ -1219,11 +1220,11 @@ const AssetDetail: React.FC = () => {
       if (target === 'asset_file') {
         await uploadAssetFile(asset.id, formData, bindVersionId);
         await loadFiles(asset.id, fileVersionScope === '__all__' ? undefined : fileVersionScope, fileVersionScope === '__all__');
-        message.success('文件上传成功');
+        message.success(t('asset.detail.uploadSuccess'));
       } else {
         await uploadAssetDeliverable(asset.id, formData, bindVersionId);
         await loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope, deliverableVersionScope === '__all__');
-        message.success('交付物上传成功');
+        message.success(t('asset.detail.deliverableUploadSuccess'));
       }
       uploadForm.resetFields();
       setUploadList([]);
@@ -1247,14 +1248,14 @@ const AssetDetail: React.FC = () => {
         template_id: values.template_id || '',
         config: values.config || '{}',
       });
-      message.success('环境创建成功');
+      message.success(t('asset.detail.envCreateSuccess'));
       setEnvModalVisible(false);
       envForm.resetFields();
       loadEnvironments(asset.id);
     } catch (error) {
       // t40 环境写端点限 ADMIN/PROJECT_LEADER/TEAM_LEADER：403 给角色口径，400 展示后端原文
       if (isFormValidationError(error)) return;
-      message.error(describeEnvWriteFailure(error, '环境创建失败'));
+      message.error(describeEnvWriteFailure(error, t('asset.detail.envCreateFailed')));
     } finally {
       setEnvSubmitting(false);
     }
@@ -1262,22 +1263,22 @@ const AssetDetail: React.FC = () => {
 
   const handleDeleteEnv = (envId: string) => {
     Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除该环境吗？此操作不可恢复。',
+      title: t('common.deleteConfirmTitle'),
+      content: t('asset.detail.envDeleteContent'),
       onOk: async () => {
         try {
           await deleteEnvironment(envId);
-          message.success('环境已删除');
+          message.success(t('asset.detail.envDeleteSuccess'));
           if (asset) loadEnvironments(asset.id);
         } catch (error) {
           const statusCode = getApiErrorStatus(error);
           if (statusCode === 404) {
-            message.error('环境删除失败：环境不存在或已被删除');
+            message.error(t('asset.detail.envDeleteNotFound'));
             if (asset) loadEnvironments(asset.id);
           } else if (statusCode === 403) {
-            message.error('环境删除失败：没有该资产的写权限');
+            message.error(t('asset.detail.envDeleteForbidden'));
           } else {
-            message.error(getApiErrorMessage(error, '环境删除失败，请稍后重试'));
+            message.error(getApiErrorMessage(error, t('asset.detail.envDeleteFailed')));
           }
         }
       }
@@ -1295,10 +1296,10 @@ const AssetDetail: React.FC = () => {
    */
   const describeEnvWriteFailure = (error: unknown, fallback: string): string => {
     const status = getApiErrorStatus(error);
-    if (status === 401) return '登录已过期，请重新登录后再试';
+    if (status === 401) return t('asset.detail.loginExpired');
     if (status === 403) return ENVIRONMENT_FORBIDDEN_MESSAGE;
     if (status === 400) {
-      return getApiErrorMessage(error, '请求参数不合法：快照名称不能为空，且需符合后端长度限制');
+      return getApiErrorMessage(error, t('asset.detail.snapshotNameInvalid'));
     }
     return getApiErrorMessage(error, fallback);
   };
@@ -1313,7 +1314,7 @@ const AssetDetail: React.FC = () => {
       setSnapshotList(Array.isArray(payload) ? payload : Array.isArray(payload?.content) ? payload.content : []);
     } catch (error) {
       setSnapshotList([]);
-      message.error(describeEnvWriteFailure(error, '快照列表加载失败'));
+      message.error(describeEnvWriteFailure(error, t('asset.detail.snapshotListFailed')));
     } finally {
       setSnapshotLoading(false);
     }
@@ -1323,7 +1324,12 @@ const AssetDetail: React.FC = () => {
     setSnapshotEnv(env);
     setSnapshotList([]);
     if (!snapshotName.trim()) {
-      setSnapshotName(`${env.name || '环境'}-快照-${new Date().toLocaleString()}`);
+      setSnapshotName(
+      t('asset.detail.snapshotDefaultName', {
+        name: env.name || t('asset.detail.snapshotEnvFallback'),
+        time: new Date().toLocaleString(),
+      }),
+    );
     }
     await loadSnapshots(env.id);
   };
@@ -1337,16 +1343,16 @@ const AssetDetail: React.FC = () => {
     if (!snapshotEnv) return;
     const name = snapshotName.trim();
     if (!name) {
-      message.warning('请先填写快照名称（后端缺少 name 会直接返回 400，已在前端拦截）');
+      message.warning(t('asset.detail.snapshotMissingName'));
       return;
     }
     setSnapshotSubmitting(true);
     try {
       await createEnvironmentSnapshot(snapshotEnv.id, name);
-      message.success('快照创建成功');
+      message.success(t('asset.detail.snapshotCreateSuccess'));
       await loadSnapshots(snapshotEnv.id);
     } catch (error) {
-      message.error(describeEnvWriteFailure(error, '快照创建失败'));
+      message.error(describeEnvWriteFailure(error, t('asset.detail.snapshotCreateFailed')));
     } finally {
       setSnapshotSubmitting(false);
     }
@@ -1355,19 +1361,19 @@ const AssetDetail: React.FC = () => {
   const handleRollbackSnapshot = (snapshotId: string) => {
     if (!snapshotEnv) return;
     Modal.confirm({
-      title: '回滚到该快照',
-      content: '回滚会用快照状态覆盖当前环境，确认继续？',
-      okText: '回滚',
-      cancelText: '取消',
+      title: t('asset.detail.snapshotRollbackTitle'),
+      content: t('asset.detail.snapshotRollbackContent'),
+      okText: t('asset.detail.snapshotRollback'),
+      cancelText: t('common.cancel'),
       onOk: async () => {
         setSnapshotRollingId(snapshotId);
         try {
           await rollbackEnvironmentSnapshot(snapshotEnv.id, snapshotId);
-          message.success('已回滚到所选快照');
+          message.success(t('asset.detail.snapshotRollbackSuccess'));
           await loadSnapshots(snapshotEnv.id);
           if (asset) loadEnvironments(asset.id);
         } catch (error) {
-          message.error(describeEnvWriteFailure(error, '快照回滚失败'));
+          message.error(describeEnvWriteFailure(error, t('asset.detail.snapshotRollbackFailed')));
         } finally {
           setSnapshotRollingId(null);
         }
@@ -1378,16 +1384,16 @@ const AssetDetail: React.FC = () => {
   const handleDeleteDeliverable = (deliverableId: string) => {
     if (!asset) return;
     Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除该交付物吗？删除后将归档。',
+      title: t('common.deleteConfirmTitle'),
+      content: t('asset.detail.deliverableDeleteContent'),
       onOk: async () => {
         try {
           await deleteAssetDeliverable(deliverableId);
-          message.success('交付物已删除');
+          message.success(t('asset.detail.deliverableDeleteSuccess'));
           await loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope, deliverableVersionScope === '__all__');
         } catch (error) {
           console.error(error);
-          message.error('交付物删除失败');
+          message.error(t('asset.detail.deliverableDeleteFailed'));
         }
       },
     });
@@ -1396,16 +1402,16 @@ const AssetDetail: React.FC = () => {
   const handleDeleteAssetFile = (fileId: string) => {
     if (!asset) return;
     Modal.confirm({
-      title: '确认删除',
-      content: '确定要删除该资产文件吗？删除后将归档。',
+      title: t('common.deleteConfirmTitle'),
+      content: t('asset.detail.fileDeleteContent'),
       onOk: async () => {
         try {
           await deleteAssetFile(fileId);
-          message.success('资产文件已删除');
+          message.success(t('asset.detail.fileDeleteSuccess'));
           await loadFiles(asset.id, fileVersionScope === '__all__' ? undefined : fileVersionScope, fileVersionScope === '__all__');
         } catch (error) {
           console.error(error);
-          message.error('资产文件删除失败');
+          message.error(t('asset.detail.fileDeleteFailed'));
         }
       },
     });
@@ -1424,7 +1430,7 @@ const AssetDetail: React.FC = () => {
       URL.revokeObjectURL(objectUrl);
     } catch (error) {
       console.error(error);
-      message.error('资产文件下载失败');
+      message.error(t('asset.detail.fileDownloadFailed'));
     }
   };
 
@@ -1441,16 +1447,16 @@ const AssetDetail: React.FC = () => {
       URL.revokeObjectURL(objectUrl);
     } catch (error) {
       console.error(error);
-      message.error('交付物下载失败');
+      message.error(t('asset.detail.deliverableDownloadFailed'));
     }
   };
 
   const fileColumns = [
-    { title: '文件名', dataIndex: 'name', key: 'name' },
-    { title: '分类', dataIndex: 'category', key: 'category' },
-    { title: '版本', key: 'assetVersionId', render: (_: any, record: AssetFileVO & { asset_version_id?: string }) => versionLabelById(record.assetVersionId || record.asset_version_id) },
+    { title: t('asset.detail.fileName'), dataIndex: 'name', key: 'name' },
+    { title: t('asset.detail.fileCategoryCol'), dataIndex: 'category', key: 'category' },
+    { title: t('asset.detail.colVersion'), key: 'assetVersionId', render: (_: any, record: AssetFileVO & { asset_version_id?: string }) => versionLabelById(record.assetVersionId || record.asset_version_id) },
     {
-      title: '大小',
+      title: t('asset.detail.colSize'),
       dataIndex: 'fileSize',
       key: 'fileSize',
       render: (size?: number) => {
@@ -1461,25 +1467,25 @@ const AssetDetail: React.FC = () => {
         return `${size} B`;
       },
     },
-    { title: '上传时间', dataIndex: 'createdAt', key: 'createdAt', render: (val: string) => val ? new Date(val).toLocaleString() : '-' },
+    { title: t('asset.detail.colUploadedAt'), dataIndex: 'createdAt', key: 'createdAt', render: (val: string) => val ? new Date(val).toLocaleString() : '-' },
     {
-      title: '操作',
+      title: t('asset.detail.colAction'),
       key: 'action',
       render: (_: any, record: AssetFileVO) => (
         <Space>
-          <a onClick={() => handleDownloadAssetFile(record)}>下载</a>
-          <a onClick={() => handleDeleteAssetFile(record.id)} style={{ color: 'red' }}>删除</a>
+          <a onClick={() => handleDownloadAssetFile(record)}>{t('asset.detail.download')}</a>
+          <a onClick={() => handleDeleteAssetFile(record.id)} style={{ color: 'red' }}>{t('common.delete')}</a>
         </Space>
       ),
     },
   ];
 
   const deliverableColumns = [
-    { title: '文件名', dataIndex: 'name', key: 'name' },
-    { title: '交付物类型', dataIndex: 'deliverableType', key: 'deliverableType' },
-    { title: '版本', key: 'assetVersionId', render: (_: any, record: AssetDeliverableVO & { asset_version_id?: string }) => versionLabelById(record.assetVersionId || record.asset_version_id) },
+    { title: t('asset.detail.fileName'), dataIndex: 'name', key: 'name' },
+    { title: t('asset.detail.deliverableTypeCol'), dataIndex: 'deliverableType', key: 'deliverableType' },
+    { title: t('asset.detail.colVersion'), key: 'assetVersionId', render: (_: any, record: AssetDeliverableVO & { asset_version_id?: string }) => versionLabelById(record.assetVersionId || record.asset_version_id) },
     {
-      title: '大小',
+      title: t('asset.detail.colSize'),
       dataIndex: 'fileSize',
       key: 'fileSize',
       render: (size?: number) => {
@@ -1490,26 +1496,26 @@ const AssetDetail: React.FC = () => {
         return `${size} B`;
       },
     },
-    { title: '上传时间', dataIndex: 'createdAt', key: 'createdAt', render: (val: string) => val ? new Date(val).toLocaleString() : '-' },
+    { title: t('asset.detail.colUploadedAt'), dataIndex: 'createdAt', key: 'createdAt', render: (val: string) => val ? new Date(val).toLocaleString() : '-' },
     {
-      title: '操作',
+      title: t('asset.detail.colAction'),
       key: 'action',
       render: (_: any, record: AssetDeliverableVO) => (
         <Space>
-          <a onClick={() => handleDownloadDeliverable(record)}>下载</a>
-          <a onClick={() => handleDeleteDeliverable(record.id)} style={{ color: 'red' }}>删除</a>
+          <a onClick={() => handleDownloadDeliverable(record)}>{t('asset.detail.download')}</a>
+          <a onClick={() => handleDeleteDeliverable(record.id)} style={{ color: 'red' }}>{t('common.delete')}</a>
         </Space>
       ),
     },
   ];
 
   const envStatusMeta: Record<string, { color: string; label: string }> = {
-    created: { color: 'default', label: '未部署' },
-    provisioning: { color: 'processing', label: '部署中' },
-    deploying: { color: 'processing', label: '部署中' },
-    running: { color: 'success', label: '运行中' },
-    stopped: { color: 'default', label: '已停止' },
-    failed: { color: 'error', label: '失败' },
+    created: { color: 'default', label: t('asset.detail.envStatus.created') },
+    provisioning: { color: 'processing', label: t('asset.detail.envStatus.provisioning') },
+    deploying: { color: 'processing', label: t('asset.detail.envStatus.provisioning') },
+    running: { color: 'success', label: t('asset.detail.envStatus.running') },
+    stopped: { color: 'default', label: t('asset.detail.envStatus.stopped') },
+    failed: { color: 'error', label: t('asset.detail.envStatus.failed') },
   };
 
   const renderEnvStatus = (status?: string) => {
@@ -1551,20 +1557,20 @@ const AssetDetail: React.FC = () => {
   };
 
   const envColumns = [
-    { title: '环境名称', dataIndex: 'name', key: 'name' },
+    { title: t('asset.detail.envColName'), dataIndex: 'name', key: 'name' },
     {
-      title: '状态',
+      title: t('asset.detail.colStatus'),
       dataIndex: 'status',
       key: 'status',
       render: (status: string, record: EnvironmentVO) => (
         <Space size={4} wrap>
           {renderEnvStatus(status)}
-          {envConvergingId === record.id ? <Tag color="processing">等待收敛…</Tag> : null}
+          {envConvergingId === record.id ? <Tag color="processing">{t('asset.detail.envConverging')}</Tag> : null}
         </Space>
       ),
     },
     {
-      title: '失败原因',
+      title: t('asset.detail.envColFailReason'),
       dataIndex: 'failReason',
       key: 'failReason',
       render: (failReason?: string | null, record?: EnvironmentVO) => {
@@ -1576,45 +1582,41 @@ const AssetDetail: React.FC = () => {
           <Typography.Paragraph
             style={{ marginBottom: 0, maxWidth: 320, color: isFailed ? '#cf1322' : undefined }}
             copyable={{ text: failReason }}
-            ellipsis={{ rows: 2, expandable: true, symbol: '展开' }}
+            ellipsis={{ rows: 2, expandable: true, symbol: t('asset.detail.expand') }}
           >
             {failReason}
           </Typography.Paragraph>
         );
       },
     },
-    { title: '模板ID', dataIndex: 'templateId', key: 'templateId', ellipsis: true },
+    { title: t('asset.detail.envColTemplate'), dataIndex: 'templateId', key: 'templateId', ellipsis: true },
     {
-      title: '创建时间',
+      title: t('asset.detail.colCreatedAt'),
       dataIndex: 'createdAt',
       key: 'createdAt',
       render: (text: string) => (text ? new Date(text).toLocaleString() : '-'),
     },
     {
-      title: '操作',
+      title: t('asset.detail.colAction'),
       key: 'action',
       width: 220,
       render: (_: any, record: EnvironmentVO) => {
         const unavailableReason =
           envProvisioner.available === false
-            ? envProvisioner.message || '当前部署未启用容器编排，无法部署/启停'
+            ? envProvisioner.message || t('asset.detail.envActionBlocked')
             : undefined;
         const status = (record.status || '').toLowerCase();
         const startDisabled =
-          unavailableReason ?? (status === 'running' ? '环境已在运行中' : status === 'provisioning' ? '环境正在部署，请稍候' : undefined);
+          unavailableReason ?? (status === 'running' ? t('asset.detail.envAlreadyRunning') : status === 'provisioning' ? t('asset.detail.envProvisioningWait') : undefined);
         const stopDisabled =
-          unavailableReason ?? (status === 'stopped' ? '环境已停止' : status === 'provisioning' ? '环境正在部署，请稍候' : undefined);
+          unavailableReason ?? (status === 'stopped' ? t('asset.detail.envAlreadyStopped') : status === 'provisioning' ? t('asset.detail.envProvisioningWait') : undefined);
         return (
           <Space size={0} wrap>
-            {renderEnvActionButton(record, 'deploy', '部署', <CloudUploadOutlined />, unavailableReason)}
-            {renderEnvActionButton(record, 'start', '启动', <PlayCircleOutlined />, startDisabled)}
-            {renderEnvActionButton(record, 'stop', '停止', <StopOutlined />, stopDisabled)}
-            <a onClick={() => openSnapshotPanel(record)} style={{ marginLeft: 4 }}>
-              快照
-            </a>
-            <a onClick={() => handleDeleteEnv(record.id)} style={{ color: 'red', marginLeft: 4 }}>
-              删除
-            </a>
+            {renderEnvActionButton(record, 'deploy', t('asset.detail.envDeploy'), <CloudUploadOutlined />, unavailableReason)}
+            {renderEnvActionButton(record, 'start', t('asset.detail.envStart'), <PlayCircleOutlined />, startDisabled)}
+            {renderEnvActionButton(record, 'stop', t('asset.detail.envStop'), <StopOutlined />, stopDisabled)}
+            <a onClick={() => openSnapshotPanel(record)} style={{ marginLeft: 4 }}>{t('asset.detail.envSnapshotAction')}</a>
+            <a onClick={() => handleDeleteEnv(record.id)} style={{ color: 'red', marginLeft: 4 }}>{t('common.delete')}</a>
           </Space>
         );
       },
@@ -1622,32 +1624,32 @@ const AssetDetail: React.FC = () => {
   ];
 
   const vulnColumns = [
-    { title: '漏洞编号', dataIndex: 'vulnerabilityNo', key: 'vulnerabilityNo', render: (_: string, record: any) => record?.vulnerabilityNo || record?.vulnerability_no || '-' },
-    { title: '漏洞名称', dataIndex: 'title', key: 'title', render: (text: string, record: any) => <a onClick={() => navigate(`/vulnerabilities/${record.id}`)}>{text}</a> },
-    { title: '发现版本', dataIndex: 'discoveredVersionId', key: 'discoveredVersionId', render: (_: string, record: any) => versionLabelById(record?.discoveredVersionId || record?.discovered_version_id) },
-    { title: '受影响版本', dataIndex: 'affectedVersions', key: 'affectedVersions', render: (_: string, record: any) => record?.affectedVersions || record?.affected_versions || '-' },
-    { title: '严重程度', dataIndex: 'severity', key: 'severity', render: (severity: string) => {
+    { title: t('asset.detail.colVulnNo'), dataIndex: 'vulnerabilityNo', key: 'vulnerabilityNo', render: (_: string, record: any) => record?.vulnerabilityNo || record?.vulnerability_no || '-' },
+    { title: t('asset.detail.colVulnTitle'), dataIndex: 'title', key: 'title', render: (text: string, record: any) => <a onClick={() => navigate(`/vulnerabilities/${record.id}`)}>{text}</a> },
+    { title: t('asset.detail.colDiscoveredVersion'), dataIndex: 'discoveredVersionId', key: 'discoveredVersionId', render: (_: string, record: any) => versionLabelById(record?.discoveredVersionId || record?.discovered_version_id) },
+    { title: t('asset.detail.colAffectedVersions'), dataIndex: 'affectedVersions', key: 'affectedVersions', render: (_: string, record: any) => record?.affectedVersions || record?.affected_versions || '-' },
+    { title: t('asset.detail.colSeverity'), dataIndex: 'severity', key: 'severity', render: (severity: string) => {
         const colors: Record<string, string> = { CRITICAL: 'darkred', HIGH: 'red', MEDIUM: 'orange', LOW: 'blue', INFO: 'default' };
         return <Tag color={colors[severity] || 'default'}>{severity}</Tag>;
     } },
-    { title: '状态', dataIndex: 'status', key: 'status' },
-    { title: '发现时间', dataIndex: 'createdAt', key: 'createdAt', render: (text: string) => text ? new Date(text).toLocaleString() : '-' },
+    { title: t('asset.detail.colStatus'), dataIndex: 'status', key: 'status' },
+    { title: t('asset.detail.colDiscoveredAt'), dataIndex: 'createdAt', key: 'createdAt', render: (text: string) => text ? new Date(text).toLocaleString() : '-' },
     { 
-      title: '操作', 
+      title: t('asset.detail.colAction'), 
       key: 'action',
       render: (_: any, record: any) => (
         <Space>
-          <a onClick={() => handleEditVuln(record)}>编辑</a>
-          <a onClick={() => handleDeleteVuln(record.id)} style={{ color: 'red' }}>删除</a>
+          <a onClick={() => handleEditVuln(record)}>{t('common.edit')}</a>
+          <a onClick={() => handleDeleteVuln(record.id)} style={{ color: 'red' }}>{t('common.delete')}</a>
         </Space>
       )
     }
   ];
 
   const taskColumns = [
-    { title: '任务名称', dataIndex: 'title', key: 'title', render: (text: string, record: any) => <a onClick={() => navigate(`/tasks/${record.id}`)}>{text}</a> },
+    { title: t('asset.detail.colTaskName'), dataIndex: 'title', key: 'title', render: (text: string, record: any) => <a onClick={() => navigate(`/tasks/${record.id}`)}>{text}</a> },
     {
-      title: '状态',
+      title: t('asset.detail.colStatus'),
       dataIndex: 'status',
       key: 'status',
       render: (status: string, record: any) => (
@@ -1658,23 +1660,23 @@ const AssetDetail: React.FC = () => {
           loading={taskStatusUpdatingId === record.id}
           onChange={(value) => handleInlineTaskStatusChange(record, value)}
         >
-          <Option value="pending">待处理</Option>
-          <Option value="in_progress">进行中</Option>
-          <Option value="completed">已完成</Option>
-          <Option value="cancelled">已取消</Option>
+          <Option value="pending">{t('asset.detail.taskStatus.pending')}</Option>
+          <Option value="in_progress">{t('asset.detail.taskStatus.inProgress')}</Option>
+          <Option value="completed">{t('asset.detail.taskStatus.completed')}</Option>
+          <Option value="cancelled">{t('asset.detail.taskStatus.cancelled')}</Option>
         </Select>
       ),
     },
-    { title: '创建者', key: 'creator', render: (_: any, record: any) => record?.creator?.username || '-' },
-    { title: '责任人', key: 'assignee', render: (_: any, record: any) => record?.assignee?.username || '-' },
-    { title: '创建时间', dataIndex: 'createdAt', key: 'createdAt', render: (text: string) => text ? new Date(text).toLocaleString() : '-' },
+    { title: t('asset.detail.colCreator'), key: 'creator', render: (_: any, record: any) => record?.creator?.username || '-' },
+    { title: t('asset.detail.colAssignee'), key: 'assignee', render: (_: any, record: any) => record?.assignee?.username || '-' },
+    { title: t('asset.detail.colCreatedAt'), dataIndex: 'createdAt', key: 'createdAt', render: (text: string) => text ? new Date(text).toLocaleString() : '-' },
     { 
-      title: '操作', 
+      title: t('asset.detail.colAction'), 
       key: 'action',
       render: (_: any, record: any) => (
         <Space>
-          <a onClick={() => handleEditTask(record)}>编辑</a>
-          <a onClick={() => handleDeleteTask(record.id)} style={{ color: 'red' }}>删除</a>
+          <a onClick={() => handleEditTask(record)}>{t('common.edit')}</a>
+          <a onClick={() => handleDeleteTask(record.id)} style={{ color: 'red' }}>{t('common.delete')}</a>
         </Space>
       )
     }
@@ -1689,8 +1691,8 @@ const AssetDetail: React.FC = () => {
       <Result
         status="404"
         title="404"
-        subTitle="抱歉，您访问的资产不存在或已被删除。"
-        extra={<Button type="primary" onClick={() => navigate('/assets')}>返回资产列表</Button>}
+        subTitle={t('asset.detail.notFound')}
+        extra={<Button type="primary" onClick={() => navigate('/assets')}>{t('asset.detail.backToList')}</Button>}
       />
     );
   }
@@ -1703,69 +1705,65 @@ const AssetDetail: React.FC = () => {
             <span style={{ fontSize: '20px', fontWeight: 'bold', marginRight: '16px' }}>{asset.name}</span>
             <Tag color="blue">{asset.code}</Tag>
             <Tag color={asset.status === 'ACTIVE' ? 'success' : 'default'}>{asset.status}</Tag>
-            {myAccess?.status === 'approved' && <Tag color="green">已授权访问</Tag>}
-            {myAccess?.status === 'pending' && <Tag color="orange">访问申请待审批</Tag>}
-            {myAccess?.status === 'rejected' && <Tag color="red">访问申请被驳回</Tag>}
+            {myAccess?.status === 'approved' && <Tag color="green">{t('asset.detail.tagApproved')}</Tag>}
+            {myAccess?.status === 'pending' && <Tag color="orange">{t('asset.detail.tagPending')}</Tag>}
+            {myAccess?.status === 'rejected' && <Tag color="red">{t('asset.detail.tagRejected')}</Tag>}
             {myClaim && ['pending', 'approved'].includes(myClaim.status) && (
-              <Tag color="geekblue">已认领（{myClaim.status}）</Tag>
+              <Tag color="geekblue">{t('asset.detail.tagClaimed', { status: myClaim.status })}</Tag>
             )}
-            {subscribed && <Tag color="cyan">已订阅动态</Tag>}
+            {subscribed && <Tag color="cyan">{t('asset.detail.tagSubscribed')}</Tag>}
           </div>
         }
         extra={
           <Space>
-            <Button onClick={() => setAccessModalVisible(true)} disabled={myAccess?.status === 'pending' || myAccess?.status === 'approved'}>
-              申请访问
-            </Button>
-            <Button onClick={() => setClaimModalVisible(true)} disabled={!!myClaim && ['pending', 'approved'].includes(myClaim.status)}>
-              认领资产
-            </Button>
-            <Tooltip title={subscribed ? '取消后不再接收该资产的漏洞/任务动态' : '订阅后该资产的变化会推送到通知中心'}>
+            <Button onClick={() => setAccessModalVisible(true)} disabled={myAccess?.status === 'pending' || myAccess?.status === 'approved'}>{t('asset.detail.requestAccess')}</Button>
+            <Button onClick={() => setClaimModalVisible(true)} disabled={!!myClaim && ['pending', 'approved'].includes(myClaim.status)}>{t('asset.detail.claimModalTitle')}</Button>
+            <Tooltip title={subscribed ? t('asset.detail.unsubscribeTip') : t('asset.detail.subscribeTip')}>
               <Button
                 type={subscribed ? 'default' : 'primary'}
                 loading={subscribeLoading}
                 onClick={handleToggleSubscribe}
               >
-                {subscribed ? '取消订阅动态' : '订阅动态'}
+                {subscribed ? t('asset.detail.unsubscribe') : t('asset.detail.subscribe')}
               </Button>
             </Tooltip>
             <Select
               style={{ width: 220 }}
               value={selectedVersionId}
               loading={versionLoading}
-              placeholder="选择资产版本"
+              placeholder={t('asset.detail.versionPlaceholder')}
               onChange={(value) => setSelectedVersionId(value)}
               options={assetVersions.map((item) => ({
-                label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}${item.isLatest ? ' - 最新' : ''}`,
+                label: `${item.name || `v${item.versionNo}`}${item.isDefault ? t('asset.detail.versionDefaultSuffix') : ''}${item.isLatest ? t('asset.detail.versionLatestSuffix') : ''}`,
                 value: item.id,
               }))}
             />
             <Tooltip title={canWriteCurrentAsset ? '' : ASSET_WRITE_FORBIDDEN_TIP}>
-              <Button disabled={!canWriteCurrentAsset} onClick={() => setCreateVersionVisible(true)}>新建版本</Button>
+              <Button disabled={!canWriteCurrentAsset} onClick={() => setCreateVersionVisible(true)}>{t('asset.detail.newVersion')}</Button>
             </Tooltip>
             <Tooltip title={canWriteCurrentAsset ? '' : ASSET_WRITE_FORBIDDEN_TIP}>
-              <Button disabled={!canWriteCurrentAsset} loading={setDefaultLoading} onClick={handleSetDefaultVersion}>设为默认</Button>
+              <Button disabled={!canWriteCurrentAsset} loading={setDefaultLoading} onClick={handleSetDefaultVersion}>{t('asset.detail.setDefault')}</Button>
             </Tooltip>
             <Tooltip title={canWriteCurrentAsset ? '' : ASSET_WRITE_FORBIDDEN_TIP}>
-              <Button disabled={!canWriteCurrentAsset} loading={setLatestLoading} onClick={handleSetLatestVersion}>设为最新</Button>
+              <Button disabled={!canWriteCurrentAsset} loading={setLatestLoading} onClick={handleSetLatestVersion}>{t('asset.detail.setLatest')}</Button>
             </Tooltip>
-            <Button onClick={() => navigate('/assets')}>返回列表</Button>
+            <Button onClick={() => navigate('/assets')}>{t('asset.detail.backList')}</Button>
           </Space>
         }
         style={{ marginBottom: 24 }}
       >
         <Descriptions column={3}>
-          <Descriptions.Item label="目标类型">{asset?.target_type}</Descriptions.Item>
-          <Descriptions.Item label="资产来源">{asset?.target_source}</Descriptions.Item>
-          <Descriptions.Item label="所属团队">{asset?.team_name || asset?.team?.name || '-'}</Descriptions.Item>
-          <Descriptions.Item label="责任人">{asset?.owner_name || asset?.owner?.username || '-'}</Descriptions.Item>
-          <Descriptions.Item label="描述">{asset?.description}</Descriptions.Item>
-          <Descriptions.Item label="创建时间">{asset?.created_at ? new Date(asset.created_at).toLocaleString() : '-'}</Descriptions.Item>
+          <Descriptions.Item label={t('asset.detail.metaTargetType')}>{asset?.target_type}</Descriptions.Item>
+          <Descriptions.Item label={t('asset.detail.metaSource')}>{asset?.target_source}</Descriptions.Item>
+          <Descriptions.Item label={t('asset.detail.metaTeam')}>{asset?.team_name || asset?.team?.name || '-'}</Descriptions.Item>
+          <Descriptions.Item label={t('asset.detail.colAssignee')}>{asset?.owner_name || asset?.owner?.username || '-'}</Descriptions.Item>
+          <Descriptions.Item label={t('asset.detail.metaDescription')}>{asset?.description}</Descriptions.Item>
+          <Descriptions.Item label={t('asset.detail.colCreatedAt')}>{asset?.created_at ? new Date(asset.created_at).toLocaleString() : '-'}</Descriptions.Item>
         </Descriptions>
       </Card>
 
       <Modal
-        title="新建资产版本"
+        title={t('asset.detail.versionModalTitle')}
         open={createVersionVisible}
         onOk={handleCreateVersion}
         onCancel={() => {
@@ -1783,28 +1781,28 @@ const AssetDetail: React.FC = () => {
             inheritBaseOverview: false,
           }}
         >
-          <Form.Item name="name" label="版本名称">
-            <Input placeholder="留空将自动使用 v{版本号}" />
+          <Form.Item name="name" label={t('asset.detail.versionName')}>
+            <Input placeholder={t('asset.detail.versionNamePlaceholder')} />
           </Form.Item>
-          <Form.Item name="description" label="版本描述">
-            <TextArea rows={3} placeholder="输入本次版本说明" />
+          <Form.Item name="description" label={t('asset.detail.versionDescription')}>
+            <TextArea rows={3} placeholder={t('asset.detail.versionDescriptionPlaceholder')} />
           </Form.Item>
-          <Form.Item name="status" label="状态">
+          <Form.Item name="status" label={t('asset.detail.colStatus')}>
             <Select>
               <Option value="active">active</Option>
               <Option value="inactive">inactive</Option>
             </Select>
           </Form.Item>
-          <Form.Item name="setDefault" label="创建后设为默认">
+          <Form.Item name="setDefault" label={t('asset.detail.versionSetDefault')}>
             <Select>
-              <Option value={false}>否</Option>
-              <Option value={true}>是</Option>
+              <Option value={false}>{t('asset.detail.no')}</Option>
+              <Option value={true}>{t('asset.detail.yes')}</Option>
             </Select>
           </Form.Item>
-          <Form.Item name="inheritBaseOverview" label="带入产品概览">
+          <Form.Item name="inheritBaseOverview" label={t('asset.detail.versionInherit')}>
             <Select>
-              <Option value={false}>否</Option>
-              <Option value={true} disabled={assetVersions.length === 0}>是</Option>
+              <Option value={false}>{t('asset.detail.no')}</Option>
+              <Option value={true} disabled={assetVersions.length === 0}>{t('asset.detail.yes')}</Option>
             </Select>
           </Form.Item>
           <Form.Item
@@ -1818,13 +1816,13 @@ const AssetDetail: React.FC = () => {
               return (
                 <Form.Item
                   name="inheritFromVersionId"
-                  label="来源版本"
-                  rules={[{ required: true, message: '请选择来源版本' }]}
+                  label={t('asset.detail.versionSource')}
+                  rules={[{ required: true, message: t('asset.detail.versionSourceRequired') }]}
                 >
                   <Select
-                    placeholder="请选择需要带入产品概览的版本"
+                    placeholder={t('asset.detail.versionSourcePlaceholder')}
                     options={assetVersions.map((item) => ({
-                      label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}${item.isLatest ? ' - 最新' : ''}`,
+                      label: `${item.name || `v${item.versionNo}`}${item.isDefault ? t('asset.detail.versionDefaultSuffix') : ''}${item.isLatest ? t('asset.detail.versionLatestSuffix') : ''}`,
                       value: item.id,
                     }))}
                   />
@@ -1837,21 +1835,21 @@ const AssetDetail: React.FC = () => {
 
       <Card style={{ borderRadius: 8 }} bodyStyle={{ padding: '0 24px 24px' }}>
         <Tabs defaultActiveKey="overview" size="large">
-          <TabPane tab={<span><FileZipOutlined />资产文件</span>} key="asset-files">
+          <TabPane tab={<span><FileZipOutlined />{t('asset.detail.filesTitle')}</span>} key="asset-files">
             <div style={{ padding: '24px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <div>
-                  <h3 style={{ marginBottom: 0 }}>资产文件</h3>
+                  <h3 style={{ marginBottom: 0 }}>{t('asset.detail.filesTitle')}</h3>
                 </div>
                 <Select
                   style={{ width: 260 }}
                   value={fileVersionScope}
-                  placeholder="选择文件卡片版本"
+                  placeholder={t('asset.detail.fileVersionScope')}
                   onChange={(value) => setFileVersionScope(value)}
                   options={[
-                    { label: '显示所有版本', value: '__all__' },
+                    { label: t('asset.detail.showAllVersions'), value: '__all__' },
                     ...assetVersions.map((item) => ({
-                      label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}${item.isLatest ? ' - 最新' : ''}`,
+                      label: `${item.name || `v${item.versionNo}`}${item.isDefault ? t('asset.detail.versionDefaultSuffix') : ''}${item.isLatest ? t('asset.detail.versionLatestSuffix') : ''}`,
                       value: item.id,
                     })),
                   ]}
@@ -1861,26 +1859,26 @@ const AssetDetail: React.FC = () => {
                 <Form form={assetFileUploadForm} layout="vertical">
                   <Row gutter={16}>
                     <Col span={6}>
-                      <Form.Item name="category" label="文件分类" rules={[{ required: true, message: '请选择文件分类' }]}>
-                        <Select placeholder="选择分类">
-                          <Option value="系统镜像">系统镜像</Option>
-                          <Option value="磁盘文件">磁盘文件</Option>
-                          <Option value="安装包">安装包</Option>
-                          <Option value="提取程序">提取程序</Option>
-                          <Option value="配置文件">配置文件</Option>
-                          <Option value="其他">其他</Option>
+                      <Form.Item name="category" label={t('asset.detail.fileCategory')} rules={[{ required: true, message: t('asset.detail.fileCategoryRequired') }]}>
+                        <Select placeholder={t('asset.detail.fileCategoryPlaceholder')}>
+                          <Option value={t('asset.detail.categorySystemImage')}>{t('asset.detail.categorySystemImage')}</Option>
+                          <Option value={t('asset.detail.categoryDiskFile')}>{t('asset.detail.categoryDiskFile')}</Option>
+                          <Option value={t('asset.detail.categoryInstaller')}>{t('asset.detail.categoryInstaller')}</Option>
+                          <Option value={t('asset.detail.categoryExtractor')}>{t('asset.detail.categoryExtractor')}</Option>
+                          <Option value={t('asset.detail.categoryConfig')}>{t('asset.detail.categoryConfig')}</Option>
+                          <Option value={t('asset.detail.categoryOther')}>{t('asset.detail.categoryOther')}</Option>
                         </Select>
                       </Form.Item>
                     </Col>
                     <Col span={8}>
-                      <Form.Item name="description" label="描述">
-                        <Input placeholder="输入安装包或配置文件说明" />
+                      <Form.Item name="description" label={t('asset.detail.metaDescription')}>
+                        <Input placeholder={t('asset.detail.fileDescPlaceholder')} />
                       </Form.Item>
                     </Col>
                   </Row>
                   <Row gutter={16}>
                     <Col span={24}>
-                      <Form.Item label="文件上传">
+                      <Form.Item label={t('asset.detail.fileUpload')}>
                         <Space>
                           <Upload
                             beforeUpload={(file) => {
@@ -1891,11 +1889,9 @@ const AssetDetail: React.FC = () => {
                             fileList={assetFileUploadList}
                             maxCount={1}
                           >
-                            <Button icon={<UploadOutlined />}>选择文件</Button>
+                            <Button icon={<UploadOutlined />}>{t('asset.detail.chooseFile')}</Button>
                           </Upload>
-                          <Button type="primary" loading={fileUploading} onClick={() => handleUploadAssetFile('asset_file')} disabled={assetFileUploadList.length === 0}>
-                            开始上传
-                          </Button>
+                          <Button type="primary" loading={fileUploading} onClick={() => handleUploadAssetFile('asset_file')} disabled={assetFileUploadList.length === 0}>{t('asset.detail.startUpload')}</Button>
                         </Space>
                       </Form.Item>
                     </Col>
@@ -1911,24 +1907,24 @@ const AssetDetail: React.FC = () => {
               />
             </div>
           </TabPane>
-          <TabPane tab={<span><AppstoreOutlined />产品概览</span>} key="overview">
+          <TabPane tab={<span><AppstoreOutlined />{t('asset.detail.overviewTitle')}</span>} key="overview">
             <div style={{ padding: '24px 0', maxWidth: 1000 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <h3 style={{ margin: 0 }}>产品概览</h3>
+                <h3 style={{ margin: 0 }}>{t('asset.detail.overviewTitle')}</h3>
                 <Select
                   style={{ width: 260 }}
                   value={overviewVersionId}
-                  placeholder="选择概览卡片版本"
+                  placeholder={t('asset.detail.overviewVersionScope')}
                   onChange={(value) => setOverviewVersionId(value)}
                   options={assetVersions.map((item) => ({
-                    label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}${item.isLatest ? ' - 最新' : ''}`,
+                    label: `${item.name || `v${item.versionNo}`}${item.isDefault ? t('asset.detail.versionDefaultSuffix') : ''}${item.isLatest ? t('asset.detail.versionLatestSuffix') : ''}`,
                     value: item.id,
                   }))}
                 />
               </div>
               {baseOverviewInheritedFromVersionId && (
                 <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 6, color: '#389e0d' }}>
-                  当前版本产品概览基于 {versionLabelById(baseOverviewInheritedFromVersionId)} 带入
+                  {t('asset.detail.overviewInherited', { version: versionLabelById(baseOverviewInheritedFromVersionId) })}
                 </div>
               )}
               <Spin spinning={metadataLoading}>
@@ -1937,11 +1933,11 @@ const AssetDetail: React.FC = () => {
                   onChange={setOverviewStep} 
                   style={{ marginBottom: 40 }}
                   items={[
-                    { title: '基础与存储' },
-                    { title: '网络与接口' },
-                    { title: '运行配置' },
-                    { title: '认证与权限' },
-                    { title: '附加信息' },
+                    { title: t('asset.detail.stepBase') },
+                    { title: t('asset.detail.stepNetwork') },
+                    { title: t('asset.detail.stepEnv') },
+                    { title: t('asset.detail.stepAccount') },
+                    { title: t('asset.detail.stepExtra') },
                   ]}
                 />
                 
@@ -1949,19 +1945,19 @@ const AssetDetail: React.FC = () => {
                   <div style={{ display: overviewStep === 0 ? 'block' : 'none' }}>
                     <Card bordered={false} className="overview-step-card">
                       <Row gutter={24}>
-                        <Col span={8}><Form.Item name="runtimePlatform" label="运行平台 (操作系统)"><Input placeholder="如: Windows Server / Linux / Unix" /></Form.Item></Col>
-                        <Col span={8}><Form.Item name="deploymentMethod" label="部署方式"><Input placeholder="如: Docker / 物理机 / K8s" /></Form.Item></Col>
-                        <Col span={8}><Form.Item name="systemArchitecture" label="系统架构"><Input placeholder="x86 / ARM" /></Form.Item></Col>
+                        <Col span={8}><Form.Item name="runtimePlatform" label={t('asset.detail.runtimePlatform')}><Input placeholder={t('asset.detail.runtimePlatformPlaceholder')} /></Form.Item></Col>
+                        <Col span={8}><Form.Item name="deploymentMethod" label={t('asset.detail.deploymentMethod')}><Input placeholder={t('asset.detail.deploymentMethodPlaceholder')} /></Form.Item></Col>
+                        <Col span={8}><Form.Item name="systemArchitecture" label={t('asset.detail.systemArchitecture')}><Input placeholder="x86 / ARM" /></Form.Item></Col>
                         
                         <Col span={24}>
-                          <Form.Item label="编程语言与框架">
+                          <Form.Item label={t('asset.detail.programmingLanguages')}>
                             <div style={{ border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
                               <div style={{ background: '#fafafa', padding: '12px 16px', borderBottom: '1px solid #e8e8e8', display: 'flex', fontWeight: 500, color: '#595959' }}>
-                                <div style={{ flex: '0 0 20%', paddingRight: 8 }}>编程语言</div>
-                                <div style={{ flex: '0 0 20%', paddingRight: 8 }}>版本</div>
-                                <div style={{ flex: '0 0 20%', paddingRight: 8 }}>框架</div>
-                                <div style={{ flex: '0 0 30%', paddingRight: 8 }}>说明（使用该语言的服务）</div>
-                                <div style={{ flex: '0 0 10%', textAlign: 'center' }}>操作</div>
+                                <div style={{ flex: '0 0 20%', paddingRight: 8 }}>{t('asset.detail.langName')}</div>
+                                <div style={{ flex: '0 0 20%', paddingRight: 8 }}>{t('asset.detail.colVersion')}</div>
+                                <div style={{ flex: '0 0 20%', paddingRight: 8 }}>{t('asset.detail.langFramework')}</div>
+                                <div style={{ flex: '0 0 30%', paddingRight: 8 }}>{t('asset.detail.langNote')}</div>
+                                <div style={{ flex: '0 0 10%', textAlign: 'center' }}>{t('asset.detail.colAction')}</div>
                               </div>
                               <div style={{ padding: '16px 16px 0' }}>
                                 <Form.List name="programmingLanguagesList">
@@ -1971,28 +1967,28 @@ const AssetDetail: React.FC = () => {
                                         <div key={key} style={{ display: 'flex', marginBottom: 16, alignItems: 'flex-start' }}>
                                           <div style={{ flex: '0 0 20%', paddingRight: 8 }}>
                                             <Form.Item {...restField} name={[name, 'language']} style={{ marginBottom: 0 }}>
-                                              <Input placeholder="如：Java / Go" />
+                                              <Input placeholder={t('asset.detail.langPlaceholder')} />
                                             </Form.Item>
                                           </div>
                                           <div style={{ flex: '0 0 20%', paddingRight: 8 }}>
                                             <Form.Item {...restField} name={[name, 'version']} style={{ marginBottom: 0 }}>
-                                              <Input placeholder="如：jdk1.8 / 1.21" />
+                                              <Input placeholder={t('asset.detail.langVersionPlaceholder')} />
                                             </Form.Item>
                                           </div>
                                           <div style={{ flex: '0 0 20%', paddingRight: 8 }}>
                                             <Form.Item {...restField} name={[name, 'framework']} style={{ marginBottom: 0 }}>
-                                              <Input placeholder="如：Spring Boot" />
+                                              <Input placeholder={t('asset.detail.langFrameworkPlaceholder')} />
                                             </Form.Item>
                                           </div>
                                           <div style={{ flex: '0 0 30%', paddingRight: 8 }}>
                                             <Form.Item {...restField} name={[name, 'note']} style={{ marginBottom: 0 }}>
-                                              <Input placeholder="如：核心后端服务" />
+                                              <Input placeholder={t('asset.detail.langNotePlaceholder')} />
                                             </Form.Item>
                                           </div>
                                           <div style={{ flex: '0 0 10%', display: 'flex', justifyContent: 'center', paddingTop: 4 }}>
                                             <Space size={8}>
                                               {fields.length > 1 && (
-                                                <Tooltip title="移除">
+                                                <Tooltip title={t('asset.detail.remove')}>
                                                   <MinusCircleOutlined 
                                                     style={{ color: '#ff4d4f', fontSize: 16, cursor: 'pointer' }} 
                                                     onClick={() => remove(name)} 
@@ -2000,7 +1996,7 @@ const AssetDetail: React.FC = () => {
                                                 </Tooltip>
                                               )}
                                               {index === fields.length - 1 && (
-                                                <Tooltip title="添加">
+                                                <Tooltip title={t('asset.detail.add')}>
                                                   <PlusCircleOutlined 
                                                     style={{ color: '#1890ff', fontSize: 16, cursor: 'pointer' }} 
                                                     onClick={() => add({ language: '', version: '', framework: '', note: '' })} 
@@ -2013,9 +2009,7 @@ const AssetDetail: React.FC = () => {
                                       ))}
                                       {fields.length === 0 && (
                                         <div style={{ marginBottom: 16 }}>
-                                          <Button type="dashed" onClick={() => add({ language: '', version: '', framework: '', note: '' })} block icon={<PlusOutlined />}>
-                                            添加编程语言
-                                          </Button>
+                                          <Button type="dashed" onClick={() => add({ language: '', version: '', framework: '', note: '' })} block icon={<PlusOutlined />}>{t('asset.detail.addLanguage')}</Button>
                                         </div>
                                       )}
                                     </>
@@ -2032,35 +2026,35 @@ const AssetDetail: React.FC = () => {
                   <div style={{ display: overviewStep === 1 ? 'block' : 'none' }}>
                     <Card bordered={false} className="overview-step-card">
                       <Row gutter={24}>
-                        <Col span={24}>{renderListFormItem('servicePortsList', '服务端口', '如：8080', <NodeIndexOutlined style={{ color: '#bfbfbf' }} />, {
+                        <Col span={24}>{renderListFormItem(t, 'servicePortsList', t('asset.detail.servicePorts'), t('asset.detail.servicePortsPlaceholder'), <NodeIndexOutlined style={{ color: '#bfbfbf' }} />, {
                           name: 'accessType',
-                          label: '访问权限',
+                          label: t('asset.detail.accessScope'),
                           options: [
-                            { label: '全部开放', value: 'all' },
-                            { label: '仅限本地', value: 'local' },
-                            { label: '仅限内网', value: 'internal' },
-                            { label: '指定IP', value: 'specific_ip' },
+                            { label: t('asset.detail.accessAll'), value: 'all' },
+                            { label: t('asset.detail.accessLocal'), value: 'local' },
+                            { label: t('asset.detail.accessInternal'), value: 'internal' },
+                            { label: t('asset.detail.accessSpecificIp'), value: 'specific_ip' },
                           ],
                           dependentField: {
                             name: 'allowedIps',
-                            label: '允许的IP',
-                            placeholder: '输入允许访问的IP或IP段，多个用逗号分隔（如：192.168.1.1, 10.0.0.0/24）',
+                            label: t('asset.detail.allowedIp'),
+                            placeholder: t('asset.detail.allowedIpPlaceholder'),
                             showWhenValue: 'specific_ip'
                           }
                         }, true)}</Col>
                         <Col span={24}>
                           <div style={{ marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                            <span style={{ fontSize: 14, fontWeight: 500, color: '#595959' }}>API端点</span>
-                            <Tooltip title="基于授权类型分组管理API端点信息">
+                            <span style={{ fontSize: 14, fontWeight: 500, color: '#595959' }}>{t('asset.detail.apiEndpoints')}</span>
+                            <Tooltip title={t('asset.detail.apiEndpointsTip')}>
                               <InfoCircleOutlined style={{ color: '#8c8c8c' }} />
                             </Tooltip>
                           </div>
-                          {renderListFormItem('apiEndpointsList', 'API端点', '如：/api/v1/users', <LinkOutlined style={{ color: '#bfbfbf' }} />, {
+                          {renderListFormItem(t, 'apiEndpointsList', t('asset.detail.apiEndpoints'), t('asset.detail.apiEndpointsPlaceholder'), <LinkOutlined style={{ color: '#bfbfbf' }} />, {
                             name: 'authType',
-                            label: '授权类型',
+                            label: t('asset.detail.authType'),
                             options: [
-                              { label: '需要认证', value: 'auth_required' },
-                              { label: '预认证', value: 'public' },
+                              { label: t('asset.detail.authRequired'), value: 'auth_required' },
+                              { label: t('asset.detail.authPublic'), value: 'public' },
                             ]
                           }, true)}
                         </Col>
@@ -2071,14 +2065,14 @@ const AssetDetail: React.FC = () => {
                   <div style={{ display: overviewStep === 2 ? 'block' : 'none' }}>
                     <Card bordered={false} className="overview-step-card">
                       <Row gutter={24}>
-                        <Col span={12}><Form.Item name="installPath" label="安装路径"><Input placeholder="/opt/app" /></Form.Item></Col>
-                        <Col span={12}><Form.Item name="startupCommand" label="启动命令"><Input placeholder="如: ./start.sh" /></Form.Item></Col>
+                        <Col span={12}><Form.Item name="installPath" label={t('asset.detail.installPath')}><Input placeholder="/opt/app" /></Form.Item></Col>
+                        <Col span={12}><Form.Item name="startupCommand" label={t('asset.detail.startupCommand')}><Input placeholder={t('asset.detail.startupCommandPlaceholder')} /></Form.Item></Col>
 
-                        <Col span={8}><Form.Item name="databaseType" label="数据库类型"><Input placeholder="MySQL / PostgreSQL / Redis" /></Form.Item></Col>
-                        <Col span={16}><Form.Item name="databaseConnection" label="数据库连接信息"><Input placeholder="如: jdbc:mysql://localhost:3306/db" /></Form.Item></Col>
+                        <Col span={8}><Form.Item name="databaseType" label={t('asset.detail.databaseType')}><Input placeholder="MySQL / PostgreSQL / Redis" /></Form.Item></Col>
+                        <Col span={16}><Form.Item name="databaseConnection" label={t('asset.detail.databaseConnection')}><Input placeholder={t('asset.detail.databaseConnectionPlaceholder')} /></Form.Item></Col>
 
-                        <Col span={24}>{renderListFormItem('startupScriptPathList', '启动脚本路径', '如：/opt/app/start.sh', <CodeOutlined style={{ color: '#bfbfbf' }} />)}</Col>
-                        <Col span={24}>{renderListFormItem('configFilePathList', '配置文件路径', '如：/etc/app/config.yaml', <SettingOutlined style={{ color: '#bfbfbf' }} />)}</Col>
+                        <Col span={24}>{renderListFormItem(t, 'startupScriptPathList', t('asset.detail.startupScript'), t('asset.detail.startupScriptPlaceholder'), <CodeOutlined style={{ color: '#bfbfbf' }} />)}</Col>
+                        <Col span={24}>{renderListFormItem(t, 'configFilePathList', t('asset.detail.configFile'), t('asset.detail.configFilePlaceholder'), <SettingOutlined style={{ color: '#bfbfbf' }} />)}</Col>
                       </Row>
                     </Card>
                   </div>
@@ -2087,13 +2081,13 @@ const AssetDetail: React.FC = () => {
                     <Card bordered={false} className="overview-step-card">
                       <Row gutter={24}>
                         <Col span={24}>
-                          <Form.Item label="账号密码组">
+                          <Form.Item label={t('asset.detail.credentials')}>
                             <div style={{ border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
                               <div style={{ background: '#fafafa', padding: '12px 16px', borderBottom: '1px solid #e8e8e8', display: 'flex', fontWeight: 500, color: '#595959' }}>
-                                <div style={{ flex: '0 0 28%', paddingRight: 8 }}>用户名</div>
-                                <div style={{ flex: '0 0 28%', paddingRight: 8 }}>密码</div>
-                                <div style={{ flex: '0 0 34%', paddingRight: 8 }}>账号用途备注</div>
-                                <div style={{ flex: '0 0 10%', textAlign: 'center' }}>操作</div>
+                                <div style={{ flex: '0 0 28%', paddingRight: 8 }}>{t('asset.detail.username')}</div>
+                                <div style={{ flex: '0 0 28%', paddingRight: 8 }}>{t('asset.detail.password')}</div>
+                                <div style={{ flex: '0 0 34%', paddingRight: 8 }}>{t('asset.detail.credentialNote')}</div>
+                                <div style={{ flex: '0 0 10%', textAlign: 'center' }}>{t('asset.detail.colAction')}</div>
                               </div>
                               <div style={{ padding: '16px 16px 0' }}>
                                 <Form.List name="accountCredentials">
@@ -2103,23 +2097,23 @@ const AssetDetail: React.FC = () => {
                                         <div key={key} style={{ display: 'flex', marginBottom: 16, alignItems: 'flex-start' }}>
                                           <div style={{ flex: '0 0 28%', paddingRight: 8 }}>
                                             <Form.Item {...restField} name={[name, 'username']} style={{ marginBottom: 0 }}>
-                                              <Input placeholder="输入用户名" prefix={<UserOutlined style={{ color: '#bfbfbf' }} />} />
+                                              <Input placeholder={t('asset.detail.usernamePlaceholder')} prefix={<UserOutlined style={{ color: '#bfbfbf' }} />} />
                                             </Form.Item>
                                           </div>
                                           <div style={{ flex: '0 0 28%', paddingRight: 8 }}>
                                             <Form.Item {...restField} name={[name, 'password']} style={{ marginBottom: 0 }}>
-                                              <Input.Password placeholder="留空不修改" prefix={<LockOutlined style={{ color: '#bfbfbf' }} />} />
+                                              <Input.Password placeholder={t('asset.detail.passwordPlaceholder')} prefix={<LockOutlined style={{ color: '#bfbfbf' }} />} />
                                             </Form.Item>
                                           </div>
                                           <div style={{ flex: '0 0 34%', paddingRight: 8 }}>
                                             <Form.Item {...restField} name={[name, 'usageNote']} style={{ marginBottom: 0 }}>
-                                              <Input placeholder="如：SSH / Web管理" prefix={<TagOutlined style={{ color: '#bfbfbf' }} />} />
+                                              <Input placeholder={t('asset.detail.credentialNotePlaceholder')} prefix={<TagOutlined style={{ color: '#bfbfbf' }} />} />
                                             </Form.Item>
                                           </div>
                                           <div style={{ flex: '0 0 10%', display: 'flex', justifyContent: 'center', paddingTop: 4 }}>
                                             <Space size={8}>
                                               {fields.length > 1 && (
-                                                <Tooltip title="移除">
+                                                <Tooltip title={t('asset.detail.remove')}>
                                                   <MinusCircleOutlined 
                                                     style={{ color: '#ff4d4f', fontSize: 16, cursor: 'pointer' }} 
                                                     onClick={() => remove(name)} 
@@ -2127,7 +2121,7 @@ const AssetDetail: React.FC = () => {
                                                 </Tooltip>
                                               )}
                                               {index === fields.length - 1 && (
-                                                <Tooltip title="添加账号">
+                                                <Tooltip title={t('asset.detail.addAccount')}>
                                                   <PlusCircleOutlined 
                                                     style={{ color: '#1890ff', fontSize: 16, cursor: 'pointer' }} 
                                                     onClick={() => add({ usageNote: '', username: '', password: '' })} 
@@ -2140,9 +2134,7 @@ const AssetDetail: React.FC = () => {
                                       ))}
                                       {fields.length === 0 && (
                                         <div style={{ marginBottom: 16 }}>
-                                          <Button type="dashed" onClick={() => add({ usageNote: '', username: '', password: '' })} block icon={<PlusOutlined />}>
-                                            添加账号
-                                          </Button>
+                                          <Button type="dashed" onClick={() => add({ usageNote: '', username: '', password: '' })} block icon={<PlusOutlined />}>{t('asset.detail.addAccount')}</Button>
                                         </div>
                                       )}
                                     </>
@@ -2160,54 +2152,46 @@ const AssetDetail: React.FC = () => {
                     <Card bordered={false} className="overview-step-card">
                       <Row gutter={24}>
                         <Col span={24}>
-                          <Form.Item name="specialNotes" label="特殊说明"><TextArea rows={3} /></Form.Item>
+                          <Form.Item name="specialNotes" label={t('asset.detail.specialNotes')}><TextArea rows={3} /></Form.Item>
                         </Col>
                       </Row>
                     </Card>
                   </div>
 
                   <div style={{ marginTop: 40, paddingTop: 24, borderTop: '1px solid #f0f0f0', display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <Button disabled={overviewStep === 0} onClick={() => setOverviewStep(overviewStep - 1)}>
-                      上一步
-                    </Button>
-                    <Button disabled={overviewStep === 4} onClick={() => setOverviewStep(overviewStep + 1)}>
-                      下一步
-                    </Button>
+                    <Button disabled={overviewStep === 0} onClick={() => setOverviewStep(overviewStep - 1)}>{t('asset.detail.prevStep')}</Button>
+                    <Button disabled={overviewStep === 4} onClick={() => setOverviewStep(overviewStep + 1)}>{t('asset.detail.nextStep')}</Button>
                     <Button type="primary" loading={metadataSubmitting} onClick={handleSubmitMetadata} style={{ marginLeft: 8 }}>
-                      {metadataExists ? '保存修改' : '创建扩展信息'}
+                      {metadataExists ? t('asset.detail.saveChanges') : t('asset.detail.createMetadata')}
                     </Button>
                   </div>
                 </Form>
               </Spin>
             </div>
           </TabPane>
-          <TabPane tab={<span><TagOutlined />资产标签</span>} key="asset-tags">
+          <TabPane tab={<span><TagOutlined />{t('asset.detail.tabTagsPlaceholder')}</span>} key="asset-tags">
             {asset?.id ? <AssetTagsPanel assetId={asset.id} canWrite={canWriteCurrentAsset} /> : null}
           </TabPane>
-          <TabPane tab={<span><BuildOutlined />环境与部署</span>} key="environments">
+          <TabPane tab={<span><BuildOutlined />{t('asset.detail.tabEnvironments')}</span>} key="environments">
             <div style={{ padding: '24px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
                 <div>
-                  <h3 style={{ margin: 0 }}>环境管理</h3>
-                  <p style={{ marginTop: 8, marginBottom: 0, color: '#8c8c8c' }}>可以在此处对接云平台或K8s，管理资产的多套部署环境（开发、测试、生产）。</p>
+                  <h3 style={{ margin: 0 }}>{t('asset.detail.envTitle')}</h3>
+                  <p style={{ marginTop: 8, marginBottom: 0, color: '#8c8c8c' }}>{t('asset.detail.envDesc')}</p>
                 </div>
                 <Space>
                   <Button
                     icon={<ReloadOutlined />}
                     loading={envLoading}
                     onClick={() => asset?.id && loadEnvironments(asset.id)}
-                  >
-                    刷新
-                  </Button>
+                  >{t('common.refresh')}</Button>
                   <Tooltip title={canWriteEnv ? '' : ENVIRONMENT_FORBIDDEN_MESSAGE}>
                     <Button
                       type="primary"
                       icon={<PlusOutlined />}
                       disabled={!canWriteEnv}
                       onClick={() => setEnvModalVisible(true)}
-                    >
-                      添加环境
-                    </Button>
+                    >{t('asset.detail.addEnv')}</Button>
                   </Tooltip>
                 </Space>
               </div>
@@ -2223,15 +2207,15 @@ const AssetDetail: React.FC = () => {
                 }
                 message={
                   envProvisioner.available === undefined
-                    ? '未获取到部署器信息'
+                    ? t('asset.detail.envProvisionerUnknown')
                     : envProvisioner.available
-                      ? `部署器可用：${envProvisioner.type ?? 'docker'}`
-                      : `部署器不可用：${envProvisioner.type ?? 'noop'}（当前部署未启用容器编排）`
+                      ? t('asset.detail.envProvisionerAvailable', { type: envProvisioner.type ?? 'docker' })
+                      : t('asset.detail.envProvisionerUnavailable', { type: envProvisioner.type ?? 'noop' })
                 }
                 description={
                   envProvisioner.available === false
-                    ? (envProvisioner.message || '宿主机未检测到可用的 Docker 守护进程或 docker CLI；部署/启动/停止会返回 503 并在环境上记录失败原因。')
-                    : (envProvisioner.message || '部署与启停会真实调用容器编排，状态以环境详情为准。')
+                    ? (envProvisioner.message || t('asset.detail.envProvisionerUnavailableDesc'))
+                    : (envProvisioner.message || t('asset.detail.envProvisionerAvailableDesc'))
                 }
               />
               <Table
@@ -2240,20 +2224,20 @@ const AssetDetail: React.FC = () => {
                 rowKey="id"
                 loading={envLoading}
                 pagination={false}
-                locale={{ emptyText: '该资产暂无环境，点击「添加环境」创建' }}
+                locale={{ emptyText: t('asset.detail.envEmpty') }}
               />
             </div>
           </TabPane>
-          <TabPane tab={<span><SafetyCertificateOutlined />审计任务</span>} key="tasks">
+          <TabPane tab={<span><SafetyCertificateOutlined />{t('asset.detail.tabTasks')}</span>} key="tasks">
             <div style={{ padding: '24px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
                 <div>
-                  <h3 style={{ margin: 0 }}>审计记录</h3>
-                  <p style={{ marginTop: 8, marginBottom: 0, color: '#8c8c8c' }}>展示针对此产品的历史审计任务、安全测试报告等。</p>
+                  <h3 style={{ margin: 0 }}>{t('asset.detail.tasksTitle')}</h3>
+                  <p style={{ marginTop: 8, marginBottom: 0, color: '#8c8c8c' }}>{t('asset.detail.tasksDesc')}</p>
                 </div>
                 <Space>
-                  <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateTask}>新建任务</Button>
-                  <Button onClick={() => navigate('/tasks')}>查看全部</Button>
+                  <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateTask}>{t('asset.detail.newTask')}</Button>
+                  <Button onClick={() => navigate('/tasks')}>{t('asset.detail.viewAll')}</Button>
                 </Space>
               </div>
               <Table
@@ -2265,16 +2249,16 @@ const AssetDetail: React.FC = () => {
               />
             </div>
           </TabPane>
-          <TabPane tab={<span><BugOutlined />漏洞档案</span>} key="vulnerabilities">
+          <TabPane tab={<span><BugOutlined />{t('asset.detail.tabVulnerabilities')}</span>} key="vulnerabilities">
             <div style={{ padding: '24px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
                 <div>
-                  <h3>关联漏洞</h3>
-                  <p style={{ color: '#8c8c8c' }}>展示只针对此产品的安全漏洞。</p>
+                  <h3>{t('asset.detail.vulnTitle')}</h3>
+                  <p style={{ color: '#8c8c8c' }}>{t('asset.detail.vulnDesc')}</p>
                 </div>
                 <Space>
-                  <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateVuln}>新建漏洞</Button>
-                  <Button onClick={() => navigate('/vulnerabilities')}>查看全部</Button>
+                  <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateVuln}>{t('asset.detail.newVuln')}</Button>
+                  <Button onClick={() => navigate('/vulnerabilities')}>{t('asset.detail.viewAll')}</Button>
                 </Space>
               </div>
               <Table
@@ -2286,21 +2270,21 @@ const AssetDetail: React.FC = () => {
               />
             </div>
           </TabPane>
-          <TabPane tab={<span><FileZipOutlined />交付物管理</span>} key="deliverables">
+          <TabPane tab={<span><FileZipOutlined />{t('asset.detail.tabDeliverables')}</span>} key="deliverables">
             <div style={{ padding: '24px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <div>
-                  <h3 style={{ marginBottom: 0 }}>交付物</h3>
+                  <h3 style={{ marginBottom: 0 }}>{t('asset.detail.deliverablesTitle')}</h3>
                 </div>
                 <Select
                   style={{ width: 260 }}
                   value={deliverableVersionScope}
-                  placeholder="选择交付物卡片版本"
+                  placeholder={t('asset.detail.deliverableVersionScope')}
                   onChange={(value) => setDeliverableVersionScope(value)}
                   options={[
-                    { label: '显示所有版本', value: '__all__' },
+                    { label: t('asset.detail.showAllVersions'), value: '__all__' },
                     ...assetVersions.map((item) => ({
-                      label: `${item.name || `v${item.versionNo}`}${item.isDefault ? ' - 默认' : ''}${item.isLatest ? ' - 最新' : ''}`,
+                      label: `${item.name || `v${item.versionNo}`}${item.isDefault ? t('asset.detail.versionDefaultSuffix') : ''}${item.isLatest ? t('asset.detail.versionLatestSuffix') : ''}`,
                       value: item.id,
                     })),
                   ]}
@@ -2310,26 +2294,26 @@ const AssetDetail: React.FC = () => {
                 <Form form={deliverableUploadForm} layout="vertical">
                   <Row gutter={16}>
                     <Col span={6}>
-                      <Form.Item name="category" label="交付物类型" rules={[{ required: true, message: '请选择交付物类型' }]}>
-                        <Select placeholder="选择交付物类型">
-                          <Option value="漏洞利用代码">漏洞利用代码</Option>
-                          <Option value="POC脚本">POC脚本</Option>
-                          <Option value="EXP脚本">EXP脚本</Option>
-                          <Option value="复现步骤文档">复现步骤文档</Option>
-                          <Option value="利用说明文档">利用说明文档</Option>
-                          <Option value="其他交付物">其他交付物</Option>
+                      <Form.Item name="category" label={t('asset.detail.deliverableTypeCol')} rules={[{ required: true, message: t('asset.detail.deliverableTypeRequired') }]}>
+                        <Select placeholder={t('asset.detail.deliverableTypePlaceholder')}>
+                          <Option value={t('asset.detail.deliverableExploitCode')}>{t('asset.detail.deliverableExploitCode')}</Option>
+                          <Option value={t('asset.detail.deliverablePoc')}>{t('asset.detail.deliverablePoc')}</Option>
+                          <Option value={t('asset.detail.deliverableExp')}>{t('asset.detail.deliverableExp')}</Option>
+                          <Option value={t('asset.detail.deliverableReproDoc')}>{t('asset.detail.deliverableReproDoc')}</Option>
+                          <Option value={t('asset.detail.deliverableUsageDoc')}>{t('asset.detail.deliverableUsageDoc')}</Option>
+                          <Option value={t('asset.detail.deliverableOther')}>{t('asset.detail.deliverableOther')}</Option>
                         </Select>
                       </Form.Item>
                     </Col>
                     <Col span={8}>
-                      <Form.Item name="description" label="说明">
-                        <Input placeholder="输入交付物作用、适用版本与使用方式" />
+                      <Form.Item name="description" label={t('asset.detail.deliverableDesc')}>
+                        <Input placeholder={t('asset.detail.deliverableDescPlaceholder')} />
                       </Form.Item>
                     </Col>
                   </Row>
                   <Row gutter={16}>
                     <Col span={24}>
-                      <Form.Item label="交付物上传">
+                      <Form.Item label={t('asset.detail.deliverableUpload')}>
                         <Space>
                           <Upload
                             beforeUpload={(file) => {
@@ -2340,11 +2324,9 @@ const AssetDetail: React.FC = () => {
                             fileList={deliverableUploadList}
                             maxCount={1}
                           >
-                            <Button icon={<UploadOutlined />}>选择文件</Button>
+                            <Button icon={<UploadOutlined />}>{t('asset.detail.chooseFile')}</Button>
                           </Upload>
-                          <Button type="primary" loading={deliverableUploading} onClick={() => handleUploadAssetFile('deliverable')} disabled={deliverableUploadList.length === 0}>
-                            提交交付物
-                          </Button>
+                          <Button type="primary" loading={deliverableUploading} onClick={() => handleUploadAssetFile('deliverable')} disabled={deliverableUploadList.length === 0}>{t('asset.detail.deliverableSubmit')}</Button>
                         </Space>
                       </Form.Item>
                     </Col>
@@ -2364,7 +2346,7 @@ const AssetDetail: React.FC = () => {
       </Card>
 
       <Modal
-        title="添加部署环境"
+        title={t('asset.detail.envCreateTitle')}
         open={envModalVisible}
         onOk={handleCreateEnv}
         onCancel={() => {
@@ -2374,13 +2356,13 @@ const AssetDetail: React.FC = () => {
         confirmLoading={envSubmitting}
       >
         <Form form={envForm} layout="vertical">
-          <Form.Item name="name" label="环境名称" rules={[{ required: true, message: '请输入环境名称' }]}>
-            <Input placeholder="如: 开发环境、生产环境、测试环境" />
+          <Form.Item name="name" label={t('asset.detail.envColName')} rules={[{ required: true, message: t('asset.detail.envNameRequired') }]}>
+            <Input placeholder={t('asset.detail.envNamePlaceholder')} />
           </Form.Item>
-          <Form.Item name="template_id" label="环境模板">
-            <Input placeholder="可选，如: k8s-deployment-template" />
+          <Form.Item name="template_id" label={t('asset.detail.envTemplate')}>
+            <Input placeholder={t('asset.detail.envTemplatePlaceholder')} />
           </Form.Item>
-          <Form.Item name="config" label="环境配置 (JSON)">
+          <Form.Item name="config" label={t('asset.detail.envConfig')}>
             <TextArea rows={4} placeholder='{"replicas": 3, "memory": "2Gi"}' />
           </Form.Item>
         </Form>
@@ -2388,7 +2370,7 @@ const AssetDetail: React.FC = () => {
 
       {/* 环境快照：查看 + 创建（name 本地校验）+ 回滚 */}
       <Modal
-        title={snapshotEnv ? `环境快照 - ${snapshotEnv.name}` : '环境快照'}
+        title={snapshotEnv ? t('asset.detail.snapshotTitleEnv', { name: snapshotEnv.name }) : t('asset.detail.snapshotTitle')}
         open={Boolean(snapshotEnv)}
         onCancel={() => {
           setSnapshotEnv(null);
@@ -2403,13 +2385,11 @@ const AssetDetail: React.FC = () => {
             <Input
               value={snapshotName}
               onChange={(event) => setSnapshotName(event.target.value)}
-              placeholder="快照名称（必填，缺名会返回 400）"
+              placeholder={t('asset.detail.snapshotNamePlaceholder')}
               maxLength={100}
               onPressEnter={handleCreateSnapshot}
             />
-            <Button type="primary" loading={snapshotSubmitting} onClick={handleCreateSnapshot}>
-              创建快照
-            </Button>
+            <Button type="primary" loading={snapshotSubmitting} onClick={handleCreateSnapshot}>{t('asset.detail.snapshotCreate')}</Button>
           </Space.Compact>
         ) : (
           <Alert
@@ -2423,7 +2403,7 @@ const AssetDetail: React.FC = () => {
         <Spin spinning={snapshotLoading}>
           {snapshotList.length === 0 ? (
             <span style={{ color: '#8c8c8c' }}>
-              {snapshotLoading ? '加载中…' : '该环境还没有快照'}
+              {snapshotLoading ? t('common.loading') : t('asset.detail.snapshotEmpty')}
             </span>
           ) : (
             <Table
@@ -2432,15 +2412,15 @@ const AssetDetail: React.FC = () => {
               pagination={false}
               dataSource={snapshotList}
               columns={[
-                { title: '名称', dataIndex: 'name', key: 'name' },
+                { title: t('asset.detail.snapshotColName'), dataIndex: 'name', key: 'name' },
                 {
-                  title: '创建时间',
+                  title: t('asset.detail.colCreatedAt'),
                   dataIndex: 'createdAt',
                   key: 'createdAt',
                   render: (value: string) => (value ? new Date(value).toLocaleString() : '-'),
                 },
                 {
-                  title: '操作',
+                  title: t('asset.detail.colAction'),
                   key: 'action',
                   width: 100,
                   render: (_: any, record: any) =>
@@ -2450,9 +2430,7 @@ const AssetDetail: React.FC = () => {
                         size="small"
                         loading={snapshotRollingId === record.id}
                         onClick={() => handleRollbackSnapshot(record.id)}
-                      >
-                        回滚
-                      </Button>
+                      >{t('asset.detail.snapshotRollback')}</Button>
                     ) : (
                       <span style={{ color: '#bfbfbf' }}>-</span>
                     ),
@@ -2465,49 +2443,49 @@ const AssetDetail: React.FC = () => {
 
       {/* 漏洞表单弹窗 */}
       <Modal
-        title={vulnMode === 'create' ? '新建漏洞' : '编辑漏洞'}
+        title={vulnMode === 'create' ? t('asset.detail.newVuln') : t('asset.detail.vulnModalEdit')}
         open={vulnModalVisible}
         onCancel={() => setVulnModalVisible(false)}
         onOk={handleSubmitVuln}
         confirmLoading={vulnSubmitting}
       >
         <Form form={vulnForm} layout="vertical">
-          <Form.Item name="title" label="漏洞名称" rules={[{ required: true, message: '请输入漏洞名称' }]}>
-            <Input placeholder="请输入漏洞名称" />
+          <Form.Item name="title" label={t('asset.detail.colVulnTitle')} rules={[{ required: true, message: t('vuln.form.titleRequired') }]}>
+            <Input placeholder={t('vuln.form.titleRequired')} />
           </Form.Item>
-          <Form.Item name="type" label="漏洞类型" rules={[{ required: true, message: '请选择漏洞类型' }]}>
-            <Select placeholder="请选择漏洞类型" options={vulnTypeOptions} />
+          <Form.Item name="type" label={t('vuln.form.type')} rules={[{ required: true, message: t('vuln.form.typeRequired') }]}>
+            <Select placeholder={t('vuln.form.typeRequired')} options={vulnTypeOptions} />
           </Form.Item>
-          <Form.Item name="discovered_version_id" label="发现版本" rules={[{ required: true, message: '请选择发现版本' }]}>
-            <Select placeholder="请选择发现时所属资产版本">
+          <Form.Item name="discovered_version_id" label={t('asset.detail.colDiscoveredVersion')} rules={[{ required: true, message: t('vuln.create.versionRequired') }]}>
+            <Select placeholder={t('vuln.form.discoveredVersionPlaceholder')}>
               {assetVersions.map((item) => (
                 <Option key={item.id} value={item.id}>
-                  {item.name || `v${item.versionNo}`}{item.isLatest ? ' - 最新' : ''}{item.isDefault ? ' - 默认' : ''}
+                  {item.name || `v${item.versionNo}`}{item.isLatest ? t('asset.detail.versionLatestSuffix') : ''}{item.isDefault ? t('asset.detail.versionDefaultSuffix') : ''}
                 </Option>
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="affected_versions" label="受影响版本">
-            <Input.TextArea rows={2} placeholder="可自由填写，例如：v1.0, v1.1, v2.x" />
+          <Form.Item name="affected_versions" label={t('asset.detail.colAffectedVersions')}>
+            <Input.TextArea rows={2} placeholder={t('asset.detail.vulnAffectedPlaceholder')} />
           </Form.Item>
-          <Form.Item name="severity" label="严重程度" rules={[{ required: true, message: '请选择严重程度' }]}>
-            <Select placeholder="请选择严重程度">
-              <Option value="CRITICAL">严重</Option>
-              <Option value="HIGH">高危</Option>
-              <Option value="MEDIUM">中危</Option>
-              <Option value="LOW">低危</Option>
-              <Option value="INFO">信息</Option>
+          <Form.Item name="severity" label={t('asset.detail.colSeverity')} rules={[{ required: true, message: t('vuln.form.severityRequired') }]}>
+            <Select placeholder={t('vuln.form.severityRequired')}>
+              <Option value="CRITICAL">{t('vuln.severity.critical')}</Option>
+              <Option value="HIGH">{t('vuln.severity.high')}</Option>
+              <Option value="MEDIUM">{t('vuln.severity.medium')}</Option>
+              <Option value="LOW">{t('vuln.severity.low')}</Option>
+              <Option value="INFO">{t('vuln.severity.info')}</Option>
             </Select>
           </Form.Item>
-          <Form.Item name="description" label="漏洞描述" rules={[{ required: true, message: '请输入漏洞描述' }]}>
-            <Input.TextArea rows={4} placeholder="请输入漏洞描述" />
+          <Form.Item name="description" label={t('asset.detail.vulnDescLabel')} rules={[{ required: true, message: t('asset.detail.vulnDescRequired') }]}>
+            <Input.TextArea rows={4} placeholder={t('asset.detail.vulnDescRequired')} />
           </Form.Item>
         </Form>
       </Modal>
 
       {/* 任务表单弹窗 */}
       <Modal
-        title={taskMode === 'create' ? '新建任务' : '编辑任务'}
+        title={taskMode === 'create' ? t('asset.detail.newTask') : t('asset.detail.taskModalEdit')}
         open={taskModalVisible}
         onCancel={() => setTaskModalVisible(false)}
         onOk={handleSubmitTask}
@@ -2515,69 +2493,69 @@ const AssetDetail: React.FC = () => {
       >
         <Form form={taskForm} layout="vertical">
           {taskMode === 'edit' && (
-            <Form.Item name="title" label="任务名称" rules={[{ required: true, message: '请输入任务名称' }]}>
-              <Input placeholder="请输入任务名称" />
+            <Form.Item name="title" label={t('asset.detail.colTaskName')} rules={[{ required: true, message: t('asset.detail.taskNameRequired') }]}>
+              <Input placeholder={t('asset.detail.taskNameRequired')} />
             </Form.Item>
           )}
           {taskMode === 'create' && (
-            <Form.Item name="assignee_id" label="责任人" extra={userDirectoryLimitHit ? USER_DIRECTORY_LIMIT_HINT : undefined}>
-              <Select placeholder="不选择则默认为创建者" allowClear showSearch optionFilterProp="children" onSearch={handleUserSearch} filterOption={false}>
+            <Form.Item name="assignee_id" label={t('asset.detail.colAssignee')} extra={userDirectoryLimitHit ? USER_DIRECTORY_LIMIT_HINT : undefined}>
+              <Select placeholder={t('asset.detail.taskAssigneePlaceholder')} allowClear showSearch optionFilterProp="children" onSearch={handleUserSearch} filterOption={false}>
                 {taskUsers.map((item) => (
                   <Option key={item.id} value={item.id}>{item.username}</Option>
                 ))}
               </Select>
             </Form.Item>
           )}
-          <Form.Item name="description" label="任务描述">
-            <Input.TextArea rows={4} placeholder="请输入任务描述" />
+          <Form.Item name="description" label={t('asset.detail.taskDesc')}>
+            <Input.TextArea rows={4} placeholder={t('asset.detail.taskDescPlaceholder')} />
           </Form.Item>
         </Form>
       </Modal>
 
       {/* ===== 申请访问 ===== */}
       <Modal
-        title="申请资产访问权限"
+        title={t('asset.detail.accessModalTitle')}
         open={accessModalVisible}
         onCancel={() => setAccessModalVisible(false)}
         onOk={handleSubmitAccessRequest}
         confirmLoading={accessSubmitting}
-        okText="提交申请"
+        okText={t('asset.detail.accessSubmit')}
       >
         <Form
           form={accessForm}
           layout="vertical"
           initialValues={{ canViewDocuments: false, canViewEnvironments: false, canViewFiles: true }}
         >
-          <Form.Item name="canViewDocuments" label="文档查看">
-            <Select options={[{ value: true, label: '需要' }, { value: false, label: '不需要' }]} />
+          <Form.Item name="canViewDocuments" label={t('asset.detail.accessDocs')}>
+            <Select options={[{ value: true, label: t('asset.detail.accessNeed') }, { value: false, label: t('asset.detail.accessNotNeed') }]} />
           </Form.Item>
-          <Form.Item name="canViewEnvironments" label="环境配置查看">
-            <Select options={[{ value: true, label: '需要' }, { value: false, label: '不需要' }]} />
+          <Form.Item name="canViewEnvironments" label={t('asset.detail.accessEnvs')}>
+            <Select options={[{ value: true, label: t('asset.detail.accessNeed') }, { value: false, label: t('asset.detail.accessNotNeed') }]} />
           </Form.Item>
-          <Form.Item name="canViewFiles" label="文件查看">
-            <Select options={[{ value: true, label: '需要' }, { value: false, label: '不需要' }]} />
+          <Form.Item name="canViewFiles" label={t('asset.detail.accessFiles')}>
+            <Select options={[{ value: true, label: t('asset.detail.accessNeed') }, { value: false, label: t('asset.detail.accessNotNeed') }]} />
           </Form.Item>
-          <Form.Item name="allowedFileTypes" label="允许的文件类型（可选）">
-            <Input placeholder="如 iso,vmdk,zip，留空表示全部" />
+          <Form.Item name="allowedFileTypes" label={t('asset.detail.accessFileTypes')}>
+            <Input placeholder={t('asset.detail.accessFileTypesPlaceholder')} />
           </Form.Item>
-          <Form.Item name="requestNote" label="申请说明">
-            <TextArea rows={3} placeholder="说明用途，便于审批人判断" />
+          <Form.Item name="requestNote" label={t('asset.detail.accessNote')}>
+            <TextArea rows={3} placeholder={t('asset.detail.accessNotePlaceholder')} />
           </Form.Item>
         </Form>
       </Modal>
 
       {/* ===== 认领资产 ===== */}
       <Modal
-        title="认领资产"
+        title={t('asset.detail.claimModalTitle')}
         open={claimModalVisible}
         onCancel={() => setClaimModalVisible(false)}
         onOk={handleSubmitClaim}
         confirmLoading={claimSubmitting}
-        okText="提交认领"
+        okText={t('asset.detail.claimSubmit')}
       >
         <Form form={claimForm} layout="vertical">
-          <Form.Item name="note" label="认领说明">
-            <TextArea rows={3} placeholder="说明你的挖掘计划或已做工作" />
+          <Form.Item name="note" label={t('asset.detail.claimNote')}>
+            <TextArea rows={3} placeholder={t('asset.detail.claimNotePlaceholder')} />
           </Form.Item>
         </Form>
       </Modal>

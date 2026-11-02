@@ -17,6 +17,8 @@
  *    publishedAt <= now AND (expiresAt IS NULL OR expiresAt > now)。
  */
 
+import type { MessageKey } from '@/i18n';
+
 /** 后端 PageResponse 信封 */
 export interface PageEnvelope<T> {
   content: T[];
@@ -127,12 +129,37 @@ export const NOTIFICATION_TYPE_OPTIONS: NotificationTypeOption[] = [
   { value: 'system', label: '系统消息', description: '平台公告类站内信' },
 ];
 
+/**
+ * 通知类型 → i18n 词条（t59：枚举展示统一走 t()，不再硬编码中文）。
+ * 未知类型回落到 notifications.type.unknown，页面可再附原始 type 值。
+ */
+export const NOTIFICATION_TYPE_LABEL_KEYS: Record<string, MessageKey> = {
+  task_assigned: 'notifications.type.taskAssigned',
+  vulnerability_discovered: 'notifications.type.vulnerabilityDiscovered',
+  access_reminder: 'notifications.type.accessReminder',
+  access_escalated: 'notifications.type.accessEscalated',
+  asset_subscription: 'notifications.type.assetSubscription',
+  system: 'notifications.type.system',
+};
+
+/** 取通知类型的词条 key（页面配合 t() 使用） */
+export const notificationTypeLabelKey = (type?: string | null): MessageKey =>
+  (type && NOTIFICATION_TYPE_LABEL_KEYS[type]) || 'notifications.type.unknown';
+
+/** @deprecated 兼容旧调用方（中文硬编码）；新代码请用 notificationTypeLabelKey + t() */
 export const notificationTypeLabel = (type?: string | null): string => {
   if (!type) return '未知类型';
   return NOTIFICATION_TYPE_OPTIONS.find((item) => item.value === type)?.label ?? type;
 };
 
-/** 公告优先级标签/颜色 */
+/** 公告优先级标签/颜色（t59：label 走 message key，页面用 t(labelKey) 渲染） */
+export const ANNOUNCEMENT_PRIORITY_KEYS: Record<string, { labelKey: MessageKey; color: string }> = {
+  normal: { labelKey: 'notifications.ann.form.priorityNormal', color: 'default' },
+  important: { labelKey: 'notifications.ann.form.priorityImportant', color: 'orange' },
+  urgent: { labelKey: 'notifications.ann.form.priorityUrgent', color: 'red' },
+};
+
+/** @deprecated 中文优先级标签；新代码请用 ANNOUNCEMENT_PRIORITY_KEYS + t() */
 export const ANNOUNCEMENT_PRIORITY_META: Record<string, { label: string; color: string }> = {
   normal: { label: '普通', color: 'default' },
   important: { label: '重要', color: 'orange' },

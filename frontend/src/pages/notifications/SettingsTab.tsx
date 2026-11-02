@@ -4,7 +4,7 @@ import { Alert, Button, Card, Empty, Space, Switch, Table, Tag, Tooltip, Typogra
 import { ReloadOutlined } from '@ant-design/icons';
 import { getNotificationSettings, updateNotificationSetting } from '@/api/notification';
 import type { NotificationSettingUpdateRequest, NotificationSettingVO } from '@/types/notification';
-import { NOTIFICATION_TYPE_OPTIONS } from '@/types/notification';
+import { NOTIFICATION_TYPE_LABEL_KEYS, NOTIFICATION_TYPE_OPTIONS } from '@/types/notification';
 import { useT } from '@/i18n';
 
 const { Text } = Typography;
@@ -86,7 +86,7 @@ const SettingsTab: React.FC = () => {
       setRows(buildRows(settings));
     } catch (error: any) {
       setRows(buildRows([]));
-      if (!error?.response) setLoadError('通知设置加载失败，可稍后重试');
+      if (!error?.response) setLoadError(t('notifications.settings.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -109,30 +109,30 @@ const SettingsTab: React.FC = () => {
       setRows((current) =>
         current.map((row) => (row.type === type ? { ...row, persisted: true, saving: false } : row))
       );
-      message.success('通知设置已保存');
+      message.success(t('notifications.settings.saved'));
     } catch {
       setRows(snapshot);
-      message.error('保存失败，已回滚到上一次设置');
+      message.error(t('notifications.settings.saveFailed'));
     }
   };
 
   const tooltipFor = (key: ChannelKey): string => {
     switch (key) {
       case 'notifyEmail':
-        return '邮件通道需服务端开启 app.notify.mail.enabled 并配置 SMTP；未开启时仅记录偏好，仍以站内信送达';
+        return t('notifications.settings.tipEmail');
       case 'notifyWebhook':
-        return 'Webhook 通道需服务端开启 app.notify.webhook.enabled 并配置推送地址；未开启时仅记录偏好';
+        return t('notifications.settings.tipWebhook');
       case 'notifySms':
-        return '短信网关尚未接入，当前仅保存开关位，不会真实下发';
+        return t('notifications.settings.tipSms');
       default:
-        return '关闭后该类型不再走邮件/Webhook 等外部通道；站内信仍会写入（后端仅在分发阶段按设置过滤外部通道）';
+        return t('notifications.settings.tipEnabled');
     }
   };
 
   const columns = useMemo(
     () => [
       {
-        title: '通知类型',
+        title: t('notifications.settings.colType'),
         dataIndex: 'type',
         key: 'type',
         render: (type: string, record: SettingRow) => {
@@ -140,12 +140,12 @@ const SettingsTab: React.FC = () => {
           return (
             <Space direction="vertical" size={0}>
               <Space size={6}>
-                <Text strong>{option?.label ?? type}</Text>
+                <Text strong>{option ? t(NOTIFICATION_TYPE_LABEL_KEYS[option.value] ?? 'notifications.type.unknown') : type}</Text>
                 <Tag>{type}</Tag>
-                {!record.persisted ? <Tag color="default">默认值</Tag> : null}
+                {!record.persisted ? <Tag color="default">{t('notifications.settings.defaultValue')}</Tag> : null}
               </Space>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                {option?.description ?? '自定义通知类型'}
+                {option?.description ?? t('notifications.settings.customType')}
               </Text>
             </Space>
           );
@@ -154,7 +154,7 @@ const SettingsTab: React.FC = () => {
       {
         title: (
           <Tooltip title={tooltipFor('enabled')}>
-            <span>启用通知</span>
+            <span>{t('notifications.settings.enabled')}</span>
           </Tooltip>
         ),
         dataIndex: 'enabled',
@@ -171,7 +171,7 @@ const SettingsTab: React.FC = () => {
       {
         title: (
           <Tooltip title={tooltipFor('notifyEmail')}>
-            <span>邮件</span>
+            <span>{t('notifications.settings.email')}</span>
           </Tooltip>
         ),
         dataIndex: 'notifyEmail',
@@ -189,7 +189,7 @@ const SettingsTab: React.FC = () => {
       {
         title: (
           <Tooltip title={tooltipFor('notifySms')}>
-            <span>短信</span>
+            <span>{t('notifications.settings.sms')}</span>
           </Tooltip>
         ),
         dataIndex: 'notifySms',
@@ -207,7 +207,7 @@ const SettingsTab: React.FC = () => {
       {
         title: (
           <Tooltip title={tooltipFor('notifyWebhook')}>
-            <span>Webhook</span>
+            <span>{t('notifications.settings.webhook')}</span>
           </Tooltip>
         ),
         dataIndex: 'notifyWebhook',
@@ -223,9 +223,9 @@ const SettingsTab: React.FC = () => {
         ),
       },
     ],
-    // handleToggle 通过 rows 闭包读取最新值，依赖 rows 即可
+    // handleToggle 通过 rows 闭包读取最新值，依赖 rows/t 即可
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows]
+    [rows, t]
   );
 
   return (
@@ -234,8 +234,8 @@ const SettingsTab: React.FC = () => {
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="通道可用性由服务端决定"
-        description="站内信始终送达。邮件与 Webhook 默认关闭（app.notify.mail.enabled / app.notify.webhook.enabled 均为 false），未启用时消息只落站内信，投递状态会记录为“仅站内”并在详情里展示；短信仅保留开关位。"
+        message={t('notifications.settings.bannerTitle')}
+        description={t('notifications.settings.bannerDesc')}
       />
       {loadError ? <Alert type="warning" showIcon style={{ marginBottom: 12 }} message={loadError} /> : null}
       <Card
@@ -258,13 +258,13 @@ const SettingsTab: React.FC = () => {
             emptyText: (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description="没有可配置的通知类型"
+                description={t('notifications.settings.empty')}
               />
             ),
           }}
         />
         <Text type="secondary" style={{ display: 'block', marginTop: 12, fontSize: 12 }}>
-          设置按 (用户, 通知类型) 逐条保存，切换开关即触发 PUT /notifications/settings/&lt;type&gt;。
+          {t('notifications.settings.footer')}
         </Text>
       </Card>
     </div>

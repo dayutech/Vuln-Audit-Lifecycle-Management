@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -33,6 +32,7 @@ import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
 import type { UserDirectoryEntry } from '@/api/user';
 import type { TeamVO } from '@/types/team';
 import type { AssetVO } from '@/types/asset';
+import { useT } from '@/i18n';
 
 const getPayload = (res: unknown) => ((res as any)?.data ?? res);
 
@@ -52,6 +52,7 @@ const userName = (user?: UserDirectoryEntry | null) =>
   user ? (user.fullName || user.username) : '';
 
 const ApprovalScopes: React.FC = () => {
+  const { t } = useT();
   const [scopes, setScopes] = useState<ApprovalScopeVO[]>([]);
   const [myScopes, setMyScopes] = useState<ApprovalScopeVO[]>([]);
   const [loading, setLoading] = useState(false);
@@ -209,9 +210,9 @@ const ApprovalScopes: React.FC = () => {
   };
 
   const columns = [
-    { title: '审批人', key: 'approver', render: (_: unknown, record: ApprovalScopeVO) => userLabel(record.approverId) },
+    { title: t('approvalScopes.colApprover'), key: 'approver', render: (_: unknown, record: ApprovalScopeVO) => userLabel(record.approverId) },
     {
-      title: '范围类型',
+      title: t('approvalScopes.colScopeType'),
       key: 'scopeType',
       width: 110,
       render: (_: unknown, record: ApprovalScopeVO) => {
@@ -220,20 +221,20 @@ const ApprovalScopes: React.FC = () => {
       },
     },
     {
-      title: '范围对象',
+      title: t('approvalScopes.colScopeObject'),
       key: 'scopeId',
       render: (_: unknown, record: ApprovalScopeVO) => scopeTargetLabel(record),
     },
-    { title: '授予人', key: 'grantedBy', width: 160, render: (_: unknown, record: ApprovalScopeVO) => userLabel(record.grantedBy) },
+    { title: t('approvalScopes.colGrantedBy'), key: 'grantedBy', width: 160, render: (_: unknown, record: ApprovalScopeVO) => userLabel(record.grantedBy) },
     {
-      title: '授予时间',
+      title: t('approvalScopes.colGrantedAt'),
       key: 'grantedAt',
       width: 170,
       render: (_: unknown, record: ApprovalScopeVO) =>
         record.grantedAt ? dayjs(record.grantedAt).format('YYYY-MM-DD HH:mm:ss') : '-',
     },
     {
-      title: '过期时间',
+      title: t('approvalScopes.colExpiresAt'),
       key: 'expiresAt',
       width: 190,
       render: (_: unknown, record: ApprovalScopeVO) => {
@@ -250,18 +251,18 @@ const ApprovalScopes: React.FC = () => {
       },
     },
     {
-      title: '状态',
+      title: t('approvalScopes.colStatus'),
       key: 'valid',
       width: 90,
       render: (_: unknown, record: ApprovalScopeVO) =>
         record.valid === false ? <Tag color="red">失效</Tag> : <Tag color="green">有效</Tag>,
     },
     {
-      title: '操作',
+      title: t('approvalScopes.colAction'),
       key: 'action',
       width: 90,
       render: (_: unknown, record: ApprovalScopeVO) => (
-        <Popconfirm title="撤销该审批范围？" onConfirm={() => handleRevoke(record)} okText="撤销" cancelText="取消">
+        <Popconfirm title={t('approvalScopes.revokeTitle')} onConfirm={() => handleRevoke(record)} okText={t('approvalScopes.revoke')} cancelText={t('common.cancel')}>
           <Typography.Link type="danger">撤销</Typography.Link>
         </Popconfirm>
       ),
@@ -270,15 +271,11 @@ const ApprovalScopes: React.FC = () => {
 
   return (
     <Card
-      title="审批范围"
+      title={t('approvalScopes.title')}
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchScopes} loading={loading}>
-            刷新
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openGrant}>
-            授予审批范围
-          </Button>
+          <Button icon={<ReloadOutlined />} onClick={fetchScopes} loading={loading}>{t('common.refresh')}</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openGrant}>{t('approvalScopes.grant')}</Button>
         </Space>
       }
     >
@@ -289,9 +286,9 @@ const ApprovalScopes: React.FC = () => {
           message="审批权限由上级领导授予：仅 ADMIN / PROJECT_LEADER 可授予或撤销；范围支持 团队（team）、单个资产（asset）、资产类别（asset_category），可设置过期时间。"
         />
 
-        <Card size="small" title="我的审批范围">
+        <Card size="small" title={t('approvalScopes.mine')}>
           {myScopes.length === 0 ? (
-            <Empty description="当前账号暂无被授予的审批范围（全局管理员无需授权即可审批）" />
+            <Empty description={t('approvalScopes.emptyMine')} />
           ) : (
             <Descriptions
               size="small"
@@ -319,7 +316,7 @@ const ApprovalScopes: React.FC = () => {
           )}
         </Card>
 
-        <Card size="small" title="全部审批范围">
+        <Card size="small" title={t('approvalScopes.all')}>
           <Table
             rowKey="id"
             size="small"
@@ -327,13 +324,13 @@ const ApprovalScopes: React.FC = () => {
             dataSource={scopes}
             columns={columns}
             pagination={{ pageSize: 10, showSizeChanger: false }}
-            locale={{ emptyText: '暂无审批范围授权' }}
+            locale={{ emptyText: t('approvalScopes.emptyAll') }}
           />
         </Card>
       </Space>
 
       <Modal
-        title="授予审批范围"
+        title={t('approvalScopes.grant')}
         open={modalVisible}
         onOk={handleGrant}
         onCancel={() => setModalVisible(false)}

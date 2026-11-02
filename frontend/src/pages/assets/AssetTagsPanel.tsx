@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Empty, Input, Space, Table, Tag, Typography, message } from 'antd';
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
@@ -7,6 +6,7 @@ import { addAssetTag, deleteAssetTag, getAssetTags } from '@/api/asset';
 import type { AssetTagVO } from '@/types/asset';
 import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
 import type { UserDirectoryEntry } from '@/api/user';
+import { useT } from '@/i18n';
 
 const getPayload = (res: unknown) => ((res as any)?.data ?? res);
 
@@ -24,6 +24,7 @@ interface AssetTagsPanelProps {
  * 独立组件以便资产详情页保持小改动面。
  */
 const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId, canWrite = false }) => {
+  const { t } = useT();
   const [tags, setTags] = useState<AssetTagVO[]>([]);
   const [loading, setLoading] = useState(false);
   const [tagInput, setTagInput] = useState('');
@@ -68,13 +69,13 @@ const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId, canWrite = fal
   const handleAdd = async () => {
     const value = tagInput.trim();
     if (!value) {
-      message.warning('请输入标签名称');
+      message.warning(t('asset.tags.inputRequired'));
       return;
     }
     setSubmitting(true);
     try {
       await addAssetTag(assetId, value);
-      message.success('标签已添加');
+      message.success(t('asset.tags.addSuccess'));
       setTagInput('');
       await loadTags();
     } catch (error) {
@@ -87,7 +88,7 @@ const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId, canWrite = fal
   const handleRemove = async (tag: AssetTagVO) => {
     try {
       await deleteAssetTag(assetId, tag.id);
-      message.success('标签已移除');
+      message.success(t('asset.tags.removeSuccess'));
       await loadTags();
     } catch (error) {
       // 拦截器已提示
@@ -106,40 +107,34 @@ const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId, canWrite = fal
     <div style={{ padding: '24px 0' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div>
-          <h3 style={{ margin: 0 }}>资产标签</h3>
-          <p style={{ marginTop: 8, marginBottom: 0, color: '#8c8c8c' }}>
-            标签用于跨分组检索（例如：客户名称、项目批次、组件类型），一个资产可打多个标签。
-          </p>
+          <h3 style={{ margin: 0 }}>{t('asset.tags.title')}</h3>
+          <p style={{ marginTop: 8, marginBottom: 0, color: '#8c8c8c' }}>{t('asset.tags.desc')}</p>
         </div>
-        <Button icon={<ReloadOutlined />} onClick={loadTags} loading={loading}>
-          刷新
-        </Button>
+        <Button icon={<ReloadOutlined />} onClick={loadTags} loading={loading}>{t('common.refresh')}</Button>
       </div>
 
       {canWrite ? (
       <Space.Compact style={{ maxWidth: 460, marginBottom: 16 }}>
         <Input
-          placeholder="输入标签名称后回车添加"
+          placeholder={t('asset.tags.inputPlaceholder')}
           value={tagInput}
           maxLength={50}
           onChange={(event) => setTagInput(event.target.value)}
           onPressEnter={handleAdd}
         />
-        <Button type="primary" icon={<PlusOutlined />} loading={submitting} onClick={handleAdd}>
-          添加标签
-        </Button>
+        <Button type="primary" icon={<PlusOutlined />} loading={submitting} onClick={handleAdd}>{t('asset.tags.add')}</Button>
       </Space.Compact>
       ) : (
         <Alert
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="当前角色只能查看标签：新增/删除标签需要资产负责人或管理层权限"
+          message={t('asset.tags.readonly')}
         />
       )}
 
       {tags.length === 0 ? (
-        <Empty description="该资产暂无标签" />
+        <Empty description={t('asset.tags.empty')} />
       ) : (
         <>
           <Space wrap size={[8, 8]} style={{ marginBottom: 16 }}>
@@ -164,15 +159,15 @@ const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId, canWrite = fal
             pagination={false}
             dataSource={tags}
             columns={[
-              { title: '标签', dataIndex: 'tag', key: 'tag', render: (value: string) => <Tag color="blue">{value}</Tag> },
+              { title: t('asset.tags.colTag'), dataIndex: 'tag', key: 'tag', render: (value: string) => <Tag color="blue">{value}</Tag> },
               {
-                title: '创建人',
+                title: t('asset.tags.colCreator'),
                 key: 'createdBy',
                 width: 180,
                 render: (_: unknown, record: AssetTagVO) => createdByLabel(record.createdBy ?? record.created_by),
               },
               {
-                title: '创建时间',
+                title: t('asset.tags.colCreatedAt'),
                 key: 'createdAt',
                 width: 200,
                 render: (_: unknown, record: AssetTagVO) => {
@@ -181,13 +176,11 @@ const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId, canWrite = fal
                 },
               },
               {
-                title: '操作',
+                title: t('asset.tags.colAction'),
                 key: 'action',
                 width: 100,
                 render: (_: unknown, record: AssetTagVO) => (
-                  <Typography.Link type="danger" onClick={() => handleRemove(record)}>
-                    移除
-                  </Typography.Link>
+                  <Typography.Link type="danger" onClick={() => handleRemove(record)}>{t('asset.tags.remove')}</Typography.Link>
                 ),
               },
             ]}

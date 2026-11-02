@@ -182,6 +182,35 @@ export const TOOL_TAG_FORBIDDEN_MESSAGE = '无权修改该工具标签（需为�
 export const TOOL_TAG_READONLY_HINT = '只读视图：标签的新增 / 移除仅管理员 / 项目负责人 / 小组长可用';
 export const TOOL_FILE_FORBIDDEN_MESSAGE = '无权上传工具包（需为管理员 / 项目负责人 / 小组长）';
 
+/* ---------- 知识库 / 文档标签（t61：作者本人或管理层） ---------- */
+
+/**
+ * 知识库文章标签（POST /knowledge/{id}/tags、DELETE /knowledge/{id}/tags?tag=xxx）：
+ * 后端 `canWriteKnowledgeTags` = 管理层（admin/PL/TL）或文章作者本人。
+ *
+ * 前端用画像里的 userId 与文章 authorId 比对；画像未返回时 fail-closed（不渲染写控件）。
+ */
+export const canWriteKnowledgeTags = (
+  profile: MyAccessProfile | null,
+  authorId: string | undefined,
+): boolean =>
+  isOperationsProfile(profile) ||
+  Boolean(profile?.userId && authorId && profile.userId === authorId);
+
+export const KNOWLEDGE_TAG_FORBIDDEN_MESSAGE = '无权修改该文章标签（需为作者或管理员）';
+export const KNOWLEDGE_TAG_READONLY_HINT = '只读视图：仅作者或管理员可修改标签';
+
+/** 文档标签（POST /documents/{id}/tags、DELETE /documents/{id}/tags/{tagId}）：管理层或文档作者本人 */
+export const canWriteDocumentTags = (
+  profile: MyAccessProfile | null,
+  createdBy: string | undefined,
+): boolean =>
+  isOperationsProfile(profile) ||
+  Boolean(profile?.userId && createdBy && profile.userId === createdBy);
+
+export const DOCUMENT_TAG_FORBIDDEN_MESSAGE = '无权修改该文档标签（需为作者或管理员）';
+export const DOCUMENT_TAG_READONLY_HINT = '只读视图：仅作者或管理员可修改标签';
+
 /* ---------- 任务 ---------- */
 
 /** POST /tasks：admin/PL/TL（目标资产写权由后端守卫兜底） */

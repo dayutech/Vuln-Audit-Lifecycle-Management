@@ -1,8 +1,8 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import { useEffect, useState } from 'react';
 import { Card, Table, Space, Tag, Button, Modal, Input, message } from 'antd';
 import { getMyAccessApprovalRequests, reviewAssetAccessRequest } from '@/api/asset';
 import type { AssetAccessVO } from '@/types/asset';
+import { useT } from '@/i18n';
 
 /**
  * 审批中心：展示路由给当前用户的待审批访问申请。
@@ -11,6 +11,7 @@ import type { AssetAccessVO } from '@/types/asset';
  * admin / project_leader 可见全部待审，其他人只看路由给自己的。
  */
 const Approvals: React.FC = () => {
+  const { t } = useT();
   const [data, setData] = useState<AssetAccessVO[]>([]);
   const [loading, setLoading] = useState(false);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
@@ -70,31 +71,31 @@ const Approvals: React.FC = () => {
 
   const columns = [
     {
-      title: '资产ID',
+      title: t('approvals.colAssetId'),
       dataIndex: 'assetId',
       key: 'assetId',
       render: (text: string) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{text}</span>,
     },
     {
-      title: '申请人ID',
+      title: t('approvals.colApplicantId'),
       dataIndex: 'userId',
       key: 'userId',
       render: (text: string) => <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{text}</span>,
     },
     {
-      title: '申请范围',
+      title: t('approvals.colScope'),
       key: 'scope',
       render: (_: unknown, record: AssetAccessVO) => <Tag color="blue">{scopeText(record)}</Tag>,
     },
-    { title: '申请说明', dataIndex: 'requestNote', key: 'requestNote', render: (text: string) => text || '-' },
+    { title: t('approvals.colNote'), dataIndex: 'requestNote', key: 'requestNote', render: (text: string) => text || '-' },
     {
-      title: '提交时间',
+      title: t('approvals.colSubmittedAt'),
       dataIndex: 'createdAt',
       key: 'createdAt',
       render: (text: string) => (text ? new Date(text).toLocaleString() : '-'),
     },
     {
-      title: '操作',
+      title: t('approvals.colAction'),
       key: 'action',
       render: (_: unknown, record: AssetAccessVO) => (
         <Space size="middle">
@@ -114,14 +115,14 @@ const Approvals: React.FC = () => {
   ];
 
   return (
-    <Card title="审批中心" extra={<Button onClick={fetchData}>刷新</Button>}>
+    <Card title={t('approvals.title')} extra={<Button onClick={fetchData}>{t('common.refresh')}</Button>}>
       <Table
         columns={columns}
         dataSource={data}
         rowKey="id"
         loading={loading}
         pagination={{ pageSize: 10 }}
-        locale={{ emptyText: '暂无待审批的访问申请' }}
+        locale={{ emptyText: t('approvals.empty') }}
       />
     </Card>
   );

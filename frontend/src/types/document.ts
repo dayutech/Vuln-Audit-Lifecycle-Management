@@ -19,6 +19,15 @@ export interface DocumentVO {
 
 export type DocumentListResponse = PaginatedResponse<DocumentVO>;
 
+/** 文档标签（后端 DocumentTag 实体，camelCase）。t66：前端此前无标签 UI，这里补齐类型。 */
+export interface DocumentTagVO {
+  id: string;
+  documentId: string;
+  tag: string;
+  createdBy?: string;
+  createdAt?: string;
+}
+
 export interface CreateDocumentRequest {
   title: string;
   category: string;

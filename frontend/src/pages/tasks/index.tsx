@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useRef, useState } from 'react';
 import { Table, Button, Space, Card, Tag, Modal, Form, Select, Input, DatePicker, InputNumber, message, Descriptions, Tabs, Progress, Steps, Upload, Row, Col, Tooltip, Spin } from 'antd';
 import { PlusOutlined, SearchOutlined, UploadOutlined, PlusCircleOutlined, MinusCircleOutlined, UserOutlined, LockOutlined, TagOutlined, CodeOutlined, SettingOutlined, NodeIndexOutlined, LinkOutlined, InfoCircleOutlined } from '@ant-design/icons';
@@ -43,6 +42,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useUserStore } from '@/store/userStore';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
 import { canCreateTask, canSubmitTaskReview, resolveCurrentUserId, TASK_REVIEW_FORBIDDEN_TIP } from '@/utils/accessRoles';
+import { useT } from '@/i18n';
 
 const { Option } = Select;
 
@@ -265,6 +265,7 @@ const renderListFormItem = (
 );
 
 const Tasks: React.FC = () => {
+  const { t } = useT();
   const navigate = useNavigate();
   const { id: taskId } = useParams();
   const { user } = useUserStore();
@@ -1313,7 +1314,7 @@ const Tasks: React.FC = () => {
   const taskActionModals = (
     <>
       <Modal
-        title="更新任务状态"
+        title={t('tasks.statusModal')}
         open={statusModalVisible}
         onOk={handleStatusSubmit}
         onCancel={() => setStatusModalVisible(false)}
@@ -1332,7 +1333,7 @@ const Tasks: React.FC = () => {
       </Modal>
 
       <Modal
-        title="协作者管理"
+        title={t('tasks.collaborators')}
         open={collaboratorModalVisible}
         onOk={handleCollaboratorSubmit}
         confirmLoading={collaboratorSubmitting}
@@ -1353,7 +1354,7 @@ const Tasks: React.FC = () => {
       </Modal>
 
       <Modal
-        title="分配任务"
+        title={t('tasks.assign')}
         open={assignModalVisible}
         onOk={handleAssignSubmit}
         onCancel={() => setAssignModalVisible(false)}
@@ -1404,35 +1405,35 @@ const Tasks: React.FC = () => {
 
   const columns = [
     {
-      title: '任务标题',
+      title: t('tasks.colTitle'),
       dataIndex: 'title',
       key: 'title',
       render: (text: string, record: TaskVO) => <a onClick={() => navigate(`/tasks/${record.id}`)}>{text}</a>
     },
     { 
-      title: '状态', 
+      title: t('tasks.colStatus'), 
       dataIndex: 'status', 
       key: 'status',
       render: (text: string) => <Tag color={statusColors[text] || 'default'}>{statusLabels[text] || text}</Tag>
     },
     {
-      title: '创建者',
+      title: t('tasks.colCreator'),
       key: 'creator',
       render: (_: any, record: TaskVO) => record.creator?.username || '-'
     },
     { 
-      title: '责任人', 
+      title: t('tasks.colAssignee'), 
       key: 'assignee',
       render: (_: any, record: TaskVO) => record.assignee?.username || '-'
     },
     { 
-      title: '截止日期', 
+      title: t('tasks.colDueDate'), 
       dataIndex: 'due_date', 
       key: 'due_date',
       render: (text: string) => text ? dayjs(text).format('YYYY-MM-DD HH:mm') : '-'
     },
     {
-      title: '操作',
+      title: t('tasks.colAction'),
       key: 'action',
       render: (_: any, record: TaskVO) => {
         const canUpdateRecordStatus = (canAssignTask || user?.id === record.assignee?.id) && record.status !== 'review_pending';
@@ -2052,7 +2053,7 @@ const Tasks: React.FC = () => {
                           },
                           { title: '类型', dataIndex: 'type', key: 'type' },
                           { title: '严重级别', dataIndex: 'severity', key: 'severity' },
-                          { title: '状态', dataIndex: 'status', key: 'status' },
+                          { title: t('tasks.colStatus'), dataIndex: 'status', key: 'status' },
                         ]}
                       />
                     </>
@@ -2110,7 +2111,7 @@ const Tasks: React.FC = () => {
                           },
                           { title: '编号/路径', dataIndex: 'reference', key: 'reference' },
                           { title: '分类', dataIndex: 'category', key: 'category' },
-                          { title: '状态', dataIndex: 'status', key: 'status' },
+                          { title: t('tasks.colStatus'), dataIndex: 'status', key: 'status' },
                           {
                             title: '时间',
                             dataIndex: 'createdAt',
@@ -2118,7 +2119,7 @@ const Tasks: React.FC = () => {
                             render: (value: string) => value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '-',
                           },
                           {
-                            title: '操作',
+                            title: t('tasks.colAction'),
                             key: 'action',
                             render: (_: any, record: any) => {
                               if (record.sourceType === '文档证据' && record.documentId) {
@@ -2260,7 +2261,7 @@ const Tasks: React.FC = () => {
   }
 
   return (
-    <Card title="任务管理" extra={allowCreateTask ? (<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>创建任务</Button>) : null}>
+    <Card title={t('tasks.manage')} extra={allowCreateTask ? (<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('tasks.create')}</Button>) : null}>
       <div style={{ marginBottom: 16 }}>
         <Space>
         <Input 

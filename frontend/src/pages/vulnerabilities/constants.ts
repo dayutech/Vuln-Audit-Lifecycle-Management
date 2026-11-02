@@ -1,3 +1,5 @@
+import type { MessageKey } from '@/i18n/messages/zh-CN';
+
 /**
  * 漏洞状态机常量。
  *
@@ -5,24 +7,27 @@
  * - WorkflowStatus#canTransitionTo（工作流状态机）
  * - VulnerabilityServiceImpl#updateCustomerStatus / #updateDisclosureStatus
  * - VulnerabilityHistory#statusType（workflow / customer / disclosure）
+ *
+ * i18n（t57）：常量里不再放中文，只保留 `labelKey`（MessageKey），
+ * 展示层用 `t(labelKey)` 渲染；为此额外导出 `*Key` 版本给非组件代码使用。
  */
 
 export interface StatusOption {
   value: string;
-  label: string;
+  labelKey: MessageKey;
   color: string;
 }
 
 /** 工作流状态（顺序即流程顺序） */
 export const WORKFLOW_STATUS_OPTIONS: StatusOption[] = [
-  { value: 'discovered', label: '已发现', color: 'default' },
-  { value: 'verified', label: '已验证', color: 'blue' },
-  { value: 'analyzing', label: '分析中', color: 'geekblue' },
-  { value: 'analyzed', label: '已分析', color: 'purple' },
-  { value: 'exploit_development', label: '利用开发中', color: 'orange' },
-  { value: 'field_testing', label: '出场测试中', color: 'gold' },
-  { value: 'delivered', label: '已交付', color: 'green' },
-  { value: 'closed', label: '已关闭', color: 'default' },
+  { value: 'discovered', labelKey: 'vuln.status.discovered', color: 'default' },
+  { value: 'verified', labelKey: 'vuln.status.verified', color: 'blue' },
+  { value: 'analyzing', labelKey: 'vuln.status.analyzing', color: 'geekblue' },
+  { value: 'analyzed', labelKey: 'vuln.status.analyzed', color: 'purple' },
+  { value: 'exploit_development', labelKey: 'vuln.status.exploitDevelopment', color: 'orange' },
+  { value: 'field_testing', labelKey: 'vuln.status.fieldTesting', color: 'gold' },
+  { value: 'delivered', labelKey: 'vuln.status.delivered', color: 'green' },
+  { value: 'closed', labelKey: 'vuln.status.closed', color: 'default' },
 ];
 
 /** 后端 WorkflowStatus#canTransitionTo 的前端镜像，用于渲染合法流转按钮 */
@@ -39,48 +44,48 @@ export const WORKFLOW_TRANSITIONS: Record<string, string[]> = {
 
 /** 客户确认状态 */
 export const CUSTOMER_STATUS_OPTIONS: StatusOption[] = [
-  { value: 'pending', label: '待确认', color: 'default' },
-  { value: 'confirmed', label: '已确认', color: 'green' },
-  { value: 'rejected', label: '已拒绝', color: 'red' },
+  { value: 'pending', labelKey: 'vuln.customer.pending', color: 'default' },
+  { value: 'confirmed', labelKey: 'vuln.customer.confirmed', color: 'green' },
+  { value: 'rejected', labelKey: 'vuln.customer.rejected', color: 'red' },
 ];
 
 /** 公开披露状态 */
 export const DISCLOSURE_STATUS_OPTIONS: StatusOption[] = [
-  { value: 'undisclosed', label: '未披露', color: 'default' },
-  { value: 'disclosed', label: '已披露', color: 'cyan' },
-  { value: 'has_cve', label: '已分配CVE', color: 'blue' },
+  { value: 'undisclosed', labelKey: 'vuln.disclosure.undisclosed', color: 'default' },
+  { value: 'disclosed', labelKey: 'vuln.disclosure.disclosed', color: 'cyan' },
+  { value: 'has_cve', labelKey: 'vuln.disclosure.hasCve', color: 'blue' },
 ];
 
 /** 利用阶段 */
 export const EXPLOIT_STAGE_OPTIONS: StatusOption[] = [
-  { value: '探测', label: '探测', color: 'default' },
-  { value: '突破', label: '突破', color: 'orange' },
-  { value: '控守', label: '控守', color: 'geekblue' },
-  { value: '已完成', label: '已完成', color: 'green' },
+  { value: '探测', labelKey: 'vuln.stage.probe', color: 'default' },
+  { value: '突破', labelKey: 'vuln.stage.breakthrough', color: 'orange' },
+  { value: '控守', labelKey: 'vuln.stage.hold', color: 'geekblue' },
+  { value: '已完成', labelKey: 'vuln.stage.done', color: 'green' },
 ];
 
 /** 出场测试状态（仅编辑表单可写） */
 export const FIELD_TEST_STATUS_OPTIONS: StatusOption[] = [
-  { value: '待测试', label: '待测试', color: 'default' },
-  { value: '测试中', label: '测试中', color: 'blue' },
-  { value: '测试完成', label: '测试完成', color: 'green' },
-  { value: '测试失败', label: '测试失败', color: 'red' },
+  { value: '待测试', labelKey: 'vuln.fieldTest.pending', color: 'default' },
+  { value: '测试中', labelKey: 'vuln.fieldTest.testing', color: 'blue' },
+  { value: '测试完成', labelKey: 'vuln.fieldTest.done', color: 'green' },
+  { value: '测试失败', labelKey: 'vuln.fieldTest.failed', color: 'red' },
 ];
 
 /** 状态类型（历史记录 status_type） */
-export const HISTORY_STATUS_TYPES: Record<string, { label: string; color: string }> = {
-  workflow: { label: '工作流状态', color: 'blue' },
-  customer: { label: '客户确认状态', color: 'gold' },
-  disclosure: { label: '公开披露状态', color: 'cyan' },
+export const HISTORY_STATUS_TYPES: Record<string, { labelKey: MessageKey; color: string }> = {
+  workflow: { labelKey: 'vuln.history.workflow', color: 'blue' },
+  customer: { labelKey: 'vuln.history.customer', color: 'gold' },
+  disclosure: { labelKey: 'vuln.history.disclosure', color: 'cyan' },
 };
 
 /** 严重程度 */
 export const SEVERITY_OPTIONS: StatusOption[] = [
-  { value: 'CRITICAL', label: '严重', color: 'red' },
-  { value: 'HIGH', label: '高危', color: 'orange' },
-  { value: 'MEDIUM', label: '中危', color: 'blue' },
-  { value: 'LOW', label: '低危', color: 'green' },
-  { value: 'INFO', label: '信息', color: 'default' },
+  { value: 'CRITICAL', labelKey: 'vuln.severity.critical', color: 'red' },
+  { value: 'HIGH', labelKey: 'vuln.severity.high', color: 'orange' },
+  { value: 'MEDIUM', labelKey: 'vuln.severity.medium', color: 'blue' },
+  { value: 'LOW', labelKey: 'vuln.severity.low', color: 'green' },
+  { value: 'INFO', labelKey: 'vuln.severity.info', color: 'default' },
 ];
 
 const optionsToMap = (options: StatusOption[]): Record<string, StatusOption> =>
@@ -104,17 +109,19 @@ const pick = (map: Record<string, StatusOption>, value?: string | null): StatusO
   return map[value] ?? map[value.toUpperCase()] ?? map[value.toLowerCase()];
 };
 
-export const workflowLabel = (value?: string | null) => pick(WORKFLOW_MAP, value)?.label ?? (value || '-');
+/** 展示用：状态 → message key（未知值返回 undefined，由调用方回落原始值） */
+export const workflowKey = (value?: string | null): MessageKey | undefined => pick(WORKFLOW_MAP, value)?.labelKey;
+export const customerKey = (value?: string | null): MessageKey | undefined => pick(CUSTOMER_MAP, value)?.labelKey;
+export const disclosureKey = (value?: string | null): MessageKey | undefined => pick(DISCLOSURE_MAP, value)?.labelKey;
+export const exploitStageKey = (value?: string | null): MessageKey | undefined => pick(EXPLOIT_MAP, value)?.labelKey;
+export const fieldTestKey = (value?: string | null): MessageKey | undefined => pick(FIELD_TEST_MAP, value)?.labelKey;
+export const severityKey = (value?: string | null): MessageKey | undefined => pick(SEVERITY_MAP, value)?.labelKey;
+
 export const workflowColor = (value?: string | null) => pick(WORKFLOW_MAP, value)?.color ?? 'default';
-export const customerLabel = (value?: string | null) => pick(CUSTOMER_MAP, value)?.label ?? (value || '-');
 export const customerColor = (value?: string | null) => pick(CUSTOMER_MAP, value)?.color ?? 'default';
-export const disclosureLabel = (value?: string | null) => pick(DISCLOSURE_MAP, value)?.label ?? (value || '-');
 export const disclosureColor = (value?: string | null) => pick(DISCLOSURE_MAP, value)?.color ?? 'default';
-export const exploitStageLabel = (value?: string | null) => pick(EXPLOIT_MAP, value)?.label ?? (value || '-');
 export const exploitStageColor = (value?: string | null) => pick(EXPLOIT_MAP, value)?.color ?? 'default';
-export const fieldTestLabel = (value?: string | null) => pick(FIELD_TEST_MAP, value)?.label ?? (value || '-');
 export const fieldTestColor = (value?: string | null) => pick(FIELD_TEST_MAP, value)?.color ?? 'default';
-export const severityLabel = (value?: string | null) => pick(SEVERITY_MAP, value)?.label ?? (value || '-');
 export const severityColor = (value?: string | null) => pick(SEVERITY_MAP, value)?.color ?? 'default';
 
 /** 当前工作流状态在流程中的序号（-1 表示未知） */
@@ -133,7 +140,7 @@ export const nextWorkflowStatuses = (value?: string | null) => {
   return WORKFLOW_TRANSITIONS[value] ?? [];
 };
 
-/** 文件大小格式化 */
+/** 文件大小格式化（单位符号与语言无关） */
 export const formatFileSize = (size?: number) => {
   if (!size || size <= 0) {
     return '-';

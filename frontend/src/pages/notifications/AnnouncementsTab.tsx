@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -37,10 +36,10 @@ import {
   getMyAccessProfile,
 } from '@/api/permission';
 import type { AnnouncementPage, AnnouncementSaveRequest, AnnouncementVO } from '@/types/notification';
-import { ANNOUNCEMENT_PRIORITY_META } from '@/types/notification';
+import { ANNOUNCEMENT_PRIORITY_KEYS } from '@/types/notification';
 import { formatDateTime } from '@/utils/datetime';
 import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
-import { useT } from '@/i18n';
+import { useT, type MessageKey } from '@/i18n';
 
 const { Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -59,7 +58,7 @@ interface AnnouncementFormValues {
 }
 
 const priorityMeta = (priority?: string | null) =>
-  ANNOUNCEMENT_PRIORITY_META[(priority ?? 'normal').toLowerCase()] ?? ANNOUNCEMENT_PRIORITY_META.normal;
+  ANNOUNCEMENT_PRIORITY_KEYS[(priority ?? 'normal').toLowerCase()] ?? ANNOUNCEMENT_PRIORITY_KEYS.normal;
 
 const resolveStatus = (item: AnnouncementVO, now: Dayjs): AnnouncementStatus => {
   const published = item.publishedAt ? dayjs(item.publishedAt) : null;
@@ -68,10 +67,10 @@ const resolveStatus = (item: AnnouncementVO, now: Dayjs): AnnouncementStatus => 
   return 'active';
 };
 
-const STATUS_META: Record<AnnouncementStatus, { color: string; label: string }> = {
-  active: { color: 'success', label: '生效中' },
-  scheduled: { color: 'processing', label: '未生效（待发布时间）' },
-  expired: { color: 'default', label: '已过期' },
+const STATUS_META: Record<AnnouncementStatus, { color: string; labelKey: MessageKey }> = {
+  active: { color: 'success', labelKey: 'notifications.ann.statusActive' },
+  scheduled: { color: 'processing', labelKey: 'notifications.ann.statusScheduled' },
+  expired: { color: 'default', labelKey: 'notifications.ann.statusExpired' },
 };
 
 const AnnouncementsTab: React.FC = () => {
@@ -188,7 +187,7 @@ const AnnouncementsTab: React.FC = () => {
   /** 公告写操作的失败提示：401/403/400/5xx 分别可读，403 用角色口径文案 */
   const describeWriteFailure = (error: unknown, fallback: string): string => {
     const status = getApiErrorStatus(error);
-    if (status === 401) return '登录已过期，请重新登录后再试';
+    if (status === 401) return t('notifications.ann.authExpired');
     if (status === 403) return ANNOUNCEMENT_FORBIDDEN_MESSAGE;
     return getApiErrorMessage(error, fallback);
   };
@@ -200,10 +199,10 @@ const AnnouncementsTab: React.FC = () => {
       const payload = buildPayload(values);
       if (editing) {
         await updateAnnouncement(editing.id, payload);
-        message.success('公告已更新');
+        message.success(t('notifications.ann.updated'));
       } else {
         await createAnnouncement(payload);
-        message.success('公告已发布');
+        message.success(t('notifications.ann.published'));
       }
       setModalOpen(false);
       setEditing(null);
@@ -211,7 +210,7 @@ const AnnouncementsTab: React.FC = () => {
       if (!editing) setPage(1);
     } catch (error: any) {
       if (error?.errorFields) return;
-      message.error(describeWriteFailure(error, '公告保存失败'));
+      message.error(describeWriteFailure(error, t('notifications.ann.saveFailed')));
     } finally {
       setSubmitting(false);
     }
@@ -220,74 +219,74 @@ const AnnouncementsTab: React.FC = () => {
   const handleDelete = async (item: AnnouncementVO) => {
     try {
       await deleteAnnouncement(item.id);
-      message.success('公告已删除');
+      message.success(t('notifications.ann.deleted'));
       await Promise.all([loadActive(), loadPage(page)]);
     } catch (error: any) {
-      message.error(describeWriteFailure(error, '公告删除失败'));
+      message.error(describeWriteFailure(error, t('notifications.ann.deleteFailed')));
     }
   };
 
   const columns = useMemo(
     () => [
       {
-        title: '标题',
+        title: t('notifications.ann.colTitle'),
         dataIndex: 'title',
         key: 'title',
-        render: (title: string) => <Text strong>{title || '(无标题)'}</Text>,
+        render: (title: string) => <Text strong>{title || t('notifications.ann.noTitle')}</Text>,
       },
       {
-        title: '优先级',
+        title: t('notifications.ann.colPriority'),
         dataIndex: 'priority',
         key: 'priority',
         width: 100,
         render: (priority: string) => {
           const meta = priorityMeta(priority);
-          return <Tag color={meta.color}>{meta.label}</Tag>;
+          return <Tag color={meta.color}>{t(meta.labelKey)}</Tag>;
         },
       },
       {
-        title: '状态',
+        title: t('notifications.ann.colStatus'),
         key: 'status',
         width: 160,
         render: (_: unknown, record: AnnouncementVO) => {
           const meta = STATUS_META[resolveStatus(record, serverNow)];
-          return <Tag color={meta.color}>{meta.label}</Tag>;
+          return <Tag color={meta.color}>{t(meta.labelKey)}</Tag>;
         },
       },
       {
-        title: '发布时间',
+        title: t('notifications.ann.colPublishedAt'),
         dataIndex: 'publishedAt',
         key: 'publishedAt',
         width: 180,
         render: (value: string) => formatDateTime(value),
       },
       {
-        title: '过期时间',
+        title: t('notifications.ann.colExpiresAt'),
         dataIndex: 'expiresAt',
         key: 'expiresAt',
         width: 180,
-        render: (value?: string | null) => (value ? formatDateTime(value) : '长期有效'),
+        render: (value?: string | null) => (value ? formatDateTime(value) : t('notifications.ann.longTerm')),
       },
       ...(canManage
         ? [
             {
-              title: '操作',
+              title: t('notifications.ann.colActions'),
               key: 'action',
               width: 150,
               render: (_: unknown, record: AnnouncementVO) => (
                 <Space size={4}>
                   <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
-                    编辑
+                    {t('notifications.ann.edit')}
                   </Button>
                   <Popconfirm
-                    title="删除公告"
-                    description="删除后该公告不再展示，确定继续？"
-                    okText="删除"
-                    cancelText="取消"
+                    title={t('notifications.ann.deleteTitle')}
+                    description={t('notifications.ann.deleteDesc')}
+                    okText={t('notifications.ann.delete')}
+                    cancelText={t('notifications.ann.cancel')}
                     onConfirm={() => handleDelete(record)}
                   >
                     <Button type="link" size="small" danger icon={<DeleteOutlined />}>
-                      删除
+                      {t('notifications.ann.delete')}
                     </Button>
                   </Popconfirm>
                 </Space>
@@ -296,9 +295,9 @@ const AnnouncementsTab: React.FC = () => {
           ]
         : []),
     ],
-    // openEdit/handleDelete 依赖的 state 已在闭包中稳定使用，这里只跟随 canManage/serverNow/page 变化
+    // openEdit/handleDelete 依赖的 state 已在闭包中稳定使用，这里只跟随 canManage/serverNow/page/t 变化
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canManage, serverNow, page]
+    [canManage, serverNow, page, t]
   );
 
   return (
@@ -330,7 +329,7 @@ const AnnouncementsTab: React.FC = () => {
           {activeList.length === 0 ? (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="当前没有生效中的公告；发布时间晚于服务器时间或已过期的公告不会在此展示"
+              description={t('notifications.ann.emptyActive')}
             />
           ) : (
             <List
@@ -342,16 +341,18 @@ const AnnouncementsTab: React.FC = () => {
                     <List.Item.Meta
                       title={
                         <Space wrap>
-                          <Tag color={meta.color}>{meta.label}</Tag>
+                          <Tag color={meta.color}>{t(meta.labelKey)}</Tag>
                           <Text strong>{item.title}</Text>
                           <Text type="secondary" style={{ fontSize: 12 }}>
-                            发布于 {formatDateTime(item.publishedAt)}
-                            {item.expiresAt ? ` · 至 ${formatDateTime(item.expiresAt)}` : ' · 长期有效'}
+                            {t('notifications.ann.publishedAtLabel', { time: formatDateTime(item.publishedAt) })}
+                            {item.expiresAt
+                              ? t('notifications.ann.until', { time: formatDateTime(item.expiresAt) })
+                              : ` · ${t('notifications.ann.longTerm')}`}
                           </Text>
                         </Space>
                       }
                       description={
-                        <Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }} ellipsis={{ rows: 3, expandable: true, symbol: '展开' }}>
+                        <Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }} ellipsis={{ rows: 3, expandable: true, symbol: t('notifications.ann.expand') }}>
                           {item.content}
                         </Paragraph>
                       }
@@ -376,7 +377,7 @@ const AnnouncementsTab: React.FC = () => {
             type="warning"
             showIcon
             style={{ marginBottom: 12 }}
-            message="部分历史公告缺少发布时间字段，可能由旧版本后端写入，展示时按未生效处理"
+            message={t('notifications.ann.schemaMissing')}
           />
         ) : null}
         <Table
@@ -389,7 +390,7 @@ const AnnouncementsTab: React.FC = () => {
             emptyText: (
               <Empty
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={canManage ? '还没有公告，点击右上角「发布公告」开始' : '暂无公告'}
+                description={canManage ? t('notifications.ann.emptyManage') : t('notifications.ann.emptyNone')}
               />
             ),
           }}
@@ -405,29 +406,29 @@ const AnnouncementsTab: React.FC = () => {
 
       <Modal
         open={modalOpen}
-        title={editing ? '编辑公告' : '发布公告'}
+        title={editing ? t('notifications.ann.modalEdit') : t('notifications.ann.modalCreate')}
         onCancel={() => {
           setModalOpen(false);
           setEditing(null);
         }}
         onOk={handleSubmit}
         confirmLoading={submitting}
-        okText={editing ? '保存' : '发布'}
+        okText={editing ? t('notifications.ann.okSave') : t('notifications.ann.okPublish')}
         destroyOnHidden
         width={640}
       >
         <Form form={form} layout="vertical" preserve={false}>
-          <Form.Item name="title" label="标题" rules={[{ required: true, message: '请填写公告标题' }, { max: 200, message: '标题不超过 200 字' }]}>
-            <Input placeholder="例如：平台例行维护通知" maxLength={200} showCount />
+          <Form.Item name="title" label={t('notifications.ann.form.title')} rules={[{ required: true, message: t('notifications.ann.form.titleRequired') }, { max: 200, message: t('notifications.ann.form.titleMax') }]}>
+            <Input placeholder={t('notifications.ann.form.titlePlaceholder')} maxLength={200} showCount />
           </Form.Item>
           <Row gutter={12}>
             <Col span={12}>
-              <Form.Item name="priority" label="优先级" rules={[{ required: true, message: '请选择优先级' }]}>
+              <Form.Item name="priority" label={t('notifications.ann.form.priority')} rules={[{ required: true, message: t('notifications.ann.form.priorityRequired') }]}>
                 <Select
                   options={[
-                    { value: 'normal', label: '普通' },
-                    { value: 'important', label: '重要' },
-                    { value: 'urgent', label: '紧急' },
+                    { value: 'normal', label: t('notifications.ann.form.priorityNormal') },
+                    { value: 'important', label: t('notifications.ann.form.priorityImportant') },
+                    { value: 'urgent', label: t('notifications.ann.form.priorityUrgent') },
                   ]}
                 />
               </Form.Item>
@@ -435,19 +436,19 @@ const AnnouncementsTab: React.FC = () => {
             <Col span={12}>
               <Form.Item
                 name="publishedAt"
-                label="发布时间"
-                rules={[{ required: true, message: '发布时间必填（后端 publishedAt 为 NOT NULL）' }]}
-                extra="生效判定使用服务端时间，默认已对齐服务器时钟"
+                label={t('notifications.ann.form.publishedAt')}
+                rules={[{ required: true, message: t('notifications.ann.form.publishedAtRequired') }]}
+                extra={t('notifications.ann.form.publishedAtExtra')}
               >
                 <DatePicker showTime style={{ width: '100%' }} format="YYYY-MM-DD HH:mm:ss" />
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item name="expiresAt" label="过期时间" extra="留空表示长期有效">
+          <Form.Item name="expiresAt" label={t('notifications.ann.form.expiresAt')} extra={t('notifications.ann.form.expiresAtExtra')}>
             <DatePicker showTime style={{ width: '100%' }} format="YYYY-MM-DD HH:mm:ss" />
           </Form.Item>
-          <Form.Item name="content" label="公告内容" rules={[{ required: true, message: '请填写公告内容' }]}>
-            <TextArea rows={6} placeholder="支持多行文本，发布后在通知中心公告区置顶展示" />
+          <Form.Item name="content" label={t('notifications.ann.form.content')} rules={[{ required: true, message: t('notifications.ann.form.contentRequired') }]}>
+            <TextArea rows={6} placeholder={t('notifications.ann.form.contentPlaceholder')} />
           </Form.Item>
         </Form>
       </Modal>

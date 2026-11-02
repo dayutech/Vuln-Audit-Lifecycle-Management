@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -46,18 +45,20 @@ import {
 } from './createError';
 import { toVulnerabilityCreatePayload, toVulnerabilityUpdatePayload } from './createPayload';
 import { getMyAccessProfile, isManagementProfile, type MyAccessProfile } from '@/api/permission';
+import { useT } from '@/i18n';
+import type { MessageKey } from '@/i18n/messages/zh-CN';
 import {
   SEVERITY_OPTIONS,
   WORKFLOW_STATUS_OPTIONS,
   customerColor,
-  customerLabel,
+  customerKey,
   disclosureColor,
-  disclosureLabel,
-  fieldTestLabel,
+  disclosureKey,
+  fieldTestKey,
   severityColor,
-  severityLabel,
+  severityKey,
   workflowColor,
-  workflowLabel,
+  workflowKey,
 } from './constants';
 
 const { Option } = Select;
@@ -77,10 +78,14 @@ const readText = (source: any, camel: string, snake: string): string | undefined
 };
 
 const Vulnerabilities: React.FC = () => {
+  const { t } = useT();
   const location = useLocation();
   const navigate = useNavigate();
   const { id: vulnerabilityId } = useParams();
   const isEditPage = Boolean(vulnerabilityId && location.pathname.endsWith('/edit'));
+
+  /** 状态 / 严重程度等枚举统一走 t()，避免「标签英文、表格中文」的割裂 */
+  const labelOf = (key: MessageKey | undefined, fallback?: string | null) => (key ? t(key) : fallback || '-');
 
   const [data, setData] = useState<VulnerabilityVO[]>([]);
   const [loading, setLoading] = useState(false);
@@ -302,7 +307,7 @@ const Vulnerabilities: React.FC = () => {
       await createVulnerability(
         toVulnerabilityCreatePayload(values as Record<string, any>, (values as any).asset_id) as unknown as CreateVulnerabilityRequest
       );
-      message.success('创建成功');
+      message.success(t('vuln.create.success'));
       setIsModalVisible(false);
       fetchData();
     } catch (error) {
@@ -316,18 +321,18 @@ const Vulnerabilities: React.FC = () => {
   };
 
   /** 编辑保存后用于「未修改字段是否被意外改动」的比对字段（t35 要求） */
-  const UNEXPECTED_CHANGE_FIELDS: Array<{ key: string; label: string }> = [
-    { key: 'workflowStatus', label: '工作流状态' },
-    { key: 'customerStatus', label: '客户确认状态' },
-    { key: 'disclosureStatus', label: '公开披露状态' },
-    { key: 'exploitStage', label: '利用阶段' },
-    { key: 'vendorFixed', label: '厂商修复' },
-    { key: 'severity', label: '严重程度' },
-    { key: 'type', label: '漏洞类型' },
-    { key: 'cveId', label: 'CVE编号' },
-    { key: 'affectedVersions', label: '受影响版本' },
-    { key: 'discoveredVersionId', label: '发现版本' },
-    { key: 'assetId', label: '所属资产' },
+  const UNEXPECTED_CHANGE_FIELDS: Array<{ key: string; labelKey: MessageKey }> = [
+    { key: 'workflowStatus', labelKey: 'vuln.field.workflowStatus' },
+    { key: 'customerStatus', labelKey: 'vuln.field.customerStatus' },
+    { key: 'disclosureStatus', labelKey: 'vuln.field.disclosureStatus' },
+    { key: 'exploitStage', labelKey: 'vuln.field.exploitStage' },
+    { key: 'vendorFixed', labelKey: 'vuln.field.vendorFixed' },
+    { key: 'severity', labelKey: 'vuln.field.severity' },
+    { key: 'type', labelKey: 'vuln.field.type' },
+    { key: 'cveId', labelKey: 'vuln.field.cveId' },
+    { key: 'affectedVersions', labelKey: 'vuln.field.affectedVersions' },
+    { key: 'discoveredVersionId', labelKey: 'vuln.field.discoveredVersion' },
+    { key: 'assetId', labelKey: 'vuln.field.asset' },
   ];
 
   const handleEditPageSubmit = async () => {
@@ -364,20 +369,20 @@ const Vulnerabilities: React.FC = () => {
         const diffs = collectUnexpectedFieldDiffs(
           snapshot,
           fresh as unknown as Record<string, any>,
-          UNEXPECTED_CHANGE_FIELDS,
+          UNEXPECTED_CHANGE_FIELDS.map((field) => ({ key: field.key, label: t(field.labelKey) })),
           submittedKeys,
         );
         if (diffs.length > 0) {
           Modal.warning({
-            title: '保存成功，但未修改的字段发生了变化',
+            title: t('vuln.edit.driftTitle'),
             width: 560,
             content: (
               <div>
-                <p>后端返回的以下字段与提交前不一致（可能是并发修改或后端逻辑异常），请核对：</p>
+                <p>{t('vuln.edit.driftIntro')}</p>
                 <ul style={{ paddingLeft: 20, marginBottom: 0 }}>
                   {diffs.map((diff) => (
                     <li key={diff.label}>
-                      <strong>{diff.label}</strong>：{diff.before || '（空）'} → {diff.after || '（空）'}
+                      <strong>{diff.label}</strong>：{diff.before || t('vuln.edit.driftEmpty')} → {diff.after || t('vuln.edit.driftEmpty')}
                     </li>
                   ))}
                 </ul>
@@ -385,7 +390,7 @@ const Vulnerabilities: React.FC = () => {
             ),
           });
         } else {
-          message.success('漏洞更新成功');
+          message.success(t('vuln.edit.success'));
         }
         // 用服务端最新值回填表单，保证「刷新后字段值稳定」
         editPageForm.setFieldsValue({
@@ -404,11 +409,11 @@ const Vulnerabilities: React.FC = () => {
           assigned_to: readText(fresh, 'assignedTo', 'assigned_to'),
         });
       } else {
-        message.success('漏洞更新成功');
+        message.success(t('vuln.edit.success'));
       }
     } catch (error) {
       if (!isFormValidationError(error)) {
-        message.error(describeVulnUpdateFailure(error, '漏洞保存失败'));
+        message.error(describeVulnUpdateFailure(error, t('vuln.edit.failed')));
       }
     } finally {
       setEditPageSubmitting(false);
@@ -417,13 +422,13 @@ const Vulnerabilities: React.FC = () => {
 
   const columns = [
     {
-      title: '漏洞编号',
+      title: t('vuln.list.colNo'),
       key: 'vulnerabilityNo',
       width: 180,
       render: (_: unknown, record: VulnerabilityVO) => readText(record, 'vulnerabilityNo', 'vulnerability_no') ?? '-',
     },
     {
-      title: '漏洞名称',
+      title: t('vuln.list.colTitle'),
       dataIndex: 'title',
       key: 'title',
       render: (value: string, record: VulnerabilityVO) => (
@@ -431,7 +436,7 @@ const Vulnerabilities: React.FC = () => {
       ),
     },
     {
-      title: '所属资产',
+      title: t('vuln.list.colAsset'),
       key: 'asset',
       render: (_: unknown, record: VulnerabilityVO) => {
         const assetName = (record as any).asset?.name;
@@ -439,54 +444,54 @@ const Vulnerabilities: React.FC = () => {
         return assetName || (assetId ? assetNameMap.get(assetId) ?? assetId : '-');
       },
     },
-    { title: '类型', dataIndex: 'type', key: 'type' },
+    { title: t('vuln.list.colType'), dataIndex: 'type', key: 'type' },
     {
-      title: '严重程度',
+      title: t('vuln.list.colSeverity'),
       dataIndex: 'severity',
       key: 'severity',
-      render: (text: string) => <Tag color={severityColor(text)}>{severityLabel(text)}</Tag>,
+      render: (text: string) => <Tag color={severityColor(text)}>{labelOf(severityKey(text), text)}</Tag>,
     },
     {
-      title: 'CVSS',
+      title: t('vuln.list.colCvss'),
       key: 'cvssScore',
       width: 80,
       render: (_: unknown, record: VulnerabilityVO) => (record as any).cvssScore ?? (record as any).cvss_score ?? '-',
     },
     {
-      title: '工作流状态',
+      title: t('vuln.list.colWorkflow'),
       key: 'workflowStatus',
       width: 120,
       render: (_: unknown, record: VulnerabilityVO) => {
         const status = readText(record, 'workflowStatus', 'workflow_status');
-        return <Tag color={workflowColor(status)}>{workflowLabel(status)}</Tag>;
+        return <Tag color={workflowColor(status)}>{labelOf(workflowKey(status), status)}</Tag>;
       },
     },
     {
-      title: '客户确认',
+      title: t('vuln.list.colCustomer'),
       key: 'customerStatus',
       width: 100,
       render: (_: unknown, record: VulnerabilityVO) => {
         const status = readText(record, 'customerStatus', 'customer_status');
-        return <Tag color={customerColor(status)}>{customerLabel(status)}</Tag>;
+        return <Tag color={customerColor(status)}>{labelOf(customerKey(status), status)}</Tag>;
       },
     },
     {
-      title: '披露状态',
+      title: t('vuln.list.colDisclosure'),
       key: 'disclosureStatus',
       width: 110,
       render: (_: unknown, record: VulnerabilityVO) => {
         const status = readText(record, 'disclosureStatus', 'disclosure_status');
-        return <Tag color={disclosureColor(status)}>{disclosureLabel(status)}</Tag>;
+        return <Tag color={disclosureColor(status)}>{labelOf(disclosureKey(status), status)}</Tag>;
       },
     },
     {
-      title: '操作',
+      title: t('vuln.list.colAction'),
       key: 'action',
       width: 180,
       render: (_: unknown, record: VulnerabilityVO) => (
         <Space size="middle">
-          <a onClick={() => setDrawerId(record.id)}>详情</a>
-          <a onClick={() => navigate(`/vulnerabilities/${record.id}/edit`)}>编辑</a>
+          <a onClick={() => setDrawerId(record.id)}>{t('vuln.list.detail')}</a>
+          <a onClick={() => navigate(`/vulnerabilities/${record.id}/edit`)}>{t('vuln.list.edit')}</a>
         </Space>
       ),
     },
@@ -503,15 +508,15 @@ const Vulnerabilities: React.FC = () => {
 
     return (
       <Card
-        title="编辑漏洞"
+        title={t('vuln.edit.title')}
         extra={
           <Space>
-            <Button onClick={() => navigate(`/vulnerabilities/${vulnerabilityId}`)}>返回详情</Button>
+            <Button onClick={() => navigate(`/vulnerabilities/${vulnerabilityId}`)}>{t('vuln.edit.backDetail')}</Button>
             <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/vulnerabilities')}>
-              返回漏洞列表
+              {t('vuln.edit.backList')}
             </Button>
             <Button type="primary" loading={editPageSubmitting} onClick={handleEditPageSubmit}>
-              保存修改
+              {t('vuln.edit.save')}
             </Button>
           </Space>
         }
@@ -520,19 +525,19 @@ const Vulnerabilities: React.FC = () => {
           {detail ? (
             <Space direction="vertical" size={16} style={{ width: '100%' }}>
               <Descriptions
-                title={detail.title || '未命名漏洞'}
+                title={detail.title || t('vuln.edit.unnamed')}
                 column={{ xs: 1, sm: 2, md: 3 }}
                 bordered
                 size="small"
                 items={[
                   {
                     key: 'no',
-                    label: '漏洞编号',
+                    label: t('vuln.list.colNo'),
                     children: readText(detail, 'vulnerabilityNo', 'vulnerability_no') ?? '-',
                   },
                   {
                     key: 'asset',
-                    label: '所属资产',
+                    label: t('vuln.field.asset'),
                     children:
                       assetNameMap.get(readText(detail, 'assetId', 'asset_id') ?? '') ??
                       readText(detail, 'assetId', 'asset_id') ??
@@ -540,63 +545,63 @@ const Vulnerabilities: React.FC = () => {
                   },
                   {
                     key: 'createdAt',
-                    label: '创建时间',
+                    label: t('vuln.detail.colCreatedAt'),
                     children: dayjs(readText(detail, 'createdAt', 'created_at')).format('YYYY-MM-DD HH:mm:ss'),
                   },
                   {
                     key: 'workflow',
-                    label: '工作流状态',
-                    children: <Tag color={workflowColor(workflowStatus)}>{workflowLabel(workflowStatus)}</Tag>,
+                    label: t('vuln.field.workflowStatus'),
+                    children: <Tag color={workflowColor(workflowStatus)}>{labelOf(workflowKey(workflowStatus), workflowStatus)}</Tag>,
                   },
                   {
                     key: 'customer',
-                    label: '客户确认状态',
-                    children: <Tag color={customerColor(customerStatus)}>{customerLabel(customerStatus)}</Tag>,
+                    label: t('vuln.field.customerStatus'),
+                    children: <Tag color={customerColor(customerStatus)}>{labelOf(customerKey(customerStatus), customerStatus)}</Tag>,
                   },
                   {
                     key: 'disclosure',
-                    label: '公开披露状态',
-                    children: <Tag color={disclosureColor(disclosureStatus)}>{disclosureLabel(disclosureStatus)}</Tag>,
+                    label: t('vuln.field.disclosureStatus'),
+                    children: <Tag color={disclosureColor(disclosureStatus)}>{labelOf(disclosureKey(disclosureStatus), disclosureStatus)}</Tag>,
                   },
                 ]}
               />
               <Form form={editPageForm} layout="vertical">
-                <Card title="基础信息" size="small">
+                <Card title={t('vuln.edit.basicInfo')} size="small">
                   <Row gutter={16}>
                     <Col span={12}>
-                      <Form.Item name="title" label="漏洞名称" rules={[{ required: true, message: '请输入漏洞名称' }]}>
+                      <Form.Item name="title" label={t('vuln.form.title')} rules={[{ required: true, message: t('vuln.form.titleRequired') }]}>
                         <Input />
                       </Form.Item>
                     </Col>
                     <Col span={12}>
-                      <Form.Item name="cve_id" label="CVE编号">
-                        <Input placeholder="例如：CVE-2026-0001" />
+                      <Form.Item name="cve_id" label={t('vuln.form.cve')}>
+                        <Input placeholder={t('vuln.form.cvePlaceholder')} />
                       </Form.Item>
                     </Col>
                     <Col span={12}>
-                      <Form.Item name="type" label="漏洞类型" rules={[{ required: true, message: '请选择漏洞类型' }]}>
-                        <Select options={typeOptions} placeholder="请选择漏洞类型" />
+                      <Form.Item name="type" label={t('vuln.form.type')} rules={[{ required: true, message: t('vuln.form.typeRequired') }]}>
+                        <Select options={typeOptions} placeholder={t('vuln.form.typePlaceholder')} />
                       </Form.Item>
                     </Col>
                     <Col span={12}>
-                      <Form.Item name="severity" label="严重程度" rules={[{ required: true, message: '请选择严重程度' }]}>
-                        <Select options={SEVERITY_OPTIONS.map((item) => ({ value: item.value, label: item.label }))} />
+                      <Form.Item name="severity" label={t('vuln.form.severity')} rules={[{ required: true, message: t('vuln.form.severityRequired') }]}>
+                        <Select options={SEVERITY_OPTIONS.map((item) => ({ value: item.value, label: t(item.labelKey) }))} />
                       </Form.Item>
                     </Col>
                     <Col span={12}>
-                      <Form.Item name="cvss_score" label="CVSS评分">
+                      <Form.Item name="cvss_score" label={t('vuln.form.cvss')}>
                         <InputNumber min={0} max={10} step={0.1} style={{ width: '100%' }} />
                       </Form.Item>
                     </Col>
                     <Col span={12}>
-                      <Form.Item name="assigned_to" label="指派处理人" extra={userDirectoryLimitHit ? USER_DIRECTORY_LIMIT_HINT : undefined}>
+                      <Form.Item name="assigned_to" label={t('vuln.form.assignee')} extra={userDirectoryLimitHit ? USER_DIRECTORY_LIMIT_HINT : undefined}>
                         <Select
                           allowClear
                           showSearch
                           onSearch={handleUserSearch}
                           filterOption={false}
                           optionFilterProp="label"
-                          placeholder="请选择处理人"
+                          placeholder={t('vuln.form.assigneePlaceholder')}
                           options={users.map((user) => ({
                             value: user.id,
                             label: user.fullName || user.username,
@@ -607,76 +612,75 @@ const Vulnerabilities: React.FC = () => {
                     <Col span={12}>
                       <Form.Item
                         name="discovered_version_id"
-                        label="发现版本"
-                        rules={[{ required: true, message: '请选择发现版本' }]}
+                        label={t('vuln.form.discoveredVersion')}
+                        rules={[{ required: true, message: t('vuln.create.versionRequired') }]}
                       >
-                        <Select placeholder="请选择发现时所属资产版本">
+                        <Select placeholder={t('vuln.form.discoveredVersionPlaceholder')}>
                           {assetVersions.map((item) => (
                             <Option key={item.id} value={item.id}>
                               {item.name || `v${item.versionNo}`}
-                              {item.isLatest ? ' - 最新' : ''}
-                              {item.isDefault ? ' - 默认' : ''}
+                              {item.isLatest ? t('vuln.form.versionLatest') : ''}
+                              {item.isDefault ? t('vuln.form.versionDefault') : ''}
                             </Option>
                           ))}
                         </Select>
                       </Form.Item>
                     </Col>
                     <Col span={12}>
-                      <Form.Item name="affected_versions" label="受影响版本">
-                        <Input placeholder="例如: v1.0, v1.1, v2.x" />
+                      <Form.Item name="affected_versions" label={t('vuln.form.affectedVersions')}>
+                        <Input placeholder={t('vuln.form.affectedPlaceholder')} />
                       </Form.Item>
                     </Col>
                   </Row>
                 </Card>
                 <Card
-                  title="状态信息（通过详情页状态流转按钮修改）"
+                  title={t('vuln.edit.statusInfo')}
                   size="small"
                   extra={
                     <Button type="link" onClick={() => navigate(`/vulnerabilities/${vulnerabilityId}`)}>
-                      去详情页流转状态
+                      {t('vuln.edit.goStatus')}
                     </Button>
                   }
                 >
                   <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                    工作流 / 客户确认 / 公开披露 / 利用阶段 / 厂商修复均由 PATCH 专用接口驱动并写入状态历史；
-                    本表单只提交描述类字段（camelCase，PUT 为部分更新语义），状态字段仅只读展示，不会被本表单修改。
+                    {t('vuln.edit.statusNote')}
                   </Typography.Paragraph>
                 </Card>
-                <Card title="利用与测试" size="small">
+                <Card title={t('vuln.edit.exploitAndTest')} size="small">
                   <Row gutter={16}>
                     <Col span={24}>
                       <Form.Item
                         name="exploit_code"
-                        label="利用代码"
-                        extra="保存时通过 PATCH /vulnerabilities/{id}/exploit-stage 单独提交（更新 DTO 不含该字段）"
+                        label={t('vuln.edit.exploitCode')}
+                        extra={t('vuln.edit.exploitCodeExtra')}
                       >
                         <TextArea rows={4} />
                       </Form.Item>
                     </Col>
                     <Col span={8}>
                       <Descriptions size="small" column={1} items={[
-                        { key: 'fieldTestStatus', label: '出场测试状态', children: fieldTestLabel(fieldTestStatusValue) },
+                        { key: 'fieldTestStatus', label: t('vuln.edit.fieldTestStatus'), children: labelOf(fieldTestKey(fieldTestStatusValue), fieldTestStatusValue) },
                       ]} />
                     </Col>
                     <Col span={8}>
                       <Descriptions size="small" column={1} items={[
-                        { key: 'deliveryNote', label: '交付备注', children: deliveryNoteValue || '-' },
+                        { key: 'deliveryNote', label: t('vuln.edit.deliveryNote'), children: deliveryNoteValue || '-' },
                       ]} />
                     </Col>
                     <Col span={8}>
                       <Descriptions size="small" column={1} items={[
-                        { key: 'fieldTestResult', label: '出场测试结果', children: fieldTestResultValue || '-' },
+                        { key: 'fieldTestResult', label: t('vuln.edit.fieldTestResult'), children: fieldTestResultValue || '-' },
                       ]} />
                     </Col>
                     <Col span={24}>
                       <Typography.Text type="secondary">
-                        出场测试状态 / 结果与交付备注当前没有独立更新接口，编辑表单仅展示服务端值，避免看似可改却保存无效。
+                        {t('vuln.edit.readonlyNote')}
                       </Typography.Text>
                     </Col>
                   </Row>
                 </Card>
-                <Card title="漏洞内容" size="small">
-                  <Form.Item name="description" label="漏洞描述">
+                <Card title={t('vuln.edit.content')} size="small">
+                  <Form.Item name="description" label={t('vuln.form.description')}>
                     <TextArea rows={3} />
                   </Form.Item>
                   <Form.Item name="detail" label="漏洞详情">
@@ -692,7 +696,7 @@ const Vulnerabilities: React.FC = () => {
               </Form>
             </Space>
           ) : (
-            <div>漏洞不存在或无权限查看</div>
+            <div>{t('vuln.edit.notFound')}</div>
           )}
         </Spin>
       </Card>
@@ -713,16 +717,16 @@ const Vulnerabilities: React.FC = () => {
   // ==================== 列表页 ====================
   return (
     <Card
-      title="漏洞管理"
+      title={t('vuln.list.title')}
       extra={
         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-          提交漏洞
+          {t('vuln.list.submit')}
         </Button>
       }
     >
       <Space wrap style={{ marginBottom: 16 }}>
         <Input
-          placeholder="搜索漏洞名称/CVE"
+          placeholder={t('vuln.list.searchPlaceholder')}
           prefix={<SearchOutlined />}
           style={{ width: 280 }}
           value={searchText}
@@ -732,22 +736,22 @@ const Vulnerabilities: React.FC = () => {
         />
         <Select
           allowClear
-          placeholder="工作流状态"
+          placeholder={t('vuln.list.filterWorkflow')}
           style={{ width: 160 }}
           value={params.workflow_status}
-          options={WORKFLOW_STATUS_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
+          options={WORKFLOW_STATUS_OPTIONS.map((item) => ({ value: item.value, label: t(item.labelKey) }))}
           onChange={(value) => setParams((prev) => ({ ...prev, workflow_status: value, page: 1 }))}
         />
         <Select
           allowClear
-          placeholder="严重程度"
+          placeholder={t('vuln.list.filterSeverity')}
           style={{ width: 140 }}
           value={params.severity}
-          options={SEVERITY_OPTIONS.map((item) => ({ value: item.value, label: item.label }))}
+          options={SEVERITY_OPTIONS.map((item) => ({ value: item.value, label: t(item.labelKey) }))}
           onChange={(value) => setParams((prev) => ({ ...prev, severity: value, page: 1 }))}
         />
         <Button type="primary" onClick={() => setParams((prev) => ({ ...prev, search: searchText.trim(), page: 1 }))}>
-          查询
+          {t('vuln.list.query')}
         </Button>
         <Button
           onClick={() => {
@@ -755,7 +759,7 @@ const Vulnerabilities: React.FC = () => {
             setParams({ page: 1, page_size: params.page_size, search: '' });
           }}
         >
-          重置
+          {t('vuln.list.reset')}
         </Button>
       </Space>
 
@@ -770,13 +774,13 @@ const Vulnerabilities: React.FC = () => {
           pageSize: params.page_size,
           total,
           showSizeChanger: true,
-          showTotal: (count) => `共 ${count} 条`,
+          showTotal: (count) => t('vuln.list.total', { count }),
           onChange: (page, pageSize) => setParams((prev) => ({ ...prev, page, page_size: pageSize })),
         }}
       />
 
       <Drawer
-        title="漏洞详情"
+        title={t('vuln.drawer.title')}
         open={Boolean(drawerId)}
         width="min(1080px, 96vw)"
         onClose={() => setDrawerId(null)}
@@ -793,7 +797,7 @@ const Vulnerabilities: React.FC = () => {
       </Drawer>
 
       <Modal
-        title="提交漏洞"
+        title={t('vuln.create.title')}
         open={isModalVisible}
         onOk={handleModalOk}
         onCancel={() => setIsModalVisible(false)}
@@ -802,14 +806,14 @@ const Vulnerabilities: React.FC = () => {
         width={820}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="title" label="漏洞名称" rules={[{ required: true, message: '请输入漏洞名称' }]}>
+          <Form.Item name="title" label={t('vuln.form.title')} rules={[{ required: true, message: t('vuln.form.titleRequired') }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="asset_id" label="所属资产" rules={[{ required: true, message: '请选择所属资产' }]}>
+          <Form.Item name="asset_id" label={t('vuln.create.asset')} rules={[{ required: true, message: t('vuln.create.assetRequired') }]}>
             <Select
               showSearch
               optionFilterProp="label"
-              placeholder="请选择资产"
+              placeholder={t('vuln.create.assetPlaceholder')}
               options={assets.map((asset) => ({ value: asset.id, label: asset.name || asset.code }))}
               onChange={(assetId: string) => {
                 form.setFieldValue('discovered_version_id', undefined);
@@ -827,54 +831,54 @@ const Vulnerabilities: React.FC = () => {
           ) : null}
           <Form.Item
             name="discovered_version_id"
-            label="发现版本"
-            rules={[{ required: true, message: '请选择发现版本' }]}
+            label={t('vuln.form.discoveredVersion')}
+            rules={[{ required: true, message: t('vuln.create.versionRequired') }]}
           >
             <Select
-              placeholder="请先选择资产"
+              placeholder={t('vuln.create.versionPlaceholder')}
               options={createAssetVersions.map((item) => ({
                 value: item.id,
-                label: `${item.name || `v${item.versionNo}`}${item.isLatest ? ' - 最新' : ''}`,
+                label: `${item.name || `v${item.versionNo}`}${item.isLatest ? t('vuln.form.versionLatest') : ''}`,
               }))}
             />
           </Form.Item>
-          <Form.Item name="affected_versions" label="受影响版本">
-            <Input placeholder="例如: v1.0, v1.1, v2.x" />
+          <Form.Item name="affected_versions" label={t('vuln.form.affectedVersions')}>
+            <Input placeholder={t('vuln.form.affectedPlaceholder')} />
           </Form.Item>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="type" label="漏洞类型" rules={[{ required: true, message: '请选择漏洞类型' }]}>
-                <Select options={typeOptions} placeholder="请选择漏洞类型" />
+              <Form.Item name="type" label={t('vuln.form.type')} rules={[{ required: true, message: t('vuln.form.typeRequired') }]}>
+                <Select options={typeOptions} placeholder={t('vuln.form.typePlaceholder')} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="severity" label="严重程度" rules={[{ required: true, message: '请选择严重程度' }]}>
-                <Select options={SEVERITY_OPTIONS.map((item) => ({ value: item.value, label: item.label }))} />
+              <Form.Item name="severity" label={t('vuln.form.severity')} rules={[{ required: true, message: t('vuln.form.severityRequired') }]}>
+                <Select options={SEVERITY_OPTIONS.map((item) => ({ value: item.value, label: t(item.labelKey) }))} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="cvss_score" label="CVSS评分">
+              <Form.Item name="cvss_score" label={t('vuln.form.cvss')}>
                 <InputNumber min={0} max={10} step={0.1} style={{ width: '100%' }} />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="assigned_to" label="指派处理人" extra={userDirectoryLimitHit ? USER_DIRECTORY_LIMIT_HINT : undefined}>
+              <Form.Item name="assigned_to" label={t('vuln.form.assignee')} extra={userDirectoryLimitHit ? USER_DIRECTORY_LIMIT_HINT : undefined}>
                 <Select
                   allowClear
                   showSearch
                   onSearch={handleUserSearch}
                   filterOption={false}
                   optionFilterProp="label"
-                  placeholder="请选择处理人"
+                  placeholder={t('vuln.form.assigneePlaceholder')}
                   options={users.map((user) => ({ value: user.id, label: user.fullName || user.username }))}
                 />
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item name="description" label="简要描述" rules={[{ required: true, message: '请输入简要描述' }]}>
+          <Form.Item name="description" label={t('vuln.form.summary')} rules={[{ required: true, message: t('vuln.form.summaryRequired') }]}>
             <TextArea rows={2} />
           </Form.Item>
-          <Form.Item name="detail" label="漏洞详情 (Markdown)" rules={[{ required: true, message: '请输入漏洞详情' }]}>
+          <Form.Item name="detail" label={t('vuln.form.detailMarkdown')} rules={[{ required: true, message: t('vuln.form.detailRequired') }]}>
             <TextArea rows={6} />
           </Form.Item>
         </Form>

@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
@@ -50,6 +49,7 @@ import type { ToolVO, ToolVersionVO } from '@/types/tool';
 import { formatDateTime } from '@/utils/datetime';
 import { saveBlobAsFile } from '@/utils/download';
 import { getApiErrorMessage, getApiErrorStatus, getBlobErrorMessage } from '@/utils/errorMessage';
+import { useT } from '@/i18n';
 
 const { Text } = Typography;
 const { Option } = Select;
@@ -87,6 +87,7 @@ const splitTags = (tags?: string): string[] =>
  * 注意：未上传工具包的工具下载会返回 404「该工具未上传工具包」，页面会给出说明而不是静默失败。
  */
 const Tools: React.FC = () => {
+  const { t } = useT();
   const [data, setData] = useState<ToolVO[]>([]);
   // t51：PUT /tools/{id} 与上传版本仅 admin/PL/TL；DELETE 仅 admin/PL
   const { profile: toolProfile, loaded: toolProfileLoaded } = useAccessProfile();
@@ -259,7 +260,7 @@ const Tools: React.FC = () => {
 
   const handleDelete = (record: ToolVO) => {
     Modal.confirm({
-      title: '确认删除',
+      title: t('tools.deleteTitle'),
       content: `确定要删除工具 [${record.name}] 吗？`,
       okButtonProps: { danger: true },
       onOk: async () => {
@@ -442,7 +443,7 @@ const Tools: React.FC = () => {
 
   const columns = [
     {
-      title: '工具名称',
+      title: t('tools.colName'),
       key: 'name',
       render: (_: unknown, record: ToolVO) => (
         <Space size={4}>
@@ -452,7 +453,7 @@ const Tools: React.FC = () => {
       ),
     },
     {
-      title: '分类',
+      title: t('tools.colCategory'),
       dataIndex: 'category',
       key: 'category',
       render: (category: string) => <Tag color="geekblue">{categoryLabels[category] ?? category}</Tag>,
@@ -474,7 +475,7 @@ const Tools: React.FC = () => {
       },
     },
     {
-      title: '工具包',
+      title: t('tools.colPackage'),
       key: 'fileName',
       render: (_: unknown, record: ToolVO) =>
         record.fileName ? (
@@ -486,17 +487,17 @@ const Tools: React.FC = () => {
         ),
     },
     {
-      title: '下载量',
+      title: t('tools.colDownloads'),
       key: 'downloadCount',
       render: (_: unknown, record: ToolVO) => record.downloadCount ?? record.download_count ?? 0,
     },
     {
-      title: '上传时间',
+      title: t('tools.colUploadedAt'),
       key: 'createdAt',
       render: (_: unknown, record: ToolVO) => formatDateTime(record.createdAt ?? record.created_at),
     },
     {
-      title: '操作',
+      title: t('tools.colAction'),
       key: 'action',
       render: (_: unknown, record: ToolVO) => (
         <Space size="middle" wrap>
@@ -517,11 +518,11 @@ const Tools: React.FC = () => {
 
   return (
     <Card
-      title="工具与组件库"
+      title={t('tools.title')}
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} loading={loading} onClick={fetchData}>刷新</Button>
-          <Button type="primary" icon={<UploadOutlined />} disabled={!allowManageTools} onClick={openCreate}>上传工具</Button>
+          <Button icon={<ReloadOutlined />} loading={loading} onClick={fetchData}>{t('common.refresh')}</Button>
+          <Button type="primary" icon={<UploadOutlined />} disabled={!allowManageTools} onClick={openCreate}>{t('tools.upload')}</Button>
         </Space>
       }
     >
@@ -641,7 +642,7 @@ const Tools: React.FC = () => {
           locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无版本记录" /> }}
           columns={[
             {
-              title: '版本号',
+              title: t('tools.colVersionNo'),
               key: 'version',
               width: 130,
               render: (_: unknown, record: ToolVersionVO) => (
@@ -652,26 +653,26 @@ const Tools: React.FC = () => {
               ),
             },
             {
-              title: '文件名',
+              title: t('tools.colFileName'),
               key: 'fileName',
               render: (_: unknown, record: ToolVersionVO) =>
                 record.fileName ? <Text ellipsis={{ tooltip: record.fileName }}>{record.fileName}</Text> : <Text type="secondary">-</Text>,
             },
             {
-              title: '大小',
+              title: t('tools.colFileSize'),
               key: 'fileSize',
               width: 90,
               render: (_: unknown, record: ToolVersionVO) => formatFileSize(record.fileSize),
             },
             {
-              title: '是否有文件',
+              title: t('tools.colHasFile'),
               key: 'hasFile',
               width: 110,
               render: (_: unknown, record: ToolVersionVO) =>
                 record.hasFile === false ? <Tag>仅元数据</Tag> : <Tag color="green">有文件</Tag>,
             },
             {
-              title: '创建人',
+              title: t('tools.colCreatedBy'),
               key: 'createdBy',
               width: 120,
               render: (_: unknown, record: ToolVersionVO) => displayUser(record.createdBy),
@@ -683,7 +684,7 @@ const Tools: React.FC = () => {
               render: (_: unknown, record: ToolVersionVO) => formatDateTime(record.createdAt),
             },
             {
-              title: '操作',
+              title: t('tools.colAction'),
               key: 'action',
               width: 90,
               render: (_: unknown, record: ToolVersionVO) =>
@@ -717,7 +718,7 @@ const Tools: React.FC = () => {
         />
 
         {allowManageTools ? (
-        <Card size="small" title="上传新版本" style={{ marginTop: 16 }}>
+        <Card size="small" title={t('tools.uploadVersion')} style={{ marginTop: 16 }}>
           <Form form={versionForm} layout="vertical">
             <Form.Item
               name="version"

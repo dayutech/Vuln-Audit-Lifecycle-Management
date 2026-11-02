@@ -7,6 +7,10 @@ import 'dayjs/locale/zh-cn';
 import 'dayjs/locale/en';
 import { zhCN, type MessageCatalog, type MessageKey } from './messages/zh-CN';
 import { enUS } from './messages/en-US';
+import { DEFAULT_LANG, LANG_STORAGE_KEY, readStoredLang, type Lang } from './langStorage';
+
+export { DEFAULT_LANG, LANG_STORAGE_KEY, readStoredLang };
+export type { Lang };
 
 /**
  * 轻量 i18n（自建，零新增依赖：~120 行）。
@@ -24,10 +28,6 @@ import { enUS } from './messages/en-US';
  * 本层只翻译前端自有文案，不处理后端返回的 message（见 t53 报告）。
  */
 
-export type Lang = 'zh-CN' | 'en-US';
-
-export const DEFAULT_LANG: Lang = 'zh-CN';
-export const LANG_STORAGE_KEY = 'app.lang';
 
 const catalogs: Record<Lang, MessageCatalog> = {
   'zh-CN': zhCN,
@@ -42,16 +42,6 @@ const antdLocales: Record<Lang, typeof antdZhCN> = {
 const dayjsLocales: Record<Lang, string> = {
   'zh-CN': 'zh-cn',
   'en-US': 'en',
-};
-
-/** 读取本地语言偏好（localStorage 不可用/值非法时回落默认语言） */
-export const readStoredLang = (): Lang => {
-  try {
-    const stored = window.localStorage.getItem(LANG_STORAGE_KEY);
-    return stored === 'en-US' || stored === 'zh-CN' ? stored : DEFAULT_LANG;
-  } catch {
-    return DEFAULT_LANG;
-  }
 };
 
 const interpolate = (template: string, vars?: Record<string, string | number>): string => {
@@ -69,6 +59,23 @@ export interface I18nContextValue {
 
 const I18nContext = createContext<I18nContextValue | null>(null);
 
+/** antd 表单默认校验文案（未自定义 rules 的 required 提示随语言切换） */
+const formValidateMessages: Record<Lang, Record<string, Record<string, string>>> = {
+  'zh-CN': {
+    default: { required: '请填写该项' },
+    string: { required: '请填写该项', min: '至少 {min} 个字符', max: '最多 {max} 个字符' },
+    number: { required: '请填写该项' },
+    array: { required: '请至少选择一项' },
+    types: { email: '邮箱格式不正确', url: '链接格式不正确' },
+  },
+  'en-US': {
+    default: { required: 'This field is required' },
+    string: { required: 'This field is required', min: 'At least {min} characters', max: 'At most {max} characters' },
+    number: { required: 'This field is required' },
+    array: { required: 'Select at least one item' },
+    types: { email: 'Invalid email address', url: 'Invalid URL' },
+  },
+};
 export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [lang, setLangState] = useState<Lang>(readStoredLang);
 
@@ -100,9 +107,21 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <I18nContext.Provider value={value}>
-      <ConfigProvider locale={antdLocales[lang]}>{children}</ConfigProvider>
+      <ConfigProvider locale={antdLocales[lang]} form={{ validateMessages: formValidateMessages[lang] }}>{children}</ConfigProvider>
     </I18nContext.Provider>
   );
+};
+
+/**
+ * 非组件环境的翻译入口（t64）。
+ *
+ * axios 拦截器 / 工具函数不在 React 树内，拿不到 useT()，这里按 localStorage 里的
+ * 当前语言实时取词条（不缓存语言），因此语言切换后无需刷新即可生效。
+ */
+export const translate = (key: MessageKey, vars?: Record<string, string | number>): string => {
+  const lang = readStoredLang();
+  const template = catalogs[lang][key] ?? catalogs[DEFAULT_LANG][key];
+  return interpolate(template ?? String(key), vars);
 };
 
 /** 取翻译函数与语言状态；必须在 I18nProvider 内使用 */

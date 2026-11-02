@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Empty, Segmented, Skeleton, Space, Typography } from 'antd';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -6,15 +5,16 @@ import dayjs from 'dayjs';
 import { getTrend, listAssetsForDashboard, listTasksForDashboard, listVulnerabilitiesForDashboard } from '@/api/dashboard';
 import { getApiErrorStatus } from '@/utils/errorMessage';
 import { describeApiFailure } from './apiFailure';
+import { useT, type MessageKey } from '@/i18n';
 import { buildSeries, mergeTrendResponses, sumPoint } from './trendNormalize';
 import type { TrendPoint } from '@/types/dashboard';
 
 const { Text } = Typography;
 
 const DAY_OPTIONS = [
-  { label: '近 7 天', value: 7 },
-  { label: '近 30 天', value: 30 },
-  { label: '近 90 天', value: 90 },
+  { labelKey: 'dashboard.trend.range7' as MessageKey, value: 7 },
+  { labelKey: 'dashboard.trend.range30' as MessageKey, value: 30 },
+  { labelKey: 'dashboard.trend.range90' as MessageKey, value: 90 },
 ];
 
 type TrendKind = 'assets' | 'vulnerabilities' | 'workload';
@@ -65,6 +65,7 @@ interface TrendChartProps {
  * - 本地也为空 → 只展示空态；仅当三个接口都失败时才额外给出分级错误提示（403/404/5xx）。
  */
 const TrendChart: React.FC<TrendChartProps> = ({ days, onDaysChange }) => {
+  const { t } = useT();
   const [series, setSeries] = useState<TrendPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [usingFallback, setUsingFallback] = useState(false);
@@ -111,7 +112,13 @@ const TrendChart: React.FC<TrendChartProps> = ({ days, onDaysChange }) => {
           // 仅当三个接口全部失败时才提示错误级别；部分失败但 200 空集合按“无活动数据”处理
           if (failed.length === TREND_KINDS.length) {
             const failure = describeApiFailure(getApiErrorStatus(failed[0].error));
-            setFailureNotice(`趋势接口${failure.label}：${failure.hint}${hasLocal ? '当前为本兜底口径。' : ''}`);
+            setFailureNotice(
+              t('dashboard.trend.failureNotice', {
+                label: t(failure.labelKey, failure.vars),
+                hint: t(failure.hintKey),
+                suffix: hasLocal ? t('dashboard.trend.fallbackSuffix') : '',
+              })
+            );
           } else {
             setFailureNotice(null);
           }
@@ -120,7 +127,7 @@ const TrendChart: React.FC<TrendChartProps> = ({ days, onDaysChange }) => {
         if (!cancelled) {
           setSeries(buildSeries(days, {}));
           setUsingFallback(false);
-          setFailureNotice('趋势数据加载失败，可稍后重试');
+          setFailureNotice(t('dashboard.trend.loadFailed'));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -150,11 +157,11 @@ const TrendChart: React.FC<TrendChartProps> = ({ days, onDaysChange }) => {
   return (
     <div>
       <Space style={{ marginBottom: 12, width: '100%', justifyContent: 'space-between' }} wrap>
-        <Segmented options={DAY_OPTIONS} value={days} onChange={(value) => onDaysChange(Number(value))} />
+        <Segmented options={DAY_OPTIONS.map((item) => ({ label: t(item.labelKey), value: item.value }))} value={days} onChange={(value) => onDaysChange(Number(value))} />
         <Space size={16} wrap>
-          <Text type="secondary">资产新增 {totals.assets}</Text>
-          <Text type="secondary">漏洞新增 {totals.vulnerabilities}</Text>
-          <Text type="secondary">任务新增 {totals.workload}</Text>
+          <Text type="secondary">{t('dashboard.trend.assetsAdded', { count: totals.assets })}</Text>
+          <Text type="secondary">{t('dashboard.trend.vulnsAdded', { count: totals.vulnerabilities })}</Text>
+          <Text type="secondary">{t('dashboard.trend.tasksAdded', { count: totals.workload })}</Text>
         </Space>
       </Space>
 
@@ -168,23 +175,23 @@ const TrendChart: React.FC<TrendChartProps> = ({ days, onDaysChange }) => {
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="label" minTickGap={16} />
             <YAxis allowDecimals={false} />
-            <Tooltip labelFormatter={(label) => `日期 ${label}`} />
+            <Tooltip labelFormatter={(label) => t('dashboard.trend.dateLabel', { date: String(label) })} />
             <Legend />
-            <Line type="monotone" dataKey="assets" name="资产" stroke="#1890ff" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="vulnerabilities" name="漏洞" stroke="#f5222d" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="workload" name="任务" stroke="#52c41a" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="assets" name={t('dashboard.trend.seriesAssets')} stroke="#1890ff" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="vulnerabilities" name={t('dashboard.trend.seriesVulnerabilities')} stroke="#f5222d" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="workload" name={t('dashboard.trend.seriesTasks')} stroke="#52c41a" strokeWidth={2} dot={false} />
           </LineChart>
         </ResponsiveContainer>
       ) : (
         <Empty
           image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={`近 ${days} 天内没有新增资产、漏洞或任务，趋势图暂时为空`}
+          description={t('dashboard.trend.empty', { days })}
         />
       )}
 
       {usingFallback ? (
         <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
-          当前为本兜底口径：服务端趋势接口没有返回数据（或不可用），改按 /assets、/vulnerabilities、/tasks 的创建时间本地按天聚合（各取最近 200 条）。
+          {t('dashboard.trend.fallbackNote')}
         </Text>
       ) : null}
     </div>

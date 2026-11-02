@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -37,6 +36,7 @@ import {
   groupPermissions,
 } from '@/utils/permissions';
 import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
+import { useT } from '@/i18n';
 
 const { Text } = Typography;
 
@@ -53,6 +53,7 @@ const { Text } = Typography;
  * 此时保存角色**不带 permissionIds**，避免把已有授权误清空。
  */
 const Roles: React.FC = () => {
+  const { t } = useT();
   const [roles, setRoles] = useState<RoleVO[]>([]);
   const [permissions, setPermissions] = useState<PermissionVO[]>([]);
   const [loading, setLoading] = useState(false);
@@ -176,7 +177,7 @@ const Roles: React.FC = () => {
       return;
     }
     Modal.confirm({
-      title: '确认删除',
+      title: t('roles.deleteTitle'),
       content: `确定要删除角色 [${record.name}] 吗？该角色下的用户关联与权限关联会一并移除。`,
       okButtonProps: { danger: true },
       onOk: async () => {
@@ -242,21 +243,21 @@ const Roles: React.FC = () => {
   };
 
   const columns = [
-    { title: '角色名称', dataIndex: 'name', key: 'name' },
+    { title: t('roles.colName'), dataIndex: 'name', key: 'name' },
     {
-      title: '角色编码',
+      title: t('roles.colCode'),
       dataIndex: 'code',
       key: 'code',
       render: (code: string) => <Text code>{code}</Text>,
     },
     {
-      title: '类型',
+      title: t('roles.colType'),
       key: 'isSystem',
       render: (_: unknown, record: RoleVO) =>
         isSystemRole(record) ? <Tag color="gold">系统内置</Tag> : <Tag color="green">自定义</Tag>,
     },
     {
-      title: '权限点',
+      title: t('roles.colPermissions'),
       key: 'permissionCount',
       render: (_: unknown, record: RoleVO) =>
         Array.isArray(record.permissions) ? (
@@ -268,19 +269,19 @@ const Roles: React.FC = () => {
         ),
     },
     {
-      title: '描述',
+      title: t('roles.colDescription'),
       dataIndex: 'description',
       key: 'description',
       render: (text?: string) => text || <Text type="secondary">-</Text>,
     },
     {
-      title: '操作',
+      title: t('roles.colAction'),
       key: 'action',
       render: (_: unknown, record: RoleVO) => (
         <Space size="middle">
           <a onClick={() => openEdit(record)}>配置权限</a>
           {isSystemRole(record) ? (
-            <Tooltip title="系统内置角色不可删除">
+            <Tooltip title={t('roles.builtinNoDelete')}>
               <Text type="secondary" style={{ cursor: 'not-allowed' }}>删除</Text>
             </Tooltip>
           ) : (
@@ -293,10 +294,10 @@ const Roles: React.FC = () => {
 
   return (
     <Card
-      title="角色与权限管理"
+      title={t('roles.title')}
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>刷新</Button>
+          <Button icon={<ReloadOutlined />} onClick={fetchData} loading={loading}>{t('common.refresh')}</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>创建角色</Button>
         </Space>
       }
@@ -326,7 +327,7 @@ const Roles: React.FC = () => {
         onCancel={() => setIsModalVisible(false)}
         confirmLoading={saving}
         okText="保存"
-        cancelText="取消"
+        cancelText={t('common.cancel')}
         destroyOnClose
         width={880}
       >

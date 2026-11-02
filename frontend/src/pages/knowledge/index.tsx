@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -48,7 +47,15 @@ import type { CreateKnowledgeRequest, KnowledgeArticleVO } from '@/types/knowled
 import { formatDateTime } from '@/utils/datetime';
 import { useUserStore } from '@/store/userStore';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
-import { canDeleteKnowledge, resolveCurrentUserId } from '@/utils/accessRoles';
+import { getApiErrorMessage } from '@/utils/errorMessage';
+import {
+  canDeleteKnowledge,
+  canWriteKnowledgeTags,
+  resolveCurrentUserId,
+  KNOWLEDGE_TAG_FORBIDDEN_MESSAGE,
+  KNOWLEDGE_TAG_READONLY_HINT,
+} from '@/utils/accessRoles';
+import { useT } from '@/i18n';
 
 const { Option } = Select;
 const { Text, Paragraph } = Typography;
@@ -155,6 +162,7 @@ const splitTags = (tags?: string): string[] =>
  * - 标签：GET|POST|DELETE /knowledge/{id}/tags?tag=***
  */
 const Knowledge: React.FC = () => {
+  const { t } = useT();
   const currentUser = useUserStore((state) => state.user);
   // t50：DELETE /knowledge/{id} 仅作者本人或管理层
   const { profile: accessProfile, loaded: accessLoaded } = useAccessProfile();
@@ -190,6 +198,8 @@ const Knowledge: React.FC = () => {
 
   // 标签
   const [tagArticle, setTagArticle] = useState<KnowledgeArticleVO | null>(null);
+  /** t61：文章标签写权（作者本人或管理层）——决定标签抽屉是否渲染增删控件 */
+  const tagWritable = accessLoaded && canWriteKnowledgeTags(accessProfile, tagArticle?.authorId);
   const [tags, setTags] = useState<string[]>([]);
   const [tagLoading, setTagLoading] = useState(false);
   const [newTag, setNewTag] = useState('');
@@ -297,7 +307,7 @@ const Knowledge: React.FC = () => {
 
   const handleDelete = (record: KnowledgeArticleVO) => {
     Modal.confirm({
-      title: '确认删除',
+      title: t('knowledge.deleteTitle'),
       content: `确定要删除文章 [${record.title}] 吗？此操作不可恢复。`,
       okButtonProps: { danger: true },
       onOk: async () => {
@@ -413,6 +423,11 @@ const Knowledge: React.FC = () => {
 
   const handleAddTag = async () => {
     if (!tagArticle) return;
+    // t61：文章标签仅作者本人或管理层可写
+    if (!tagWritable) {
+      message.error(KNOWLEDGE_TAG_FORBIDDEN_MESSAGE);
+      return;
+    }
     const tag = newTag.trim();
     if (!tag) {
       message.warning('请输入标签内容');
@@ -428,27 +443,31 @@ const Knowledge: React.FC = () => {
       setNewTag('');
       message.success(`已添加标签「${tag}」`);
       fetchData();
-    } catch {
-      // 拦截器提示
+    } catch (error) {
+      message.error(getApiErrorMessage(error, KNOWLEDGE_TAG_FORBIDDEN_MESSAGE));
     }
   };
 
   const handleRemoveTag = async (tag: string) => {
     if (!tagArticle) return;
+    if (!tagWritable) {
+      message.error(KNOWLEDGE_TAG_FORBIDDEN_MESSAGE);
+      return;
+    }
     try {
       await removeKnowledgeTag(tagArticle.id, tag);
       setTags((prev) => prev.filter((item) => item !== tag));
       message.success(`已移除标签「${tag}」`);
       fetchData();
-    } catch {
-      // 拦截器提示
+    } catch (error) {
+      message.error(getApiErrorMessage(error, KNOWLEDGE_TAG_FORBIDDEN_MESSAGE));
     }
   };
 
   const columns = useMemo(
     () => [
       {
-        title: '标题',
+        title: t('knowledge.colTitle'),
         dataIndex: 'title',
         key: 'title',
         render: (title: string, record: KnowledgeArticleVO) => (
@@ -456,7 +475,7 @@ const Knowledge: React.FC = () => {
         ),
       },
       {
-        title: '分类',
+        title: t('knowledge.colCategory'),
         dataIndex: 'category',
         key: 'category',
         render: (category: string) => <Tag color="geekblue">{categoryLabels[category] ?? category}</Tag>,
@@ -478,17 +497,17 @@ const Knowledge: React.FC = () => {
         },
       },
       {
-        title: '作者',
+        title: t('knowledge.colAuthor'),
         key: 'author',
         render: (_: unknown, record: KnowledgeArticleVO) => authorName(record),
       },
       {
-        title: '浏览量',
+        title: t('knowledge.colViews'),
         key: 'viewCount',
         render: (_: unknown, record: KnowledgeArticleVO) => record.viewCount ?? record.view_count ?? 0,
       },
       {
-        title: '创建时间',
+        title: t('knowledge.colCreated'),
         key: 'createdAt',
         render: (_: unknown, record: KnowledgeArticleVO) =>
           formatDateTime(record.createdAt ?? record.created_at),
@@ -517,12 +536,10 @@ const Knowledge: React.FC = () => {
 
   return (
     <Card
-      title="安全知识库"
+      title={t('knowledge.title')}
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} loading={loading} onClick={() => { fetchData(); fetchPopular(); }}>
-            刷新
-          </Button>
+          <Button icon={<ReloadOutlined />} loading={loading} onClick={() => { fetchData(); fetchPopular(); }}>{t('common.refresh')}</Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>发布文章</Button>
         </Space>
       }
@@ -608,7 +625,7 @@ const Knowledge: React.FC = () => {
 
       {/* 发布文章 */}
       <Modal
-        title="发布文章"
+        title={t('knowledge.publish')}
         open={isModalVisible}
         onOk={handleModalOk}
         onCancel={() => setIsModalVisible(false)}
@@ -735,6 +752,7 @@ const Knowledge: React.FC = () => {
         width={420}
         destroyOnClose
       >
+        {tagWritable ? (
         <Space.Compact style={{ width: '100%', marginBottom: 16 }}>
           <Input
             placeholder="输入标签，如 反序列化"
@@ -744,6 +762,9 @@ const Knowledge: React.FC = () => {
           />
           <Button type="primary" onClick={handleAddTag}>添加</Button>
         </Space.Compact>
+        ) : (
+          <Alert type="info" showIcon style={{ marginBottom: 16 }} message={KNOWLEDGE_TAG_READONLY_HINT} />
+        )}
 
         {tagLoading ? (
           <Text type="secondary">加载中…</Text>
@@ -752,7 +773,7 @@ const Knowledge: React.FC = () => {
         ) : (
           <Space size={[8, 8]} wrap>
             {tags.map((tag) => (
-              <Tag key={tag} color="cyan" closable onClose={() => handleRemoveTag(tag)}>
+              <Tag key={tag} color="cyan" closable={tagWritable} onClose={() => handleRemoveTag(tag)}>
                 {tag}
               </Tag>
             ))}

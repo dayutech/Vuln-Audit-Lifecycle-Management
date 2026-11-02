@@ -8,6 +8,7 @@
  * - GET /audit-logs/export 返回 text/csv（UTF-8 BOM），参数与列表一致，仅 admin/project_leader；
  * - 类级 @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")：工程师访问列表 403「无权限访问该资源」。
  */
+import type { MessageKey } from '@/i18n';
 
 export interface AuditLogVO {
   id: string;
@@ -42,7 +43,39 @@ export interface AuditLogQuery {
   keyword?: string;
 }
 
-/** 常见的资源类型（用于筛选下拉；后端实际值随拦截器记录而定，可搜索清空） */
+export interface AuditResourceTypeOption {
+  /** i18n 词条 key（页面用 t(key) 渲染，切语言即时生效） */
+  key: MessageKey;
+  value: string;
+}
+
+/**
+ * 常见资源类型（筛选下拉）。
+ *
+ * t59：label 由「中文硬编码」改为 message key，页面用 `t(option.key)` 渲染；
+ * 后端实际写入的 resourceType 若不在列表内，页面会以原始值追加选项。
+ */
+export const AUDIT_RESOURCE_TYPE_KEYS: AuditResourceTypeOption[] = [
+  { key: 'audit.resource.assets', value: 'assets' },
+  { key: 'audit.resource.vulnerabilities', value: 'vulnerabilities' },
+  { key: 'audit.resource.tasks', value: 'tasks' },
+  { key: 'audit.resource.teams', value: 'teams' },
+  { key: 'audit.resource.users', value: 'users' },
+  { key: 'audit.resource.roles', value: 'roles' },
+  { key: 'audit.resource.permissions', value: 'permissions' },
+  { key: 'audit.resource.documents', value: 'documents' },
+  { key: 'audit.resource.tools', value: 'tools' },
+  { key: 'audit.resource.knowledge', value: 'knowledge' },
+  { key: 'audit.resource.environments', value: 'environments' },
+  { key: 'audit.resource.notifications', value: 'notifications' },
+  { key: 'audit.resource.dashboard', value: 'dashboard' },
+  { key: 'audit.resource.approvalScopes', value: 'approval-scopes' },
+  { key: 'audit.resource.import', value: 'import' },
+];
+
+/**
+ * @deprecated 兼容旧调用方（t59 前使用中文 label）。新代码请用 AUDIT_RESOURCE_TYPE_KEYS + t()。
+ */
 export const AUDIT_RESOURCE_TYPE_OPTIONS: { label: string; value: string }[] = [
   { label: '资产 assets', value: 'assets' },
   { label: '漏洞 vulnerabilities', value: 'vulnerabilities' },
@@ -61,5 +94,9 @@ export const AUDIT_RESOURCE_TYPE_OPTIONS: { label: string; value: string }[] = [
   { label: '导入 import', value: 'import' },
 ];
 
-/** action 形如「DELETE TeamController.deleteTeam」，这里给出按 HTTP 动词归类的说明 */
-export const AUDIT_ACTION_HINT = 'action 由「HTTP 方法 + 控制器.方法」组成，例如 DELETE TeamController.deleteTeam；等值匹配，模糊查询请用关键词';
+/** action 说明的 message key（页面用 t(AUDIT_ACTION_HINT_KEY) 渲染） */
+export const AUDIT_ACTION_HINT_KEY: MessageKey = 'audit.actionHint';
+
+/** @deprecated 兼容旧调用方；新代码请用 AUDIT_ACTION_HINT_KEY + t() */
+export const AUDIT_ACTION_HINT =
+  'action 由「HTTP 方法 + 控制器.方法」组成，例如 DELETE TeamController.deleteTeam；等值匹配，模糊查询请用关键词';

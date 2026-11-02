@@ -1,11 +1,25 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Table, Button, Space, Card, Input, Tag, Modal, Form, Select, message, Tabs } from 'antd';
+import { Alert, Table, Button, Space, Card, Input, Tag, Modal, Form, Select, message, Tabs, Drawer, Empty, Typography } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
-import { getDocumentList, createDocument, updateDocument, deleteDocument, publishDocument, unpublishDocument } from '@/api/document';
-import type { DocumentVO, CreateDocumentRequest, UpdateDocumentRequest } from '@/types/document';
+import {
+  getDocumentList,
+  createDocument,
+  updateDocument,
+  deleteDocument,
+  publishDocument,
+  unpublishDocument,
+  getDocumentTags,
+  addDocumentTag,
+  removeDocumentTag,
+  extractDocumentTags,
+} from '@/api/document';
+import type { DocumentVO, CreateDocumentRequest, UpdateDocumentRequest, DocumentTagVO } from '@/types/document';
 import { formatDateTime } from '@/utils/datetime';
 import { useLocation } from 'react-router-dom';
+import { useT } from '@/i18n';
+import { useAccessProfile } from '@/hooks/useAccessProfile';
+import { canWriteDocumentTags, DOCUMENT_TAG_FORBIDDEN_MESSAGE, DOCUMENT_TAG_READONLY_HINT } from '@/utils/accessRoles';
+import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
 
 const { Option } = Select;
 
@@ -100,6 +114,7 @@ const renderRichContent = (content: string, emptyText: string) => {
 };
 
 const Documents: React.FC = () => {
+  const { t } = useT();
   const location = useLocation();
   const tableWrapRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<DocumentVO[]>([]);
@@ -114,6 +129,93 @@ const Documents: React.FC = () => {
   const [currentDoc, setCurrentDoc] = useState<DocumentVO | null>(null);
   const [form] = Form.useForm();
   const [editorContent, setEditorContent] = useState('');
+
+  // ===== 文档标签（t66）：后端 t61 起仅作者本人或管理层可写 =====
+  const { profile: accessProfile, loaded: accessLoaded } = useAccessProfile();
+  const [tagDoc, setTagDoc] = useState<DocumentVO | null>(null);
+  const [docTags, setDocTags] = useState<DocumentTagVO[]>([]);
+  const [tagLoading, setTagLoading] = useState(false);
+  const [tagSubmitting, setTagSubmitting] = useState(false);
+  const [newTag, setNewTag] = useState('');
+  const [tagError, setTagError] = useState<string | null>(null);
+  const docAuthorId = tagDoc?.author_id ?? (tagDoc as any)?.authorId ?? (tagDoc as any)?.createdBy;
+  const tagWritable = accessLoaded && canWriteDocumentTags(accessProfile, docAuthorId);
+
+  const loadDocTags = async (documentId: string) => {
+    setTagLoading(true);
+    setTagError(null);
+    try {
+      setDocTags(extractDocumentTags(await getDocumentTags(documentId)));
+    } catch (error) {
+      setDocTags([]);
+      // 404：文档已不存在（t61 起不存在的资源返回 404，避免写入孤儿标签）
+      setTagError(
+        getApiErrorStatus(error) === 404
+          ? t('documents.tags.notFound')
+          : getApiErrorMessage(error, t('documents.tags.loadFailed')),
+      );
+    } finally {
+      setTagLoading(false);
+    }
+  };
+
+  const openTags = (record: DocumentVO) => {
+    setTagDoc(record);
+    setDocTags([]);
+    setNewTag('');
+    void loadDocTags(record.id);
+  };
+
+  const handleAddDocTag = async () => {
+    if (!tagDoc) return;
+    if (!tagWritable) {
+      message.error(DOCUMENT_TAG_FORBIDDEN_MESSAGE);
+      return;
+    }
+    const tag = newTag.trim();
+    if (!tag) {
+      message.warning(t('documents.tags.needInput'));
+      return;
+    }
+    if (docTags.some((item) => item.tag === tag)) {
+      message.info(t('documents.tags.duplicated'));
+      return;
+    }
+    setTagSubmitting(true);
+    try {
+      await addDocumentTag(tagDoc.id, tag);
+      setNewTag('');
+      message.success(t('documents.tags.addSuccess', { tag }));
+      await loadDocTags(tagDoc.id);
+    } catch (error) {
+      message.error(
+        getApiErrorStatus(error) === 404
+          ? t('documents.tags.notFound')
+          : getApiErrorMessage(error, DOCUMENT_TAG_FORBIDDEN_MESSAGE),
+      );
+    } finally {
+      setTagSubmitting(false);
+    }
+  };
+
+  const handleRemoveDocTag = async (tag: DocumentTagVO) => {
+    if (!tagDoc) return;
+    if (!tagWritable) {
+      message.error(DOCUMENT_TAG_FORBIDDEN_MESSAGE);
+      return;
+    }
+    try {
+      await removeDocumentTag(tagDoc.id, tag.id);
+      message.success(t('documents.tags.removeSuccess', { tag: tag.tag }));
+      await loadDocTags(tagDoc.id);
+    } catch (error) {
+      message.error(
+        getApiErrorStatus(error) === 404
+          ? t('documents.tags.notFound')
+          : getApiErrorMessage(error, DOCUMENT_TAG_FORBIDDEN_MESSAGE),
+      );
+    }
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -193,7 +295,7 @@ const Documents: React.FC = () => {
 
   const handleDelete = (id: string) => {
     Modal.confirm({
-      title: '确认删除',
+      title: t('documents.deleteTitle'),
       content: '确定要删除该文档吗？此操作不可恢复。',
       onOk: async () => {
         try {
@@ -248,28 +350,29 @@ const Documents: React.FC = () => {
   };
 
   const columns = [
-    { title: '文档标题', dataIndex: 'title', key: 'title' },
-    { title: '分类', dataIndex: 'category', key: 'category' },
+    { title: t('documents.colTitle'), dataIndex: 'title', key: 'title' },
+    { title: t('documents.colCategory'), dataIndex: 'category', key: 'category' },
     { 
-      title: '状态', 
+      title: t('documents.colStatus'), 
       dataIndex: 'status', 
       key: 'status',
       render: (text: string) => <Tag color={statusColors[text] || 'default'}>{statusLabels[text] || text}</Tag>
     },
     { title: '版本', dataIndex: 'version', key: 'version', render: (v: number) => `v${v}` },
     {
-      title: '更新时间',
+      title: t('documents.colUpdated'),
       dataIndex: 'updated_at',
       key: 'updated_at',
       render: (_: unknown, record: DocumentVO & { updatedAt?: string; updated_at?: string }) =>
         formatDateTime(record.updated_at ?? record.updatedAt)
     },
     {
-      title: '操作',
+      title: t('documents.colAction'),
       key: 'action',
       render: (_: any, record: DocumentVO) => (
         <Space size="middle">
           <a onClick={() => handleEdit(record)}>编辑</a>
+          <a onClick={() => openTags(record)}>{t('documents.tags.action')}</a>
           <a onClick={() => handlePublishToggle(record)}>
             {record.status === 'draft' ? '发布' : '取消发布'}
           </a>
@@ -280,7 +383,7 @@ const Documents: React.FC = () => {
   ];
 
   return (
-    <Card title="文档管理" extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>新建文档</Button>}>
+    <Card title={t('documents.title')} extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('documents.create')}</Button>}>
       <div style={{ marginBottom: 16 }}>
         <Input 
           placeholder="搜索文档标题" 
@@ -370,6 +473,47 @@ const Documents: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+      {/* 文档标签（t66） */}
+      <Drawer
+        title={t('documents.tags.title', { title: tagDoc?.title ?? '' })}
+        open={!!tagDoc}
+        onClose={() => setTagDoc(null)}
+        width={420}
+        destroyOnClose
+      >
+        {tagError ? <Alert type="warning" showIcon style={{ marginBottom: 16 }} message={tagError} /> : null}
+
+        {tagWritable ? (
+          <Space.Compact style={{ width: '100%', marginBottom: 16 }}>
+            <Input
+              placeholder={t('documents.tags.addPlaceholder')}
+              value={newTag}
+              maxLength={50}
+              onChange={(event) => setNewTag(event.target.value)}
+              onPressEnter={handleAddDocTag}
+            />
+            <Button type="primary" loading={tagSubmitting} onClick={handleAddDocTag}>
+              {t('documents.tags.add')}
+            </Button>
+          </Space.Compact>
+        ) : (
+          <Alert type="info" showIcon style={{ marginBottom: 16 }} message={DOCUMENT_TAG_READONLY_HINT} />
+        )}
+
+        {tagLoading ? (
+          <Typography.Text type="secondary">{t('documents.tags.loading')}</Typography.Text>
+        ) : docTags.length === 0 ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('documents.tags.empty')} />
+        ) : (
+          <Space size={[8, 8]} wrap>
+            {docTags.map((item) => (
+              <Tag key={item.id} color="cyan" closable={tagWritable} onClose={() => handleRemoveDocTag(item)}>
+                {item.tag}
+              </Tag>
+            ))}
+          </Space>
+        )}
+      </Drawer>
     </Card>
   );
 };

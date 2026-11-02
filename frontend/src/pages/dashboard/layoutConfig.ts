@@ -1,3 +1,4 @@
+import type { MessageKey } from '@/i18n';
 import type { DashboardCardDef, DashboardCardLayout, DashboardConfigPayload } from '@/types/dashboard';
 
 /** 大盘可用卡片；顺序即默认布局顺序 */
@@ -12,6 +13,22 @@ export const DASHBOARD_CARDS: DashboardCardDef[] = [
   { id: 'rank-workload', title: '工作量排行', defaultSpan: 24, description: '按任务负责人聚合的排行' },
 ];
 
+/** 卡片标题 → i18n 词条（t59：布局弹窗卡片名随语言切换） */
+export const CARD_TITLE_KEYS: Record<string, MessageKey> = {
+  'kpi-assets': 'dashboard.card.kpiAssets',
+  'kpi-vulnerabilities': 'dashboard.card.kpiVulnerabilities',
+  'kpi-workload': 'dashboard.card.kpiWorkload',
+  'kpi-claims': 'dashboard.card.kpiClaims',
+  'chart-trends': 'dashboard.card.trends',
+  'chart-asset-type': 'dashboard.card.assetDistribution',
+  'chart-vuln-severity': 'dashboard.card.vulnDistribution',
+  'rank-workload': 'dashboard.card.rankWorkload',
+};
+
+export const cardTitleKey = (id: string): MessageKey =>
+  CARD_TITLE_KEYS[id] ?? 'dashboard.card.kpiAssets';
+
+/** @deprecated 中文卡片名（t59 前使用）；新代码请用 cardTitleKey + t() */
 export const cardTitle = (id: string): string => DASHBOARD_CARDS.find((card) => card.id === id)?.title ?? id;
 
 export const defaultLayout = (): DashboardCardLayout[] =>

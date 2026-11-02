@@ -1,16 +1,16 @@
 import React from 'react';
 import { Alert, Button, Checkbox, List, Modal, Select, Space, Tag, Typography } from 'antd';
 import { ArrowDownOutlined, ArrowUpOutlined, UndoOutlined } from '@ant-design/icons';
-import { useT } from '@/i18n';
+import { useT, type MessageKey } from '@/i18n';
 import type { DashboardCardLayout } from '@/types/dashboard';
-import { cardTitle } from './layoutConfig';
+import { cardTitleKey } from './layoutConfig';
 
 const { Text } = Typography;
 
 const SPAN_OPTIONS = [
-  { label: '整行 24', value: 24 },
-  { label: '半行 12', value: 12 },
-  { label: '1/4 行 6', value: 6 },
+  { labelKey: 'dashboard.layout.span24' as MessageKey, value: 24 },
+  { labelKey: 'dashboard.layout.span12' as MessageKey, value: 12 },
+  { labelKey: 'dashboard.layout.span6' as MessageKey, value: 6 },
 ];
 
 interface LayoutSettingsProps {
@@ -69,8 +69,8 @@ const LayoutSettings: React.FC<LayoutSettingsProps> = ({ open, layout, saving, o
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
-        message="布局按账号保存在 /dashboard/config；未保存过配置时使用默认布局兜底"
-        description={`当前启用 ${visibleCount} / ${layout.length} 个卡片，关闭的卡片不会发起对应请求。`}
+        message={t('dashboard.layout.bannerTitle')}
+        description={t('dashboard.layout.bannerDesc', { visible: visibleCount, total: layout.length })}
       />
       <List
         size="small"
@@ -81,7 +81,7 @@ const LayoutSettings: React.FC<LayoutSettingsProps> = ({ open, layout, saving, o
               <Space>
                 <Tag color={row.visible ? 'blue' : 'default'}>{index + 1}</Tag>
                 <Checkbox checked={row.visible} onChange={(event) => toggle(row.id, event.target.checked)}>
-                  <Text delete={!row.visible}>{cardTitle(row.id)}</Text>
+                  <Text delete={!row.visible}>{t(cardTitleKey(row.id))}</Text>
                 </Checkbox>
               </Space>
               <Space>
@@ -89,7 +89,7 @@ const LayoutSettings: React.FC<LayoutSettingsProps> = ({ open, layout, saving, o
                   size="small"
                   style={{ width: 120 }}
                   value={row.span}
-                  options={SPAN_OPTIONS}
+                  options={SPAN_OPTIONS.map((item) => ({ label: t(item.labelKey), value: item.value }))}
                   onChange={(value) => changeSpan(row.id, value)}
                 />
                 <Button

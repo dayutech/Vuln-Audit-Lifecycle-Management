@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
@@ -40,6 +39,7 @@ import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
 import type { UserDirectoryEntry } from '@/api/user';
 import { useUserStore } from '@/store/userStore';
 import { describeTeamWriteFailure, isFormValidationError, resolveTeamWriteAccess } from './teamAccess';
+import { useT } from '@/i18n';
 
 const { TextArea } = Input;
 
@@ -62,6 +62,7 @@ const userName = (user?: UserDirectoryEntry | null) =>
   user ? (user.fullName || user.username) : '';
 
 const Teams: React.FC = () => {
+  const { t } = useT();
   const storeUser = useUserStore((state) => state.user);
   const [teams, setTeams] = useState<TeamVO[]>([]);
   const [users, setUsers] = useState<UserDirectoryEntry[]>([]);
@@ -289,7 +290,7 @@ const Teams: React.FC = () => {
 
   const handleDelete = (team: TeamVO) => {
     Modal.confirm({
-      title: '确认删除团队',
+      title: t('teams.deleteTitle'),
       content: `确定删除「${team.name}」吗？子团队不会被级联删除，但会失去父团队归属。`,
       okType: 'danger',
       onOk: async () => {
@@ -350,8 +351,8 @@ const Teams: React.FC = () => {
   });
 
   const memberColumns: TableColumnsType<TeamMemberRow> = [
-    { title: '成员', dataIndex: 'name', key: 'name' },
-    { title: '账号', dataIndex: 'username', key: 'username' },
+    { title: t('teams.colMember'), dataIndex: 'name', key: 'name' },
+    { title: t('teams.colAccount'), dataIndex: 'username', key: 'username' },
     {
       title: '角色',
       key: 'isLeader',
@@ -369,10 +370,10 @@ const Teams: React.FC = () => {
       width: 120,
       render: (_: unknown, record: TeamMemberRow) => (
         <Popconfirm
-          title="确认移除该成员？"
+          title={t('teams.removeMemberTitle')}
           onConfirm={() => handleRemoveMember(record.userId)}
           okText="移除"
-          cancelText="取消"
+          cancelText={t('common.cancel')}
         >
           <Typography.Link type="danger">移除</Typography.Link>
         </Popconfirm>
@@ -389,12 +390,10 @@ const Teams: React.FC = () => {
 
   return (
     <Card
-      title="团队架构"
+      title={t('teams.title')}
       extra={
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchTeams} loading={loading}>
-            刷新
-          </Button>
+          <Button icon={<ReloadOutlined />} onClick={fetchTeams} loading={loading}>{t('common.refresh')}</Button>
           {/* 新建团队：仅 admin / project_leader（POST /teams 的 @PreAuthorize 口径） */}
           {access.canCreateTeam ? (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate()}>
@@ -467,15 +466,11 @@ const Teams: React.FC = () => {
                     ) : null}
                     {/* 编辑 = PUT /teams/{id}：admin/PL 任意团队，团队长仅自己领导的团队 */}
                     {access.canEditTeam(selectedTeam) ? (
-                      <Button size="small" onClick={() => openEdit(selectedTeam)}>
-                        编辑
-                      </Button>
+                      <Button size="small" onClick={() => openEdit(selectedTeam)}>{t('common.edit')}</Button>
                     ) : null}
                     {/* 删除 = DELETE /teams/{id}：后端 and 语义，仅 admin / project_leader */}
                     {access.canDeleteTeam(selectedTeam) ? (
-                      <Button size="small" danger onClick={() => handleDelete(selectedTeam)}>
-                        删除
-                      </Button>
+                      <Button size="small" danger onClick={() => handleDelete(selectedTeam)}>{t('common.delete')}</Button>
                     ) : null}
                   </Space>
                 }
@@ -508,7 +503,7 @@ const Teams: React.FC = () => {
               </Card>
               <Card
                 size="small"
-                title="团队成员"
+                title={t('teams.members')}
                 extra={
                   canManageSelected ? null : (
                     <Typography.Text type="secondary">仅可查看成员（无管理权限）</Typography.Text>
@@ -531,7 +526,7 @@ const Teams: React.FC = () => {
                       <Select
                         style={{ width: 120 }}
                         options={[
-                          { value: 'member', label: '成员' },
+                          { value: 'member', label: t('teams.colMember') },
                           { value: 'leader', label: '负责人' },
                         ]}
                       />
@@ -557,7 +552,7 @@ const Teams: React.FC = () => {
                     loading={membersLoading}
                     dataSource={memberRows}
                     pagination={false}
-                    locale={{ emptyText: '该团队暂无直属成员' }}
+                    locale={{ emptyText: t('teams.emptyMembers') }}
                     columns={memberColumns}
                   />
                 )}

@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
 import { canManageAssetGroups } from '@/utils/accessRoles';
@@ -34,6 +33,8 @@ import {
   updateAssetGroup,
 } from '@/api/asset';
 import type { AssetGroupVO, AssetVO } from '@/types/asset';
+import { useT } from '@/i18n';
+import type { MessageKey } from '@/i18n/messages/zh-CN';
 
 const { TextArea } = Input;
 
@@ -47,7 +48,20 @@ const GROUP_TYPE_COLORS: Record<string, string> = {
 
 const getPayload = (res: unknown) => ((res as any)?.data ?? res);
 
+/** 分组类型是后端数据（中文枚举值），展示层走 key 映射，值本身不翻译 */
+const GROUP_TYPE_KEYS: Record<string, MessageKey> = {
+  客户: 'assetGroup.typeCustomer',
+  项目: 'assetGroup.typeProject',
+  自建: 'assetGroup.typeCustom',
+};
+
 const AssetGroups: React.FC = () => {
+  const { t } = useT();
+  const groupTypeLabel = (value?: string | null) => {
+    if (!value) return '-';
+    const key = GROUP_TYPE_KEYS[value];
+    return key ? t(key) : value;
+  };
   const [groups, setGroups] = useState<AssetGroupVO[]>([]);
   // t49：分组写（创建/编辑/删除/加移资产）仅 admin/PL/TL，工程师只读
   const { profile: groupProfile, loaded: groupProfileLoaded } = useAccessProfile();
@@ -157,10 +171,10 @@ const AssetGroups: React.FC = () => {
           type: editingGroup.type,
           description: values.description,
         });
-        message.success('分组更新成功');
+        message.success(t('assetGroup.updateSuccess'));
       } else {
         await createAssetGroup({ name: values.name, type: values.type, description: values.description });
-        message.success('分组创建成功');
+        message.success(t('assetGroup.createSuccess'));
       }
       setModalVisible(false);
       await fetchGroups();
@@ -173,13 +187,13 @@ const AssetGroups: React.FC = () => {
 
   const handleDelete = (group: AssetGroupVO) => {
     Modal.confirm({
-      title: '确认删除分组',
-      content: `确定删除分组「${group.name}」吗？组内资产不会被删除，只解除分组关系。`,
+      title: t('assetGroup.deleteTitle'),
+      content: t('assetGroup.deleteContent', { name: group.name }),
       okType: 'danger',
       onOk: async () => {
         try {
           await deleteAssetGroup(group.id);
-          message.success('分组已删除');
+          message.success(t('assetGroup.deleteSuccess'));
           await fetchGroups();
         } catch (error) {
           // 拦截器已提示
@@ -190,17 +204,17 @@ const AssetGroups: React.FC = () => {
 
   const handleAddAsset = async () => {
     if (!selectedGroup) {
-      message.warning('请先选择分组');
+      message.warning(t('assetGroup.selectGroupFirst'));
       return;
     }
     if (!assetToAdd) {
-      message.warning('请选择要加入的资产');
+      message.warning(t('assetGroup.selectAssetFirst'));
       return;
     }
     setAddingAsset(true);
     try {
       await addAssetToGroup(selectedGroup.id, assetToAdd);
-      message.success('资产已加入分组');
+      message.success(t('assetGroup.addAssetSuccess'));
       setAssetToAdd(undefined);
       await fetchGroupAssets(selectedGroup.id);
     } catch (error) {
@@ -216,7 +230,7 @@ const AssetGroups: React.FC = () => {
     }
     try {
       await removeAssetFromGroup(selectedGroup.id, assetId);
-      message.success('资产已从分组移除');
+      message.success(t('assetGroup.removeAssetSuccess'));
       await fetchGroupAssets(selectedGroup.id);
     } catch (error) {
       // 拦截器已提示
@@ -236,74 +250,68 @@ const AssetGroups: React.FC = () => {
 
   return (
     <Card
-      title="资产分组"
+      title={t('assetGroup.title')}
       extra={
         <Space>
           <Select
             allowClear
-            placeholder="按类型筛选"
+            placeholder={t('assetGroup.filterType')}
             style={{ width: 140 }}
             value={typeFilter}
-            options={GROUP_TYPE_OPTIONS.map((item) => ({ value: item, label: item }))}
+            options={GROUP_TYPE_OPTIONS.map((item) => ({ value: item, label: groupTypeLabel(item) }))}
             onChange={(value) => setTypeFilter(value)}
           />
-          <Button icon={<ReloadOutlined />} onClick={fetchGroups} loading={loading}>
-            刷新
-          </Button>
+          <Button icon={<ReloadOutlined />} onClick={fetchGroups} loading={loading}>{t('common.refresh')}</Button>
           {allowManageGroups ? (
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-              新建分组
-            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>{t('assetGroup.new')}</Button>
           ) : null}
         </Space>
       }
     >
       <Row gutter={24}>
         <Col xs={24} lg={11}>
-          <Card size="small" title="分组列表" bodyStyle={{ padding: 0 }}>
+          <Card size="small" title={t('assetGroup.listTitle')} bodyStyle={{ padding: 0 }}>
             <Table
               size="small"
               rowKey="id"
               loading={loading}
               dataSource={groups}
               pagination={false}
-              locale={{ emptyText: '暂无分组，点击「新建分组」按客户/项目归类资产' }}
+              locale={{ emptyText: t('assetGroup.empty') }}
               rowClassName={(record) => (record.id === selectedId ? 'ant-table-row-selected' : '')}
               onRow={(record) => ({
                 onClick: () => setSelectedId(record.id),
                 style: { cursor: 'pointer' },
               })}
               columns={[
-                { title: '名称', dataIndex: 'name', key: 'name' },
+                { title: t('assetGroup.colName'), dataIndex: 'name', key: 'name' },
                 {
-                  title: '类型',
+                  title: t('assetGroup.colType'),
                   dataIndex: 'type',
                   key: 'type',
                   width: 90,
-                  render: (value: string) => <Tag color={GROUP_TYPE_COLORS[value] ?? 'default'}>{value || '-'}</Tag>,
+                  render: (value: string) => <Tag color={GROUP_TYPE_COLORS[value] ?? 'default'}>{groupTypeLabel(value)}</Tag>,
                 },
                 {
-                  title: '描述',
+                  title: t('assetGroup.colDescription'),
                   dataIndex: 'description',
                   key: 'description',
                   ellipsis: true,
                   render: (value?: string) => value || '-',
                 },
                 {
-                  title: '操作',
+                  title: t('assetGroup.colAction'),
                   key: 'action',
                   width: 130,
                   render: (_: unknown, record: AssetGroupVO) => (
                     <Space size="small">
                       {allowManageGroups ? (
                         <>
-                          <Typography.Link onClick={() => openEdit(record)}>编辑</Typography.Link>
-                          <Typography.Link type="danger" onClick={() => handleDelete(record)}>
-                            删除
-                          </Typography.Link>
+                          <Typography.Link onClick={() => openEdit(record)}>{t('common.edit')}</Typography.Link>
+                          <Typography.Link type="danger" onClick={() => handleDelete(record)}>{t('common.delete')}</Typography.Link>
                         </>
                       ) : (
-                        <Typography.Text type="secondary">只读</Typography.Text>
+                        <Typography.Text type="secondary">{t('assetGroup.readonly')}</Typography.Text>
                       )}
                     </Space>
                   ),
@@ -315,10 +323,10 @@ const AssetGroups: React.FC = () => {
         <Col xs={24} lg={13}>
           <Card
             size="small"
-            title={selectedGroup ? `组内资产：${selectedGroup.name}` : '组内资产'}
+            title={selectedGroup ? t('assetGroup.assetsTitleWithName', { name: selectedGroup.name }) : t('assetGroup.assetsTitle')}
             extra={
               selectedGroup ? (
-                <Tag color={GROUP_TYPE_COLORS[selectedGroup.type] ?? 'default'}>{selectedGroup.type}</Tag>
+                <Tag color={GROUP_TYPE_COLORS[selectedGroup.type] ?? 'default'}>{groupTypeLabel(selectedGroup.type)}</Tag>
               ) : null
             }
           >
@@ -329,13 +337,13 @@ const AssetGroups: React.FC = () => {
                     size="small"
                     column={1}
                     items={[
-                      { key: 'desc', label: '分组描述', children: selectedGroup.description || '-' },
+                      { key: 'desc', label: t('assetGroup.descLabel'), children: selectedGroup.description || '-' },
                       {
                         key: 'created',
-                        label: '创建时间',
+                        label: t('assetGroup.createdAt'),
                         children: selectedGroup.createdAt || selectedGroup.created_at || '-',
                       },
-                      { key: 'count', label: '资产数量', children: groupAssetIds.length },
+                      { key: 'count', label: t('assetGroup.assetCount'), children: groupAssetIds.length },
                     ]}
                   />
                   {allowManageGroups ? (
@@ -345,46 +353,42 @@ const AssetGroups: React.FC = () => {
                         allowClear
                         optionFilterProp="label"
                         style={{ flex: 1 }}
-                        placeholder="选择要加入本组的资产"
+                        placeholder={t('assetGroup.addAssetPlaceholder')}
                         value={assetToAdd}
                         onChange={(value) => setAssetToAdd(value)}
                         options={assets
                           .filter((asset) => !groupAssetIds.includes(asset.id))
                           .map((asset) => ({ value: asset.id, label: `${asset.name}（${asset.code}）` }))}
                       />
-                      <Button type="primary" loading={addingAsset} onClick={handleAddAsset}>
-                        加入分组
-                      </Button>
+                      <Button type="primary" loading={addingAsset} onClick={handleAddAsset}>{t('assetGroup.addAsset')}</Button>
                     </Space.Compact>
                   ) : (
-                    <Typography.Text type="secondary">
-                      只读视图：分组的创建 / 编辑 / 删除与组内资产的加移仅管理员 / 项目负责人 / 小组长可用
-                    </Typography.Text>
+                    <Typography.Text type="secondary">{t('assetGroup.readonlyHint')}</Typography.Text>
                   )}
                   <Table
                     size="small"
                     rowKey="assetId"
                     dataSource={groupAssetRows}
                     pagination={false}
-                    locale={{ emptyText: '该分组暂无资产' }}
+                    locale={{ emptyText: t('assetGroup.emptyAssets') }}
                     columns={[
-                      { title: '资产名称', dataIndex: 'name', key: 'name' },
-                      { title: '编号', dataIndex: 'code', key: 'code', width: 170 },
-                      { title: '目标类型', dataIndex: 'targetType', key: 'targetType', width: 110 },
-                      { title: '所属团队', dataIndex: 'teamName', key: 'teamName', width: 140 },
+                      { title: t('assetGroup.colAssetName'), dataIndex: 'name', key: 'name' },
+                      { title: t('assetGroup.colCode'), dataIndex: 'code', key: 'code', width: 170 },
+                      { title: t('assetGroup.colTargetType'), dataIndex: 'targetType', key: 'targetType', width: 110 },
+                      { title: t('assetGroup.colTeam'), dataIndex: 'teamName', key: 'teamName', width: 140 },
                       {
-                        title: '操作',
+                        title: t('assetGroup.colAction'),
                         key: 'action',
                         width: 90,
                         render: (_: unknown, record: { assetId: string }) =>
                           allowManageGroups ? (
                             <Popconfirm
-                              title="从分组移除该资产？"
+                              title={t('assetGroup.removeAssetConfirm')}
                               onConfirm={() => handleRemoveAsset(record.assetId)}
-                              okText="移除"
-                              cancelText="取消"
+                              okText={t('assetGroup.remove')}
+                              cancelText={t('common.cancel')}
                             >
-                              <Typography.Link type="danger">移除</Typography.Link>
+                              <Typography.Link type="danger">{t('assetGroup.remove')}</Typography.Link>
                             </Popconfirm>
                           ) : (
                             <Typography.Text type="secondary">-</Typography.Text>
@@ -395,14 +399,14 @@ const AssetGroups: React.FC = () => {
                 </Space>
               </Spin>
             ) : (
-              <Empty description="请选择左侧分组" />
+              <Empty description={t('assetGroup.selectGroup')} />
             )}
           </Card>
         </Col>
       </Row>
 
       <Modal
-        title={editingGroup ? '编辑分组' : '新建分组'}
+        title={editingGroup ? t('assetGroup.modalEdit') : t('assetGroup.modalCreate')}
         open={modalVisible}
         onOk={handleSubmit}
         onCancel={() => setModalVisible(false)}
@@ -410,17 +414,17 @@ const AssetGroups: React.FC = () => {
         destroyOnClose
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="分组名称" rules={[{ required: true, message: '请输入分组名称' }]}>
-            <Input placeholder="例如：某客户-2026 年委托项目" maxLength={100} />
+          <Form.Item name="name" label={t('assetGroup.formName')} rules={[{ required: true, message: t('assetGroup.formNameRequired') }]}>
+            <Input placeholder={t('assetGroup.formNamePlaceholder')} maxLength={100} />
           </Form.Item>
-          <Form.Item name="type" label="分组类型" rules={[{ required: true, message: '请选择或输入分组类型' }]}>
+          <Form.Item name="type" label={t('assetGroup.formType')} rules={[{ required: true, message: t('assetGroup.formTypeRequired') }]}>
             <AutoComplete
-              placeholder="客户 / 项目 / 自建"
+              placeholder={t('assetGroup.formTypePlaceholder')}
               options={GROUP_TYPE_OPTIONS.map((item) => ({ value: item }))}
               filterOption={(input, option) => (option?.value ?? '').includes(input)}
             />
           </Form.Item>
-          <Form.Item name="description" label="描述">
+          <Form.Item name="description" label={t('assetGroup.colDescription')}>
             <TextArea rows={3} />
           </Form.Item>
         </Form>

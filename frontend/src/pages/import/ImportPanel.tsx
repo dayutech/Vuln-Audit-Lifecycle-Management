@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useMemo, useState } from 'react';
 import {
   Alert,
@@ -35,6 +34,7 @@ import {
 import type { ImportFailedRow, ImportResult, ImportType, ImportedUser } from '@/api/import';
 import { saveBlobAsFile } from '@/utils/download';
 import { getApiErrorMessage, getApiErrorStatus, getBlobErrorMessage } from '@/utils/errorMessage';
+import { useT } from '@/i18n';
 
 const { Text, Paragraph } = Typography;
 
@@ -62,6 +62,7 @@ interface ImportPanelProps {
  * 不做 localStorage/接口持久化，刷新或离开页面即丢失。
  */
 const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }) => {
+  const { t } = useT();
   const meta = IMPORT_TYPE_META[type];
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
@@ -169,21 +170,21 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
 
   const failedColumns = [
     {
-      title: '类型',
+      title: t('import.colType'),
       key: 'kind',
       width: 84,
       render: (_: unknown, row: ImportFailedRow) =>
         isPermissionDeniedFailure(row) ? <Tag color="red">权限</Tag> : <Tag>数据</Tag>,
     },
     {
-      title: '行号',
+      title: t('import.colRowNumber'),
       dataIndex: 'line',
       key: 'line',
       width: 100,
       render: (line: number) => <Tag color="red">第 {line} 行</Tag>,
     },
     {
-      title: '失败原因',
+      title: t('import.colFailure'),
       dataIndex: 'reason',
       key: 'reason',
       render: (reason: string) => <Text type="danger">{reason || '（后端未返回原因）'}</Text>,
@@ -192,20 +193,20 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
 
   const createdColumns = [
     {
-      title: '行号',
+      title: t('import.colRowNumber'),
       dataIndex: 'line',
       key: 'line',
       width: 90,
       render: (line: number) => <Tag>第 {line} 行</Tag>,
     },
     {
-      title: '用户名',
+      title: t('import.colUsername'),
       dataIndex: 'username',
       key: 'username',
       render: (username: string) => <Text copyable={{ text: username }}>{username}</Text>,
     },
     {
-      title: '初始密码（仅本次显示）',
+      title: t('import.colInitialPassword'),
       dataIndex: 'initialPassword',
       key: 'initialPassword',
       render: (password: string) => (
@@ -215,13 +216,13 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
       ),
     },
     {
-      title: '角色',
+      title: t('import.colRoles'),
       dataIndex: 'roleCode',
       key: 'roleCode',
       render: (roleCode: string) => <Tag color="blue">{roleCode}</Tag>,
     },
     {
-      title: '需改密',
+      title: t('import.colMustChangePassword'),
       dataIndex: 'mustChangePassword',
       key: 'mustChangePassword',
       width: 90,
@@ -347,7 +348,7 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
       {result && (
         <Card
           size="small"
-          title="导入结果"
+          title={t('import.resultTitle')}
           extra={
             result.successRows > 0 ? (
               <Link to={meta.listPath}>
