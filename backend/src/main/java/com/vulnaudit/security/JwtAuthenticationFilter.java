@@ -75,16 +75,39 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 
                 // 设置到Security上下文
                 SecurityContextHolder.getContext().setAuthentication(authentication);
+
+                // t90：模拟 token（imp=true + act）→ 记录真实操作者，供守卫过滤器与审计归属使用
+                if (jwtUtils.isImpersonationToken(jwt)) {
+                    String actorId = jwtUtils.getClaim(jwt, "act");
+                    request.setAttribute(IMPERSONATION_ACTOR_ATTR, actorId);
+                    try {
+                        ImpersonationContext.set(new ImpersonationContext.Snapshot(
+                                actorId == null ? null : java.util.UUID.fromString(actorId),
+                                actorId,
+                                username));
+                    } catch (IllegalArgumentException ignored) {
+                        // act 不是合法 UUID → 按「无法归属」处理，不放行任何额外能力
+                        log.warn("模拟 token 的 act claim 非 UUID: {}", actorId);
+                    }
+                    log.info("模拟视角请求: target={}, actor={}", username, actorId);
+                }
                 
                 log.debug("设置用户认证: {}", username);
             }
         } catch (Exception e) {
             log.error("无法设置用户认证: {}", e.getMessage());
+        } finally {
+            // 必须先继续过滤器链，再清理上下文（清理放在最外层 finally）
+            try {
+                filterChain.doFilter(request, response);
+            } finally {
+                ImpersonationContext.clear();
+            }
         }
-        
-        // 继续过滤器链
-        filterChain.doFilter(request, response);
     }
+
+    /** 模拟 token 的真实操作者ID（请求属性，便于日志/调试与下游读取） */
+    public static final String IMPERSONATION_ACTOR_ATTR = "impersonation.actorId";
 
     /**
      * 从请求中解析JWT令牌

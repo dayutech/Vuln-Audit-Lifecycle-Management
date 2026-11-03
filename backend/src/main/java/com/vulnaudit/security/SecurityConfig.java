@@ -43,6 +43,7 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final ImpersonationGuardFilter impersonationGuardFilter;
     private final UserDetailsService userDetailsService;
 
     /** API 文档是否匿名可访问（默认关闭，避免接口面暴露给未登录者） */
@@ -119,7 +120,9 @@ public class SecurityConfig {
                 .authenticationProvider(authenticationProvider())
                 
                 // 添加JWT过滤器
-                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                // t90：模拟视角下禁止写用户/角色/管理员端点（防「用别人身份改权限」），须在 JWT 过滤器之后
+                .addFilterAfter(impersonationGuardFilter, JwtAuthenticationFilter.class);
         
         return http.build();
     }

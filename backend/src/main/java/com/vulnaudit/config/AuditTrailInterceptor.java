@@ -89,6 +89,13 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
             String resourceType = resolveResourceType(request.getRequestURI());
             UUID resourceId = resolveResourceId(request.getRequestURI());
             String detail = request.getRequestURI();
+            // t90：模拟视角下的业务审计归属 —— user_id 记目标用户（真实执行者），
+            // details 追加 impersonatedBy=<adminId>，便于回溯「谁以谁的身份做了这件事」
+            com.vulnaudit.security.ImpersonationContext.Snapshot impersonation =
+                    com.vulnaudit.security.ImpersonationContext.get();
+            if (impersonation != null && impersonation.actorId() != null) {
+                detail = detail + "; impersonatedBy=" + impersonation.actorId();
+            }
             auditLogService.log(userId, truncate(action, 50), resourceType, resourceId,
                     truncate(detail, 500), request.getRemoteAddr());
         } catch (Exception e) {

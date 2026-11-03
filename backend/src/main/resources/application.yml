@@ -92,6 +92,11 @@ springdoc:
 # 通道发送失败只会把 notification_recipients.send_status 置为 failed 并记录 error_message，
 # 站内信始终落库，不会因外部通道异常而失败。
 app:
+  # 管理员模拟视角（t90）：生产可置 enabled=false 整体关闭；ttl 默认 2 小时
+  security:
+    impersonation:
+      enabled: ${APP_IMPERSONATION_ENABLED:true}
+      ttl-seconds: ${APP_IMPERSONATION_TTL_SECONDS:7200}
   # RBAC 基线数据初始化：启动时幂等写入权限点、内置角色与默认角色权限关联。
   # 权限点是后续 ABAC 的基础数据；关闭后接口仍按 @PreAuthorize 角色轨鉴权。
   rbac:
@@ -134,3 +139,4 @@ app:
       name-prefix: ${ENV_DOCKER_NAME_PREFIX:vulnaudit-env-}
       network: ${ENV_DOCKER_NETWORK:}
       socket-path: ${ENV_DOCKER_SOCKET_PATH:}
+

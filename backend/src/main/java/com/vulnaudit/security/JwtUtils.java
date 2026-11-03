@@ -82,6 +82,84 @@ public class JwtUtils {
     }
 
     /**
+     * 生成「模拟视角」受限 JWT（t90）
+     *
+     * <p>与常规 token 的差异：
+     * <ul>
+     *   <li>subject = <b>被模拟用户</b>（所以后续请求以该用户身份鉴权）；</li>
+     *   <li>额外 claim {@code act} = 真实操作者（ADMIN）用户ID、{@code imp} = true；</li>
+     *   <li>有效期由调用方传入（默认 2 小时，显著短于常规 token）。</li>
+     * </ul>
+     *
+     * @param username    被模拟用户名
+     * @param authorities 被模拟用户的真实角色
+     * @param actorId     真实操作者用户ID（写入 act claim）
+     * @param ttlMillis   有效期（毫秒）
+     * @return 受限 JWT
+     */
+    public String generateImpersonationToken(String username,
+                                             java.util.Collection<? extends GrantedAuthority> authorities,
+                                             java.util.UUID actorId,
+                                             long ttlMillis) {
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + ttlMillis);
+
+        String roles = authorities.stream()
+                .map(GrantedAuthority::getAuthority)
+                .collect(Collectors.joining(","));
+
+        return Jwts.builder()
+                .subject(username)
+                .claim("roles", roles)
+                .claim("act", actorId == null ? null : actorId.toString())
+                .claim("imp", true)
+                .issuedAt(now)
+                .expiration(expiryDate)
+                .signWith(secretKey)
+                .compact();
+    }
+
+    /**
+     * 读取任意 claim（t90；解析失败或不存在返回 null）
+     *
+     * @param token token
+     * @param name  claim 名
+     * @return claim 值（String 化），缺失/非法返回 null
+     */
+    public String getClaim(String token, String name) {
+        try {
+            Claims claims = parseClaims(token);
+            Object value = claims.get(name);
+            return value == null ? null : String.valueOf(value);
+        } catch (Exception e) {
+            log.debug("读取 claim 失败: {} / {}", name, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 是否为模拟 token（{@code imp=true} 且带 {@code act}）
+     */
+    public boolean isImpersonationToken(String token) {
+        return "true".equalsIgnoreCase(getClaim(token, "imp")) && getClaim(token, "act") != null;
+    }
+
+    /**
+     * 读取 token 过期时间（t90，供响应体返回 expiresAt）
+     */
+    public Date getExpiration(String token) {
+        return parseClaims(token).getExpiration();
+    }
+
+    private Claims parseClaims(String token) {
+        return Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+    }
+
+    /**
      * 从JWT令牌中提取用户名
      * 
      * @param token JWT令牌
