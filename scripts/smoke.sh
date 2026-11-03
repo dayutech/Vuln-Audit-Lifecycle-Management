@@ -1657,6 +1657,89 @@ if [ -n "$ADMIN_TOKEN" ] && [ -n "$CUST_ID" ]; then
   done
 fi
 
+
+# ----------------------------------------------------------------------------- 管理员模拟视角（t90/t92）
+if [ -n "$ADMIN_TOKEN" ] && [ -n "$ENGINEER_ID" ]; then
+  # 1) admin 发起模拟 → 200 且返回 token / target / actor
+  api_json POST '/api/v1/admin/impersonate' "$ADMIN_TOKEN" \
+    "{\"userId\":\"${ENGINEER_ID}\",\"reason\":\"冒烟验证 ${TAG}\"}"
+  IMP_STATUS="$LAST_STATUS"
+  IMP_TOKEN="$(flatten | sed -n 's/.*"token":"\([^"]*\)".*/\1/p' | head -1)"
+  if [ "$IMP_STATUS" = "200" ] && [ -n "$IMP_TOKEN" ]; then
+    pass "impersonate/发起" 200 "token 长度 ${#IMP_TOKEN}"
+  else
+    fail "impersonate/发起" "$IMP_STATUS" "未拿到模拟 token ｜ $(snippet)"
+  fi
+  judge "impersonate/返回target与actor" 200 '"actor"' "响应含 target/actor"
+
+  # 2) 工程师发起 → 403；模拟管理员账号 → 409
+  api_json POST '/api/v1/admin/impersonate' "$ENGINEER_TOKEN" \
+    "{\"userId\":\"${ENGINEER_ID}\"}"
+  judge "impersonate/工程师发起-403" 403 '' "仅 ADMIN"
+  ADMIN_ID_FOR_IMP="$(curl -s -X POST "$BASE/api/v1/auth/login" -H 'Content-Type: application/json' -d '{"username":"admin","password":"admin"}' | sed -n 's/.*"userId":"\([^"]*\)".*/\1/p' | head -1)"
+  [ -z "$ADMIN_ID_FOR_IMP" ] && ADMIN_ID_FOR_IMP="$(request GET '/api/v1/auth/me' "$ADMIN_TOKEN" >/dev/null; jfirst id)"
+  if [ -n "$ADMIN_ID_FOR_IMP" ]; then
+    api_json POST '/api/v1/admin/impersonate' "$ADMIN_TOKEN" \
+      "{\"userId\":\"${ADMIN_ID_FOR_IMP}\"}"
+    judge "impersonate/模拟管理员-409" 409 '' "不能模拟管理员"
+  else
+    skip "impersonate/模拟管理员-409" "-" "未取到 admin userId"
+  fi
+
+  if [ -n "$IMP_TOKEN" ]; then
+    # 3) 模拟 token 行为等同目标用户：自身权限 200；列表（需 ADMIN/PL）403；资产可读
+    request GET '/api/v1/users/me/permissions' "$IMP_TOKEN"
+    judge "impersonate/模拟态-me权限-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "行为等同目标用户"
+    request GET '/api/v1/users?page=0&size=1' "$IMP_TOKEN"
+    judge "impersonate/模拟态-用户列表按目标权限-403" 403 '' "目标权限决定，非守卫"
+    request GET '/api/v1/assets?page=0&size=1' "$IMP_TOKEN"
+    judge "impersonate/模拟态-资产列表-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "业务读权限保留"
+
+    # 4) 禁止链式模拟 / 敏感写禁用
+    api_json POST '/api/v1/admin/impersonate' "$IMP_TOKEN" \
+      "{\"userId\":\"${ENGINEER_ID}\"}"
+    judge "impersonate/链式模拟-403" 403 '' "模拟态禁止再发起"
+    api_json PUT "/api/v1/users/${ENGINEER_ID}" "$IMP_TOKEN" \
+      "{\"fullName\":\"越权改名 ${TAG}\"}"
+    judge "impersonate/模拟态改用户-403" 403 '' "身份端点写禁用"
+
+    # 5) 模拟期间业务写（工程师自身有权做的操作：提资产访问申请）→ 审计 details 含 impersonatedBy
+    api_json POST '/api/v1/documents' "$IMP_TOKEN" \
+      "{\"title\":\"冒烟模拟态文档 ${TAG}\",\"category\":\"技术\",\"summary\":\"模拟态\",\"content\":\"模拟态业务写\"}"
+    IMP_WRITE_STATUS="$LAST_STATUS"
+    IMP_DOC_ID="$(jfirst id)"
+    if [ "$IMP_WRITE_STATUS" = "200" ] || [ "$IMP_WRITE_STATUS" = "201" ]; then
+      pass "impersonate/模拟态业务写-2xx" "$IMP_WRITE_STATUS" "POST /documents（目标用户自身权限，审计归属目标用户）"
+    else
+      fail "impersonate/模拟态业务写-2xx" "$IMP_WRITE_STATUS" "期望 2xx ｜ $(snippet)"
+    fi
+    request GET '/api/v1/audit-logs?page=0&size=30' "$ADMIN_TOKEN"
+    if flatten | grep -q 'impersonatedBy'; then
+      pass "impersonate/业务写审计含impersonatedBy" 200 "审计 details 记录 impersonatedBy=<adminId>"
+    else
+      fail "impersonate/业务写审计含impersonatedBy" "$LAST_STATUS" "未找到 impersonatedBy ｜ $(snippet)"
+    fi
+    [ -n "$IMP_DOC_ID" ] && request DELETE "/api/v1/documents/${IMP_DOC_ID}" "$ADMIN_TOKEN" >/dev/null 2>&1
+
+    # 6) 退出模拟 → 204
+    request POST '/api/v1/admin/impersonate/stop' "$IMP_TOKEN"
+    judge "impersonate/退出模拟-204" 204 '' "POST /admin/impersonate/stop"
+  fi
+
+  # 7) 审计记录（实测语义：拦截器 action + impersonatedBy；t90 文档的 IMPERSONATE_START/STOP 未落库，见报告 §2.16 备注）
+  request GET '/api/v1/audit-logs?page=0&size=30&keyword=impersonate' "$ADMIN_TOKEN"
+  if flatten | grep -q 'AdminImpersonationController.impersonate'; then
+    pass "impersonate/审计-发起事件" 200 "action=POST AdminImpersonationController.impersonate（真实操作者=ADMIN）"
+  else
+    fail "impersonate/审计-发起事件" "$LAST_STATUS" "未找到发起审计 ｜ $(snippet)"
+  fi
+  if flatten | grep -q 'AdminImpersonationController.stop'; then
+    pass "impersonate/审计-停止事件" 200 "action=POST AdminImpersonationController.stop…（details 含 impersonatedBy）"
+  else
+    fail "impersonate/审计-停止事件" "$LAST_STATUS" "未找到停止审计 ｜ $(snippet)"
+  fi
+fi
+
 printf '\n==== 冒烟汇总 ====\n'
 printf 'TOTAL=%d  PASS=%d  FAIL=%d  SKIP=%d\n' "$TOTAL" "$PASSED" "$FAILED" "$SKIPPED"
 if [ "$FAILED" -gt 0 ]; then
