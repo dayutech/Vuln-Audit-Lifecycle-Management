@@ -21,6 +21,7 @@ import {
   PROJECT_TYPE_ORDER,
   isProjectClosed,
   nextProjectStatuses,
+  isKnownProjectType,
   projectStatusKey,
   projectTypeKey,
   transitionLabelKey,
@@ -214,7 +215,11 @@ const Projects: React.FC = () => {
       key: 'type',
       width: 120,
       render: (_: unknown, record) =>
-        record.type ? <Tag>{t(projectTypeKey(record.type))}</Tag> : '-',
+        record.type ? (
+          <Tag>{isKnownProjectType(record.type) ? t(projectTypeKey(record.type)) : record.type}</Tag>
+        ) : (
+          '-'
+        ),
     },
     {
       title: t('project.colStatus'),

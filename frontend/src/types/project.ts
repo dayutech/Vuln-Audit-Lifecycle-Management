@@ -137,6 +137,13 @@ export const projectStatusKey = (status?: string | null): MessageKey =>
 export const projectTypeKey = (type?: string | null): MessageKey =>
   `project.type.${String(type ?? 'PENTEST').toUpperCase()}` as MessageKey;
 
+/** 后端 PROJECT_TYPES 枚举内的类型（其余值原样展示，避免回显 project.type.XXX 键） */
+export const isKnownProjectType = (type?: string | null): boolean =>
+  PROJECT_TYPE_ORDER.includes(String(type ?? '').toUpperCase() as ProjectType);
+
+export const isKnownPhaseStatus = (status?: string | null): boolean =>
+  PHASE_STATUS_ORDER.includes(String(status ?? '').toUpperCase() as PhaseStatus);
+
 export const phaseStatusKey = (status?: string | null): MessageKey =>
   `phase.status.${String(status ?? 'PLANNED').toUpperCase()}` as MessageKey;
 

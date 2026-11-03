@@ -11,11 +11,13 @@
 import { assetZh } from './domains/assetMessages';
 import { vulnZh } from './domains/vulnMessages';
 import { projectZh } from './domains/projectMessages';
+import { appZh } from './domains/appMessages';
 
 export const zhCN = {
   ...assetZh,
   ...vulnZh,
   ...projectZh,
+  ...appZh,
   /* ==================== 通用 ==================== */
   'common.appName': '漏洞审计生命周期管理系统',
   'common.loading': '加载中…',
@@ -1013,6 +1015,25 @@ export const zhCN = {
   'documents.editorPlaceholder': "使用 Markdown 编写文档内容",
   'documents.tabPreview': "预览",
   'documents.emptyContent': "暂无内容",
+  'impersonation.menu': '以其他用户视角查看',
+  'impersonation.pickerTitle': '选择要模拟的用户',
+  'impersonation.pickerHint': '模拟期间以该用户的身份与权限操作，所有写操作都会记入审计（impersonatedBy）。',
+  'impersonation.searchPlaceholder': '搜索用户名 / 姓名',
+  'impersonation.noUsers': '没有可模拟的用户（管理员账号已被排除）',
+  'impersonation.selectRequired': '请先选择一个用户',
+  'impersonation.reasonLabel': '模拟原因（写入审计，建议填写）',
+  'impersonation.reasonPlaceholder': '例如：排查工程师视角下的列表为空问题',
+  'impersonation.currentLang': '当前语言：{lang}',
+  'impersonation.start': '开始模拟',
+  'impersonation.started': '已切换到 {username} 的视角',
+  'impersonation.startFailed': '发起模拟失败',
+  'impersonation.targetIsAdmin': '目标用户是管理员，不能模拟',
+  'impersonation.banner': '正在以 {username}（{roles}）的视角查看 · 管理员模拟模式',
+  'impersonation.remaining': '剩余 {time}',
+  'impersonation.exit': '退出模拟',
+  'impersonation.stopped': '已退出模拟，恢复为管理员账号',
+  'impersonation.expired': '模拟已结束（有效期到期），已恢复管理员账号',
+  'impersonation.needRelogin': '原始的 admin 凭证已丢失，请重新登录',
 } as const;
 
 export type MessageKey = keyof typeof zhCN;

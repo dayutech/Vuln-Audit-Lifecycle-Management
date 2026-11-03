@@ -47,6 +47,8 @@ import {
   PHASE_STATUS_COLORS,
   PHASE_STATUS_ORDER,
   PROJECT_STATUS_COLORS,
+  isKnownPhaseStatus,
+  isKnownProjectType,
   isProjectClosed,
   nextProjectStatuses,
   phaseStatusFallback,
@@ -374,7 +376,11 @@ const ProjectDetail: React.FC = () => {
       width: 120,
       render: (_: unknown, record) => {
         const status = phaseStatusFallback(record.status);
-        return <Tag color={PHASE_STATUS_COLORS[status] ?? 'default'}>{t(phaseStatusKey(status))}</Tag>;
+        return (
+          <Tag color={PHASE_STATUS_COLORS[status] ?? 'default'}>
+            {isKnownPhaseStatus(status) ? t(phaseStatusKey(status)) : status}
+          </Tag>
+        );
       },
     },
     {
@@ -545,7 +551,15 @@ const ProjectDetail: React.FC = () => {
               { key: 'code', label: t('project.colCode'), children: project.code },
               { key: 'customer', label: t('project.detail.customer'), children: project.customerName ?? detail?.customer?.name ?? '-' },
               { key: 'manager', label: t('project.detail.manager'), children: project.managerName ?? '-' },
-              { key: 'type', label: t('project.colType'), children: project.type ? t(projectTypeKey(project.type)) : '-' },
+              {
+                key: 'type',
+                label: t('project.colType'),
+                children: project.type
+                  ? isKnownProjectType(project.type)
+                    ? t(projectTypeKey(project.type))
+                    : project.type
+                  : '-',
+              },
               {
                 key: 'period',
                 label: t('project.detail.period'),

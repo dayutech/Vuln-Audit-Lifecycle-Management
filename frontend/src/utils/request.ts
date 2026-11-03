@@ -3,6 +3,7 @@ import type { InternalAxiosRequestConfig, AxiosResponse, AxiosError } from 'axio
 import { message } from 'antd';
 import { translate } from '@/i18n';
 import { attachAcceptLanguageHeader } from './langHeader';
+import { endImpersonation, readImpersonationTarget } from '@/utils/impersonation';
 
 declare module 'axios' {
   interface AxiosRequestConfig {
@@ -71,6 +72,17 @@ request.interceptors.response.use(
       const errorMsg = data?.message || data?.error?.message;
       if (status === 401) {
         message.error(errorMsg || translate('error.unauthorized'));
+        // t91：模拟态 token 过期/失效 → 自动回退到原始 admin token，而不是踢去登录页
+        const target = readImpersonationTarget();
+        if (target) {
+          const original = endImpersonation();
+          if (original?.token) {
+            window.location.reload();
+            return Promise.reject(error);
+          }
+          window.location.href = '/login';
+          return Promise.reject(error);
+        }
         localStorage.removeItem('access_token');
         window.location.href = '/login';
         return Promise.reject(error);

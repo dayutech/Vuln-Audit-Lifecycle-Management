@@ -2,6 +2,7 @@ import type { MessageCatalog } from './zh-CN';
 import { assetEn } from './domains/assetMessages';
 import { vulnEn } from './domains/vulnMessages';
 import { projectEn } from './domains/projectMessages';
+import { appEn } from './domains/appMessages';
 
 /**
  * English copy.
@@ -15,6 +16,7 @@ export const enUS: MessageCatalog = {
   ...assetEn,
   ...vulnEn,
   ...projectEn,
+  ...appEn,
   /* ==================== common ==================== */
   'common.appName': 'Vulnerability Audit Lifecycle Management',
   'common.loading': 'Loading…',
@@ -1007,4 +1009,23 @@ export const enUS: MessageCatalog = {
   'documents.editorPlaceholder': "Write the document in Markdown",
   'documents.tabPreview': "Preview",
   'documents.emptyContent': "No content",
+  'impersonation.menu': 'View as another user',
+  'impersonation.pickerTitle': 'Choose a user to impersonate',
+  'impersonation.pickerHint': 'During impersonation you act with that user\'s identity and permissions; every write is audited (impersonatedBy).',
+  'impersonation.searchPlaceholder': 'Search username or name',
+  'impersonation.noUsers': 'No users available (admin accounts are excluded)',
+  'impersonation.selectRequired': 'Select a user first',
+  'impersonation.reasonLabel': 'Reason (audited, recommended)',
+  'impersonation.reasonPlaceholder': 'e.g. investigate an empty list seen by the engineer',
+  'impersonation.currentLang': 'Current language: {lang}',
+  'impersonation.start': 'Start impersonation',
+  'impersonation.started': 'Now viewing as {username}',
+  'impersonation.startFailed': 'Failed to start impersonation',
+  'impersonation.targetIsAdmin': 'The target user is an admin and cannot be impersonated',
+  'impersonation.banner': 'Viewing as {username} ({roles}) · admin impersonation mode',
+  'impersonation.remaining': 'Expires in {time}',
+  'impersonation.exit': 'Exit impersonation',
+  'impersonation.stopped': 'Impersonation ended, back to your admin account',
+  'impersonation.expired': 'Impersonation ended (expired); your admin account was restored',
+  'impersonation.needRelogin': 'The original admin credentials are gone — please sign in again',
 };
