@@ -1570,6 +1570,93 @@ if [ -n "$ADMIN_TOKEN" ] && [ -n "$CUST_ID" ]; then
   judge "proj/new-managerId不存在-404" 404 '' "经理不存在 → 404（存在性校验保留）"
 fi
 
+
+# ----------------------------------------------------------------------------- 第五批：聚合列表 + 客户/项目导入（t82/t85/t87）
+if [ -n "$ADMIN_TOKEN" ] && [ -n "$CUST_ID" ]; then
+  # 1) /projects/summary 聚合：一次请求带 phaseCount / assetCount
+  request GET '/api/v1/projects/summary?page=0&size=10&sort=createdAt' "$ADMIN_TOKEN"
+  judge "proj/summary-聚合" 200 '"phaseCount"' "GET /projects/summary（t82）"
+  ADMIN_SUM="$(flatten)"
+  judge "proj/summary-assetCount" 200 '"assetCount"' "每项含 assetCount"
+
+  # 2) 口径对比：工程师 assetCount 收敛（≤ admin），phaseCount 不变（组织结构全量）
+  if [ -n "$ENGINEER_TOKEN" ] && [ -n "$PROJECT_ID" ]; then
+    ADM_PH="$(printf '%s' "$ADMIN_SUM" | grep -o '"phaseCount":[0-9]*' | awk -F':' '{s+=$2} END{print s+0}')"
+    ADM_AS="$(printf '%s' "$ADMIN_SUM" | grep -o '"assetCount":[0-9]*' | awk -F':' '{s+=$2} END{print s+0}')"
+    request GET '/api/v1/projects/summary?page=0&size=10&sort=createdAt' "$ENGINEER_TOKEN"
+    ENG_SUM="$(flatten)"
+    ENG_PH="$(printf '%s' "$ENG_SUM" | grep -o '"phaseCount":[0-9]*' | awk -F':' '{s+=$2} END{print s+0}')"
+    ENG_AS="$(printf '%s' "$ENG_SUM" | grep -o '"assetCount":[0-9]*' | awk -F':' '{s+=$2} END{print s+0}')"
+    if [ "$LAST_STATUS" = "200" ] && [ -n "$ADM_PH" ] && [ "$ADM_PH" -gt 0 ] && [ "$ADM_PH" = "$ENG_PH" ] && [ "$ENG_AS" -le "$ADM_AS" ]; then
+      pass "proj/summary-工程师phaseCount不收敛" "200" "phaseCount 合计 admin=$ADM_PH engineer=$ENG_PH（全量）；assetCount 合计 admin=$ADM_AS engineer=$ENG_AS（收敛）"
+    else
+      fail "proj/summary-工程师phaseCount不收敛" "$LAST_STATUS" "phaseCount admin=${ADM_PH:-?}/engineer=${ENG_PH:-?}; assetCount admin=${ADM_AS:-?}/engineer=${ENG_AS:-?} ｜ $(snippet)"
+    fi
+    judge "proj/summary-工程师可见" 200 '"assetCount"' "工程师按可见范围返回 assetCount"
+  fi
+
+  # 3) 客户 CSV 导入：正常行成功 / 重复 code / ownerName 不存在 → failedRows
+  {
+    printf 'code,name,industry,level,ownerName,contactName,contactPhone,contactEmail,description\n'
+    printf 'SMK-IMP-CUST-%s,Import Cust OK %s,Internet,A,admin,Contact,13800000000,imp@example.com,smoke\n' "$TAG" "$TAG"
+    printf 'CUST-DEFAULT,Duplicate Code %s,Internet,B,,, ,,smoke\n' "$TAG"
+    printf 'SMK-IMP-CUST2-%s,Import Cust BadOwner %s,Internet,B,nobody_xyz,,,,\n' "$TAG" "$TAG"
+  } >"$TMPD/import-customers.csv"
+  request POST '/api/v1/import/customers' "$ADMIN_TOKEN" \
+    -F "file=@$(pathify "${TMPD}/import-customers.csv");filename=smoke-customers.csv;type=text/csv"
+  if [ "$LAST_STATUS" = "200" ]; then
+    c_ok="$(jnum successRows)"
+    c_bad="$(flatten | grep -o '"reason":' | wc -l | tr -d ' ')"
+    if [ "$c_ok" = "1" ] && [ "$c_bad" = "2" ]; then
+      pass "import/客户-部分成功" 200 "successRows=1 failedRows=2（重复 code + ownerName 不存在）"
+    else
+      fail "import/客户-部分成功" 200 "期望 1/2，实际 ${c_ok:-?}/${c_bad:-?} ｜ $(snippet)"
+    fi
+    judge "import/客户-失败原因可读" 200 '"reason"' "failedRows 带 reason"
+  else
+    fail "import/客户-部分成功" "$LAST_STATUS" "期望 200 ｜ $(snippet)"
+  fi
+
+  # 4) 工程师导入客户 → 403（ADMIN/PROJECT_LEADER）
+  if [ -n "$ENGINEER_TOKEN" ]; then
+    request POST '/api/v1/import/customers' "$ENGINEER_TOKEN" \
+      -F "file=@$(pathify "${TMPD}/import-customers.csv");filename=smoke-customers.csv;type=text/csv"
+    judge "import/客户-工程师403" 403 '' "仅 ADMIN/PROJECT_LEADER"
+  fi
+
+  # 5) 项目 CSV 导入：正常行 / customerCode 不存在 / type 非法 / 日期格式错
+  {
+    printf 'code,name,customerCode,type,managerName,startDate,endDate,isPhased,contractNo,description\n'
+    printf 'SMK-IMP-PRJ-%s,Import Proj OK %s,SMK-CUST-%s,PENTEST,admin,2026-01-01,2026-06-30,true,CN-%s,smoke\n' "$TAG" "$TAG" "$TAG" "$TAG"
+    printf 'SMK-IMP-PRJ2-%s,No Customer %s,NOPE-CUST,PENTEST,admin,2026-01-01,2026-06-30,false,,\n' "$TAG" "$TAG"
+    printf 'SMK-IMP-PRJ3-%s,Bad Type %s,SMK-CUST-%s,BADTYPE,admin,2026-01-01,2026-06-30,false,,\n' "$TAG" "$TAG" "$TAG"
+    printf 'SMK-IMP-PRJ4-%s,Bad Date %s,SMK-CUST-%s,PENTEST,admin,2026/01/01,2026-06-30,false,,\n' "$TAG" "$TAG" "$TAG"
+  } >"$TMPD/import-projects.csv"
+  request POST '/api/v1/import/projects' "$ADMIN_TOKEN" \
+    -F "file=@$(pathify "${TMPD}/import-projects.csv");filename=smoke-projects.csv;type=text/csv"
+  if [ "$LAST_STATUS" = "200" ]; then
+    p_ok="$(jnum successRows)"
+    p_bad="$(flatten | grep -o '"reason":' | wc -l | tr -d ' ')"
+    if [ "$p_ok" = "1" ] && [ "$p_bad" = "3" ]; then
+      pass "import/项目-部分成功" 200 "successRows=1 failedRows=3（客户不存在 + type 非法 + 日期格式）"
+    else
+      fail "import/项目-部分成功" 200 "期望 1/3，实际 ${p_ok:-?}/${p_bad:-?} ｜ $(snippet)"
+    fi
+  else
+    fail "import/项目-部分成功" "$LAST_STATUS" "期望 200 ｜ $(snippet)"
+  fi
+
+  # 6) 模板下载带 UTF-8 BOM（customers / projects）
+  for tpl in customers projects; do
+    request GET "/api/v1/import/templates/${tpl}" "$ADMIN_TOKEN"
+    if [ "$LAST_STATUS" = "200" ] && [ "$(flatten | head -c 3 | od -An -tx1 | tr -d ' \n')" = "efbbbf" ]; then
+      pass "import/模板-${tpl}-BOM" 200 "首字节 EF BB BF"
+    else
+      fail "import/模板-${tpl}-BOM" "$LAST_STATUS" "缺少 UTF-8 BOM ｜ $(snippet)"
+    fi
+  done
+fi
+
 printf '\n==== 冒烟汇总 ====\n'
 printf 'TOTAL=%d  PASS=%d  FAIL=%d  SKIP=%d\n' "$TOTAL" "$PASSED" "$FAILED" "$SKIPPED"
 if [ "$FAILED" -gt 0 ]; then
