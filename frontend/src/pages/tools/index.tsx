@@ -49,17 +49,18 @@ import type { ToolVO, ToolVersionVO } from '@/types/tool';
 import { formatDateTime } from '@/utils/datetime';
 import { saveBlobAsFile } from '@/utils/download';
 import { getApiErrorMessage, getApiErrorStatus, getBlobErrorMessage } from '@/utils/errorMessage';
-import { useT } from '@/i18n';
+import { useT, type MessageKey } from '@/i18n';
 
 const { Text } = Typography;
 const { Option } = Select;
 const { TextArea } = Input;
 
-const categoryLabels: Record<string, string> = {
-  scanner: '扫描器',
-  exploit: '利用工具',
-  script: '脚本',
-  other: '其他',
+/** 分类 → i18n 词条（t88：分类展示随语言切换） */
+const CATEGORY_KEYS: Record<string, MessageKey> = {
+  scanner: 'tools.category.scanner',
+  exploit: 'tools.category.exploit',
+  script: 'tools.category.script',
+  other: 'tools.category.other',
 };
 
 const formatFileSize = (size?: number): string => {
@@ -199,12 +200,12 @@ const Tools: React.FC = () => {
       if (packageFile && toolId) {
         try {
           await uploadToolPackage(toolId, packageFile, packageFile.name);
-          message.success('工具已创建，工具包上传成功');
+          message.success(t('feedback.tool.createdWithPackage'));
         } catch {
-          message.warning('工具已创建，但工具包上传失败，可在详情中重新上传');
+          message.warning(t('feedback.tool.packageUploadFailed'));
         }
       } else {
-        message.success('工具已创建（未上传工具包，可直接登记仓库地址）');
+        message.success(t('feedback.tool.createdWithoutPackage'));
       }
       setIsCreateOpen(false);
       fetchData();
@@ -221,20 +222,20 @@ const Tools: React.FC = () => {
     try {
       const blob = await downloadToolFile(record.id);
       const savedName = saveBlobAsFile(blob as Blob, record.fileName || `${record.name}.bin`);
-      message.success(`已下载 ${savedName}`);
+      message.success(t('feedback.tool.downloaded', { name: savedName }));
       fetchData();
     } catch (error: any) {
       // 下载走 responseType=blob，错误体同样是 Blob，需要先读文本再取后端 message
-      const backendMessage = await getBlobErrorMessage(error, '工具包下载失败');
+      const backendMessage = await getBlobErrorMessage(error, t('tools.downloadFailed'));
       if (error?.response?.status === 404) {
         Modal.info({
-          title: '该工具暂无可下载的工具包',
+          title: t('tools.noPackageTitle'),
           content: (
             <div>
-              <p>后端返回：{backendMessage}</p>
+              <p>{t('tools.backendSays', { message: backendMessage })}</p>
               {record.repositoryUrl && (
                 <p>
-                  仓库地址：
+                  {t('tools.repoUrlLabel')}
                   <Typography.Paragraph copyable={{ text: record.repositoryUrl }} code>
                     {record.repositoryUrl}
                   </Typography.Paragraph>
@@ -242,13 +243,13 @@ const Tools: React.FC = () => {
               )}
               {record.installCommand && (
                 <p>
-                  安装命令：
+                  {t('tools.installCommandLabel')}
                   <Typography.Paragraph copyable={{ text: record.installCommand }} code>
                     {record.installCommand}
                   </Typography.Paragraph>
                 </p>
               )}
-              {!record.repositoryUrl && !record.installCommand && <p>请先为该工具上传工具包或补充仓库地址。</p>}
+              {!record.repositoryUrl && !record.installCommand && <p>{t('tools.noPackageHint')}</p>}
             </div>
           ),
         });
@@ -261,12 +262,12 @@ const Tools: React.FC = () => {
   const handleDelete = (record: ToolVO) => {
     Modal.confirm({
       title: t('tools.deleteTitle'),
-      content: `确定要删除工具 [${record.name}] 吗？`,
+      content: t('tools.deleteConfirm', { name: record.name }),
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
           await deleteTool(record.id);
-          message.success('删除成功');
+          message.success(t('feedback.tool.deleted'));
           fetchData();
         } catch {
           // 404 由拦截器提示
@@ -325,7 +326,7 @@ const Tools: React.FC = () => {
       } catch (error) {
         // 409 = (tool_id, version_no) 唯一约束冲突（并发上传同一版本号）
         if (getApiErrorStatus(error) === 409) {
-          message.warning('版本号冲突（409）：可能有人同时在传该版本，正在自动重试一次…');
+          message.warning(t('feedback.tool.versionConflictRetry'));
           setIsRetryingVersion(true);
           await new Promise((resolve) => setTimeout(resolve, 600));
           uploaded = await uploadToolVersion(versionTool.id, payload);
@@ -336,18 +337,18 @@ const Tools: React.FC = () => {
       }
 
       const created = uploaded?.data ?? uploaded;
-      const label = created?.version || payload.version || '新版本';
-      const no = created?.versionNo ? `（#${created.versionNo}）` : '';
+      const label = created?.version || payload.version || t('feedback.tool.versionFallbackLabel');
+      const no = created?.versionNo ? t('feedback.tool.versionNoSuffix', { no: created.versionNo }) : '';
       message.success(
         created?.hasFile === false
-          ? `已创建仅元数据版本 ${label}${no}（未上传文件）`
-          : `版本 ${label}${no} 上传成功`,
+          ? t('feedback.tool.versionMetaOnly', { version: label, no })
+          : t('feedback.tool.versionUploaded', { version: label, no }),
       );
       versionForm.resetFields();
       setVersionFile(null);
       await refreshVersions();
     } catch (error) {
-      setVersionError(describeVersionError(error, '上传版本失败'));
+      setVersionError(describeVersionError(error, t('tools.versionUploadFailed'), t));
     } finally {
       setIsRetryingVersion(false);
       setVersionSubmitting(false);
@@ -363,16 +364,16 @@ const Tools: React.FC = () => {
         blob,
         fileName || version.fileName || `tool-${version.version || version.id}.bin`,
       );
-      message.success(`已下载 ${savedName}`);
+      message.success(t('feedback.tool.downloaded', { name: savedName }));
     } catch (error) {
       const status = getApiErrorStatus(error);
-      const backendMessage = await getBlobErrorMessage(error, '版本文件下载失败');
+      const backendMessage = await getBlobErrorMessage(error, t('tools.versionDownloadFailed'));
       if (status === 404) {
         setVersionError(
-          `${backendMessage}（404：版本不存在或不属于该工具 / 该版本仅有元数据 / 文件已被移除；可刷新版本列表后重试）`,
+          t('tools.version404Hint', { message: backendMessage }),
         );
       } else if (status === 403) {
-        setVersionError(`${backendMessage}（403：没有下载该版本文件的权限）`);
+        setVersionError(t('tools.version403Hint', { message: backendMessage }));
       } else {
         setVersionError(backendMessage);
       }
@@ -405,18 +406,18 @@ const Tools: React.FC = () => {
     }
     const tag = newTag.trim();
     if (!tag) {
-      message.warning('请输入标签内容');
+      message.warning(t('feedback.tool.tagRequired'));
       return;
     }
     if (tags.includes(tag)) {
-      message.info('该标签已存在');
+      message.info(t('feedback.tool.tagExists'));
       return;
     }
     try {
       await addToolTag(tagTool.id, tag);
       setTags((prev) => [...prev, tag]);
       setNewTag('');
-      message.success(`已添加标签「${tag}」`);
+      message.success(t('feedback.tool.tagAdded', { tag }));
       fetchData();
     } catch (error) {
       // 后端 @PreAuthorize 是唯一权威：403 用角色文案，其余按服务端消息
@@ -434,7 +435,7 @@ const Tools: React.FC = () => {
     try {
       await removeToolTag(tagTool.id, tag);
       setTags((prev) => prev.filter((item) => item !== tag));
-      message.success(`已移除标签「${tag}」`);
+      message.success(t('feedback.tool.tagRemoved', { tag }));
       fetchData();
     } catch (error) {
       message.error(getApiErrorMessage(error, TOOL_TAG_FORBIDDEN_MESSAGE));
@@ -448,7 +449,7 @@ const Tools: React.FC = () => {
       render: (_: unknown, record: ToolVO) => (
         <Space size={4}>
           <span>{record.name}</span>
-          {record.isOfficial && <Tag color="blue">官方</Tag>}
+          {record.isOfficial && <Tag color="blue">{t('tools.officialTag')}</Tag>}
         </Space>
       ),
     },
@@ -456,10 +457,10 @@ const Tools: React.FC = () => {
       title: t('tools.colCategory'),
       dataIndex: 'category',
       key: 'category',
-      render: (category: string) => <Tag color="geekblue">{categoryLabels[category] ?? category}</Tag>,
+      render: (category: string) => <Tag color="geekblue">{CATEGORY_KEYS[category] ? t(CATEGORY_KEYS[category]) : category}</Tag>,
     },
     {
-      title: '标签',
+      title: t('tools.colTags'),
       key: 'tags',
       render: (_: unknown, record: ToolVO) => {
         const list = splitTags(record.tags);
@@ -470,7 +471,7 @@ const Tools: React.FC = () => {
             ))}
           </Space>
         ) : (
-          <Text type="secondary">未设置</Text>
+          <Text type="secondary">{t('tools.unset')}</Text>
         );
       },
     },
@@ -480,10 +481,10 @@ const Tools: React.FC = () => {
       render: (_: unknown, record: ToolVO) =>
         record.fileName ? (
           <TooltipWrapper text={`${record.fileName}（${formatFileSize(record.fileSize)}）`}>
-            <Tag color="green">已上传</Tag>
+            <Tag color="green">{t('tools.uploadedTag')}</Tag>
           </TooltipWrapper>
         ) : (
-          <Tag>仅外链</Tag>
+          <Tag>{t('tools.externalOnlyTag')}</Tag>
         ),
     },
     {
@@ -502,15 +503,15 @@ const Tools: React.FC = () => {
       render: (_: unknown, record: ToolVO) => (
         <Space size="middle" wrap>
           <a onClick={() => handleDownload(record)}>
-            <CloudDownloadOutlined /> 下载
+            <CloudDownloadOutlined /> {t('tools.actionDownload')}
           </a>
           <a onClick={() => openVersions(record)}>
-            <HistoryOutlined /> 版本
+            <HistoryOutlined /> {t('tools.actionVersions')}
           </a>
           <a onClick={() => openTags(record)}>
-            <TagsOutlined /> 标签
+            <TagsOutlined /> {t('tools.actionTags')}
           </a>
-          {allowDeleteTool && <a style={{ color: 'red' }} onClick={() => handleDelete(record)}>删除</a>}
+          {allowDeleteTool && <a style={{ color: 'red' }} onClick={() => handleDelete(record)}>{t('tools.actionDelete')}</a>}
         </Space>
       ),
     },
@@ -529,7 +530,7 @@ const Tools: React.FC = () => {
       <div style={{ marginBottom: 16 }}>
         <Input
           allowClear
-          placeholder="搜索工具名称/描述，回车检索"
+          placeholder={t('tools.searchPlaceholder')}
           prefix={<SearchOutlined />}
           style={{ width: 320 }}
           value={keyword}
@@ -554,12 +555,12 @@ const Tools: React.FC = () => {
 
       {/* 新建工具 */}
       <Modal
-        title="上传工具"
+        title={t('tools.createTitle')}
         open={isCreateOpen}
         onOk={handleCreate}
         onCancel={() => setIsCreateOpen(false)}
         confirmLoading={creating}
-        okText="创建"
+        okText={t('tools.createOk')}
         width={640}
         destroyOnClose
       >
@@ -567,29 +568,29 @@ const Tools: React.FC = () => {
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
-          message="工具元数据先以 JSON 创建，随后自动把所选文件上传到 /tools/{id}/file；也可只登记仓库地址。"
+          message={t('tools.createHint')}
         />
         <Form form={createForm} layout="vertical">
-          <Form.Item name="name" label="工具名称" rules={[{ required: true, message: '请输入工具名称' }]}>
+          <Form.Item name="name" label={t('tools.form.name')} rules={[{ required: true, message: t('tools.form.nameRequired') }]}>
             <Input maxLength={200} />
           </Form.Item>
-          <Form.Item name="category" label="分类" rules={[{ required: true, message: '请选择分类' }]}>
-            <Select placeholder="请选择分类">
-              {Object.entries(categoryLabels).map(([value, label]) => (
-                <Option key={value} value={value}>{label}</Option>
+          <Form.Item name="category" label={t('tools.form.category')} rules={[{ required: true, message: t('tools.form.categoryRequired') }]}>
+            <Select placeholder={t('tools.form.categoryPlaceholder')}>
+              {Object.entries(CATEGORY_KEYS).map(([value, labelKey]) => (
+                <Option key={value} value={value}>{t(labelKey)}</Option>
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="description" label="描述">
+          <Form.Item name="description" label={t('tools.form.description')}>
             <TextArea rows={3} />
           </Form.Item>
-          <Form.Item name="repositoryUrl" label="仓库地址">
+          <Form.Item name="repositoryUrl" label={t('tools.form.repositoryUrl')}>
             <Input placeholder="https://…" />
           </Form.Item>
-          <Form.Item name="installCommand" label="安装命令">
-            <TextArea rows={2} placeholder="如 pip install -r requirements.txt" />
+          <Form.Item name="installCommand" label={t('tools.form.installCommand')}>
+            <TextArea rows={2} placeholder={t('tools.form.installPlaceholder')} />
           </Form.Item>
-          <Form.Item label="工具包文件（可选，≤100MB）">
+          <Form.Item label={t('tools.form.packageFile')}>
             <Upload
               maxCount={1}
               beforeUpload={(file) => {
@@ -599,7 +600,7 @@ const Tools: React.FC = () => {
               onRemove={() => setPackageFile(null)}
               fileList={packageFile ? [{ uid: packageFile.name, name: packageFile.name } as any] : []}
             >
-              <Button icon={<UploadOutlined />}>选择文件</Button>
+              <Button icon={<UploadOutlined />}>{t('tools.chooseFile')}</Button>
             </Upload>
           </Form.Item>
         </Form>
@@ -607,7 +608,7 @@ const Tools: React.FC = () => {
 
       {/* 版本 */}
       <Drawer
-        title={<Space><HistoryOutlined />版本管理 · {versionTool?.name}</Space>}
+        title={<Space><HistoryOutlined />{t('tools.versionsDrawerTitle', { name: versionTool?.name ?? '' })}</Space>}
         open={!!versionTool}
         onClose={() => setVersionTool(null)}
         width={860}
@@ -617,7 +618,7 @@ const Tools: React.FC = () => {
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message="版本号可留空由后端自动生成 v1/v2/…；不带文件提交会创建「仅元数据」版本（hasFile=false，不可下载）。"
+          message={t('tools.versionsHint')}
         />
 
         {versionError && (
@@ -626,7 +627,7 @@ const Tools: React.FC = () => {
             showIcon
             closable
             style={{ marginBottom: 12 }}
-            message="版本操作失败"
+            message={t('tools.versionErrorTitle')}
             description={versionError}
             onClose={() => setVersionError(null)}
           />
@@ -639,7 +640,7 @@ const Tools: React.FC = () => {
           dataSource={versions}
           pagination={false}
           scroll={{ x: 760 }}
-          locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无版本记录" /> }}
+          locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('tools.noVersions')} /> }}
           columns={[
             {
               title: t('tools.colVersionNo'),
@@ -669,7 +670,7 @@ const Tools: React.FC = () => {
               key: 'hasFile',
               width: 110,
               render: (_: unknown, record: ToolVersionVO) =>
-                record.hasFile === false ? <Tag>仅元数据</Tag> : <Tag color="green">有文件</Tag>,
+                record.hasFile === false ? <Tag>{t('tools.metaOnlyTag')}</Tag> : <Tag color="green">{t('tools.hasFileTag')}</Tag>,
             },
             {
               title: t('tools.colCreatedBy'),
@@ -678,7 +679,7 @@ const Tools: React.FC = () => {
               render: (_: unknown, record: ToolVersionVO) => displayUser(record.createdBy),
             },
             {
-              title: '创建时间',
+              title: t('tools.colCreatedAt'),
               key: 'createdAt',
               width: 160,
               render: (_: unknown, record: ToolVersionVO) => formatDateTime(record.createdAt),
@@ -689,9 +690,9 @@ const Tools: React.FC = () => {
               width: 90,
               render: (_: unknown, record: ToolVersionVO) =>
                 record.hasFile === false ? (
-                  <Tooltip title="该版本未上传文件">
+                  <Tooltip title={t('tools.noFileTooltip')}>
                     <Button type="link" size="small" disabled icon={<DownloadOutlined />}>
-                      下载
+                      {t('tools.actionDownload')}
                     </Button>
                   </Tooltip>
                 ) : (
@@ -701,7 +702,7 @@ const Tools: React.FC = () => {
                     icon={<DownloadOutlined />}
                     onClick={() => handleDownloadVersion(record)}
                   >
-                    下载
+                    {t('tools.actionDownload')}
                   </Button>
                 ),
             },
@@ -709,7 +710,7 @@ const Tools: React.FC = () => {
           expandable={{
             expandedRowRender: (record) => (
               <div>
-                <Text type="secondary">变更说明：</Text>
+<Text type="secondary">{t('tools.changelogLabel')}</Text>
                 {record.changelog ? <span>{record.changelog}</span> : <Text type="secondary">-</Text>}
               </div>
             ),
@@ -722,15 +723,15 @@ const Tools: React.FC = () => {
           <Form form={versionForm} layout="vertical">
             <Form.Item
               name="version"
-              label="版本号"
-              extra="留空则由后端自动生成 vN（v1、v2…）"
+              label={t('tools.form.versionNo')}
+              extra={t('tools.form.versionNoExtra')}
             >
-              <Input placeholder="如 1.2.0（可留空）" />
+              <Input placeholder={t('tools.form.versionPlaceholder')} />
             </Form.Item>
-            <Form.Item name="changelog" label="变更说明">
+            <Form.Item name="changelog" label={t('tools.form.changelog')}>
               <TextArea rows={2} maxLength={500} showCount />
             </Form.Item>
-            <Form.Item label="版本文件（可选）">
+            <Form.Item label={t('tools.form.versionFile')}>
               <Upload
                 maxCount={1}
                 beforeUpload={(file) => {
@@ -740,11 +741,11 @@ const Tools: React.FC = () => {
                 onRemove={() => setVersionFile(null)}
                 fileList={versionFile ? [{ uid: versionFile.name, name: versionFile.name } as any] : []}
               >
-                <Button icon={<UploadOutlined />}>选择文件</Button>
+                <Button icon={<UploadOutlined />}>{t('tools.chooseFile')}</Button>
               </Upload>
             </Form.Item>
             <Button type="primary" icon={<PlusOutlined />} loading={versionSubmitting} onClick={handleUploadVersion}>
-              {isRetryingVersion ? '版本号冲突，自动重试中…' : '上传版本'}
+              {isRetryingVersion ? t('tools.retryingVersion') : t('tools.uploadVersion')}
             </Button>
           </Form>
         </Card>
@@ -753,14 +754,14 @@ const Tools: React.FC = () => {
             type="info"
             showIcon
             style={{ marginTop: 16 }}
-            message="当前角色仅可查看与下载版本：编辑工具、上传版本需要管理员 / 项目负责人 / 小组长权限"
+            message={t('tools.readonlyHint')}
           />
         )}
       </Drawer>
 
       {/* 标签 */}
       <Drawer
-        title={<Space><TagsOutlined />标签管理 · {tagTool?.name}</Space>}
+        title={<Space><TagsOutlined />{t('tools.tagsDrawerTitle', { name: tagTool?.name ?? '' })}</Space>}
         open={!!tagTool}
         onClose={() => setTagTool(null)}
         width={420}
@@ -769,21 +770,21 @@ const Tools: React.FC = () => {
         {allowManageTools ? (
           <Space.Compact style={{ width: '100%', marginBottom: 16 }}>
             <Input
-              placeholder="输入标签，如 信息收集"
+              placeholder={t('tools.tagPlaceholder')}
               value={newTag}
               onChange={(event) => setNewTag(event.target.value)}
               onPressEnter={handleAddTag}
             />
-            <Button type="primary" onClick={handleAddTag}>添加</Button>
+            <Button type="primary" onClick={handleAddTag}>{t('tools.addTag')}</Button>
           </Space.Compact>
         ) : (
           <Alert type="info" showIcon style={{ marginBottom: 16 }} message={TOOL_TAG_READONLY_HINT} />
         )}
 
         {tagLoading ? (
-          <Text type="secondary">加载中…</Text>
+          <Text type="secondary">{t('tools.loading')}</Text>
         ) : tags.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该工具暂无标签" />
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('tools.noTags')} />
         ) : (
           <Space size={[8, 8]} wrap>
             {tags.map((tag) => (
@@ -807,20 +808,20 @@ const TooltipWrapper: React.FC<{ text: string; children: React.ReactNode }> = ({
  * 版本上传失败的行内文案：按状态码区分（403 / 404 / 409 / 400），
  * 不再统一成「操作失败」；后端 message 原样保留在前面。
  */
-const describeVersionError = (error: unknown, fallback: string): string => {
+const describeVersionError = (error: unknown, fallback: string, t: (key: MessageKey, vars?: Record<string, string | number>) => string): string => {
   const status = getApiErrorStatus(error);
   const backendMessage = getApiErrorMessage(error, fallback);
   switch (status) {
     case 400:
-      return `${backendMessage}（400：请求参数不合法，请检查版本号/文件后重试）`;
+      return t('tools.err400', { message: backendMessage });
     case 403:
-      return `${backendMessage}（403：没有为该工具上传版本的权限）`;
+      return t('tools.err403', { message: backendMessage });
     case 404:
-      return `${backendMessage}（404：工具不存在，可能已被删除，请刷新列表后重试）`;
+      return t('tools.err404', { message: backendMessage });
     case 409:
-      return `${backendMessage}（409：版本号冲突，自动重试后仍失败，请更换版本号或留空由后端自动生成）`;
+      return t('tools.err409', { message: backendMessage });
     default:
-      return status ? `${backendMessage}（HTTP ${status}）` : backendMessage;
+      return status ? t('tools.errOther', { message: backendMessage, status }) : backendMessage;
   }
 };
 

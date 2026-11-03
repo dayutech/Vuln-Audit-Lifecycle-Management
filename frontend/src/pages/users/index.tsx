@@ -39,14 +39,21 @@ import type { RoleVO } from '@/types/role';
 import { isSystemRole } from '@/types/role';
 import { formatDateTime } from '@/utils/datetime';
 import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
-import { useT } from '@/i18n';
+import { useT, type MessageKey } from '@/i18n';
 
 const { Text } = Typography;
 
-const statusMeta: Record<string, { color: string; label: string }> = {
-  active: { color: 'success', label: '活跃' },
-  suspended: { color: 'warning', label: '已停用' },
-  deactivated: { color: 'default', label: '已注销' },
+const statusMeta: Record<string, { color: string; labelKey?: MessageKey }> = {
+  active: { color: 'success', labelKey: 'users.status.active' },
+  suspended: { color: 'warning', labelKey: 'users.status.suspended' },
+  deactivated: { color: 'default', labelKey: 'users.status.deactivated' },
+};
+
+/** 状态 → i18n 词条（t84：状态流转反馈里的状态名随语言切换） */
+const USER_STATUS_LABEL_KEYS: Record<string, MessageKey> = {
+  active: 'users.status.active',
+  suspended: 'users.status.suspended',
+  deactivated: 'users.status.deactivated',
 };
 
 /**
@@ -180,7 +187,7 @@ const Users: React.FC = () => {
           fullName: values.fullName,
           position: values.position,
         });
-        message.success('用户创建成功，可在「角色」中为其分配角色');
+        message.success(t('feedback.user.created'));
       } else if (currentUser) {
         await updateUser(currentUser.id, {
           fullName: values.fullName,
@@ -188,7 +195,7 @@ const Users: React.FC = () => {
           phone: values.phone,
           position: values.position,
         });
-        message.success('更新成功');
+        message.success(t('feedback.user.updated'));
       }
       setIsModalVisible(false);
       fetchData();
@@ -205,7 +212,7 @@ const Users: React.FC = () => {
       onOk: async () => {
         try {
           await deleteUser(record.id);
-          message.success('删除成功');
+          message.success(t('feedback.user.deleted'));
           fetchData();
         } catch {
           // 400（不能删除自己）/404 由拦截器提示
@@ -218,16 +225,19 @@ const Users: React.FC = () => {
 
   const handleToggleStatus = (record: UserVO) => {
     const nextStatus: UserStatus = record.status === 'active' ? 'suspended' : 'active';
-    const actionLabel = nextStatus === 'suspended' ? '停用' : '启用';
+    const actionLabel = nextStatus === 'suspended' ? t('feedback.user.actionSuspended') : t('feedback.user.actionEnabled');
     Modal.confirm({
-      title: `确认${actionLabel}`,
-      content: `确定要${actionLabel}用户 [${record.username}] 吗？`,
+      title: t('users.confirmToggleTitle', { action: actionLabel }),
+      content: t('users.confirmToggleContent', { action: actionLabel, username: record.username }),
       onOk: async () => {
         try {
           const res: any = await updateUserStatus(record.id, nextStatus);
           const updated = res?.data ?? res;
           message.success(
-            `${actionLabel}成功，当前状态：${statusMeta[updated?.status ?? nextStatus]?.label ?? nextStatus}`,
+            t('feedback.user.statusChanged', {
+              action: actionLabel,
+              status: t(USER_STATUS_LABEL_KEYS[updated?.status ?? nextStatus] ?? 'users.status.active'),
+            }),
           );
           fetchData();
         } catch {
@@ -255,7 +265,7 @@ const Users: React.FC = () => {
     setResetSubmitting(true);
     try {
       await resetUserPassword(resetUser.id, values.newPassword);
-      message.success(`已重置 [${resetUser.username}] 的密码`);
+      message.success(t('feedback.user.passwordReset', { username: resetUser.username }));
       setResetUser(null);
     } catch {
       // 404 由拦截器提示
@@ -289,7 +299,7 @@ const Users: React.FC = () => {
 
   const handleAssignRole = async () => {
     if (!roleUser || !selectedRoleId) {
-      message.warning('请先选择要分配的角色');
+      message.warning(t('feedback.user.roleRequired'));
       return;
     }
     const role = roles.find((item) => item.id === selectedRoleId);
@@ -299,9 +309,9 @@ const Users: React.FC = () => {
     try {
       await assignUserRole(roleUser.id, selectedRoleId);
       if (alreadyAssigned) {
-        message.info(`该用户已拥有「${role?.name ?? selectedRoleId}」，后端按幂等处理（200，不重复插入）`);
+        message.info(t('feedback.user.roleAlreadyAssigned', { role: role?.name ?? selectedRoleId }));
       } else {
-        message.success(`已分配角色「${role?.name ?? selectedRoleId}」`);
+        message.success(t('feedback.user.roleAssigned', { role: role?.name ?? selectedRoleId }));
       }
       setSelectedRoleId(undefined);
       await loadUserRoles(roleUser.id);
@@ -329,13 +339,13 @@ const Users: React.FC = () => {
         setRoleError(null);
         try {
           await revokeUserRole(roleUser.id, role.id);
-          message.success(`已移除角色「${role.name}」`);
+          message.success(t('feedback.user.roleRemoved', { role: role.name }));
           await loadUserRoles(roleUser.id);
           fetchData();
         } catch (error: any) {
           const status = getApiErrorStatus(error);
           if (status === 404) {
-            message.info('该用户未拥有此角色（后端返回 404），已按已移除处理');
+            message.info(t('feedback.user.roleNotAssigned'));
             await loadUserRoles(roleUser.id);
             return;
           }
@@ -358,8 +368,8 @@ const Users: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => {
-        const meta = statusMeta[status] ?? { color: 'default', label: status };
-        return <Tag color={meta.color}>{meta.label}</Tag>;
+        const meta = statusMeta[status];
+        return <Tag color={meta?.color ?? 'default'}>{meta?.labelKey ? t(meta.labelKey) : status}</Tag>;
       },
     },
     {

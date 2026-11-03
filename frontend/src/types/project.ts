@@ -10,6 +10,22 @@ import type { MessageKey } from '@/i18n/messages/zh-CN';
 export type { ProjectVO, PhaseVO, ProjectDetailVO } from './customer';
 import type { ProjectVO } from './customer';
 
+/**
+ * 项目列表聚合项（后端 t82 {@code ProjectSummaryItem}）。
+ *
+ * 口径差异（勿混用，与后端注释一致）：
+ * - `phaseCount`：全量组织口径（不按可见范围收敛）；
+ * - `assetCount` / `openTaskCount`：按 `AccessGuard.visibleAssetIds` 收敛 —— 即「你的可见范围」。
+ */
+export interface ProjectSummaryVO extends ProjectVO {
+  phaseCount?: number | null;
+  assetCount?: number | null;
+  openTaskCount?: number | null;
+}
+
+/** 项目聚合列表排序（后端 sort 入参） */
+export type ProjectSummarySort = 'createdAt' | 'assetCount';
+
 /** 项目状态（后端 ProjectServiceImpl.TRANSITIONS 的键集合） */
 export type ProjectStatus = 'DRAFT' | 'ACTIVE' | 'PAUSED' | 'CLOSED';
 
@@ -27,6 +43,11 @@ export interface ProjectQuery {
   status?: string;
   type?: string;
   keyword?: string;
+}
+
+export interface ProjectSummaryQuery extends ProjectQuery {
+  /** createdAt（默认，创建时间倒序）/ assetCount（资产数倒序） */
+  sort?: ProjectSummarySort;
 }
 
 export interface ProjectRequest {

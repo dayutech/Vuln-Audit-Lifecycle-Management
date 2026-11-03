@@ -34,7 +34,7 @@ import {
 import type { ImportFailedRow, ImportResult, ImportType, ImportedUser } from '@/api/import';
 import { saveBlobAsFile } from '@/utils/download';
 import { getApiErrorMessage, getApiErrorStatus, getBlobErrorMessage } from '@/utils/errorMessage';
-import { useT } from '@/i18n';
+import { useT, type MessageKey } from '@/i18n';
 
 const { Text, Paragraph } = Typography;
 
@@ -106,9 +106,9 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
     try {
       const blob = await downloadImportTemplate(type);
       const savedName = saveBlobAsFile(blob as Blob, meta.templateFile);
-      message.success(`模板已下载：${savedName}`);
+      message.success(t('feedback.import.templateDownloaded', { name: savedName }));
     } catch (error) {
-      const text = await getBlobErrorMessage(error, '模板下载失败');
+      const text = await getBlobErrorMessage(error, t('feedback.import.templateDownloadFailed'));
       message.error(text);
     } finally {
       setDownloading(false);
@@ -117,7 +117,7 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
 
   const handleImport = async () => {
     if (!selectedFile) {
-      message.warning('请先选择要导入的 CSV 文件');
+      message.warning(t('feedback.import.noFile'));
       return;
     }
     const invalid = validateCsvFile(selectedFile);
@@ -137,13 +137,13 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
       setResult(parsed);
       setBackendMessage(msg);
       if (parsed.failedRows.length === 0) {
-        message.success(`导入成功 ${parsed.successRows} 行`);
+        message.success(t('feedback.import.success', { count: parsed.successRows }));
       } else {
-        message.warning(`导入完成：成功 ${parsed.successRows} 行，失败 ${parsed.failedRows.length} 行`);
+        message.warning(t('feedback.import.partialSuccess', { success: parsed.successRows, failed: parsed.failedRows.length }));
       }
     } catch (error) {
       const status = getApiErrorStatus(error);
-      setImportError({ status, message: getApiErrorMessage(error, '导入失败') });
+      setImportError({ status, message: getApiErrorMessage(error, t('feedback.import.failed')) });
     } finally {
       setImporting(false);
     }
@@ -163,10 +163,10 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
       .map((user) => `${user.username}\t${user.initialPassword}\t${user.roleCode}`)
       .join('\n');
     try {
-      await navigator.clipboard.writeText(`用户名\t初始密码\t角色\n${text}`);
-      message.success(`已复制 ${createdUsers.length} 个账号的用户名与初始密码`);
+      await navigator.clipboard.writeText(`${t('import.page.clipboardHeader')}\n${text}`);
+      message.success(t('feedback.import.credentialsCopied', { count: createdUsers.length }));
     } catch {
-      message.warning('浏览器不允许自动复制，请用表格里的复制图标逐个复制');
+      message.warning(t('feedback.import.clipboardDenied'));
     }
   };
 
@@ -176,20 +176,20 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
       key: 'kind',
       width: 84,
       render: (_: unknown, row: ImportFailedRow) =>
-        isPermissionDeniedFailure(row) ? <Tag color="red">权限</Tag> : <Tag>数据</Tag>,
+        isPermissionDeniedFailure(row) ? <Tag color="red">{t('import.page.permTagShort')}</Tag> : <Tag>{t('import.page.dataTagShort')}</Tag>,
     },
     {
       title: t('import.colRowNumber'),
       dataIndex: 'line',
       key: 'line',
       width: 100,
-      render: (line: number) => <Tag color="red">第 {line} 行</Tag>,
+      render: (line: number) => <Tag color="red">{t('import.page.rowLine', { line })}</Tag>,
     },
     {
       title: t('import.colFailure'),
       dataIndex: 'reason',
       key: 'reason',
-      render: (reason: string) => <Text type="danger">{reason || '（后端未返回原因）'}</Text>,
+      render: (reason: string) => <Text type="danger">{reason || t('import.page.reasonMissing')}</Text>,
     },
   ];
 
@@ -199,7 +199,7 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
       dataIndex: 'line',
       key: 'line',
       width: 90,
-      render: (line: number) => <Tag>第 {line} 行</Tag>,
+      render: (line: number) => <Tag>{t('import.page.rowLine', { line })}</Tag>,
     },
     {
       title: t('import.colUsername'),
@@ -229,7 +229,7 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
       key: 'mustChangePassword',
       width: 90,
       render: (mustChange: boolean) =>
-        mustChange ? <Tag color="orange">是</Tag> : <Tag color="default">否</Tag>,
+        mustChange ? <Tag color="orange">{t('import.page.yes')}</Tag> : <Tag color="default">{t('import.page.no')}</Tag>,
     },
   ];
 
@@ -242,7 +242,7 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
         <Alert
           type="warning"
           showIcon
-          message="团队长导入范围提示"
+          message={t('import.page.teamScopeTitle')}
           description={TEAM_SCOPE_NOTICE}
         />
       )}
@@ -252,21 +252,21 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
         size="small"
         bordered
         items={[
-          { key: 'columns', label: '模板列', children: <Text code>{meta.columns}</Text> },
-          { key: 'tips', label: '填写须知', children: meta.tips },
+          { key: 'columns', label: t('import.page.fieldColumns'), children: <Text code>{t(meta.columnsKey)}</Text> },
+          { key: 'tips', label: t('import.page.fieldTips'), children: t(meta.tipsKey) },
           {
             key: 'limit',
-            label: '文件要求',
-            children: `UTF-8 编码 CSV，首行为表头，单文件 ≤ ${IMPORT_MAX_FILE_SIZE / 1024 / 1024}MB`,
+            label: t('import.page.fieldLimit'),
+            children: t('import.page.fileLimitText', { size: IMPORT_MAX_FILE_SIZE / 1024 / 1024 }),
           },
         ]}
       />
 
       <Space wrap>
         <Button icon={<CloudDownloadOutlined />} loading={downloading} onClick={handleDownloadTemplate}>
-          下载模板
+          {t('import.page.downloadTemplate')}
         </Button>
-        <Text type="secondary">模板自带 UTF-8 BOM，用 Excel 打开中文不乱码</Text>
+        <Text type="secondary">{t('import.page.bomHint')}</Text>
       </Space>
 
       <Upload.Dragger
@@ -298,11 +298,11 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
         <p className="ant-upload-drag-icon">
           <InboxOutlined />
         </p>
-        <p className="ant-upload-text">点击或拖拽 CSV 文件到此处</p>
-        <p className="ant-upload-hint">仅 .csv，单文件 ≤ 20MB；前端会先校验扩展名与体积</p>
+        <p className="ant-upload-text">{t('import.page.dropText')}</p>
+        <p className="ant-upload-hint">{t('import.page.dropHint', { size: 20 })}</p>
       </Upload.Dragger>
 
-      {fileError && <Alert type="error" showIcon message="文件校验未通过" description={fileError} />}
+      {fileError && <Alert type="error" showIcon message={t('import.page.fileInvalidTitle')} description={fileError} />}
 
       <Space>
         <Button
@@ -312,13 +312,13 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
           disabled={!selectedFile}
           onClick={handleImport}
         >
-          开始导入
+          {t('import.page.startImport')}
         </Button>
         <Button icon={<ReloadOutlined />} onClick={handleReset} disabled={importing}>
-          清空
+          {t('import.page.reset')}
         </Button>
         <Link to={meta.listPath}>
-          <Button type="link">前往{meta.listLabel}（进入即重新拉取数据）</Button>
+          <Button type="link">{t('import.goToList', { label: t(meta.listLabelKey) })}</Button>
         </Link>
       </Space>
 
@@ -326,21 +326,20 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
         <Alert
           type="error"
           showIcon
-          message={describeErrorTitle(importError.status)}
+          message={describeErrorTitle(importError.status, t)}
           description={
             <div>
               <p style={{ marginBottom: 8 }}>{importError.message}</p>
               {importError.status === 400 && (
                 <p style={{ margin: 0 }}>
-                  400 表示文件级校验未通过（空文件 / 表头缺列 / 超过 20MB），本次没有任何数据入库。
-                  请核对表头是否包含：<Text code>{meta.columns}</Text>
+                  {t('import.page.err400', { size: 20 })}<Text code>{t(meta.columnsKey)}</Text>
                 </p>
               )}
               {importError.status === 413 && (
-                <p style={{ margin: 0 }}>网关判定请求体过大，请确认文件 ≤ 20MB 后重试。</p>
+                <p style={{ margin: 0 }}>{t('import.page.err413', { size: 20 })}</p>
               )}
-              {importError.status === 403 && meta.adminOnly && (
-                <p style={{ margin: 0 }}>用户导入仅管理员可用，请使用管理员账号操作。</p>
+              {importError.status === 403 && meta.roleGate !== 'public' && (
+                <p style={{ margin: 0 }}>{t('import.page.err403')}</p>
               )}
             </div>
           }
@@ -354,7 +353,7 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
           extra={
             result.successRows > 0 ? (
               <Link to={meta.listPath}>
-                <Button type="link" size="small">查看{meta.listLabel}</Button>
+                <Button type="link" size="small">{t('import.goToList', { label: t(meta.listLabelKey) })}</Button>
               </Link>
             ) : null
           }
@@ -366,29 +365,28 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
             message={
               backendMessage
                 ?? (failedRows.length > 0
-                  ? `导入完成：成功 ${result.successRows} 行，失败 ${failedRows.length} 行`
-                  : `导入成功 ${result.successRows} 行`)
+                  ? t('import.page.partialTitle', { success: result.successRows, failed: failedRows.length })
+                  : t('import.page.successTitle', { success: result.successRows }))
             }
             description={
               failedRows.length > 0
                 ? (
                   <div>
                     <p style={{ margin: '0 0 4px' }}>
-                      接口返回 200 只代表请求被处理：其余行已经成功入库，失败行请按 failedRows 逐行核对。
+                      {t('import.page.partialDesc')}
                     </p>
                     {permissionDenied.length > 0 && (
                       <p style={{ margin: '0 0 4px' }}>
-                        <Tag color="red">权限</Tag>
-                        其中 {permissionDenied.length} 行是<strong>写权限被拒</strong>（不会写入库，不是数据格式问题），
-                        需换用有权限的团队/资产或让管理员调整授权后单独重传这些行。
+                        <Tag color="red">{t('import.page.permissionTag')}</Tag>
+                        {t('import.page.permissionDesc', { count: permissionDenied.length })}
                       </p>
                     )}
                     <p style={{ margin: 0 }}>
-                      请勿整份重传：已成功的行会再次插入，建议只保留需要修正的行重新导入。
+                      {t('import.page.retryHint')}
                     </p>
                   </div>
                 )
-                : '全部数据行均已入库。'
+                : t('import.page.allImported')
             }
           />
 
@@ -426,24 +424,24 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
               />
             )}
             <Statistic
-              title="数据错误"
+              title={t('import.page.statDataErrors')}
               value={dataErrors.length}
               valueStyle={{ color: dataErrors.length > 0 ? '#cf1322' : undefined }}
             />
             <Statistic
-              title="权限拒绝"
+              title={t('import.page.statPermissionDenied')}
               value={permissionDenied.length}
               valueStyle={{ color: permissionDenied.length > 0 ? '#d46b08' : undefined }}
             />
-            <Statistic title="成功率" value={successRatio} suffix="%" />
+            <Statistic title={t('import.page.statSuccessRate')} value={successRatio} suffix="%" />
           </Space>
 
           {failedRows.length > 0 && (
             <>
               <Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                失败行明细（line 为 CSV 原始行号，表头算第 1 行）：
+                {t('import.page.failedRowsHint')}
                 {permissionDenied.length > 0 && (
-                  <Text type="warning"> 带「权限」标签的行不会写入库。</Text>
+                  <Text type="warning">{t('import.page.failedRowsPermissionHint')}</Text>
                 )}
               </Paragraph>
               <Table<ImportFailedRow>
@@ -465,14 +463,13 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
                 type="warning"
                 showIcon
                 style={{ marginBottom: 12 }}
-                message="初始密码仅显示一次，请立即保存并线下分发"
+                message={t('import.page.passwordTitle')}
                 description={
-                  '密码由后端为每行随机生成，本次响应之后无法再次查看；刷新或离开本页即丢失。'
-                  + '请通过安全渠道分发，并提醒用户首次登录后立即修改密码。'
+                  t('import.page.passwordDesc')
                 }
                 action={
                   <Button size="small" icon={<CopyOutlined />} onClick={copyCreatedAccounts}>
-                    复制全部
+                    {t('import.page.copyAll')}
                   </Button>
                 }
               />
@@ -493,18 +490,21 @@ const ImportPanel: React.FC<ImportPanelProps> = ({ type, teamScopeHint = false }
 };
 
 /** 按状态码给出不同的失败标题（区分 400 / 413 / 403 / 其它） */
-const describeErrorTitle = (status?: number): string => {
+const describeErrorTitle = (
+  status: number | undefined,
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string
+): string => {
   switch (status) {
     case 400:
-      return '文件校验未通过（HTTP 400）：整单未入库';
+      return t('import.page.errTitle400');
     case 413:
-      return '文件超过网关上限（HTTP 413）';
+      return t('import.page.errTitle413');
     case 401:
-      return '登录已失效（HTTP 401），请重新登录后重试';
+      return t('import.page.errTitle401');
     case 403:
-      return '没有导入权限（HTTP 403）';
+      return t('import.page.errTitle403');
     default:
-      return status ? `导入失败（HTTP ${status}）` : '导入失败';
+      return status ? t('import.page.errTitleGeneric', { status }) : t('import.page.errTitleFallback');
   }
 };
 

@@ -267,7 +267,7 @@ const Teams: React.FC = () => {
           parent_id: values.parent_id ?? null,
           leader_id: values.leader_id,
         });
-        message.success('团队更新成功');
+        message.success(t('feedback.team.updated'));
       } else {
         await createTeam({
           name: values.name,
@@ -275,13 +275,13 @@ const Teams: React.FC = () => {
           parent_id: values.parent_id,
           leader_id: values.leader_id,
         });
-        message.success('团队创建成功');
+        message.success(t('feedback.team.created'));
       }
       setModalVisible(false);
       await fetchTeams();
     } catch (error) {
       if (!isFormValidationError(error)) {
-        message.error(describeTeamWriteFailure(error, editingTeam ? '团队更新失败' : '团队创建失败'));
+        message.error(describeTeamWriteFailure(error, t(editingTeam ? 'feedback.team.updateFailed' : 'feedback.team.createFailed')));
       }
     } finally {
       setSubmitting(false);
@@ -296,10 +296,10 @@ const Teams: React.FC = () => {
       onOk: async () => {
         try {
           await deleteTeam(team.id);
-          message.success('团队已删除');
+          message.success(t('feedback.team.deleted'));
           await fetchTeams();
         } catch (error) {
-          message.error(describeTeamWriteFailure(error, '团队删除失败'));
+          message.error(describeTeamWriteFailure(error, t('feedback.team.deleteFailed')));
         }
       },
     });
@@ -307,19 +307,19 @@ const Teams: React.FC = () => {
 
   const handleAddMember = async () => {
     if (!selectedTeam) {
-      message.warning('请先选择团队');
+      message.warning(t('feedback.team.selectRequired'));
       return;
     }
     try {
       const values = await memberForm.validateFields();
       setMemberSubmitting(true);
       await addTeamMember(selectedTeam.id, { user_id: values.user_id, role: values.role });
-      message.success('成员已添加');
+      message.success(t('feedback.team.memberAdded'));
       memberForm.resetFields();
       await fetchMembers(selectedTeam.id);
     } catch (error) {
       if (!isFormValidationError(error)) {
-        message.error(describeTeamWriteFailure(error, '添加成员失败'));
+        message.error(describeTeamWriteFailure(error, t('feedback.team.memberAddFailed')));
       }
     } finally {
       setMemberSubmitting(false);
@@ -332,10 +332,10 @@ const Teams: React.FC = () => {
     }
     try {
       await removeTeamMember(selectedTeam.id, userId);
-      message.success('成员已移除');
+      message.success(t('feedback.team.memberRemoved'));
       await fetchMembers(selectedTeam.id);
     } catch (error) {
-      message.error(describeTeamWriteFailure(error, '移除成员失败'));
+      message.error(describeTeamWriteFailure(error, t('feedback.team.memberRemoveFailed')));
     }
   };
 

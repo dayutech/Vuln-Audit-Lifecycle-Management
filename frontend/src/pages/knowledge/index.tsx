@@ -55,16 +55,16 @@ import {
   KNOWLEDGE_TAG_FORBIDDEN_MESSAGE,
   KNOWLEDGE_TAG_READONLY_HINT,
 } from '@/utils/accessRoles';
-import { useT } from '@/i18n';
+import { useT, type MessageKey } from '@/i18n';
 
 const { Option } = Select;
 const { Text, Paragraph } = Typography;
 
-const categoryLabels: Record<string, string> = {
-  vulnerability: '漏洞分析',
-  methodology: '方法论',
-  experience: '实战经验',
-  tool: '工具使用',
+const CATEGORY_KEYS: Record<string, MessageKey> = {
+  vulnerability: 'knowledge.category.vulnerability',
+  methodology: 'knowledge.category.methodology',
+  experience: 'knowledge.category.experience',
+  tool: 'knowledge.category.tool',
 };
 
 const containsHtmlTag = (content: string) => /<\/?[a-z][\s\S]*>/i.test(content);
@@ -279,9 +279,9 @@ const Knowledge: React.FC = () => {
       setTotal(results.length);
       setSearchKeyword(text);
       if (results.length === 0) {
-        message.info(`没有匹配「${text}」的文章`);
+        message.info(t('feedback.knowledge.searchEmpty', { text }));
       } else {
-        message.success(`搜索「${text}」命中 ${results.length} 篇`);
+        message.success(t('feedback.knowledge.searchHit', { text, count: results.length }));
       }
     } catch {
       // 拦截器提示
@@ -308,12 +308,12 @@ const Knowledge: React.FC = () => {
   const handleDelete = (record: KnowledgeArticleVO) => {
     Modal.confirm({
       title: t('knowledge.deleteTitle'),
-      content: `确定要删除文章 [${record.title}] 吗？此操作不可恢复。`,
+      content: t('knowledge.deleteConfirm', { title: record.title }),
       okButtonProps: { danger: true },
       onOk: async () => {
         try {
           await deleteKnowledge(record.id);
-          message.success('删除成功');
+          message.success(t('feedback.knowledge.deleted'));
           fetchData();
           fetchPopular();
         } catch {
@@ -331,11 +331,11 @@ const Knowledge: React.FC = () => {
       return;
     }
     if (!editorContent.trim()) {
-      message.warning('请输入正文内容');
+      message.warning(t('feedback.knowledge.bodyRequired'));
       return;
     }
     if (!currentUser?.id) {
-      message.error('未获取到当前登录用户信息，请刷新页面后重试');
+      message.error(t('feedback.knowledge.currentUserMissing'));
       return;
     }
     setCreating(true);
@@ -348,7 +348,7 @@ const Knowledge: React.FC = () => {
         tags: values.tags || [],
         status: 'published',
       } as CreateKnowledgeRequest);
-      message.success('发布成功');
+      message.success(t('feedback.knowledge.published'));
       setIsModalVisible(false);
       fetchData();
       fetchPopular();
@@ -388,13 +388,13 @@ const Knowledge: React.FC = () => {
     if (!commentArticle) return;
     const content = commentContent.trim();
     if (!content) {
-      message.warning('请输入评论内容');
+      message.warning(t('feedback.knowledge.commentRequired'));
       return;
     }
     setCommentSubmitting(true);
     try {
       await addKnowledgeComment(commentArticle.id, content);
-      message.success('评论已提交');
+      message.success(t('feedback.knowledge.commentAdded'));
       setCommentArticle(null);
       setCommentContent('');
     } catch {
@@ -430,18 +430,18 @@ const Knowledge: React.FC = () => {
     }
     const tag = newTag.trim();
     if (!tag) {
-      message.warning('请输入标签内容');
+      message.warning(t('feedback.knowledge.tagRequired'));
       return;
     }
     if (tags.includes(tag)) {
-      message.info('该标签已存在');
+      message.info(t('feedback.knowledge.tagExists'));
       return;
     }
     try {
       await addKnowledgeTag(tagArticle.id, tag);
       setTags((prev) => [...prev, tag]);
       setNewTag('');
-      message.success(`已添加标签「${tag}」`);
+      message.success(t('feedback.knowledge.tagAdded', { tag }));
       fetchData();
     } catch (error) {
       message.error(getApiErrorMessage(error, KNOWLEDGE_TAG_FORBIDDEN_MESSAGE));
@@ -457,7 +457,7 @@ const Knowledge: React.FC = () => {
     try {
       await removeKnowledgeTag(tagArticle.id, tag);
       setTags((prev) => prev.filter((item) => item !== tag));
-      message.success(`已移除标签「${tag}」`);
+      message.success(t('feedback.knowledge.tagRemoved', { tag }));
       fetchData();
     } catch (error) {
       message.error(getApiErrorMessage(error, KNOWLEDGE_TAG_FORBIDDEN_MESSAGE));
@@ -478,10 +478,10 @@ const Knowledge: React.FC = () => {
         title: t('knowledge.colCategory'),
         dataIndex: 'category',
         key: 'category',
-        render: (category: string) => <Tag color="geekblue">{categoryLabels[category] ?? category}</Tag>,
+        render: (category: string) => <Tag color="geekblue">{CATEGORY_KEYS[category] ? t(CATEGORY_KEYS[category]) : category}</Tag>,
       },
       {
-        title: '标签',
+        title: t('knowledge.colTagsLabel'),
         key: 'tags',
         render: (_: unknown, record: KnowledgeArticleVO) => {
           const list = splitTags(record.tags);
@@ -492,7 +492,7 @@ const Knowledge: React.FC = () => {
               ))}
             </Space>
           ) : (
-            <Text type="secondary">未设置</Text>
+            <Text type="secondary">{t('knowledge.unsetTags')}</Text>
           );
         },
       },
@@ -513,19 +513,19 @@ const Knowledge: React.FC = () => {
           formatDateTime(record.createdAt ?? record.created_at),
       },
       {
-        title: '操作',
+        title: t('knowledge.colAction'),
         key: 'action',
         render: (_: unknown, record: KnowledgeArticleVO) => (
           <Space size="middle" wrap>
-            <a onClick={() => openDetail(record)}>详情</a>
+            <a onClick={() => openDetail(record)}>{t('knowledge.actionDetail')}</a>
             <a onClick={() => openComment(record)}>
-              <CommentOutlined /> 评论
+              <CommentOutlined /> {t('knowledge.actionComment')}
             </a>
             <a onClick={() => openTags(record)}>
-              <TagsOutlined /> 标签
+              <TagsOutlined /> {t('knowledge.actionTags')}
             </a>
             {accessLoaded && canDeleteKnowledge(accessProfile, record.authorId, effectiveUserId) && (
-              <a style={{ color: 'red' }} onClick={() => handleDelete(record)}>删除</a>
+              <a style={{ color: 'red' }} onClick={() => handleDelete(record)}>{t('knowledge.actionDelete')}</a>
             )}
           </Space>
         ),
@@ -540,7 +540,7 @@ const Knowledge: React.FC = () => {
       extra={
         <Space>
           <Button icon={<ReloadOutlined />} loading={loading} onClick={() => { fetchData(); fetchPopular(); }}>{t('common.refresh')}</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>发布文章</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('knowledge.publish')}</Button>
         </Space>
       }
     >
@@ -549,19 +549,19 @@ const Knowledge: React.FC = () => {
           <Space style={{ marginBottom: 16 }} wrap>
             <Input
               allowClear
-              placeholder="搜索标题/正文关键词，回车搜索"
+              placeholder={t('knowledge.searchPlaceholder')}
               prefix={<SearchOutlined />}
               style={{ width: 340 }}
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
               onPressEnter={handleSearch}
             />
-            <Button type="primary" loading={searching} onClick={handleSearch}>搜索</Button>
+            <Button type="primary" loading={searching} onClick={handleSearch}>{t('knowledge.searchButton')}</Button>
             <Button
               onClick={() => setParams({ ...params, search: keyword, page: 1 })}
               disabled={searchKeyword !== null}
             >
-              高级筛选
+              {t('knowledge.advancedFilter')}
             </Button>
           </Space>
 
@@ -570,8 +570,8 @@ const Knowledge: React.FC = () => {
               type="success"
               showIcon
               style={{ marginBottom: 12 }}
-              message={`搜索「${searchKeyword}」命中 ${total} 篇（GET /knowledge/search）`}
-              action={<a onClick={exitSearch}>退出搜索</a>}
+              message={t('knowledge.searchBanner', { keyword: searchKeyword ?? '', count: total })}
+              action={<a onClick={exitSearch}>{t('knowledge.exitSearch')}</a>}
             />
           )}
 
@@ -595,9 +595,9 @@ const Knowledge: React.FC = () => {
         </Col>
 
         <Col xs={24} lg={7}>
-          <Card size="small" title={<Space><FireOutlined />热门文章</Space>}>
+          <Card size="small" title={<Space><FireOutlined />{t('knowledge.hotArticles')}</Space>}>
             {popular.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据" />
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('knowledge.emptyData')} />
             ) : (
               <List
                 size="small"
@@ -610,7 +610,7 @@ const Knowledge: React.FC = () => {
                         <a onClick={() => openDetail(item)}>{item.title}</a>
                         <div>
                           <Text type="secondary" style={{ fontSize: 12 }}>
-                            浏览 {item.viewCount ?? item.view_count ?? 0} · {authorName(item)}
+                            {t('knowledge.metaLine', { views: item.viewCount ?? item.view_count ?? 0, author: authorName(item) })}
                           </Text>
                         </div>
                       </div>
@@ -630,50 +630,50 @@ const Knowledge: React.FC = () => {
         onOk={handleModalOk}
         onCancel={() => setIsModalVisible(false)}
         confirmLoading={creating}
-        okText="发布"
+        okText={t('knowledge.publishOk')}
         destroyOnClose
         width={1000}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="title" label="文章标题" rules={[{ required: true, message: '请输入文章标题' }]}>
+          <Form.Item name="title" label={t('knowledge.form.title')} rules={[{ required: true, message: t('knowledge.form.titleRequired') }]}>
             <Input maxLength={500} />
           </Form.Item>
-          <Form.Item name="category" label="分类" rules={[{ required: true, message: '请选择分类' }]}>
+          <Form.Item name="category" label={t('knowledge.form.category')} rules={[{ required: true, message: t('knowledge.form.categoryRequired') }]}>
             <Select>
-              {Object.entries(categoryLabels).map(([value, label]) => (
-                <Option key={value} value={value}>{label}</Option>
+              {Object.entries(CATEGORY_KEYS).map(([value, labelKey]) => (
+                <Option key={value} value={value}>{t(labelKey)}</Option>
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="summary" label="摘要（可选）">
+          <Form.Item name="summary" label={t('knowledge.form.summary')}>
             <Input maxLength={500} />
           </Form.Item>
-          <Form.Item name="tags" label="标签">
-            <Select mode="tags" placeholder="输入标签后按回车" style={{ width: '100%' }} />
+          <Form.Item name="tags" label={t('knowledge.form.tags')}>
+            <Select mode="tags" placeholder={t('knowledge.form.tagsPlaceholder')} style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item label="正文内容" required>
+          <Form.Item label={t('knowledge.form.content')} required>
             <Tabs
               defaultActiveKey="edit"
               items={[
                 {
                   key: 'edit',
-                  label: '编写',
+                  label: t('knowledge.tabWrite'),
                   children: (
                     <Input.TextArea
                       rows={14}
                       value={editorContent}
                       onChange={(event) => setEditorContent(event.target.value)}
-                      placeholder="使用 Markdown 编写文章内容"
+                      placeholder={t('knowledge.editorPlaceholder')}
                     />
                   ),
                 },
                 {
                   key: 'preview',
-                  label: '预览',
+                  label: t('knowledge.tabPreview'),
                   children: (
                     <div
                       style={{ minHeight: 320, border: '1px solid #f0f0f0', borderRadius: 6, padding: 12, background: '#fafafa' }}
-                      dangerouslySetInnerHTML={{ __html: renderRichContent(editorContent, '暂无内容') }}
+                      dangerouslySetInnerHTML={{ __html: renderRichContent(editorContent, t('knowledge.emptyContent')) }}
                     />
                   ),
                 },
@@ -685,7 +685,7 @@ const Knowledge: React.FC = () => {
 
       {/* 文章详情 */}
       <Drawer
-        title={detail?.title ?? '文章详情'}
+        title={detail?.title ?? t('knowledge.detailTitle')}
         open={!!detail}
         onClose={() => setDetail(null)}
         width={720}
@@ -694,37 +694,37 @@ const Knowledge: React.FC = () => {
         {detail && (
           <>
             <Space wrap style={{ marginBottom: 8 }}>
-              <Tag color="geekblue">{categoryLabels[detail.category] ?? detail.category}</Tag>
+              <Tag color="geekblue">{CATEGORY_KEYS[detail.category] ? t(CATEGORY_KEYS[detail.category]) : detail.category}</Tag>
               {splitTags(detail.tags).map((tag) => (
                 <Tag key={tag} color="cyan">{tag}</Tag>
               ))}
               <Text type="secondary">
-                作者 {authorName(detail)} · 浏览 {detail.viewCount ?? detail.view_count ?? 0} ·{' '}
+                {t('knowledge.authorLine', { author: authorName(detail), views: detail.viewCount ?? detail.view_count ?? 0 })}
                 {formatDateTime(detail.createdAt ?? detail.created_at)}
               </Text>
             </Space>
             <Divider />
             <div
               style={{ lineHeight: 1.8 }}
-              dangerouslySetInnerHTML={{ __html: renderRichContent(detail.content, '暂无内容') }}
+              dangerouslySetInnerHTML={{ __html: renderRichContent(detail.content, t('knowledge.emptyContent')) }}
             />
             <Divider />
             <Space>
-              <Button icon={<CommentOutlined />} onClick={() => openComment(detail)}>发表评论</Button>
-              <Button icon={<TagsOutlined />} onClick={() => openTags(detail)}>管理标签</Button>
+              <Button icon={<CommentOutlined />} onClick={() => openComment(detail)}>{t('knowledge.addComment')}</Button>
+              <Button icon={<TagsOutlined />} onClick={() => openTags(detail)}>{t('knowledge.manageTags')}</Button>
             </Space>
-            {detailLoading && <Paragraph type="secondary">加载最新内容…</Paragraph>}
+            {detailLoading && <Paragraph type="secondary">{t('knowledge.detailLoading')}</Paragraph>}
           </>
         )}
       </Drawer>
 
       {/* 评论 */}
       <Modal
-        title={`发表评论 · ${commentArticle?.title ?? ''}`}
+        title={t('knowledge.commentDrawerTitle', { title: commentArticle?.title ?? '' })}
         open={!!commentArticle}
         onOk={handleSubmitComment}
         onCancel={() => setCommentArticle(null)}
-        okText="提交评论"
+        okText={t('knowledge.submitComment')}
         confirmLoading={commentSubmitting}
         destroyOnClose
       >
@@ -734,19 +734,19 @@ const Knowledge: React.FC = () => {
           showCount
           value={commentContent}
           onChange={(event) => setCommentContent(event.target.value)}
-          placeholder="写下你的补充、复现要点或修复建议"
+          placeholder={t('knowledge.commentPlaceholder')}
         />
         <Alert
           type="info"
           showIcon
           style={{ marginTop: 12 }}
-          message="评论提交后写入后端（POST /knowledge/{id}/comments）。当前后端未提供评论列表查询接口，因此页面不回显历史评论。"
+          message={t('knowledge.commentNotice')}
         />
       </Modal>
 
       {/* 标签 */}
       <Drawer
-        title={<Space><TagsOutlined />标签管理 · {tagArticle?.title}</Space>}
+        title={<Space><TagsOutlined />{t('knowledge.tagsDrawerTitle', { title: tagArticle?.title ?? '' })}</Space>}
         open={!!tagArticle}
         onClose={() => setTagArticle(null)}
         width={420}
@@ -755,21 +755,21 @@ const Knowledge: React.FC = () => {
         {tagWritable ? (
         <Space.Compact style={{ width: '100%', marginBottom: 16 }}>
           <Input
-            placeholder="输入标签，如 反序列化"
+            placeholder={t('knowledge.tagPlaceholder')}
             value={newTag}
             onChange={(event) => setNewTag(event.target.value)}
             onPressEnter={handleAddTag}
           />
-          <Button type="primary" onClick={handleAddTag}>添加</Button>
+          <Button type="primary" onClick={handleAddTag}>{t('knowledge.addTag')}</Button>
         </Space.Compact>
         ) : (
           <Alert type="info" showIcon style={{ marginBottom: 16 }} message={KNOWLEDGE_TAG_READONLY_HINT} />
         )}
 
         {tagLoading ? (
-          <Text type="secondary">加载中…</Text>
+          <Text type="secondary">{t('knowledge.loading')}</Text>
         ) : tags.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该文章暂无标签" />
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={t('knowledge.noTags')} />
         ) : (
           <Space size={[8, 8]} wrap>
             {tags.map((tag) => (

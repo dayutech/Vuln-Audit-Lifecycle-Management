@@ -173,7 +173,7 @@ const Roles: React.FC = () => {
 
   const handleDelete = (record: RoleVO) => {
     if (isSystemRole(record)) {
-      message.warning('系统内置角色不可删除');
+      message.warning(t('feedback.role.builtinNotDeletable'));
       return;
     }
     Modal.confirm({
@@ -183,7 +183,7 @@ const Roles: React.FC = () => {
       onOk: async () => {
         try {
           await deleteRole(record.id);
-          message.success('删除成功');
+          message.success(t('feedback.role.deleted'));
           fetchData();
         } catch {
           // 404 / 400 等由响应拦截器提示（如角色不存在、内置角色不可删）
@@ -213,7 +213,7 @@ const Roles: React.FC = () => {
           permissionIds,
         };
         await createRole(payload);
-        message.success('角色创建成功');
+        message.success(t('feedback.role.created'));
       } else if (currentRole) {
         const payload: UpdateRoleRequest = {
           name: values.name,
@@ -223,8 +223,8 @@ const Roles: React.FC = () => {
         await updateRole(currentRole.id, payload);
         message.success(
           permissionIds === undefined
-            ? '角色信息已保存（未提交权限点）'
-            : `权限已保存：${permissionIds.length} 个权限点`,
+            ? t('feedback.role.savedWithoutPermissions')
+            : t('feedback.role.permissionsSaved', { count: permissionIds.length }),
         );
       }
       setIsModalVisible(false);

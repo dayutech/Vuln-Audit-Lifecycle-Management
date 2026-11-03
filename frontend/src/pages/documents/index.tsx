@@ -16,7 +16,7 @@ import {
 import type { DocumentVO, CreateDocumentRequest, UpdateDocumentRequest, DocumentTagVO } from '@/types/document';
 import { formatDateTime } from '@/utils/datetime';
 import { useLocation } from 'react-router-dom';
-import { useT } from '@/i18n';
+import { useT, type MessageKey } from '@/i18n';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
 import { canWriteDocumentTags, DOCUMENT_TAG_FORBIDDEN_MESSAGE, DOCUMENT_TAG_READONLY_HINT } from '@/utils/accessRoles';
 import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
@@ -29,10 +29,10 @@ const statusColors: Record<string, string> = {
   archived: 'warning'
 };
 
-const statusLabels: Record<string, string> = {
-  draft: '草稿',
-  published: '已发布',
-  archived: '已归档'
+const STATUS_LABEL_KEYS: Record<string, MessageKey> = {
+  draft: 'documents.status.draft',
+  published: 'documents.status.published',
+  archived: 'documents.status.archived'
 };
 
 const containsHtmlTag = (content: string) => /<\/?[a-z][\s\S]*>/i.test(content);
@@ -296,11 +296,11 @@ const Documents: React.FC = () => {
   const handleDelete = (id: string) => {
     Modal.confirm({
       title: t('documents.deleteTitle'),
-      content: '确定要删除该文档吗？此操作不可恢复。',
+      content: t('documents.deleteConfirm'),
       onOk: async () => {
         try {
           await deleteDocument(id);
-          message.success('删除成功');
+          message.success(t('feedback.document.deleted'));
           fetchData();
         } catch (error) {
           // Error handled by interceptor
@@ -313,10 +313,10 @@ const Documents: React.FC = () => {
     try {
       if (record.status === 'draft') {
         await publishDocument(record.id);
-        message.success('发布成功');
+        message.success(t('feedback.document.published'));
       } else {
         await unpublishDocument(record.id);
-        message.success('取消发布成功');
+        message.success(t('feedback.document.unpublished'));
       }
       fetchData();
     } catch (error) {
@@ -328,18 +328,18 @@ const Documents: React.FC = () => {
     try {
       const values = await form.validateFields();
       if (!editorContent.trim()) {
-        message.warning('请输入正文内容');
+        message.warning(t('feedback.document.bodyRequired'));
         return;
       }
       const payload = { ...values, content: editorContent };
       
       if (modalMode === 'create') {
         await createDocument(payload as CreateDocumentRequest);
-        message.success('创建成功');
+        message.success(t('feedback.document.created'));
       } else {
         if (currentDoc) {
           await updateDocument(currentDoc.id, payload as UpdateDocumentRequest);
-          message.success('更新成功，已生成新版本');
+          message.success(t('feedback.document.updatedNewVersion'));
         }
       }
       setIsModalVisible(false);
@@ -356,9 +356,9 @@ const Documents: React.FC = () => {
       title: t('documents.colStatus'), 
       dataIndex: 'status', 
       key: 'status',
-      render: (text: string) => <Tag color={statusColors[text] || 'default'}>{statusLabels[text] || text}</Tag>
+      render: (text: string) => <Tag color={statusColors[text] || 'default'}>{STATUS_LABEL_KEYS[text] ? t(STATUS_LABEL_KEYS[text]) : text || text}</Tag>
     },
-    { title: '版本', dataIndex: 'version', key: 'version', render: (v: number) => `v${v}` },
+    { title: t('documents.colVersionLabel'), dataIndex: 'version', key: 'version', render: (v: number) => `v${v}` },
     {
       title: t('documents.colUpdated'),
       dataIndex: 'updated_at',
@@ -371,12 +371,12 @@ const Documents: React.FC = () => {
       key: 'action',
       render: (_: any, record: DocumentVO) => (
         <Space size="middle">
-          <a onClick={() => handleEdit(record)}>编辑</a>
+          <a onClick={() => handleEdit(record)}>{t('documents.actionEdit')}</a>
           <a onClick={() => openTags(record)}>{t('documents.tags.action')}</a>
           <a onClick={() => handlePublishToggle(record)}>
-            {record.status === 'draft' ? '发布' : '取消发布'}
+            {record.status === 'draft' ? t('documents.actionPublish') : t('documents.actionUnpublish')}
           </a>
-          <a style={{ color: 'red' }} onClick={() => handleDelete(record.id)}>删除</a>
+          <a style={{ color: 'red' }} onClick={() => handleDelete(record.id)}>{t('documents.actionDelete')}</a>
         </Space>
       ),
     },
@@ -386,7 +386,7 @@ const Documents: React.FC = () => {
     <Card title={t('documents.title')} extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('documents.create')}</Button>}>
       <div style={{ marginBottom: 16 }}>
         <Input 
-          placeholder="搜索文档标题" 
+          placeholder={t('documents.searchPlaceholder')} 
           prefix={<SearchOutlined />} 
           style={{ width: 300 }} 
           value={searchText}
@@ -415,7 +415,7 @@ const Documents: React.FC = () => {
       </div>
 
       <Modal
-        title={modalMode === 'create' ? '新建文档' : '编辑文档'}
+        title={modalMode === 'create' ? t('documents.modalCreate') : t('documents.modalEdit')}
         open={isModalVisible}
         onOk={handleModalOk}
         onCancel={() => setIsModalVisible(false)}
@@ -423,48 +423,48 @@ const Documents: React.FC = () => {
         width={1000}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="title" label="文档标题" rules={[{ required: true, message: '请输入文档标题' }]}>
+          <Form.Item name="title" label={t('documents.form.title')} rules={[{ required: true, message: t('documents.form.titleRequired') }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="category" label="分类" rules={[{ required: true, message: '请选择分类' }]}>
+          <Form.Item name="category" label={t('documents.form.category')} rules={[{ required: true, message: t('documents.form.categoryRequired') }]}>
             <Select disabled={modalMode === 'edit'}>
-              <Option value="guide">指南/规范</Option>
-              <Option value="report">审计报告</Option>
-              <Option value="policy">安全策略</Option>
-              <Option value="other">其他</Option>
+              <Option value="guide">{t('documents.form.categoryGuide')}</Option>
+              <Option value="report">{t('documents.form.categoryReport')}</Option>
+              <Option value="policy">{t('documents.form.categoryPolicy')}</Option>
+              <Option value="other">{t('documents.form.categoryOther')}</Option>
             </Select>
           </Form.Item>
-          <Form.Item name="summary" label="摘要">
+          <Form.Item name="summary" label={t('documents.form.summary')}>
             <Input.TextArea rows={2} />
           </Form.Item>
           {modalMode === 'edit' && (
-            <Form.Item name="changelog" label="版本更新说明" rules={[{ required: true, message: '请输入本次修改的更新说明' }]}>
-              <Input.TextArea rows={2} placeholder="简要描述本次修改了哪些内容" />
+            <Form.Item name="changelog" label={t('documents.form.changelog')} rules={[{ required: true, message: t('documents.form.changelogRequired') }]}>
+              <Input.TextArea rows={2} placeholder={t('documents.form.changelogPlaceholder')} />
             </Form.Item>
           )}
-          <Form.Item label="正文内容" required>
+          <Form.Item label={t('documents.form.content')} required>
             <Tabs
               defaultActiveKey="edit"
               items={[
                 {
                   key: 'edit',
-                  label: '编写',
+                  label: t('documents.tabWrite'),
                   children: (
                     <Input.TextArea
                       rows={14}
                       value={editorContent}
                       onChange={(e) => setEditorContent(e.target.value)}
-                      placeholder="使用 Markdown 编写文档内容"
+                      placeholder={t('documents.editorPlaceholder')}
                     />
                   ),
                 },
                 {
                   key: 'preview',
-                  label: '预览',
+                  label: t('documents.tabPreview'),
                   children: (
                     <div
                       style={{ minHeight: 320, border: '1px solid #f0f0f0', borderRadius: 6, padding: 12, background: '#fafafa' }}
-                      dangerouslySetInnerHTML={{ __html: renderRichContent(editorContent, '暂无内容') }}
+                      dangerouslySetInnerHTML={{ __html: renderRichContent(editorContent, t('documents.emptyContent')) }}
                     />
                   ),
                 },

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Input, Modal, Select, Space, Table, Tag, message } from 'antd';
+import { Alert, Button, Card, Input, Modal, Select, Space, Table, Tag, Tooltip, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -12,11 +12,8 @@ import type { CustomerVO } from '@/types/customer';
 import {
   changeProjectStatus,
   deleteProject,
-  extractPhaseList,
-  extractProjectDetail,
-  extractProjectPage,
-  getProjectDetail,
-  getProjectList,
+  extractProjectSummaryPage,
+  getProjectSummaryList,
 } from '@/api/project';
 import {
   PROJECT_STATUS_COLORS,
@@ -27,17 +24,13 @@ import {
   projectStatusKey,
   projectTypeKey,
   transitionLabelKey,
-  type ProjectQuery,
-  type ProjectVO,
+  type ProjectSummaryQuery,
+  type ProjectSummarySort,
+  type ProjectSummaryVO,
 } from '@/types/project';
 import { AppEmpty } from '@/components/Feedback';
 import ProjectFormModal from './ProjectFormModal';
 import { describeProjectFailure } from './projectFailure';
-
-interface RowCounts {
-  phaseCount?: number;
-  assetCount?: number;
-}
 
 /**
  * 项目管理列表（t72）。
@@ -45,7 +38,8 @@ interface RowCounts {
  * - 筛选：客户 / 状态 / 类型 / 关键词（`?customerId=` 从客户详情跳转带入）
  * - 写入口：admin / project_leader 全量；team_leader 仅自己担任经理的项目；工程师只读
  * - 状态机：按后端合法流转渲染按钮（DRAFT→ACTIVE→{PAUSED,CLOSED}→CLOSED），CLOSED 后全部置灰
- * - 期次数 / 资产数来自 `GET /projects/{id}` 的聚合字段（列表接口不返回），按当前页并发补齐
+ * - 聚合列（期次数 / 资产数 / 经理 / 客户名）一次取自 `GET /projects/summary`（t82），
+ *   不再逐项目查详情（原 N+1 已消除）；`assetCount` 为「你的可见范围」，`phaseCount` 为全量口径
  */
 const Projects: React.FC = () => {
   const { t } = useT();
@@ -57,30 +51,32 @@ const Projects: React.FC = () => {
 
   const canCreate = profileLoaded && canCreateProject(profile);
 
-  const [data, setData] = useState<ProjectVO[]>([]);
+  const [data, setData] = useState<ProjectSummaryVO[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
-  const [counts, setCounts] = useState<Record<string, RowCounts>>({});
   const [customers, setCustomers] = useState<CustomerVO[]>([]);
   const [statusChanging, setStatusChanging] = useState<string | null>(null);
 
   const customerId = searchParams.get('customerId') ?? undefined;
-  const [params, setParams] = useState<ProjectQuery>({
+  const [params, setParams] = useState<ProjectSummaryQuery>({
     page: 1,
     page_size: 10,
     customerId,
     status: undefined,
     type: undefined,
     keyword: '',
+    // 默认按创建时间倒序（后端默认即 createdAt）
+    sort: 'createdAt',
   });
   const [keyword, setKeyword] = useState('');
 
   const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<ProjectVO | null>(null);
+  const [editing, setEditing] = useState<ProjectSummaryVO | null>(null);
 
   useEffect(() => {
-    setParams((prev) => ({ ...prev, customerId, page: 1 }));
+    // 只在 URL 里的 customerId 真的变化时同步，避免挂载时多打一次列表请求
+    setParams((prev) => (prev.customerId === customerId ? prev : { ...prev, customerId, page: 1 }));
   }, [customerId]);
 
   useEffect(() => {
@@ -93,30 +89,11 @@ const Projects: React.FC = () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const res = await getProjectList(params);
-      const page = extractProjectPage(res);
+      // 单次聚合请求：期次数 / 资产数 / 经理名 / 客户名都在响应里（t82），无逐项目请求
+      const res = await getProjectSummaryList(params);
+      const page = extractProjectSummaryPage(res);
       setData(page.items);
       setTotal(page.total);
-
-      // 期次数 / 资产数只在详情接口里，按当前页补一次（失败不影响列表）
-      const detailEntries = await Promise.all(
-        page.items.map(async (item) => {
-          try {
-            const detailRes = await getProjectDetail(item.id);
-            const detail = extractProjectDetail(detailRes);
-            return [
-              item.id,
-              {
-                phaseCount: detail?.phases ? extractPhaseList(detailRes).length : 0,
-                assetCount: detail?.assetCount ?? 0,
-              },
-            ] as const;
-          } catch {
-            return [item.id, {} as RowCounts] as const;
-          }
-        }),
-      );
-      setCounts(Object.fromEntries(detailEntries));
     } catch (error) {
       setData([]);
       setTotal(0);
@@ -149,7 +126,7 @@ const Projects: React.FC = () => {
     return customers.find((customer) => customer.id === id)?.name ?? id;
   };
 
-  const handleStatusChange = async (project: ProjectVO, target: string) => {
+  const handleStatusChange = async (project: ProjectSummaryVO, target: string) => {
     const from = String(project.status ?? 'DRAFT').toUpperCase();
     Modal.confirm({
       title: t('project.confirm.statusTitle'),
@@ -184,7 +161,7 @@ const Projects: React.FC = () => {
     });
   };
 
-  const handleDelete = (project: ProjectVO) => {
+  const handleDelete = (project: ProjectSummaryVO) => {
     Modal.confirm({
       title: t('project.deleteTitle'),
       content: t('project.deleteContent'),
@@ -216,7 +193,7 @@ const Projects: React.FC = () => {
     });
   };
 
-  const columns: TableColumnsType<ProjectVO> = [
+  const columns: TableColumnsType<ProjectSummaryVO> = [
     {
       title: t('project.colCode'),
       dataIndex: 'code',
@@ -275,13 +252,25 @@ const Projects: React.FC = () => {
       title: t('project.colPhaseCount'),
       key: 'phaseCount',
       width: 100,
-      render: (_: unknown, record) => counts[record.id]?.phaseCount ?? '-',
+      render: (_: unknown, record) => record.phaseCount ?? '-',
     },
     {
-      title: t('project.colAssetCount'),
+      title: (
+        <Tooltip
+          title={`${t('project.scopeHintTitle')}: ${t('dashboard.customerDist.scopeHint')}`}
+        >
+          <span style={{ borderBottom: '1px dashed #bfbfbf', cursor: 'help' }}>
+            {t('project.colAssetCount')}
+          </span>
+        </Tooltip>
+      ),
       key: 'assetCount',
-      width: 100,
-      render: (_: unknown, record) => counts[record.id]?.assetCount ?? '-',
+      width: 120,
+      render: (_: unknown, record) => (
+        <Tooltip title={t('dashboard.customerDist.scopeHint')}>
+          <span style={{ borderBottom: '1px dashed #d9d9d9', cursor: 'help' }}>{record.assetCount ?? '-'}</span>
+        </Tooltip>
+      ),
     },
     {
       title: t('project.colAction'),
@@ -442,6 +431,16 @@ const Projects: React.FC = () => {
           options={PROJECT_TYPE_ORDER.map((type) => ({ value: type, label: t(projectTypeKey(type)) }))}
           onChange={(value) => setParams((prev) => ({ ...prev, type: value, page: 1 }))}
         />
+        <Select
+          style={{ width: 210 }}
+          value={params.sort ?? 'createdAt'}
+          aria-label={t('project.sort.label')}
+          options={[
+            { value: 'createdAt', label: t('project.sort.createdAt') },
+            { value: 'assetCount', label: t('project.sort.assetCount') },
+          ] as Array<{ value: ProjectSummarySort; label: string }>}
+          onChange={(value) => setParams((prev) => ({ ...prev, sort: value, page: 1 }))}
+        />
         <Button
           type="primary"
           onClick={() => setParams((prev) => ({ ...prev, keyword: keyword.trim(), page: 1 }))}
@@ -458,7 +457,7 @@ const Projects: React.FC = () => {
         </Button>
       </Space>
 
-      <Table<ProjectVO>
+      <Table<ProjectSummaryVO>
         rowKey="id"
         columns={columns}
         dataSource={data}

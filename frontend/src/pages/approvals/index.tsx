@@ -50,10 +50,10 @@ const Approvals: React.FC = () => {
         try {
           setReviewingId(record.id);
           await reviewAssetAccessRequest(record.id, approved, reviewNote || undefined);
-          message.success(approved ? '已通过，申请人获得访问授权' : '已驳回');
+          message.success(approved ? t('feedback.approval.approved') : t('feedback.approval.rejected'));
           await fetchData();
         } catch (error: any) {
-          message.error(error?.response?.data?.message || '审批失败');
+          message.error(error?.response?.data?.message || t('feedback.approval.failed'));
         } finally {
           setReviewingId(null);
         }

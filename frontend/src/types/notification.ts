@@ -117,16 +117,19 @@ export interface AnnouncementSaveRequest {
 export interface NotificationTypeOption {
   value: string;
   label: string;
+  /** 类型说明的 i18n key（t84：设置页说明随语言切换；label 保留中文以兼容旧调用方） */
+  descriptionKey: MessageKey;
+  /** @deprecated 中文说明，新代码请用 t(descriptionKey) */
   description: string;
 }
 
 export const NOTIFICATION_TYPE_OPTIONS: NotificationTypeOption[] = [
-  { value: 'task_assigned', label: '任务分配', description: '任务指派、状态变更提醒' },
-  { value: 'vulnerability_discovered', label: '漏洞发现', description: '漏洞提交、流转与复测动态' },
-  { value: 'access_reminder', label: '访问审批提醒', description: '资产访问申请待审批提醒' },
-  { value: 'access_escalated', label: '访问审批升级', description: '审批超时后自动升级提醒' },
-  { value: 'asset_subscription', label: '资产动态订阅', description: '订阅资产的漏洞/任务变化' },
-  { value: 'system', label: '系统消息', description: '平台公告类站内信' },
+  { value: 'task_assigned', label: '任务分配', descriptionKey: 'notifications.type.desc.taskAssigned', description: '任务指派、状态变更提醒' },
+  { value: 'vulnerability_discovered', label: '漏洞发现', descriptionKey: 'notifications.type.desc.vulnerabilityDiscovered', description: '漏洞提交、流转与复测动态' },
+  { value: 'access_reminder', label: '访问审批提醒', descriptionKey: 'notifications.type.desc.accessReminder', description: '资产访问申请待审批提醒' },
+  { value: 'access_escalated', label: '访问审批升级', descriptionKey: 'notifications.type.desc.accessEscalated', description: '审批超时后自动升级提醒' },
+  { value: 'asset_subscription', label: '资产动态订阅', descriptionKey: 'notifications.type.desc.assetSubscription', description: '订阅资产的漏洞/任务变化' },
+  { value: 'system', label: '系统消息', descriptionKey: 'notifications.type.desc.system', description: '平台公告类站内信' },
 ];
 
 /**

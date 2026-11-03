@@ -159,7 +159,7 @@ const ApprovalScopes: React.FC = () => {
         scopeId: values.scopeId,
         expiresAt: values.expiresAt ? values.expiresAt.format('YYYY-MM-DDTHH:mm:ss') : null,
       });
-      message.success('审批范围授予成功');
+      message.success(t('feedback.approvalScope.granted'));
       setModalVisible(false);
       await fetchScopes();
     } catch (error) {
@@ -172,7 +172,7 @@ const ApprovalScopes: React.FC = () => {
   const handleRevoke = async (scope: ApprovalScopeVO) => {
     try {
       await revokeApprovalScope(scope.id);
-      message.success('审批范围已撤销');
+      message.success(t('feedback.approvalScope.revoked'));
       await fetchScopes();
     } catch (error) {
       // 拦截器已提示

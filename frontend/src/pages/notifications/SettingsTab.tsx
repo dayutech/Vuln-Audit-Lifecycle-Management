@@ -1,4 +1,3 @@
-// TODO(i18n): 本页文案仍为中文硬编码，后续按域迁移到 src/i18n/messages/*（覆盖清单见 t53 报告）
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Card, Empty, Space, Switch, Table, Tag, Tooltip, Typography, message } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
@@ -145,7 +144,7 @@ const SettingsTab: React.FC = () => {
                 {!record.persisted ? <Tag color="default">{t('notifications.settings.defaultValue')}</Tag> : null}
               </Space>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                {option?.description ?? t('notifications.settings.customType')}
+                {option ? t(option.descriptionKey) : t('notifications.settings.customType')}
               </Text>
             </Space>
           );

@@ -870,7 +870,7 @@ const Tasks: React.FC = () => {
       if (createdTask?.id && collaboratorIds.length > 0) {
         await Promise.all(collaboratorIds.map((id) => addTaskCollaborator(createdTask.id, id)));
       }
-      message.success('任务创建成功');
+      message.success(t('feedback.task.created'));
       setIsModalVisible(false);
       if (taskId) {
         fetchTaskDetail(taskId);
@@ -887,7 +887,7 @@ const Tasks: React.FC = () => {
       const values = await statusForm.validateFields();
       if (currentTask) {
         await updateTaskStatus(currentTask.id, values as UpdateTaskStatusRequest);
-        message.success('状态更新成功');
+        message.success(t('feedback.task.statusUpdated'));
         setStatusModalVisible(false);
         if (taskId) {
           fetchTaskDetail(taskId);
@@ -905,7 +905,7 @@ const Tasks: React.FC = () => {
       const values = await assignForm.validateFields();
       if (!currentTask) return;
       await assignTask(currentTask.id, values);
-      message.success('任务分配成功');
+      message.success(t('feedback.task.assigned'));
       setAssignModalVisible(false);
       if (taskId) {
         fetchTaskDetail(taskId);
@@ -942,7 +942,7 @@ const Tasks: React.FC = () => {
         ...toAdd.map((id) => addTaskCollaborator(taskId, id)),
         ...toRemove.map((id) => removeTaskCollaborator(taskId, id)),
       ]);
-      message.success('协作者更新成功');
+      message.success(t('feedback.task.collaboratorsUpdated'));
       setCollaboratorModalVisible(false);
       fetchTaskDetail(taskId);
     } finally {
@@ -961,7 +961,7 @@ const Tasks: React.FC = () => {
         audit_conclusion: values.audit_conclusion,
       });
       await submitTaskReview(taskId);
-      message.success('已提交审核');
+      message.success(t('feedback.task.submittedForReview'));
       fetchTaskDetail(taskId);
     } finally {
       setReviewSubmitting(false);
@@ -976,7 +976,7 @@ const Tasks: React.FC = () => {
       const values = await attachmentForm.validateFields();
       setAttachmentSubmitting(true);
       await createTaskAttachment(taskId, values.fileName, values.filePath);
-      message.success('附件添加成功');
+      message.success(t('feedback.task.attachmentAdded'));
       attachmentForm.resetFields();
       const attachmentsRes = await getTaskAttachments(taskId);
       const attachmentsPayload = getPayload(attachmentsRes);
@@ -1007,14 +1007,14 @@ const Tasks: React.FC = () => {
       : auditProgressStageOrder[0];
     const currentIndex = auditProgressStageOrder.indexOf(currentStage);
     if (currentIndex >= auditProgressStageOrder.length - 1) {
-      message.info('当前已是最后阶段');
+      message.info(t('feedback.task.lastStage'));
       return;
     }
     const nextStage = auditProgressStageOrder[currentIndex + 1];
     try {
       setManualStageSubmitting(true);
       await createTaskComment(taskId, `审计阶段切换至：${executionTypeLabels[nextStage]}`, undefined, nextStage);
-      message.success('审计进度已更新');
+      message.success(t('feedback.task.progressUpdated'));
       setManualProgressStage(nextStage);
       setViewStageKey(nextStage);
       const commentsRes = await getTaskComments(taskId);
@@ -1031,7 +1031,7 @@ const Tasks: React.FC = () => {
     }
     const assetId = (detailTask as any)?.asset_id || (detailTask as any)?.assetId;
     if (!assetId) {
-      message.warning('当前任务未关联资产，无法保存阶段文档');
+      message.warning(t('feedback.task.noAssetForPhaseDoc'));
       return;
     }
     const nextSavingMap = { ...stageDocSavingMap, [stageKey]: true };
@@ -1089,7 +1089,7 @@ const Tasks: React.FC = () => {
         setRelatedDocuments(relatedTaskDocuments);
       }
       setStageDocEditingMap((prev) => ({ ...prev, [stageKey]: false }));
-      message.success('阶段文档已保存，可在文档与附件中查看');
+      message.success(t('feedback.task.phaseDocSaved'));
     } finally {
       setStageDocSavingMap((prev) => ({ ...prev, [stageKey]: false }));
     }
@@ -1110,7 +1110,7 @@ const Tasks: React.FC = () => {
         priority: values.priority,
         status: values.status,
       });
-      message.success('资产基本信息更新成功');
+      message.success(t('feedback.task.assetUpdated'));
       const assetRes = await getAssetDetailById(assetDetail.id);
       const assetPayload = getPayload(assetRes) as any;
       const normalizedAsset: AssetVO = {
@@ -1217,7 +1217,7 @@ const Tasks: React.FC = () => {
         }, assetMetadataVersionId);
       }
       setOverviewExists(true);
-      message.success('产品概览更新成功');
+      message.success(t('feedback.task.overviewUpdated'));
       await loadAssetMetadata(assetDetail.id, module, assetMetadataVersionId);
     } finally {
       setOverviewSubmitting(false);
@@ -1237,14 +1237,14 @@ const Tasks: React.FC = () => {
       return;
     }
     if (deliverableUploadList.length === 0) {
-      message.warning('请先选择交付物文件');
+      message.warning(t('feedback.task.deliverableFileRequired'));
       return;
     }
     try {
       const values = await deliverableForm.validateFields();
       const currentFile = deliverableUploadList[0]?.originFileObj;
       if (!currentFile) {
-        message.warning('文件读取失败，请重新选择');
+        message.warning(t('feedback.task.fileReadFailed'));
         return;
       }
       setDeliverableSubmitting(true);
@@ -1255,7 +1255,7 @@ const Tasks: React.FC = () => {
         formData.append('description', values.description);
       }
       await uploadAssetDeliverable(assetDetail.id, formData, assetMetadataVersionId);
-      message.success('交付物添加成功');
+      message.success(t('feedback.task.deliverableAdded'));
       deliverableForm.resetFields();
       setDeliverableUploadList([]);
       await fetchAssetDeliverables(assetDetail.id, assetMetadataVersionId);
@@ -1267,7 +1267,7 @@ const Tasks: React.FC = () => {
   const handleCreateRelatedVulnerability = () => {
     const assetId = (detailTask as any)?.asset_id || (detailTask as any)?.assetId;
     if (!assetId) {
-      message.warning('当前任务未关联资产，无法创建漏洞');
+      message.warning(t('feedback.task.noAssetForVuln'));
       return;
     }
     relatedVulnForm.resetFields();
@@ -1283,7 +1283,7 @@ const Tasks: React.FC = () => {
     }
     const assetId = (detailTask as any)?.asset_id || (detailTask as any)?.assetId;
     if (!assetId) {
-      message.warning('当前任务未关联资产，无法创建漏洞');
+      message.warning(t('feedback.task.noAssetForVuln'));
       return;
     }
     try {
@@ -1295,7 +1295,7 @@ const Tasks: React.FC = () => {
           assetId
         ) as unknown as Parameters<typeof createVulnerability>[0]
       );
-      message.success('漏洞创建成功');
+      message.success(t('feedback.task.vulnCreated'));
       setRelatedVulnModalVisible(false);
       relatedVulnForm.resetFields();
       const vulnerabilitiesRes = await getTaskRelatedVulnerabilities(assetId);
@@ -1381,7 +1381,7 @@ const Tasks: React.FC = () => {
       const values = await reviewDecisionForm.validateFields();
       setDecisionSubmitting(true);
       await approveTaskReview(taskId, values.signature, values.comment);
-      message.success('审核通过');
+      message.success(t('feedback.task.approved'));
       fetchTaskDetail(taskId);
     } finally {
       setDecisionSubmitting(false);
@@ -1396,7 +1396,7 @@ const Tasks: React.FC = () => {
       const values = await reviewDecisionForm.validateFields();
       setDecisionSubmitting(true);
       await rejectTaskReview(taskId, values.signature, values.comment);
-      message.success('已驳回，任务回到进行中');
+      message.success(t('feedback.task.rejected'));
       fetchTaskDetail(taskId);
     } finally {
       setDecisionSubmitting(false);

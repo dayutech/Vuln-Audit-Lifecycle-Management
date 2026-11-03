@@ -1,6 +1,8 @@
 import request from '@/utils/request';
 import type {
   PhaseRequest,
+  ProjectSummaryQuery,
+  ProjectSummaryVO,
   PhaseVO,
   ProjectAssetLinkVO,
   ProjectDetailVO,
@@ -33,6 +35,25 @@ export const getProjectList = (params: ProjectQuery = {}): Promise<any> => {
       status: params.status || undefined,
       type: params.type || undefined,
       keyword: params.keyword || undefined,
+    },
+  });
+};
+
+/**
+ * GET /projects/summary —— 分页 + 每项带 phaseCount / assetCount / openTaskCount / managerName / customerName（t82）。
+ *
+ * 用这一个请求取代「先列表再逐项目查详情」的 N+1；sort 支持 createdAt（默认）/ assetCount。
+ */
+export const getProjectSummaryList = (params: ProjectSummaryQuery = {}): Promise<any> => {
+  return request.get('/projects/summary', {
+    params: {
+      page: Math.max((params.page ?? 1) - 1, 0),
+      size: params.page_size ?? 10,
+      customerId: params.customerId || undefined,
+      status: params.status || undefined,
+      type: params.type || undefined,
+      keyword: params.keyword || undefined,
+      sort: params.sort || undefined,
     },
   });
 };
@@ -102,6 +123,15 @@ const payloadOf = (res: any) => res?.data ?? res ?? {};
 export const extractProjectPage = (res: any): { items: ProjectVO[]; total: number } => {
   const payload = payloadOf(res);
   const items = (payload?.content || payload?.items || []) as ProjectVO[];
+  return {
+    items: Array.isArray(items) ? items : [],
+    total: payload?.totalElements ?? payload?.total ?? 0,
+  };
+};
+
+export const extractProjectSummaryPage = (res: any): { items: ProjectSummaryVO[]; total: number } => {
+  const payload = payloadOf(res);
+  const items = (payload?.content || payload?.items || []) as ProjectSummaryVO[];
   return {
     items: Array.isArray(items) ? items : [],
     total: payload?.totalElements ?? payload?.total ?? 0,

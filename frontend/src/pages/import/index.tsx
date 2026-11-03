@@ -1,36 +1,44 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, Card, Spin, Tabs, Typography } from 'antd';
 import {
   AppstoreOutlined,
+  BankOutlined,
+  ProjectOutlined,
   SafetyCertificateOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
 import { useSearchParams } from 'react-router-dom';
 import ImportPanel from './ImportPanel';
 import { getMyAccessProfile } from '@/api/permission';
-import { canImportAssets, canImportUsers, isTeamLeaderScope } from '@/api/import';
+import { canImportType, IMPORT_TYPE_META, isTeamLeaderScope } from '@/api/import';
+import type { ImportType } from '@/api/import';
 import { useT } from '@/i18n';
 
-type ImportTabKey = 'assets' | 'vulnerabilities' | 'users';
+/** Tab 顺序（与需求一致）：资产 → 漏洞 → 用户 → 客户 → 项目 */
+const TAB_ORDER: ImportType[] = ['assets', 'vulnerabilities', 'users', 'customers', 'projects'];
 
-const VALID_TABS: ImportTabKey[] = ['assets', 'vulnerabilities', 'users'];
+const TAB_ICONS: Record<ImportType, React.ReactNode> = {
+  assets: <AppstoreOutlined />,
+  vulnerabilities: <SafetyCertificateOutlined />,
+  users: <TeamOutlined />,
+  customers: <BankOutlined />,
+  projects: <ProjectOutlined />,
+};
 
-const isTabKey = (value: string | null): value is ImportTabKey =>
-  !!value && (VALID_TABS as string[]).includes(value);
+const isTabKey = (value: string | null): value is ImportType =>
+  !!value && (TAB_ORDER as string[]).includes(value);
 
 /**
  * 数据导入（/import）
  *
  * Tab 可见性按后端写侧授权预判（避免用户点了才 403）：
  * - 资产导入（POST /import/assets）：admin / project_leader / team_leader；
- *   工程师（vulnerability_engineer）**不渲染该 Tab**，深链 ?tab=assets 回落到第一个可用 Tab；
  * - 漏洞导入（POST /import/vulnerabilities）：不加角色门槛，后端逐行按目标资产 canWriteAsset 判定；
- * - 用户导入（POST /import/users）：仅 admin。
+ * - 用户导入（POST /import/users）：仅 admin；
+ * - 客户导入（POST /import/customers）：admin / project_leader（t85，团队长 403）；
+ * - 项目导入（POST /import/projects）：admin / project_leader。
  *
- * 失败行区分「权限拒绝：」（写权限被拒，不会落库）与数据校验失败，
- * 结果区拆分计数并给出「不要整份重传」的提示。
- *
- * 深链：?tab=assets|vulnerabilities|users。
+ * 无权/不存在的深链（?tab=xxx）会回落到第一个可用 Tab，并给出说明。
  */
 const ImportPage: React.FC = () => {
   const { t } = useT();
@@ -54,57 +62,40 @@ const ImportPage: React.FC = () => {
     };
   }, []);
 
-  const allowAssets = canImportAssets(roles);
-  const allowUsers = canImportUsers(roles);
+  const allowedTabs = TAB_ORDER.filter((type) => canImportType(roles, type));
   const teamLeaderScope = isTeamLeaderScope(roles);
 
-  const items = useMemo(() => {
-    const list: Array<{ key: ImportTabKey; label: React.ReactNode; children: React.ReactNode }> = [];
-
-    if (allowAssets) {
-      list.push({
-        key: 'assets',
-        label: (
-          <span>
-            <AppstoreOutlined /> 资产导入
-          </span>
-        ),
-        children: <ImportPanel type="assets" teamScopeHint={teamLeaderScope} />,
-      });
-    }
-
-    // 漏洞导入对所有登录角色开放，逐行按资产写权限判定
-    list.push({
-      key: 'vulnerabilities',
-      label: (
-        <span>
-          <SafetyCertificateOutlined /> 漏洞导入
-        </span>
-      ),
-      children: <ImportPanel type="vulnerabilities" />,
-    });
-
-    if (allowUsers) {
-      list.push({
-        key: 'users',
-        label: (
-          <span>
-            <TeamOutlined /> 用户导入
-          </span>
-        ),
-        children: <ImportPanel type="users" />,
-      });
-    }
-
-    return list;
-  }, [allowAssets, allowUsers, teamLeaderScope]);
+  /** Tab 内容：数量最多 5 个，直接构造即可（无需 useMemo） */
+  const items = allowedTabs.map((type) => ({
+    key: type,
+    label: (
+      <span>
+        {TAB_ICONS[type]} {t(IMPORT_TYPE_META[type].labelKey)}
+      </span>
+    ),
+    children: <ImportPanel type={type} teamScopeHint={type === 'assets' && teamLeaderScope} />,
+  }));
 
   const requested = isTabKey(tabParam) ? tabParam : null;
-  const allowedKeys = items.map((item) => item.key);
   // 深链到无权/不存在的 Tab 时回落到第一个可用 Tab
-  const activeKey: ImportTabKey =
-    requested && allowedKeys.includes(requested) ? requested : (allowedKeys[0] ?? 'vulnerabilities');
-  const blockedByRole = requested !== null && !allowedKeys.includes(requested);
+  const activeKey: ImportType =
+    requested && allowedTabs.includes(requested) ? requested : (allowedTabs[0] ?? 'vulnerabilities');
+  const blockedByRole = requested !== null && !allowedTabs.includes(requested);
+
+  const blockedMessage = (type: ImportType): string => {
+    switch (type) {
+      case 'assets':
+        return t('import.blocked.assets');
+      case 'users':
+        return t('import.blocked.users');
+      case 'customers':
+        return t('import.blocked.customers');
+      case 'projects':
+        return t('import.blocked.projects');
+      default:
+        return t('import.blocked.generic');
+    }
+  };
 
   return (
     <Card title={t('import.title')}>
@@ -116,8 +107,8 @@ const ImportPage: React.FC = () => {
               showIcon
               closable
               style={{ marginBottom: 12 }}
-              message={blockedByRoleMessage(requested)}
-              description={`已切换到「${tabLabel(activeKey)}」。`}
+              message={blockedMessage(requested as ImportType)}
+              description={t('import.switchedTo', { label: t(IMPORT_TYPE_META[activeKey].labelKey) })}
             />
           )}
           <Tabs
@@ -125,7 +116,7 @@ const ImportPage: React.FC = () => {
             items={items}
             onChange={(key) => {
               const next = new URLSearchParams(searchParams);
-              if (key === items[0]?.key) {
+              if (key === allowedTabs[0]) {
                 next.delete('tab');
               } else {
                 next.set('tab', key);
@@ -138,35 +129,12 @@ const ImportPage: React.FC = () => {
         <div style={{ padding: 48, textAlign: 'center' }}>
           <Spin />
           <div style={{ marginTop: 12 }}>
-            <Typography.Text type="secondary">正在获取权限画像…</Typography.Text>
+            <Typography.Text type="secondary">{t('import.loadingProfile')}</Typography.Text>
           </div>
         </div>
       )}
     </Card>
   );
-};
-
-const tabLabel = (key: ImportTabKey): string => {
-  switch (key) {
-    case 'assets':
-      return '资产导入';
-    case 'users':
-      return '用户导入';
-    default:
-      return '漏洞导入';
-  }
-};
-
-/** 深链被权限拦截时的说明（资产导入的 403 是后端 @PreAuthorize 写死的） */
-const blockedByRoleMessage = (requested: ImportTabKey | null): string => {
-  switch (requested) {
-    case 'assets':
-      return '当前账号无权导入资产（后端仅 ADMIN / PROJECT_LEADER / TEAM_LEADER 可写）';
-    case 'users':
-      return '当前账号无权导入用户（后端仅 ADMIN 可写）';
-    default:
-      return '当前账号无权访问该导入类型';
-  }
 };
 
 export default ImportPage;

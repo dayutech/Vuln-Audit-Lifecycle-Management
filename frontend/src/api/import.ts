@@ -1,4 +1,5 @@
 import request from '@/utils/request';
+import type { MessageKey } from '@/i18n/messages/zh-CN';
 
 /**
  * 批量导入（资产 / 漏洞 / 用户）。
@@ -15,7 +16,7 @@ import request from '@/utils/request';
  */
 
 /** 导入类型（与后端 /import/{type} 路径段、/templates/{type} 保持一值） */
-export type ImportType = 'assets' | 'vulnerabilities' | 'users';
+export type ImportType = 'assets' | 'vulnerabilities' | 'users' | 'customers' | 'projects';
 
 /** 导入失败行：line 为 1 基行号（表头是第 1 行） */
 export interface ImportFailedRow {
@@ -152,47 +153,68 @@ export const validateCsvFile = (file: File): string | null => {
 };
 
 export interface ImportTypeMeta {
-  label: string;
+  /** i18n 词条：类型名 / 模板列 / 填写须知 / 目标列表名 */
+  labelKey: MessageKey;
+  columnsKey: MessageKey;
+  tipsKey: MessageKey;
+  listLabelKey: MessageKey;
   templateFile: string;
-  columns: string;
-  tips: string;
   /** 导入成功后可在该路由核对数据（列表页进入即重新拉取） */
   listPath: string;
-  listLabel: string;
-  /** 仅管理员可用（后端 @PreAuthorize） */
-  adminOnly?: boolean;
+  /** 写侧角色门槛（与后端 @PreAuthorize 一致） */
+  roleGate: 'public' | 'adminOrProjectLeader' | 'admin';
 }
 
 /** 各类型的表头与列说明（与后端模板/文档保持一致） */
 export const IMPORT_TYPE_META: Record<ImportType, ImportTypeMeta> = {
   assets: {
-    label: '资产导入',
+    labelKey: 'import.type.assets',
+    columnsKey: 'import.columns.assets',
+    tipsKey: 'import.tips.assets',
     templateFile: 'assets_template.csv',
-    columns:
-      'name, targetType, targetSource, priority, status, teamCode（或 teamId）, customerCode, projectCode, phaseNo, description',
-    tips:
-      'teamCode 可填团队名称或团队 UUID；priority 取 P0/P1/P2/P3，status 取 active/under_test/suspended/archived。' +
-      'customerCode / projectCode / phaseNo 为可选列（t78）：填了 projectCode 就挂到该项目，同时填 customerCode 时必须与项目所属客户一致；' +
-      '不填 projectCode 的行会被自动挂到历史项目（CUST-DEFAULT / PRJ-HISTORY），导入结果里以「提示」形式列出，属于成功行。',
     listPath: '/assets',
-    listLabel: '资产列表',
+    listLabelKey: 'import.list.assets',
+    // POST /import/assets：ADMIN / PROJECT_LEADER / TEAM_LEADER
+    roleGate: 'adminOrProjectLeader',
   },
   vulnerabilities: {
-    label: '漏洞导入',
+    labelKey: 'import.type.vulnerabilities',
+    columnsKey: 'import.columns.vulnerabilities',
+    tipsKey: 'import.tips.vulnerabilities',
     templateFile: 'vulnerabilities_template.csv',
-    columns: 'title, assetCode, type, severity, cvssScore, workflowStatus, description',
-    tips: 'assetCode 必须是已存在资产的编号；severity 大小写不敏感（high → HIGH）；cvssScore 取值 0-10。',
     listPath: '/vulnerabilities',
-    listLabel: '漏洞列表',
+    listLabelKey: 'import.list.vulnerabilities',
+    // 不加角色门槛，后端逐行按目标资产写权判定
+    roleGate: 'public',
   },
   users: {
-    label: '用户导入',
+    labelKey: 'import.type.users',
+    columnsKey: 'import.columns.users',
+    tipsKey: 'import.tips.users',
     templateFile: 'users_template.csv',
-    columns: 'username, email, fullName, phone, roleCode',
-    tips: '前三列必需；roleCode 留空时默认 vulnerability_engineer。CSV 不含密码列，系统为每行生成 16 位强随机初始密码并在响应中一次性返回（仅管理员可用）。',
     listPath: '/users',
-    listLabel: '账号管理',
-    adminOnly: true,
+    listLabelKey: 'import.list.users',
+    roleGate: 'admin',
+  },
+  customers: {
+    labelKey: 'import.type.customers',
+    columnsKey: 'import.columns.customers',
+    tipsKey: 'import.tips.customers',
+    templateFile: 'customers_template.csv',
+    listPath: '/customers',
+    listLabelKey: 'import.list.customers',
+    // POST /import/customers：ADMIN / PROJECT_LEADER（团队长 403）
+    roleGate: 'adminOrProjectLeader',
+  },
+  projects: {
+    labelKey: 'import.type.projects',
+    columnsKey: 'import.columns.projects',
+    tipsKey: 'import.tips.projects',
+    templateFile: 'projects_template.csv',
+    listPath: '/projects',
+    listLabelKey: 'import.list.projects',
+    // POST /import/projects：ADMIN / PROJECT_LEADER（团队长 403）
+    roleGate: 'adminOrProjectLeader',
   },
 };
 
@@ -233,6 +255,29 @@ export const IMPORT_USERS_ROLES = ['admin'] as const;
 
 export const canImportAssets = (roles: string[]): boolean =>
   roles.some((role) => (IMPORT_ASSET_ROLES as readonly string[]).includes(role));
+
+/** 客户/项目导入的写侧角色（后端 @PreAuthorize：ADMIN / PROJECT_LEADER） */
+export const IMPORT_CUSTOMER_PROJECT_ROLES = ['admin', 'project_leader'] as const;
+
+/** 客户导入：ADMIN / PROJECT_LEADER（后端 @PreAuthorize，团队长 403） */
+export const canImportCustomers = (roles: string[]): boolean =>
+  roles.some((role) => (IMPORT_CUSTOMER_PROJECT_ROLES as readonly string[]).includes(role));
+
+/** 项目导入：ADMIN / PROJECT_LEADER */
+export const canImportProjects = (roles: string[]): boolean =>
+  roles.some((role) => (IMPORT_CUSTOMER_PROJECT_ROLES as readonly string[]).includes(role));
+
+/** 按 meta.roleGate 统一判定某导入类型是否对当前角色开放 */
+export const canImportType = (roles: string[], type: ImportType): boolean => {
+  switch (IMPORT_TYPE_META[type].roleGate) {
+    case 'admin':
+      return canImportUsers(roles);
+    case 'adminOrProjectLeader':
+      return type === 'assets' ? canImportAssets(roles) : canImportCustomers(roles);
+    default:
+      return true;
+  }
+};
 
 export const canImportUsers = (roles: string[]): boolean =>
   roles.some((role) => (IMPORT_USERS_ROLES as readonly string[]).includes(role));
