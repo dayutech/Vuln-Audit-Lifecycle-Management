@@ -235,3 +235,17 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 冒烟适配：工程师「建项目 403」补 managerId（否则 400 先于角色守卫）。
 - 残留清理（README §23.1 客户/项目/期次/挂靠域）：assets 9→3、customers 5→1、projects 7→1、phases 4→0、links 9→3；
   终态 orphan_assets = 0（硬断言），customers=1(CUST-DEFAULT) / projects=1(PRJ-HISTORY) / assets=3 / links=3。
+
+########## 十二、第五批发布与回归（t87：N+1 消除 + i18n 收尾 + 客户项目导入，2026-11-03 13:0x） ##########
+- 后端：jar 73,030,973 B；login=200、/projects/summary=200、/import/templates/customers=200（BOM efbbbf）；无新增迁移。
+- 前端：index-C7DvIDyd.js 2,522.43 kB；词条 961/961；TODO(i18n)=0；站点 5 文件。
+- 回归：Tests run 648, Failures 0, Errors 0, Skipped 0。
+- 冒烟：TOTAL=208 PASS=208 FAIL=0 SKIP=0。新增 10 条：
+  proj/summary-聚合、proj/summary-assetCount、proj/summary-工程师phaseCount不收敛（phaseCount admin=4/engineer=4 全量；
+  assetCount admin=9/engineer=2 收敛）、proj/summary-工程师可见；
+  import/客户-部分成功（1 成功 + 重复 code + ownerName 不存在）、import/客户-失败原因可读、import/客户-工程师403；
+  import/项目-部分成功（1 成功 + customerCode 不存在 + type 非法 + 日期格式错）；import/模板-customers-BOM、import/模板-projects-BOM。
+- i18n 回归：Accept-Language: en → "Asset not found"；默认 → "资产不存在"。
+- 页面验证（Playwright）：项目列表 /projects/summary 请求 1 个、/projects/{id} 0 个、旧 /projects 列表 0 个；
+  管理员 5 个导入 Tab（English）、工程师仅 1 个（漏洞导入）；通知设置页 English；下载模板提示 "Template downloaded: customers_template.csv"；切回中文恢复。
+- 数据清理（README §23.1）：assets 9→3、customers 7→1、projects 9→1、phases 4→0、links 9→3；orphan=0。

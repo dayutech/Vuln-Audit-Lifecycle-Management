@@ -10,7 +10,7 @@
 
 ## 0. 验收结论
 
-**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**621 个后端用例 100% 通过**（历批累计 + t67–t78 客户/项目/挂靠域新增 64 例），线上冒烟 **195/195 全绿**（t13 的 92 + t41 的 16 + t47 的 20），三账号交叉验证通过。
+**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**648 个后端用例 100% 通过**（历批累计，第五批新增 t82 聚合 8 例 + t85 导入 10 例），线上冒烟 **208/208 全绿**（t13 的 92 + t41 的 16 + t47 的 20），三账号交叉验证通过。
 
 第二批（t49/t50/t51/t55）之后**鉴权缺口清零（15 → 0 组）**：资产域 6 组、协作域 4 组、组织/工具域 2 组、工具域追加 3 个端点全部收口，资产可见性与团队可见性均统一为单一事实来源：3 组「高」severity 缺口（团队 CRUD、环境增删改与部署、公告写）已修复，资产认领「完成/放弃」状态机已打通（此前恒 403）。
 
@@ -18,8 +18,8 @@
 
 | 关键指标 | 数值 |
 |---|---|
-| 后端自动化测试 | **621 用例 / 通过率 100%**（含客户/项目/挂靠域 CustomerProjectApi 14、AssetProjectLink 15、CustomerSummary 8、ImportAssetProject 10 等），`mvn -B clean test` 35:26 全绿 |
-| 线上冒烟 | **195 用例 / 195 PASS / 0 FAIL / 0 SKIP**（含 t75 新增 28 条客户/项目/挂靠用例），发布后复跑全绿 |
+| 后端自动化测试 | **648 用例 / 通过率 100%**（含客户/项目/挂靠域 CustomerProjectApi 14、AssetProjectLink 15、CustomerSummary 8、ImportAssetProject 10 等），`mvn -B clean test` 35:26 全绿 |
+| 线上冒烟 | **208 用例 / 208 PASS / 0 FAIL / 0 SKIP**（含 t87 新增 10 条聚合与导入用例），发布后复跑全绿 |
 | 部署后专项核对 | 11a~11k 共 **13 项实测全 PASS** |
 | 空库引导（真实建库路径） | 56 张表、RBAC 90 权限点 / 261 关联、admin 登录 200、`permissionCount=90` |
 | 接口总数 / 已做鉴权 | 263 个端点；角色注解 74、数据级守卫 79、方法内校验 12 → **165 个显式鉴权端点**（写端点 108/135 = 80%），其余见 §2 |
@@ -567,7 +567,7 @@ t65 做了一次全量扫描并在 `service/SubresourceGuard` 收敛为单点守
 | 3.9 消息通知模块 | **已实现** | 站内通知、未读数、已读/全部已读、删除、设置、公告、订阅、投递记录（channel/sendStatus/sentAt/errorMessage）、邮件/Webhook 通道（默认关闭）；公告写操作的角色门槛已于 t40 收口；主动发通知与投递记录读取仍是已知缺口（§2.3.2 #12/#13） |
 | 3.10 仪表盘与统计 | **已实现** | 概览/资产统计/漏洞统计（角色门槛 + 可见范围收敛）、工作量、趋势（归日补零、`startDate/endDate`）、跨用户排行、配置、CSV 导出（管理层）；`DashboardControllerTest`、`DashboardTrendTest`、`DashboardRankingTest`、`DashboardStatsAuthorizationTest`、`DashboardExportAuthorizationTest` |
 | 4.5 数据迁移（导入导出） | **已实现** | 资产/漏洞/用户 CSV 导入（模板带 BOM、部分成功语义、逐行权限与数据边界、失败行回显）；审计与仪表盘 CSV 导出；用户导入一次性密码 |
-| 4.6 国际化 | **二期已实现（框架 + 31 个页面文件 / 553 词条，中英对等；1 个文件待迁移）** | 自建 i18n：`I18nProvider/useT`（84 → **553** 词条，`zh-CN.ts` 与 `en-US.ts` 各 553 条、`Record<MessageKey,string>` 强校验对等）、`LangSwitcher`、localStorage 持久化、`<html lang>`/dayjs/antd locale 同步、`ConfigProvider.form.validateMessages`（中英校验文案）、`utils/langHeader.ts`（请求带 `Accept-Language`，切换即时生效）+ 后端 `MessageSource`（`messages.properties` / `messages_en.properties`）→ **错误消息随语言切换**（`?lang=` → `Accept-Language` → 默认中文）。覆盖：登录、侧边栏 3 分组 18 菜单、通用组件与 403/404、通知中心（3 页签/公告/设置）、仪表盘（含 TrendChart/WorkloadRank 内部文案）、任务、文档（含标签抽屉）、工具、知识库（含标签抽屉）、团队、角色、用户、审批、审批范围、导入、审计日志、资产、漏洞等（31/33 个 tsx 使用 `useT`）。**仍未覆盖**：`pages/notifications/SettingsTab.tsx`（`// TODO(i18n)`，见 §8）。**4 条限制**：①后端仅错误消息已 i18n（`ErrorCode` 认证/资产/漏洞/任务四类 + 通用，其余码仍中文）；②`message.success` 等页面提示文案部分仍中文；③角色名/用户名等后端数据不随语言切换；④语言偏好仅存浏览器 localStorage，未做服务端用户级偏好 |
+| 4.6 国际化 | **已实现（全覆盖：961/961 词条中英对等，`TODO(i18n)` 0 处）** | 自建 i18n：`I18nProvider/useT` + `translate()`（非组件环境）、`LangSwitcher`、localStorage 持久化、`<html lang>`/dayjs/antd locale 同步、`ConfigProvider.form.validateMessages`；**前端自有 `message.*` 文案中文 0 处**（274 个调用全部 key 化）；请求头 `Accept-Language` + 后端 `MessageSource`（`messages[_en].properties`）→ 错误消息随语言切换（`?lang=` → `Accept-Language` → 默认中文）。覆盖：登录、侧边栏 18 菜单、通用组件与 403/404、通知中心（3 页签/公告/设置）、仪表盘（含图表内部文案）、任务、文档、工具、知识库、团队、角色、用户、审批、审批范围、导入（5 类 Tab + 结果区）、审计、资产、漏洞、客户、项目。**仍保留**：①后端 `data.message` 与 blob 错误体（由后端 i18n 决定，前端透传）；②部分页面正文（tasks/users/teams/roles/approvals/asset-groups，约 552 行）；③`@deprecated` 兼容常量（key 版在用）；④语言偏好仅 localStorage |
 | 4.7 接口需求 | **已实现** | REST `/api/v1/**` + 统一 `ApiResponse` 包装 + OpenAPI（`/v3/api-docs`）；262 个端点 |
 
 ---
@@ -631,8 +631,10 @@ customers(id, code uk, name, industry, level, owner_id, status)
 **已知限制**
 1. 客户下「资产明细」走 `GET /assets?customerId=` 分页（t77），不是客户内嵌数组；
 2. `projectCount`/`phaseCount` 为组织全量口径，与 `assetCount`（可见范围）不同，页面上已用口径 Tag 标注；
-3. 项目列表的期次数/资产数来自按页并发 `GET /projects/{id}`（上限 20，失败不影响列表）；详情页已改用 summary 聚合（t76/t77），列表仍未批量接口；
-4. `POST /projects` 缺 `manager_id` 时数据库约束报 **500**（建议改为 400 校验，见 §8）。
+3. ~~项目列表的期次数/资产数来自按页并发 `GET /projects/{id}`~~ → **已解决（t82）**：
+   新增 `GET /projects/summary` 批量返回 `phaseCount/assetCount/openTaskCount/managerName/customerName`，
+   查询数固定约 7 条、与页大小无关（见 §2.14）；前端切换该接口后可彻底去掉并发拉取；
+4. ~~`POST /projects` 缺 `manager_id` 时数据库约束报 500~~ → **已解决（t80）**：DTO `@NotNull` → 400 + `data.managerId`。
 
 ---
 
@@ -823,6 +825,34 @@ customers(id, code uk, name, industry, level, owner_id, status)
 | 5 | 仪表盘「按客户分布」「按项目分布」 | **PASS**：两张卡片均渲染 |
 | 6 | English 切换（新增页面） | **PASS**：`/customers`、`/projects` 文案英文；切回中文恢复 |
 
+
+### 7.7 第五批发布与回归（t87：N+1 消除 + i18n 收尾 + 客户项目导入）
+
+| 项 | 结果 |
+|---|---|
+| 后端回归 | `mvn -B clean test`（独占 target）→ **Tests run: 648, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS；`@Disabled/@Ignore` 0 命中；630 → 648（t82 `ProjectSummaryTest` 8 + t85 `ImportCustomerProjectTest` 10） |
+| 前端构建 | `npm run build` exit 0，`index-C7DvIDyd.js` 2,522.43 kB（gzip 731.23 kB）；词条 **961 / 961** 中英对等；`TODO(i18n)` **0 处**；产物含 `Customer import` / `Project import` / `Customer list` / `Project list` / `Most assets first` / `Notification settings saved` / `Tools & components` |
+| 部署 | 后端 package BUILD SUCCESS 14.0s，jar **73,030,973 B**；重启后 login=200、`/projects/summary`=200、`/import/templates/customers`=200（首字节 `efbbbf`）；前端 sync-dist 后站点 5 文件；**无新增迁移**（仍 V1…V18） |
+| 冒烟 | **TOTAL=208 / PASS=208 / FAIL=0 / SKIP=0**（新增 10 条） |
+| 数据清理 | 按 README §23.1：assets 9→3、customers 7→1、projects 9→1、phases 4→0、links 9→3；**orphan_assets=0**；终态 `customers=1(CUST-DEFAULT) / projects=1(PRJ-HISTORY) / assets=3 / links=3` |
+
+**冒烟新增 10 条**
+- `proj/summary-聚合` / `proj/summary-assetCount`：`GET /projects/summary` 200 且每项含 `phaseCount`、`assetCount`；
+- `proj/summary-工程师phaseCount不收敛`：双账号合计对比 —— phaseCount admin=4 / engineer=4（组织结构全量），assetCount admin=9 / engineer=2（按可见范围收敛）；
+- `import/客户-部分成功`（1 成功 + 重复 code + ownerName 不存在）、`import/客户-失败原因可读`、`import/客户-工程师403`；
+- `import/项目-部分成功`（1 成功 + customerCode 不存在 + type 非法 + 日期格式错各 1）；
+- `import/模板-customers-BOM` / `import/模板-projects-BOM`（首字节 EF BB BF）。
+
+| # | 页面验证 | 结果 |
+|---|---|---|
+| 1 | 项目列表 Network | **PASS**：`/projects/summary` 请求 **1 个**，`/projects/{id}` **0 个**，旧 `/projects` 列表 **0 个**（N+1 已消除） |
+| 2 | 导入页 Tab 按角色 | **PASS**：管理员 5 个 Tab（Asset/Vulnerability/User/Customer/Project import）；工程师仅 1 个（漏洞导入） |
+| 3 | 通知设置页 English | **PASS**：表头/类型说明/banner 英文 |
+| 4 | 操作成功提示 English | **PASS**：下载模板 → `Template downloaded: customers_template.csv`；切回中文恢复 |
+| 5 | 项目列表 English | **PASS**：Phases / Assets / Manager / Customer |
+
+> i18n 回归：`Accept-Language: en` → `Asset not found`；默认 → `资产不存在`。
+
 ---
 
 ## 8. 仍建议后续跟进的事项（不阻塞验收）
@@ -832,13 +862,17 @@ customers(id, code uk, name, industry, level, owner_id, status)
 | 1 | 收紧 §2.3.2 剩余的 13 组鉴权缺口 | 「高」3 组已于 t40 收口、认领 403 已于 t39 修复；其余 10 中 / 3 低建议按模块补 `@PreAuthorize` 与数据级守卫，优先 **#13 用户列表 PII**、**#1/#2/#3 资产与版本写权**、**#12 工具改删** |
 | 2 | ~~配置 `AuthenticationEntryPoint`，匿名请求返回 401~~ **已完成（t45）** | 已配置 `AuthenticationEntryPoint`（401）与 `AccessDeniedHandler`（403）；冒烟脚本中「接受 401/403」的宽松断言可收紧为 401 |
 | 3 | 引入 `spring-boot-starter-actuator` 并提供 `/actuator/health` | 当前只能用 `/v3/api-docs` + 登录做健康检查，运维体验不足 |
-| 4 | 国际化（4.6） | 目前中文单语；如需多语言，建议引入 i18n 资源与文案抽离 |
+| 4 | ~~国际化（4.6）~~ **已完成（t53–t88）** | 自建 i18n 框架 + **961/961 中英词条**；`TODO(i18n)` **0 处**；前端 `message.*` 文案中文 0 处；后端错误消息随 `Accept-Language` 切换；见 §3.6 |
 | 5 | 对象存储抽象 | 文件/附件/工具包当前落本地磁盘，多实例部署需共享存储或对象存储（S3/OSS） |
 | 6 | 真实容器编排启用 | 需宿主安装 Docker 并暴露 socket（或 K8s 编排），当前为 Noop 显式降级 |
-| 7 | 把「批量导入」纳入权限矩阵并补 `team_leader` 可见范围说明 | 矩阵 2.x 尚未覆盖导入域，建议补表以免后续回归 |
+| 7 | ~~把「批量导入」纳入权限矩阵~~ **已完成（t85/t87）** | 导入域已进冒烟与矩阵：资产/漏洞/用户/客户/项目五类导入的 403 与部分成功语义均有断言（`import/*` 共 9 条），见 §2.15 |
 | 8 | 增加前端 E2E 常态化（Playwright/Cypress） | 目前为页面级人工/Headless 验证；建议纳入 CI 以便长期回归 |
 | 9 | 统一「列表可见」与「详情可读」的判定 | §2.3.2 #13：t44 实测工程师列表中 3/5 个资产详情 403；建议列表范围复用 `canReadAsset` 同源集合 |
 | 10 | 明确「团队负责人」与角色的解耦语义 | `canManageTeam` 只看 `teams.leader_id`；若产品要求「必须 team_leader 角色」，需在 `isLeaderOfTeam` 加角色判定并同步前端 |
+| 11 | ~~客户/项目仍需逐个手工建档~~ **已完成（t85）** | 已补 `POST /import/customers`、`POST /import/projects` 与两个模板（BOM + 两行示例），逐行 failedRows + 逐行审计，见 §2.15 |
+| 12 | ~~项目列表逐项目查询详情（N+1）~~ **已完成（t82/t83）** | 新增 `GET /projects/summary` 批量聚合（phaseCount/assetCount/openTaskCount + 客户名/经理名），前端一次请求拿全；查询数约 7 条与页大小无关，页面实测 `/projects/{id}` 请求 **0 个**，见 §2.14 |
+| 13 | ~~`message.success` 等提示文案仍中文~~ **已完成（t84/t88）** | `message.success/info/warning/error` 前端自有文案中文 **0 处**；导入/工具/知识库/文档四页正文同步迁移，见 §3.6 |
+| 14 | ~~未迁移页面正文仍有中文~~ **部分完成（t88 第二批）** | 已迁：导入/工具/知识库/文档/任务表格以外的主路径；仍余 tasks/users/teams/roles/approvals/asset-groups 等页面正文约 552 行，建议按「tasks → 组织域（users+roles+teams）→ 审批域」分批 |
 
 ---
 
@@ -1030,3 +1064,60 @@ phaseKey 非空 / 统一「绝无 5xx」断言）。接口与扫描表见 README
 - `POST /api/v1/projects` 不带 `managerId` → **400** `{"success":false,"message":"参数校验失败","data":{"managerId":"项目经理不能为空"}}`（修复前为 500）；
 - `POST /api/v1/projects` 带不存在 `managerId` → **404** `项目经理不存在: …ff81a`（存在性校验保留）；
 - 冒烟新增 3 条长期守卫（`proj/new-缺managerId-400`、`proj/update-缺managerId-400`、`proj/new-managerId不存在-404`），全量 **198/198 全绿**。
+
+### 2.14 项目列表批量聚合（t82：t75 遗留 #2 已解决）
+
+**遗留项**（t75 §六 #2）：项目列表的「期次数 / 资产数」由前端逐项目并发拉取（每页最多 20 → 20 个
+`GET /projects/{id}`），与 t76 已解决的客户详情属同类 N+1。
+
+**新增**：`GET /api/v1/projects/summary`，每项附带 `phaseCount` / `assetCount` / `openTaskCount` /
+`managerName` / `customerName`。
+
+| 维度 | 实现 |
+|---|---|
+| 期次数 | 一次 group by（复用 t76 `countGroupedByProjectIds`） |
+| 资产数 | 一次 group by（新增 `countVisibleAssetsGroupedByProjectIds`，带可见范围条件） |
+| 未完成任务数 | 一次 group by（新增 `countOpenTasksGroupedByProjectIds`：任务资产 ∈ 项目挂靠资产，排除 completed/cancelled） |
+| 客户名 / 经理名 | 各一次 `findAllById` 批量取名 |
+| 总查询数 | **约 7 条，与页大小无关**（旧写法 `1 + 页内项目数`） |
+
+**口径（与 t70/t76 一致，勿混用）**：`phaseCount` **不收敛**（组织结构）；`assetCount` 与
+`openTaskCount` **按 `visibleAssetIds` 收敛**（资产是权限边界）；`managerName/customerName` 为组织维度。
+
+`sort` 支持 `createdAt`（默认，tiebreak = id asc，保证分页稳定）与 `assetCount`
+（倒序；聚合字段无法 SQL 排序 → 全量算计数后内存排序切页）。
+
+证据：`ProjectSummaryTest` 8 例（结构与三计数 / 计数与库内逐项一致 / 工程师 assetCount 2→1 而 phaseCount 不变 /
+customerId 过滤 / 空结果 / 分页两页不重复且 size 上限 500 / assetCount 排序 /
+**Hibernate Statistics 实采：查询次数不随页大小变化**）；回归 56 例（CustomerProjectApi 14 + CustomerSummary 8 +
+CustomerProjectStats 10 + Dashboard 16 + 本测试 8）全绿。接口与口径见 README §41。
+
+### 2.15 客户 / 项目 CSV 批量导入（t85）
+
+**背景**：导入框架已支持资产/漏洞/用户，客户与项目仍需逐个手工建档（报告 §8 待办项）。
+
+**新增端点**（权限与对应写接口一致）：
+
+| 方法 | 路径 | 权限 |
+|---|---|---|
+| POST | `/api/v1/import/customers` | `ADMIN` / `PROJECT_LEADER`（工程师、团队长 → 403） |
+| POST | `/api/v1/import/projects` | 同上 |
+| GET | `/api/v1/import/templates/{customers\|projects}` | 登录即可，带 BOM + 两行示例 |
+
+**逐行规则**：
+
+| 域 | 校验（不满足 → 该行 failedRows） |
+|---|---|
+| 客户 | `code`/`name` 必填；`code` 唯一（「客户编码已存在: X」）；`level` ∈ A/B/C；`ownerName` 按 **username** 解析，找不到 →「客户经理不存在: X」（**不猜测、不给默认负责人**） |
+| 项目 | `code` 唯一；`customerCode` 必须存在；`managerName` 按 username 解析；`type` ∈ PENTEST/REAUDIT/CONSULTING/TRAINING（留空默认 PENTEST）；`startDate`/`endDate` 为 `YYYY-MM-DD`，且 `endDate` 不早于 `startDate`；`isPhased` 接受 `true/false/1/0` |
+
+**审计**：成功行逐条写入 —— `action=import_customer` / `resourceType=customer`，
+`action=import_project` / `resourceType=project`，`resourceId` 为新建记录 ID；另有一次整体导入审计（resourceType=import）。
+
+**部分成功**：沿用 `ImportResult`（totalRows/successRows/failedRows/notes），逐行独立，
+失败行在服务层调用前即被拦下（零残留）；行号含表头（第 2 条数据行 = 第 3 行）。
+
+证据：`ImportCustomerProjectTest` 10 例（客户 2 行成功+列表可查+逐行审计 / 重复 code / ownerName 不存在 /
+level 非法 / 项目 2 行成功含 isPhased 变体+审计 / customerCode 不存在 / managerName·type·日期三种失败 /
+部分成功与行号 / 两模板 BOM+两行示例 / 工程师与团队长 403）；导入相关 7 个 suite **67 例全绿**。
+规则与模板示例见 README §42。

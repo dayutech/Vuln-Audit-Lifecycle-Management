@@ -1861,3 +1861,162 @@ cd backend && mvn -B clean test                             # 全量回归
 cd backend && mvn -B -DskipTests package && systemctl --user restart vuln-audit-backend
 cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 198/198
 ```
+
+---
+
+## 41. 第二十八轮（项目列表批量聚合，消除逐项目 N+1，t82）
+
+### 41.1 背景（t75 遗留 #2 → 已解决）
+
+项目列表此前只返回项目本体，前端渲染「期次数 / 资产数」只能对当页**每个项目**再发一次
+`GET /projects/{id}`（每页最多 20 个 → 20 个并发请求）。客户详情在 t76 已用聚合解决，
+项目列表沿用旧写法，属于同一类 N+1。
+
+### 41.2 新接口
+
+`GET /api/v1/projects/summary?customerId=&status=&type=&keyword=&page=&size=&sort=`
+
+```json
+{ "content": [ { "id": "...", "code": "PRJ-1", "name": "一期渗透",
+                 "customerId": "...", "customerName": "某银行",
+                 "managerId": "...", "managerName": "张三",
+                 "type": "PENTEST", "status": "ACTIVE", "isPhased": true,
+                 "phaseCount": 2, "assetCount": 3, "openTaskCount": 1, "...": "..." } ],
+  "totalElements": 12, "totalPages": 1, "currentPage": 0, "pageSize": 20 }
+```
+
+| 参数 | 说明 |
+|---|---|
+| `sort` | `createdAt`（默认，倒序，tiebreak = id asc）或 `assetCount`（倒序） |
+| `size` | 由 `Paging` 收敛到 1..500 |
+
+### 41.3 查询次数（固定，与页大小无关）
+
+| # | 查询 | 次数 |
+|---|---|---|
+| 1 | 项目分页（数据 + count） | 2 |
+| 2 | 期次数 group by（`countGroupedByProjectIds`，t76 复用） | 1 |
+| 3 | 资产数 group by（`countVisibleAssetsGroupedByProjectIds`，带可见范围） | 1 |
+| 4 | 未完成任务数 group by（`countOpenTasksGroupedByProjectIds`） | 1 |
+| 5 | 客户名 `findAllById` / 经理名 `findAllById` | 2 |
+
+合计约 **7 条**，与一页 1 个还是 20 个项目无关；旧写法是 `1 + 页内项目数`（20 个项目 ≈ 22 条 + 前端并发）。
+
+`sort=assetCount` 时聚合字段无法在 SQL 里 order by：先取筛选命中的全部项目 → 算计数 → 内存排序 → 切页
+（组织级项目数量可控）。默认排序仍走数据库分页。
+
+### 41.4 口径（与 t70 / t76 一致，勿混用）
+
+| 字段 | 是否随可见性收敛 | 依据 |
+|---|---|---|
+| `phaseCount` | **否** | 期次是组织结构事实，对所有登录用户可见 |
+| `assetCount` | **是**（`AccessGuard.visibleAssetIds`） | 资产是权限边界，与 `GET /assets`、`GET /customers/{id}/summary` 一致 |
+| `openTaskCount` | **是**（随资产口径） | 任务挂在资产上；资产不可见 → 其任务计数不可见（排除 completed/cancelled） |
+| `managerName` / `customerName` | 否 | 组织维度展示字段 |
+
+### 41.5 验证
+
+```bash
+cd backend && mvn -B test -Dtest=ProjectSummaryTest
+cd backend && mvn -B clean test
+```
+
+`ProjectSummaryTest` **8 例**：结构与三个计数（含 managerName/customerName）、计数与库内独立计算逐项一致、
+工程师 `assetCount` 收敛（2→1）而 `phaseCount` 不变、`customerId` 过滤、空结果不报错、
+分页正确（两页不重复，`size` 上限 500）、`sort=assetCount` 倒序、
+**查询次数不随页大小变化**（Hibernate Statistics 实采：`size=10` 仍在固定预算内，且与 `size=1` 相差 ≤2 条）。
+
+---
+
+## 42. 第二十九轮（客户 / 项目 CSV 批量导入，t85）
+
+### 42.1 端点
+
+| 方法 | 路径 | 权限 |
+|---|---|---|
+| POST | `/api/v1/import/customers`（multipart，字段名 `file`） | `hasAnyRole('ADMIN','PROJECT_LEADER')`，工程师/团队长 → **403** |
+| POST | `/api/v1/import/projects` | 同上 |
+| GET | `/api/v1/import/templates/customers`、`/templates/projects` | 登录即可（与既有模板一致），**带 UTF-8 BOM + 两行示例** |
+
+### 42.2 客户 CSV
+
+```csv
+code,name,industry,level,ownerName,contactName,contactPhone,contactEmail,description
+CUST-20250101-AB12,示例-某银行,金融,A,zhangsan,张三,13800000000,zhangsan@example.com,示例客户（导入前请删除本行）
+CUST-20250101-CD34,示例-某制造业,制造,B,,李四,13900000000,lisi@example.com,不填 ownerName 则不设客户经理
+```
+
+| 规则 | 不满足时 |
+|---|---|
+| `code` / `name` 必填 | 该行 failedRows |
+| `code` 全局唯一 | failedRows「客户编码已存在: X」，不覆盖已有记录 |
+| `level` ∈ A/B/C（大小写归一） | failedRows「客户级别非法: X」 |
+| `ownerName` 按 **username** 解析 | failedRows「客户经理不存在: X」，**不猜测、不给默认负责人** |
+| 成功行 | 逐条审计：`action=import_customer`、`resourceType=customer`、`resourceId=客户ID` |
+
+### 42.3 项目 CSV
+
+```csv
+code,name,customerCode,type,managerName,startDate,endDate,isPhased,contractNo,description
+PRJ-20250101-CD34,示例-年度渗透测试,CUST-20250101-AB12,PENTEST,zhangsan,2025-01-01,2025-12-31,true,HT-2025-001,示例项目
+PRJ-20250101-EF56,示例-代码审计,CUST-20250101-AB12,CONSULTING,lisi,2025-03-01,,0,,不分期项目
+```
+
+| 规则 | 不满足时 |
+|---|---|
+| `code` 唯一 | failedRows「项目编码已存在: X」 |
+| `customerCode` 必须存在 | failedRows「客户不存在: X」 |
+| `managerName` 按 username 解析 | failedRows「项目经理不存在: X」 |
+| `type` ∈ PENTEST / REAUDIT / CONSULTING / TRAINING（留空则默认 PENTEST） | failedRows「项目类型非法: X」 |
+| `startDate` / `endDate` 为 `YYYY-MM-DD` | failedRows「startDate 日期格式错误: X（应为 YYYY-MM-DD）」 |
+| `endDate` 早于 `startDate` | failedRows「结束日期不能早于开始日期」 |
+| `isPhased` 接受 `true/false/1/0`（大小写不敏感） | failedRows「isPhased 取值非法: X」 |
+| 成功行 | 逐条审计：`action=import_project`、`resourceType=project`、`resourceId=项目ID` |
+
+### 42.4 部分成功语义
+
+沿用 `ImportResult`（`totalRows` / `successRows` / `failedRows` / `notes`）：逐行独立事务，
+任一行失败只进 `failedRows`（带行号，**行号含表头**，第 2 条数据行 = 第 3 行），其余行照常落库；
+失败行在 `customerService.create` / `projectService.create` 之前就已被校验拦下，**零残留**。
+复用现有服务的唯一性与存在性校验，不绕过服务层。
+
+### 42.5 验证
+
+```bash
+cd backend && mvn -B test -Dtest=ImportCustomerProjectTest
+cd backend && mvn -B clean test
+```
+
+`ImportCustomerProjectTest` **10 例**：客户 2 行成功（列表可查 + 逐行审计）、重复 code → failedRows 不新增、
+ownerName 不存在 → failedRows 不落库、level 非法 → failedRows、
+项目 2 行成功（`isPhased` true/0、日期、审计、列表可查）、customerCode 不存在、
+managerName 不存在 / type 非法 / 日期格式错三种 failedRows、部分成功（成功行落库 + 失败行零残留 + 行号）、
+两个模板 BOM + 两行示例、工程师与团队长 403。
+
+> 既有 `ImportServiceImplTest` 因构造函数新增 3 个依赖（CustomerService / ProjectService / UserRepository）
+> 已同步补 mock，验证目标不变（未放宽校验）。
+
+## 43. 第五批发布（项目列表批量聚合 + i18n 收尾 + 客户/项目导入，t82–t88）
+
+时间：2026-11-03 12:3x–13:0x（Asia/Shanghai）。**无新增迁移**（仍 V1…V18，无需手工 DDL）。
+
+| 项 | 结果 |
+|---|---|
+| 后端回归 | `mvn -B clean test` → **Tests run: 648, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS；`@Disabled/@Ignore` 0 命中 |
+| 用例增量 | 630 → **648**（t82 `ProjectSummaryTest` 8 + t85 `ImportCustomerProjectTest` 10） |
+| 后端重建 | package BUILD SUCCESS 14.0s，jar **73,030,973 B**；重启后 login=200、`/projects/summary`=200、`/import/templates/customers`=200（首字节 `efbbbf`） |
+| 前端发布 | `index-C7DvIDyd.js` 2,522.43 kB（gzip 731.23 kB）；词条 **961/961** 中英对等；`TODO(i18n)` **0 处**；站点仅 5 文件 |
+| 冒烟 | **TOTAL=208 / PASS=208 / FAIL=0 / SKIP=0**（新增 10 条） |
+| 数据清理 | 按 §23.1 清理后 **assets=3 / customers=1 / projects=1 / phases=0 / links=3 / orphan=0** |
+
+**新增能力**
+- `GET /projects/summary`：一次请求返回 `phaseCount / assetCount / openTaskCount / managerName / customerName`，查询数约 7 条与页大小无关（N+1 消除）；`phaseCount` 全量、`assetCount`/`openTaskCount` 按可见范围收敛；支持 `sort=createdAt|assetCount`。
+- `POST /import/customers`、`POST /import/projects` + 两个模板（BOM + 两行示例）；仅 ADMIN/PROJECT_LEADER，逐行 failedRows + 逐行审计。
+- i18n 全覆盖：前端 `message.*` 274 个调用中文 0 处；词条 961/961。
+
+**冒烟新增 10 条**：`proj/summary-聚合`、`proj/summary-assetCount`、`proj/summary-工程师phaseCount不收敛`（admin=4/engineer=4，assetCount admin=9/engineer=2）、`proj/summary-工程师可见`、`import/客户-部分成功`、`import/客户-失败原因可读`、`import/客户-工程师403`、`import/项目-部分成功`、`import/模板-customers-BOM`、`import/模板-projects-BOM`。
+
+```bash
+cd backend && mvn -B clean test                                   # 期望 648 passed
+cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 208/208
+```
