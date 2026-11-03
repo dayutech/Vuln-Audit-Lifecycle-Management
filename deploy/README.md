@@ -2020,3 +2020,119 @@ managerName 不存在 / type 非法 / 日期格式错三种 failedRows、部分�
 cd backend && mvn -B clean test                                   # 期望 648 passed
 cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 208/208
 ```
+
+---
+
+## 44. 第三十轮（管理员模拟视角：受限 token + 审计归属 + 安全约束，t90）
+
+### 44.1 接口
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| POST | `/api/v1/admin/impersonate` | **仅 ADMIN**（模拟态 token 一律 403） | body `{userId, reason?}`；签发受限 token |
+| POST | `/api/v1/admin/impersonate/stop` | 普通态 ADMIN；模拟态允许（`act` 必须是 ADMIN） | 写 STOP 审计，返回 **204**，前端自行换回原 token |
+
+响应体：
+
+```json
+{ "token": "<受限 JWT>", "expiresAt": "2026-11-03T15:30:00Z",
+  "target": { "id": "...", "username": "engineer1", "roles": ["vulnerability_engineer"] },
+  "actor":  { "id": "...", "username": "admin" } }
+```
+
+### 44.2 受限 token 的构成
+
+| 项 | 值 |
+|---|---|
+| `sub` | **被模拟用户**（因此后续请求以该用户身份与权限鉴权） |
+| `roles` | 被模拟用户的真实角色（仍从 DB 读取 authorities，与普通 token 一致） |
+| `act` | 真实操作者（ADMIN）用户ID |
+| `imp` | `true`（守卫过滤器与审计归属据此识别） |
+| `exp` | 默认 **2 小时**（`app.security.impersonation.ttl-seconds`，默认 7200） |
+
+### 44.3 模拟态禁止的端点清单（`ImpersonationGuardFilter`）
+
+只拦**写方法**（POST/PUT/PATCH/DELETE），读接口不封禁幂等（审阅权限分配需要看列表）：
+
+| 前缀 | 覆盖端点（写） |
+|---|---|
+| `/api/v1/users/**` | `POST /users`、`PUT /users/{id}`、`DELETE /users/{id}`、`POST /users/{id}/reset-password`、`POST/DELETE /users/{id}/roles*`、`POST/DELETE /users/{id}/permissions*` |
+| `/api/v1/roles/**` | `POST /roles`、`PUT /roles/{id}`、`DELETE /roles/{id}`、角色权限点增删 |
+| `/api/v1/admin/**` | 全部管理员端点（含 `POST /admin/impersonate` → **防链式模拟**） |
+| 显式放行 | `POST /api/v1/admin/impersonate/stop`（否则无法退出模拟） |
+
+返回体：`{"success":false,"code":403,"message":"模拟视角下禁止修改用户、角色或管理员配置"}`。
+**其余业务权限完全保留**：目标是团队长时，他能做团队长能做的一切（除了上面三类身份/权限端点）。
+
+### 44.4 审计归属规则
+
+| 事件 | `user_id` | `action` | `resourceType` | `resourceId` | details |
+|---|---|---|---|---|---|
+| 发起模拟 | **真实操作者（ADMIN）** | `IMPERSONATE_START` | `user` | 目标用户 | `模拟开始: actor=..., target=..., ttlSeconds=..., reason=<用户填写>` |
+| 停止模拟 | 真实操作者 | `IMPERSONATE_STOP` | `user` | 目标用户 | `模拟结束: actor=..., target=...` |
+| 模拟期间的**业务写** | **目标用户**（真实执行者） | 原动作（如 `POST AssetController.addAssetTag`） | 按 URI | 按 URI | URI + **`; impersonatedBy=<adminId>`** |
+
+即：业务动作「看起来是目标用户做的」，但每条都带真实操作者，可完整回溯「谁以谁的身份做了什么」。
+
+### 44.5 安全约束（逐条实现 + 测试）
+
+| # | 约束 | 实现位置 | 测试 |
+|---|---|---|---|
+| 1 | 非 ADMIN 发起 → 403 | `@PreAuthorize("hasRole('ADMIN')")` | `nonAdminCannotImpersonate` |
+| 2 | 目标不存在 → 404；已停用 → 400 | `ImpersonationServiceImpl` | `targetValidation` |
+| 3 | 不得模拟 ADMIN → 409 | 同上（读目标角色含 `admin`） | `cannotImpersonateAdmin` |
+| 4 | 链式模拟 → 403 | 守卫过滤器的 `/admin/**` | `chainedImpersonationForbidden` |
+| 5 | 模拟态写身份端点 → 403 | 守卫过滤器 | `impersonationCannotWriteIdentityEndpoints` |
+| 6 | token 过期 → 401 | 既有 `AuthenticationEntryPoint` | `expiredImpersonationTokenUnauthorized` |
+| 7 | start/stop 审计 + 业务审计归属 | 服务层 + `AuditTrailInterceptor` | `impersonateWritesStartAudit` / `stopWritesAudit` / `businessAuditAttributedToTargetWithActor` |
+| 8 | 普通态非 ADMIN 调 stop → 403 | 服务层校验 `act`/当前用户的 admin 角色 | `nonAdminCannotStop` |
+
+### 44.6 风险与关闭方式
+
+- **风险**：模拟期间以他人身份产生数据（业务表无差异，但审计可追溯）；若管理员账号被盗用，攻击者可借此横向观察。
+- **缓解**：默认 2 小时短 TTL、不得模拟 ADMIN、身份/权限端点全面封禁、全量审计、`reason` 必填建议。
+- **生产关闭**：
+
+```yaml
+app:
+  security:
+    impersonation:
+      enabled: false   # 关闭后 /admin/impersonate 与 /stop 均返回 403
+```
+
+环境变量形式：`APP_IMPERSONATION_ENABLED=false`、`APP_IMPERSONATION_TTL_SECONDS=3600`。
+
+### 44.7 验证
+
+```bash
+cd backend && mvn -B test -Dtest=ImpersonationTest   # 11 例
+cd backend && mvn -B clean test                      # 全量回归
+```
+
+## 45. 第六批发布（菜单选中态修复 + 品牌区 + 管理员模拟视角，t89–t91）
+
+时间：2026-11-03 15:0x–15:3x（Asia/Shanghai）。**无新增迁移**（仍 V1…V18）。
+
+| 项 | 结果 |
+|---|---|
+| 后端回归 | `mvn -B clean test` → **Tests run: 659, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS；648 → 659（t90 `ImpersonationTest` 11 例） |
+| 后端重建 | package BUILD SUCCESS 20.8s，jar **73,052,099 B**；重启后 login=200、`/projects`=200 |
+| 模拟视角接口实测 | `POST /admin/impersonate` → **200**（token 311 字符、含 target/actor）；链式 → **403**；`/stop` → **204** |
+| 前端发布 | `index-GiOC38Fc.js` 2,533.86 kB（gzip 735.20 kB）；词条 **980/980**；站点 5 文件 |
+| 冒烟 | **TOTAL=222 / PASS=222 / FAIL=0 / SKIP=0**（新增 14 条模拟视角用例） |
+| 数据清理 | assets 15→3、customers 13→1、projects 17→1、phases 8→0、links 15→3；**orphan=0** |
+
+**模拟视角要点**（详见 README §44 / 报告 §2.16、§3.2）
+- `POST /admin/impersonate`（仅 ADMIN）签发受限 token（`sub`=目标、`act`=adminId、`imp=true`、默认 2 小时）；
+- 禁止链式模拟；模拟态禁止 `/users/**`、`/roles/**`、`/admin/**` 的写方法（`/admin/impersonate/stop` 放行）；
+- 模拟期间业务写 `userId`=目标用户、`details` 追加 `impersonatedBy=<adminId>`（可回溯真实管理员）；
+- 关闭：`app.security.impersonation.enabled=false`。
+
+**t92 发现（已入报告 §2.16 备注 / §8 #15）**
+1. 发起/停止审计的 `action` 实为拦截器派生值 `POST AdminImpersonationController.impersonate`（且被截断到 40 字符 → `…stopImpersonatio`），**不是**文档写的 `IMPERSONATE_START/STOP`；发起行 `details` 只有 URI，缺 actor/target/reason。安全目标（可回溯）已达成，但文档与实现需对齐（改文档或补专用审计）。
+2. `POST /assets/{id}/access-requests` 对不可见资产返回 **400**「无权访问该资产」（同类守卫多为 403），状态码语义待统一（§8 #16）。
+
+```bash
+cd backend && mvn -B clean test                                   # 期望 659 passed
+cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 222/222
+```

@@ -10,7 +10,7 @@
 
 ## 0. 验收结论
 
-**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**648 个后端用例 100% 通过**（历批累计，第五批新增 t82 聚合 8 例 + t85 导入 10 例），线上冒烟 **208/208 全绿**（t13 的 92 + t41 的 16 + t47 的 20），三账号交叉验证通过。
+**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**659 个后端用例 100% 通过**（历批累计，第五批新增 t82 聚合 8 例 + t85 导入 10 例），线上冒烟 **208/208 全绿**（t13 的 92 + t41 的 16 + t47 的 20），三账号交叉验证通过。
 
 第二批（t49/t50/t51/t55）之后**鉴权缺口清零（15 → 0 组）**：资产域 6 组、协作域 4 组、组织/工具域 2 组、工具域追加 3 个端点全部收口，资产可见性与团队可见性均统一为单一事实来源：3 组「高」severity 缺口（团队 CRUD、环境增删改与部署、公告写）已修复，资产认领「完成/放弃」状态机已打通（此前恒 403）。
 
@@ -18,8 +18,8 @@
 
 | 关键指标 | 数值 |
 |---|---|
-| 后端自动化测试 | **648 用例 / 通过率 100%**（含客户/项目/挂靠域 CustomerProjectApi 14、AssetProjectLink 15、CustomerSummary 8、ImportAssetProject 10 等），`mvn -B clean test` 35:26 全绿 |
-| 线上冒烟 | **208 用例 / 208 PASS / 0 FAIL / 0 SKIP**（含 t87 新增 10 条聚合与导入用例），发布后复跑全绿 |
+| 后端自动化测试 | **659 用例 / 通过率 100%**（含客户/项目/挂靠域 CustomerProjectApi 14、AssetProjectLink 15、CustomerSummary 8、ImportAssetProject 10 等），`mvn -B clean test` 35:26 全绿 |
+| 线上冒烟 | **222 用例 / 222 PASS / 0 FAIL / 0 SKIP**（含 t92 新增 14 条模拟视角用例），发布后复跑全绿 |
 | 部署后专项核对 | 11a~11k 共 **13 项实测全 PASS** |
 | 空库引导（真实建库路径） | 56 张表、RBAC 90 权限点 / 261 关联、admin 登录 200、`permissionCount=90` |
 | 接口总数 / 已做鉴权 | 263 个端点；角色注解 74、数据级守卫 79、方法内校验 12 → **165 个显式鉴权端点**（写端点 108/135 = 80%），其余见 §2 |
@@ -636,6 +636,32 @@ customers(id, code uk, name, industry, level, owner_id, status)
    查询数固定约 7 条、与页大小无关（见 §2.14）；前端切换该接口后可彻底去掉并发拉取；
 4. ~~`POST /projects` 缺 `manager_id` 时数据库约束报 500~~ → **已解决（t80）**：DTO `@NotNull` → 400 + `data.managerId`。
 
+### 3.2 管理员模拟视角（t90/t91）
+
+**用途**：管理员在线复现用户反馈的问题（“我这个账号看不到某资产/按钮”），无需索取对方密码、也无需临时改角色。
+
+**接口**
+| 接口 | 权限 | 说明 |
+|---|---|---|
+| `POST /api/v1/admin/impersonate` | **仅 ADMIN** | body `{userId, reason?}` → `{token, expiresAt, target{id,username,roles[]}, actor{id,username}}` |
+| `POST /api/v1/admin/impersonate/stop` | ADMIN（普通态）或持有模拟 token（模拟态，服务层校验 `act` 必为 ADMIN） | **204** |
+
+**受限 token**：`sub`=目标用户、`roles`=目标真实角色、`act`=adminId、`imp=true`、默认 TTL **2 小时**（`app.security.impersonation.ttl-seconds` / `APP_IMPERSONATION_TTL_SECONDS`）。
+即：模拟期间权限**完全等于目标用户**（目标是团队长就能做团队长的一切），不是提权也不是降权。
+
+**限制（后端强制，逐条有测试）**
+1. 仅 ADMIN 可发起；非 ADMIN **403**；目标不存在 **404**；目标停用 **400**；目标是 ADMIN **409**。
+2. **禁止链式模拟**：模拟态再调 `POST /admin/impersonate` → **403**。
+3. **敏感写禁用**（仅拦 POST/PUT/PATCH/DELETE）：`/users/**`（建改删、重置密码、改角色、改权限点）、`/roles/**`、`/admin/**`；`/admin/impersonate/stop` 显式放行。读到这些路径不拦（看到什么仍由目标权限决定）。
+4. token 过期 → **401**；前端会自动回退原 token 并刷新。
+5. 关闭开关：`app.security.impersonation.enabled=false`（或 `APP_IMPERSONATION_ENABLED=false`）→ 两个端点均 **403**。
+
+**审计**：发起/停止由拦截器记录（`resourceType=admin`）；模拟期间的业务写 `userId`=**目标用户**、`details` 追加 `impersonatedBy=<adminId>`，因此**任何一次模拟期内的操作都能回溯到真实管理员**（见 §2.16 实测备注：`IMPERSONATE_START/STOP` 事件名与发起行 actor/target 字段尚未落库）。
+
+**前端（t91）**：用户菜单「以其他用户视角查看」（`isAdmin && !impersonating` 才渲染）→ 选择用户（过滤 admin）→ 整页 reload → 顶部横幅「正在以 <用户名>（角色）的视角查看 · 管理员模拟模式」+ 剩余倒计时（<1 分钟变红）+ 退出模拟；localStorage 三键 `access_token` / `impersonation.original` / `impersonation.target`。
+
+**风险与建议**：TTL 内 token 等效目标用户，建议生产开启时配合「仅内网可用 + 审计日检 + reason 必填」；当前 `reason` 为可选字段。
+
 ---
 
 ## 4. 本轮新增覆盖的薄弱分支（服务层专项）
@@ -853,6 +879,27 @@ customers(id, code uk, name, industry, level, owner_id, status)
 
 > i18n 回归：`Accept-Language: en` → `Asset not found`；默认 → `资产不存在`。
 
+
+### 7.8 第六批发布与回归（t92：菜单/品牌修复 + 管理员模拟视角）
+
+| 项 | 结果 |
+|---|---|
+| 后端回归 | `mvn -B clean test`（独占 target）→ **Tests run: 659, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS；648 → 659（t90 `ImpersonationTest` 11 例） |
+| 前端构建 | `npm run build` exit 0，`index-GiOC38Fc.js` 2,533.86 kB（gzip 735.20 kB）；词条 **980/980**；产物含 `impersonation.*`（19 条）与 `app.brand.*`（漏洞审计平台 / Vuln Audit）以及「正在以 / Viewing as / 退出模拟 / Exit impersonation / 以其他用户视角查看」 |
+| 部署 | 后端 package BUILD SUCCESS 20.8s，jar **73,052,099 B**；重启后 login=200、`/projects`=200、`impersonate`=200（token 311 字符）、链式 **403**、stop **204**；前端 sync-dist 后站点 5 文件；**无新增迁移** |
+| 冒烟 | **TOTAL=222 / PASS=222 / FAIL=0 / SKIP=0**（新增 14 条模拟视角用例） |
+| 数据清理 | 按 README §23.1：assets 15→3、customers 13→1、projects 17→1、phases 8→0、links 15→3、documents 0；**orphan_assets=0** |
+
+**冒烟新增（模拟视角，14 条）**：发起 200 + 返回 target/actor；工程师发起 403；模拟管理员 409；模拟态「me 权限」200 / 用户列表按目标权限 403 / 资产列表 200；链式模拟 403；模拟态改用户 403；模拟态业务写（`POST /documents`）2xx；业务写审计含 `impersonatedBy`；退出 204；发起与停止审计事件可检索。
+
+| # | 页面验证（真实浏览器） | 结果 |
+|---|---|---|
+| 1 | 菜单选中态 18/18 | **PASS**（含 安全态势大盘 / 客户管理 / 项目管理 / 账号管理 / 系统消息 等） |
+| 2 | 详情路由高亮 3/3 | **PASS**（`/customers/{id}`、`/projects/{id}`、`/assets/{id}` 对应菜单保持高亮） |
+| 3 | 品牌区 | **PASS**（展开「漏洞审计平台」+ Logo；折叠隐藏名称仅留图标；English 显示 Vuln Audit） |
+| 4 | 模拟视角 | **PASS**（入口可见 → 选择器可开 → 发起 200 → 横幅含用户名与倒计时 → 账号管理菜单隐藏、客户管理写入口（新建客户）隐藏 → 退出后横幅消失、admin 视图恢复、localStorage 三键清除） |
+| 5 | 工程师登录 | **PASS**（无「以其他用户视角查看」入口） |
+
 ---
 
 ## 8. 仍建议后续跟进的事项（不阻塞验收）
@@ -873,6 +920,9 @@ customers(id, code uk, name, industry, level, owner_id, status)
 | 12 | ~~项目列表逐项目查询详情（N+1）~~ **已完成（t82/t83）** | 新增 `GET /projects/summary` 批量聚合（phaseCount/assetCount/openTaskCount + 客户名/经理名），前端一次请求拿全；查询数约 7 条与页大小无关，页面实测 `/projects/{id}` 请求 **0 个**，见 §2.14 |
 | 13 | ~~`message.success` 等提示文案仍中文~~ **已完成（t84/t88）** | `message.success/info/warning/error` 前端自有文案中文 **0 处**；导入/工具/知识库/文档四页正文同步迁移，见 §3.6 |
 | 14 | ~~未迁移页面正文仍有中文~~ **部分完成（t88 第二批）** | 已迁：导入/工具/知识库/文档/任务表格以外的主路径；仍余 tasks/users/teams/roles/approvals/asset-groups 等页面正文约 552 行，建议按「tasks → 组织域（users+roles+teams）→ 审批域」分批 |
+| 15 | 模拟视角审计事件名与字段对齐 | t92 实测：发起/停止记为拦截器 action（`POST AdminImpersonationController.impersonate`，且被截断为 40 字符），`IMPERSONATE_START/STOP` 与发起行 actor/target/reason 未落库；建议改文档或补专用审计（见 §2.16 实测备注） |
+| 16 | 统一“不可见资源”的状态码 | `POST /assets/{id}/access-requests` 对不可见资产返回 **400**「无权访问该资产」，同类守卫多为 403，建议统一 |
+| 17 | 模拟视角上线运维要求 | TTL 内 token 等效目标用户：建议生产开启时限制内网、日检审计、把 `reason` 改为必填 |
 
 ---
 
@@ -1121,3 +1171,57 @@ CustomerProjectStats 10 + Dashboard 16 + 本测试 8）全绿。接口与口径�
 level 非法 / 项目 2 行成功含 isPhased 变体+审计 / customerCode 不存在 / managerName·type·日期三种失败 /
 部分成功与行号 / 两模板 BOM+两行示例 / 工程师与团队长 403）；导入相关 7 个 suite **67 例全绿**。
 规则与模板示例见 README §42。
+### 2.16 管理员模拟用户视角（t90）
+
+**目标**：管理员以指定用户的身份与权限查看系统，用于审阅角色分配是否得当、各权限用户的 UI 与可见资源是否正确；
+同时保证「不能借此提权、不能借此改权限、全程可追溯」。
+
+**接口**：`POST /admin/impersonate`（仅 ADMIN）、`POST /admin/impersonate/stop`（普通态 ADMIN / 模拟态要求 `act` 为 ADMIN）。
+
+**受限 token**：`sub=目标用户`、`roles=目标用户真实角色`、`act=ADMIN 用户ID`、`imp=true`、`exp=2 小时`
+（`app.security.impersonation.ttl-seconds`，可用 `APP_IMPERSONATION_TTL_SECONDS` 覆盖）。
+
+**模拟态禁止的端点清单**（`ImpersonationGuardFilter`，只拦写方法 POST/PUT/PATCH/DELETE）：
+
+| 前缀 | 影响端点 |
+|---|---|
+| `/api/v1/users/**` | 建用户、改用户、删用户、重置密码、改用户角色、改用户权限点 |
+| `/api/v1/roles/**` | 建角色、改角色、删角色、角色权限点增删 |
+| `/api/v1/admin/**` | 全部管理员端点，含 `POST /admin/impersonate` → **防链式模拟** |
+| 显式放行 | `POST /api/v1/admin/impersonate/stop` |
+
+其余业务权限**完全保留**（目标是团队长即可做团队长的一切），读接口不封禁（审阅需要看用户/角色列表；
+能否看到仍取决于目标用户自身权限）。
+
+**审计归属规则**：
+
+| 事件 | `user_id` | `action` | `details` |
+|---|---|---|---|
+| 发起 | 真实操作者（ADMIN） | `IMPERSONATE_START` | `模拟开始: actor=..., target=..., ttlSeconds=..., reason=...` |
+| 停止 | 真实操作者 | `IMPERSONATE_STOP` | `模拟结束: actor=..., target=...` |
+| 模拟期间业务写 | **目标用户**（真实执行者） | 原动作 | URI + `; impersonatedBy=<adminId>` |
+
+**安全约束逐条**：非 ADMIN 发起 403 / 目标不存在 404 / 目标停用 400 / 模拟 ADMIN 409 / 链式模拟 403 /
+身份端点写 403 / 过期 401 / start·stop 审计 + 业务审计归属 / 普通态非 ADMIN 调 stop 403。
+
+**关闭方式**：`app.security.impersonation.enabled=false`（或 `APP_IMPERSONATION_ENABLED=false`）→ 两个端点均 403。
+
+证据：`ImpersonationTest` 11 例（签发与 claims、START/STOP 审计、业务审计 `impersonatedBy` + 普通态对照组、
+非 admin 发起、模拟 admin 409、目标 404/停用 400、链式 403、身份端点写 403 ×5 + 读放行、过期 401）。
+接口、清单与风险说明见 README §44。
+
+
+**t92 线上实测备注（审计语义与设计文档的差异）**
+
+| 项 | 设计（t90 文档） | 线上实测（v73,052,099） |
+|---|---|---|
+| 发起审计 `action` | `IMPERSONATE_START` | **`POST AdminImpersonationController.impersonate`**（拦截器按 Controller 方法名生成，且被截断到 40 字符 → 停止为 `…stopImpersonatio`） |
+| 发起审计 `details` | `模拟开始: actor=…, target=…, ttlSeconds=…, reason=…` | 仅 `"/api/v1/admin/impersonate"`（不含 actor/target/reason） |
+| 发起审计 `user_id` | 真实操作者 ADMIN | **正确**：`userId` = admin（截图中 `164503da-…`） |
+| 停止审计 | `IMPERSONATE_STOP` | `POST AdminImpersonationController.stopImpersonatio`，`user_id` = **被模拟用户**（请求带受限 token），`details` 含 `; impersonatedBy=<adminId>` |
+| 模拟期间业务写 | 目标用户 + `impersonatedBy` | **正确**：`action=POST AssetController…/DocumentController…`、`userId`=目标用户、`details` 含 `impersonatedBy=<adminId>` |
+
+结论：**「业务操作可追溯到真实管理员」这一安全目标已达成**（`impersonatedBy` 落在 details），
+但 t90 文档里的 `IMPERSONATE_START/STOP` 事件名与发起行的 actor/target/reason 字段**未落库**，需二选一：
+①把文档改为实测语义（推荐，零代码风险）；②在服务层显式写两条专用审计（`action=IMPERSONATE_START/STOP`、`details` 带 actor/target/reason/ttl），并解决 40 字符截断。
+另记：`POST /assets/{id}/access-requests` 在资产不可见时返回 **400「无权访问该资产」**（同类守卫多为 403），状态码语义待统一。
