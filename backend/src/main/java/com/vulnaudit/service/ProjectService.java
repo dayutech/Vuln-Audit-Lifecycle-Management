@@ -38,6 +38,28 @@ public interface ProjectService {
                                           @Nullable String keyword);
 
     /**
+     * 分页查询项目（带聚合计数，t82）—— 消除前端「逐项目查详情」的 N+1
+     *
+     * <p>每项附带 {@code phaseCount} / {@code assetCount} / {@code openTaskCount} /
+     * {@code managerName} / {@code customerName}。实现上：
+     * <ul>
+     *   <li>期次数、资产数、未完成任务数各用**一次 group by** 批量算；</li>
+     *   <li>经理名与客户名各用**一次 findAllById** 批量取名；</li>
+     *   <li>总查询次数固定，与页大小无关。</li>
+     * </ul>
+     *
+     * <p><b>口径</b>：{@code phaseCount} **不收敛**（组织结构）；
+     * {@code assetCount} / {@code openTaskCount} 按 {@code visibleAssetIds} **收敛**（资产是权限边界）。
+     *
+     * @param sort 排序：{@code createdAt}（默认，倒序）或 {@code assetCount}（倒序）
+     */
+    @Nonnull
+    PageResponse<com.vulnaudit.dto.ProjectSummaryItem> findSummary(
+            int page, int size, @Nullable UUID customerId, @Nullable String status,
+            @Nullable String type, @Nullable String keyword, @Nullable String sort,
+            @Nullable java.util.Set<UUID> visibleAssetIds);
+
+    /**
      * 项目详情（含 customerBrief、phases、assetCount）
      *
      * @throws com.vulnaudit.exception.BusinessException 项目不存在 → 404

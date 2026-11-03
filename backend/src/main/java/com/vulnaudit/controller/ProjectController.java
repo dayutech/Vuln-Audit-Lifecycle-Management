@@ -8,6 +8,7 @@ import com.vulnaudit.dto.ProjectAssetItem;
 import com.vulnaudit.dto.ProjectDetailResponse;
 import com.vulnaudit.dto.ProjectRequest;
 import com.vulnaudit.dto.ProjectResponse;
+import com.vulnaudit.dto.ProjectSummaryItem;
 import com.vulnaudit.security.CurrentUserProvider;
 import com.vulnaudit.service.ProjectService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -20,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -75,6 +77,36 @@ public class ProjectController {
                 page, size, customerId, status, type);
         return ResponseEntity.ok(ApiResponse.success(
                 projectService.findAll(page, size, customerId, status, type, keyword)));
+    }
+
+    /**
+     * 项目列表（带聚合计数，t82）：一次请求拿到 phaseCount / assetCount / openTaskCount /
+     * managerName / customerName，取代前端「逐项目查详情」的 N+1。
+     *
+     * <p><b>口径</b>：{@code phaseCount} 不收敛（组织结构）；
+     * {@code assetCount} / {@code openTaskCount} 按 {@code AccessGuard.visibleAssetIds(auth)} 收敛（资产是权限边界）。
+     */
+    @GetMapping("/summary")
+    @Operation(summary = "项目列表（带聚合计数）",
+            description = "每项附带 phaseCount / assetCount / openTaskCount / managerName / customerName；"
+                    + "期次数为全量组织口径，资产数与未完成任务数按可见范围收敛；"
+                    + "sort 支持 createdAt（默认）与 assetCount")
+    public ResponseEntity<ApiResponse<PageResponse<ProjectSummaryItem>>> listProjectSummary(
+            @Parameter(description = "页码（从0开始）") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "每页大小（上限 500）") @RequestParam(defaultValue = "20") int size,
+            @Parameter(description = "客户ID") @RequestParam(required = false) UUID customerId,
+            @Parameter(description = "状态 DRAFT/ACTIVE/PAUSED/CLOSED") @RequestParam(required = false) String status,
+            @Parameter(description = "类型") @RequestParam(required = false) String type,
+            @Parameter(description = "关键词（编码/名称/合同号）") @RequestParam(required = false) String keyword,
+            @Parameter(description = "排序：createdAt（默认）/ assetCount") @RequestParam(required = false) String sort) {
+
+        java.util.Set<UUID> visibleAssetIds = accessGuard.visibleAssetIds(
+                SecurityContextHolder.getContext().getAuthentication());
+        log.debug("查询项目聚合列表: page={}, size={}, customerId={}, sort={}, visibilityRestricted={}",
+                page, size, customerId, sort, visibleAssetIds != null);
+
+        return ResponseEntity.ok(ApiResponse.success(projectService.findSummary(
+                page, size, customerId, status, type, keyword, sort, visibleAssetIds)));
     }
 
     @GetMapping("/{id}")

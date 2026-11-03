@@ -1,7 +1,11 @@
 package com.vulnaudit.service.impl;
 
 import com.vulnaudit.dto.ImportFailedRow;
+import com.vulnaudit.dto.CustomerRequest;
+import com.vulnaudit.dto.CustomerResponse;
 import com.vulnaudit.dto.ImportResult;
+import com.vulnaudit.dto.ProjectRequest;
+import com.vulnaudit.dto.ProjectResponse;
 import com.vulnaudit.dto.ImportUsersResult;
 import com.vulnaudit.dto.ImportedUser;
 import com.vulnaudit.entity.Asset;
@@ -19,9 +23,12 @@ import com.vulnaudit.repository.AssetVersionRepository;
 import com.vulnaudit.repository.CustomerRepository;
 import com.vulnaudit.repository.ProjectPhaseRepository;
 import com.vulnaudit.repository.ProjectRepository;
+import com.vulnaudit.repository.UserRepository;
 import com.vulnaudit.repository.TeamRepository;
 import com.vulnaudit.service.AssetProjectLinkService;
 import com.vulnaudit.service.AssetService;
+import com.vulnaudit.service.CustomerService;
+import com.vulnaudit.service.ProjectService;
 import com.vulnaudit.service.AuditLogService;
 import com.vulnaudit.service.ImportService;
 import com.vulnaudit.service.RoleService;
@@ -35,6 +42,8 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -69,6 +78,29 @@ public class ImportServiceImpl implements ImportService {
 
     private static final List<String> ASSET_PRIORITIES = List.of("P0", "P1", "P2", "P3");
     private static final List<String> ASSET_STATUSES = List.of("active", "under_test", "suspended", "archived");
+
+    // t85：客户 / 项目导入列
+    /** 客户编码 / 项目编码共用同名列 */
+    private static final String COL_CODE = "code";
+    private static final String COL_INDUSTRY = "industry";
+    private static final String COL_LEVEL = "level";
+    private static final String COL_OWNER_NAME = "ownername";
+    private static final String COL_CONTACT_NAME = "contactname";
+    private static final String COL_CONTACT_PHONE = "contactphone";
+    private static final String COL_CONTACT_EMAIL = "contactemail";
+    private static final String COL_CUSTOMER_CODE_IMPORT = "customercode";
+    private static final String COL_MANAGER_NAME = "managername";
+    private static final String COL_START_DATE = "startdate";
+    private static final String COL_END_DATE = "enddate";
+    private static final String COL_IS_PHASED = "isphased";
+    private static final String COL_CONTRACT_NO = "contractno";
+
+    /** 客户级别仅 A/B/C（t85） */
+    private static final List<String> CUSTOMER_LEVELS = List.of("A", "B", "C");
+
+    /** 项目类型枚举（与 ProjectServiceImpl.PROJECT_TYPES 一致） */
+    private static final List<String> PROJECT_TYPE_ENUM =
+            List.of("PENTEST", "REAUDIT", "CONSULTING", "TRAINING");
 
     private static final String COL_NAME = "name";
     private static final String COL_TARGET_TYPE = "targettype";
@@ -145,6 +177,9 @@ public class ImportServiceImpl implements ImportService {
     private final CustomerRepository customerRepository;
     private final ProjectRepository projectRepository;
     private final ProjectPhaseRepository projectPhaseRepository;
+    private final CustomerService customerService;
+    private final ProjectService projectService;
+    private final UserRepository userRepository;
 
     // ================================================================== 资产导入
 
@@ -679,6 +714,257 @@ public class ImportServiceImpl implements ImportService {
         return builder.toString();
     }
 
+    // ================================================================== 客户 / 项目导入（t85）
+
+    /** 客户导入：表头 + 必填列 */
+    private static final List<String> CUSTOMER_REQUIRED_COLUMNS = List.of(COL_CODE, COL_NAME);
+
+    /** 项目导入：表头 + 必填列 */
+    private static final List<String> PROJECT_REQUIRED_COLUMNS =
+            List.of(COL_CODE, COL_NAME, COL_CUSTOMER_CODE_IMPORT, COL_MANAGER_NAME);
+
+    /**
+     * 导入客户（t85）
+     *
+     * <p>逐行独立：任何一行失败只记入 failedRows，不影响其他行；失败行不落库（校验在
+     * {@code customerService.create} 之前完成，异常行不会写库）。
+     * 成功行逐条写审计（resourceType=customer）。
+     */
+    @Override
+    public ImportResult importCustomers(byte[] content, @Nullable String fileName, @Nullable UUID operatorId) {
+        long startedAt = System.currentTimeMillis();
+        ParseResult parsed = parse(content, fileName, CUSTOMER_REQUIRED_COLUMNS);
+        if (parsed.records().isEmpty()) {
+            return ImportResult.empty();
+        }
+        if (parsed.records().size() > MAX_ROWS) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "单次导入最多 " + MAX_ROWS + " 行，当前 " + parsed.records().size() + " 行");
+        }
+
+        int successRows = 0;
+        List<ImportFailedRow> failedRows = new ArrayList<>();
+
+        for (CsvSupport.CsvRecord record : parsed.records()) {
+            try {
+                CustomerRequest request = buildCustomerRequest(record, parsed.headerIndex(), operatorId);
+                CustomerResponse created = customerService.create(request, operatorId);
+                successRows++;
+                auditRow(operatorId, "import_customer", "customer", created.id(),
+                        "批量导入客户: " + created.code());
+            } catch (Exception e) {
+                failedRows.add(new ImportFailedRow(record.line(), reasonOf(e)));
+                log.debug("客户导入第 {} 行失败: {}", record.line(), reasonOf(e));
+            }
+        }
+
+        ImportResult result = ImportResult.of(parsed.records().size(), successRows, failedRows);
+        log.info("客户批量导入完成: file={}, total={}, success={}, failed={}, cost={}ms",
+                fileName, result.totalRows(), result.successRows(), result.failedRows().size(),
+                System.currentTimeMillis() - startedAt);
+        audit(operatorId, "POST ImportController.importCustomers", describe("客户", fileName, result));
+        return result;
+    }
+
+    private CustomerRequest buildCustomerRequest(CsvSupport.CsvRecord record, Map<String, Integer> headerIndex,
+                                                 @Nullable UUID operatorId) {
+        if (operatorId == null) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "未授权");
+        }
+        Map<String, String> cells = toCells(record, headerIndex);
+
+        String code = requireCell(cells, COL_CODE, "客户编码");
+        checkLength(code, 64, "客户编码");
+        String name = requireCell(cells, COL_NAME, "客户名称");
+        checkLength(name, 200, "客户名称");
+        String industry = optionalCell(cells, COL_INDUSTRY);
+        if (industry != null) {
+            checkLength(industry, 100, "行业");
+        }
+
+        // level 仅 A/B/C（大小写归一）；留空则不设
+        String level = optionalCell(cells, COL_LEVEL);
+        if (level != null) {
+            level = level.trim().toUpperCase(Locale.ROOT);
+            if (!CUSTOMER_LEVELS.contains(level)) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST,
+                        "客户级别非法: " + level + "，可选值 " + String.join(" / ", CUSTOMER_LEVELS));
+            }
+        }
+
+        // ownerName 按 username 解析；找不到 → 该行失败（不猜测、不给默认负责人）
+        UUID ownerId = null;
+        String ownerName = optionalCell(cells, COL_OWNER_NAME);
+        if (ownerName != null) {
+            ownerId = resolveUserIdByUsername(ownerName, "客户经理");
+        }
+
+        String contactName = optionalCell(cells, COL_CONTACT_NAME);
+        if (contactName != null) {
+            checkLength(contactName, 100, "联系人");
+        }
+        String contactPhone = optionalCell(cells, COL_CONTACT_PHONE);
+        if (contactPhone != null) {
+            checkLength(contactPhone, 50, "联系电话");
+        }
+        String contactEmail = optionalCell(cells, COL_CONTACT_EMAIL);
+        if (contactEmail != null) {
+            checkLength(contactEmail, 200, "联系邮箱");
+        }
+        String description = optionalCell(cells, COL_DESCRIPTION);
+        if (description != null) {
+            checkLength(description, 1000, "客户备注");
+        }
+
+        return new CustomerRequest(code, name, industry, level, contactName, contactPhone,
+                contactEmail, ownerId, "active", description);
+    }
+
+    /**
+     * 导入项目（t85）
+     *
+     * <p>逐行独立；{@code customerCode}/{@code managerName} 必须能解析成已存在的客户/用户，
+     * {@code type} 必须属于枚举集合，日期必须 {@code YYYY-MM-DD}，{@code isPhased} 接受 true/false/1/0。
+     * 成功行逐条写审计（resourceType=project）。
+     */
+    @Override
+    public ImportResult importProjects(byte[] content, @Nullable String fileName, @Nullable UUID operatorId) {
+        long startedAt = System.currentTimeMillis();
+        ParseResult parsed = parse(content, fileName, PROJECT_REQUIRED_COLUMNS);
+        if (parsed.records().isEmpty()) {
+            return ImportResult.empty();
+        }
+        if (parsed.records().size() > MAX_ROWS) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "单次导入最多 " + MAX_ROWS + " 行，当前 " + parsed.records().size() + " 行");
+        }
+
+        int successRows = 0;
+        List<ImportFailedRow> failedRows = new ArrayList<>();
+
+        for (CsvSupport.CsvRecord record : parsed.records()) {
+            try {
+                ProjectRequest request = buildProjectRequest(record, parsed.headerIndex(), operatorId);
+                ProjectResponse created = projectService.create(request, operatorId);
+                successRows++;
+                auditRow(operatorId, "import_project", "project", created.id(),
+                        "批量导入项目: " + created.code());
+            } catch (Exception e) {
+                failedRows.add(new ImportFailedRow(record.line(), reasonOf(e)));
+                log.debug("项目导入第 {} 行失败: {}", record.line(), reasonOf(e));
+            }
+        }
+
+        ImportResult result = ImportResult.of(parsed.records().size(), successRows, failedRows);
+        log.info("项目批量导入完成: file={}, total={}, success={}, failed={}, cost={}ms",
+                fileName, result.totalRows(), result.successRows(), result.failedRows().size(),
+                System.currentTimeMillis() - startedAt);
+        audit(operatorId, "POST ImportController.importProjects", describe("项目", fileName, result));
+        return result;
+    }
+
+    private ProjectRequest buildProjectRequest(CsvSupport.CsvRecord record, Map<String, Integer> headerIndex,
+                                               @Nullable UUID operatorId) {
+        if (operatorId == null) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "未授权");
+        }
+        Map<String, String> cells = toCells(record, headerIndex);
+
+        String code = requireCell(cells, COL_CODE, "项目编码");
+        checkLength(code, 64, "项目编码");
+        String name = requireCell(cells, COL_NAME, "项目名称");
+        checkLength(name, 200, "项目名称");
+
+        String customerCode = requireCell(cells, COL_CUSTOMER_CODE_IMPORT, "客户编码");
+        Customer customer = customerRepository.findByCode(customerCode)
+                .orElseThrow(() -> new BusinessException(ErrorCode.CUSTOMER_NOT_FOUND,
+                        "客户不存在: " + customerCode));
+
+        String managerName = requireCell(cells, COL_MANAGER_NAME, "项目经理用户名");
+        UUID managerId = resolveUserIdByUsername(managerName, "项目经理");
+
+        // type 留空时由服务层默认 PENTEST；给了就必须合法（服务层同样校验，这里提前给出可读原因）
+        String type = optionalCell(cells, COL_TYPE);
+        if (type != null) {
+            String normalized = type.trim().toUpperCase(Locale.ROOT);
+            if (!PROJECT_TYPE_ENUM.contains(normalized)) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST,
+                        "项目类型非法: " + type + "，可选值 " + String.join(" / ", PROJECT_TYPE_ENUM));
+            }
+            type = normalized;
+        }
+
+        LocalDate startDate = parseDate(optionalCell(cells, COL_START_DATE), "startDate");
+        LocalDate endDate = parseDate(optionalCell(cells, COL_END_DATE), "endDate");
+        if (startDate != null && endDate != null && endDate.isBefore(startDate)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "结束日期不能早于开始日期");
+        }
+
+        Boolean isPhased = parseBoolean(optionalCell(cells, COL_IS_PHASED), "isPhased");
+
+        String contractNo = optionalCell(cells, COL_CONTRACT_NO);
+        if (contractNo != null) {
+            checkLength(contractNo, 100, "合同号");
+        }
+        String description = optionalCell(cells, COL_DESCRIPTION);
+        if (description != null) {
+            checkLength(description, 1000, "项目备注");
+        }
+
+        return new ProjectRequest(code, customer.getId(), name, type, managerId,
+                startDate, endDate, isPhased, contractNo, description);
+    }
+
+    /** username → userId（找不到直接失败，不猜测、不默认） */
+    private UUID resolveUserIdByUsername(String username, String fieldLabel) {
+        return userRepository.findByUsername(username)
+                .map(User::getId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND,
+                        fieldLabel + "不存在: " + username + "（按用户名匹配，请先在用户管理中创建）"));
+    }
+
+    /** YYYY-MM-DD 解析（空值返回 null；格式错 → 该行失败） */
+    @Nullable
+    private LocalDate parseDate(@Nullable String text, String fieldLabel) {
+        if (text == null) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(text.trim());
+        } catch (DateTimeParseException e) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    fieldLabel + " 日期格式错误: " + text + "（应为 YYYY-MM-DD）");
+        }
+    }
+
+    /** isPhased 接受 true/false/1/0（大小写不敏感） */
+    @Nullable
+    private Boolean parseBoolean(@Nullable String text, String fieldLabel) {
+        if (text == null) {
+            return null;
+        }
+        String normalized = text.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "true", "1", "y", "yes" -> Boolean.TRUE;
+            case "false", "0", "n", "no" -> Boolean.FALSE;
+            default -> throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    fieldLabel + " 取值非法: " + text + "（应为 true/false/1/0）");
+        };
+    }
+
+    /** 单行审计（resourceType 区分 customer / project）；审计失败不影响导入 */
+    private void auditRow(@Nullable UUID operatorId, String action, String resourceType,
+                          @Nullable UUID resourceId, String detail) {
+        if (operatorId == null) {
+            return;
+        }
+        try {
+            auditLogService.log(operatorId, action, resourceType, resourceId, detail);
+        } catch (Exception e) {
+            log.warn("导入单行审计写入失败: {}", e.getMessage());
+        }
+    }
+
     // ================================================================== 模板
 
     @Override
@@ -700,6 +986,22 @@ public class ImportServiceImpl implements ImportService {
     public String userTemplate() {
         return "username,email,fullName,phone,roleCode\n"
                 + "示例-zhangsan,zhangsan@example.com,张三,13800000000,vulnerability_engineer\n";
+    }
+
+    @Override
+    public String customerTemplate() {
+        // t85：客户导入模板（两行示例，第二行演示「不带客户经理」）
+        return "code,name,industry,level,ownerName,contactName,contactPhone,contactEmail,description\n"
+                + "CUST-20250101-AB12,示例-某银行,金融,A,zhangsan,张三,13800000000,zhangsan@example.com,示例客户（导入前请删除本行）\n"
+                + "CUST-20250101-CD34,示例-某制造业,制造,B,,李四,13900000000,lisi@example.com,不填 ownerName 则不设客户经理\n";
+    }
+
+    @Override
+    public String projectTemplate() {
+        // t85：项目导入模板（customerCode / managerName 都按已有记录解析）
+        return "code,name,customerCode,type,managerName,startDate,endDate,isPhased,contractNo,description\n"
+                + "PRJ-20250101-CD34,示例-年度渗透测试,CUST-20250101-AB12,PENTEST,zhangsan,2025-01-01,2025-12-31,true,HT-2025-001,示例项目（导入前请删除本行）\n"
+                + "PRJ-20250101-EF56,示例-代码审计,CUST-20250101-AB12,CONSULTING,lisi,2025-03-01,,0,,不分期项目（导入前请删除本行）\n";
     }
 
     // ================================================================== 解析与校验

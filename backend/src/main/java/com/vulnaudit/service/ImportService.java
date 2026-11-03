@@ -95,6 +95,30 @@ public interface ImportService {
     ImportUsersResult importUsers(byte[] content, @Nullable String fileName, @Nullable UUID operatorId);
 
     /**
+     * 导入客户（t85）
+     *
+     * <p>表头：{@code code,name,industry,level,ownerName,contactName,contactPhone,contactEmail,description}。
+     * 逐行校验：{@code code}/{@code name} 必填；{@code code} 全局唯一（重复 → failedRows）；
+     * {@code level} 仅 A/B/C；{@code ownerName} 按 username 解析（找不到 → failedRows，不猜测、不默认）。
+     * 成功行逐条写审计（resourceType=customer）。
+     *
+     * @return 导入结果（totalRows / successRows / failedRows / notes），单行失败不影响其他行
+     */
+    com.vulnaudit.dto.ImportResult importCustomers(byte[] content, @Nullable String fileName,
+                                                   @Nullable UUID operatorId);
+
+    /**
+     * 导入项目（t85）
+     *
+     * <p>表头：{@code code,name,customerCode,type,managerName,startDate,endDate,isPhased,contractNo,description}。
+     * 逐行校验：{@code code} 唯一；{@code customerCode} 必须存在；{@code managerName} 按 username 解析（不存在 →
+     * failedRows）；{@code type} 必须属于枚举集合；{@code startDate}/{@code endDate} 为 {@code YYYY-MM-DD}；
+     * {@code isPhased} 接受 {@code true/false/1/0}。成功行逐条写审计（resourceType=project）。
+     */
+    com.vulnaudit.dto.ImportResult importProjects(byte[] content, @Nullable String fileName,
+                                                  @Nullable UUID operatorId);
+
+    /**
      * 资产导入模板
      */
     String assetTemplate();
@@ -108,4 +132,14 @@ public interface ImportService {
      * 用户导入模板
      */
     String userTemplate();
+
+    /**
+     * 客户导入模板（t85）
+     */
+    String customerTemplate();
+
+    /**
+     * 项目导入模板（t85）
+     */
+    String projectTemplate();
 }

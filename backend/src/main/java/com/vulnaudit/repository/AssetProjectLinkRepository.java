@@ -86,4 +86,23 @@ public interface AssetProjectLinkRepository extends JpaRepository<AssetProjectLi
 
     /** 客户下的全部挂靠（客户详情聚合用；按挂靠时间倒序，便于取「最近资产」） */
     List<AssetProjectLink> findByCustomerIdOrderByLinkedAtDesc(UUID customerId);
+
+    // ------------------------------------------------------------------ t82（项目列表聚合）
+
+    /**
+     * 批量统计各项目下的去重资产数，**按可见资产收敛**（一次 group by）
+     *
+     * <p>与 {@link #countAssetsGroupedByProjectIds} 的区别：多一个可见范围条件。
+     * {@code visibleAssetIds == null} 表示不限制（管理层）；调用方必须保证非空集合
+     * （空集合走「返回全 0」的分支，避免生成非法的 {@code in ()}）。
+     *
+     * @return 每行 {@code [projectId(UUID), count(Long)]}
+     */
+    @Query("select l.projectId, count(distinct l.assetId) from AssetProjectLink l "
+            + "where l.projectId in :projectIds "
+            + "and (:visibleAssetIds is null or l.assetId in :visibleAssetIds) "
+            + "group by l.projectId")
+    List<Object[]> countVisibleAssetsGroupedByProjectIds(
+            @Param("projectIds") Collection<UUID> projectIds,
+            @Param("visibleAssetIds") Collection<UUID> visibleAssetIds);
 }

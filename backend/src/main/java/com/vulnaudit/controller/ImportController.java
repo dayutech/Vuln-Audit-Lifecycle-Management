@@ -121,8 +121,55 @@ public class ImportController {
         return ResponseEntity.ok(ApiResponse.success(result, buildMessage(result)));
     }
 
-    @PostMapping(value = "/users", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasRole('ADMIN')")
+    /**
+     * 批量导入客户（t85）
+     *
+     * <p>权限与客户写接口一致：仅 ADMIN / PROJECT_LEADER（工程师 403）。
+     * 逐行校验 code 唯一、level ∈ A/B/C、ownerName 可按 username 解析；成功行逐条写审计。
+     */
+    @PostMapping(value = "/customers", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
+    @Operation(summary = "批量导入客户",
+            description = "上传 UTF-8 CSV，首行表头：code,name,industry,level,ownerName,contactName,contactPhone,contactEmail,description；"
+                    + "仅 admin/project_leader 可用；ownerName 按用户名解析，找不到该行失败")
+    public ResponseEntity<ApiResponse<ImportResult>> importCustomers(
+            @Parameter(description = "CSV 文件") @RequestParam("file") MultipartFile file) {
+
+        log.info("批量导入客户: fileName={}, size={}", file.getOriginalFilename(), file.getSize());
+        UUID operatorId = getCurrentUserId();
+        if (operatorId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error(401, "未授权"));
+        }
+
+        ImportResult result = importService.importCustomers(readBytes(file), file.getOriginalFilename(), operatorId);
+        return ResponseEntity.ok(ApiResponse.success(result, buildMessage(result)));
+    }
+
+    /**
+     * 批量导入项目（t85）
+     *
+     * <p>权限与项目写接口一致：仅 ADMIN / PROJECT_LEADER（工程师 403）。
+     * 逐行校验 code 唯一、customerCode 存在、managerName 可按 username 解析、type 属于枚举、日期 YYYY-MM-DD。
+     */
+    @PostMapping(value = "/projects", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
+    @Operation(summary = "批量导入项目",
+            description = "上传 UTF-8 CSV，首行表头：code,name,customerCode,type,managerName,startDate,endDate,isPhased,contractNo,description；"
+                    + "仅 admin/project_leader 可用；customerCode / managerName 必须已存在")
+    public ResponseEntity<ApiResponse<ImportResult>> importProjects(
+            @Parameter(description = "CSV 文件") @RequestParam("file") MultipartFile file) {
+
+        log.info("批量导入项目: fileName={}, size={}", file.getOriginalFilename(), file.getSize());
+        UUID operatorId = getCurrentUserId();
+        if (operatorId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error(401, "未授权"));
+        }
+
+        ImportResult result = importService.importProjects(readBytes(file), file.getOriginalFilename(), operatorId);
+        return ResponseEntity.ok(ApiResponse.success(result, buildMessage(result)));
+    }
+
+    @PostMapping(value = "/users", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "批量导入用户", description = "管理员上传 UTF-8 CSV，首行表头：username,email,fullName,phone,roleCode；"
             + "CSV 不含密码列，系统为每行生成 16 位强随机初始密码并在响应中返回，由管理员分发并建议首次登录后修改")
     public ResponseEntity<ApiResponse<ImportUsersResult>> importUsers(
@@ -139,7 +186,7 @@ public class ImportController {
     }
 
     @GetMapping(value = "/templates/{type}")
-    @Operation(summary = "下载导入模板", description = "type 取值 assets / vulnerabilities / users")
+    @Operation(summary = "下载导入模板", description = "type 取值 assets / vulnerabilities / users / customers / projects")
     public ResponseEntity<byte[]> downloadTemplate(@Parameter(description = "模板类型：assets / vulnerabilities / users") @PathVariable String type) {
         log.info("下载导入模板: type={}", type);
 
@@ -159,8 +206,18 @@ public class ImportController {
                 content = importService.userTemplate();
                 fileName = "users_template.csv";
             }
+            case "customers", "customer" -> {
+                // t85：客户导入模板
+                content = importService.customerTemplate();
+                fileName = "customers_template.csv";
+            }
+            case "projects", "project" -> {
+                // t85：项目导入模板
+                content = importService.projectTemplate();
+                fileName = "projects_template.csv";
+            }
             default -> throw new BusinessException(ErrorCode.NOT_FOUND,
-                    "不支持的模板类型: " + type + "（可选 assets / vulnerabilities / users）");
+                    "不支持的模板类型: " + type + "（可选 assets / vulnerabilities / users / customers / projects）");
         }
 
         byte[] body = (UTF8_BOM + content).getBytes(StandardCharsets.UTF_8);

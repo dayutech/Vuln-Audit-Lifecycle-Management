@@ -82,6 +82,16 @@ class ImportServiceImplTest {
     @Mock
     private com.vulnaudit.repository.ProjectPhaseRepository projectPhaseRepository;
 
+    // t85：客户/项目导入新增的依赖
+    @Mock
+    private com.vulnaudit.service.CustomerService customerService;
+
+    @Mock
+    private com.vulnaudit.service.ProjectService projectService;
+
+    @Mock
+    private com.vulnaudit.repository.UserRepository userRepository;
+
     private ImportServiceImpl importService;
 
     private final UUID operatorId = UUID.randomUUID();
@@ -91,7 +101,8 @@ class ImportServiceImplTest {
     void setUp() {
         importService = new ImportServiceImpl(assetService, vulnerabilityService, teamRepository,
                 assetVersionRepository, auditLogService, userService, roleService,
-                assetProjectLinkService, customerRepository, projectRepository, projectPhaseRepository);
+                assetProjectLinkService, customerRepository, projectRepository, projectPhaseRepository,
+                customerService, projectService, userRepository);
 
         Team team = Team.builder().id(teamId).name("红队一组").leaderId(operatorId).createdBy(operatorId).build();
         when(teamRepository.findByName("红队一组")).thenReturn(Optional.of(team));

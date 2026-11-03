@@ -6,6 +6,7 @@ import com.vulnaudit.dto.PhaseRequest;
 import com.vulnaudit.dto.PhaseResponse;
 import com.vulnaudit.dto.ProjectDetailResponse;
 import com.vulnaudit.dto.ProjectRequest;
+import com.vulnaudit.dto.ProjectSummaryItem;
 import com.vulnaudit.dto.ProjectResponse;
 import com.vulnaudit.entity.AssetProjectLink;
 import com.vulnaudit.entity.Customer;
@@ -33,6 +34,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -70,6 +73,7 @@ public class ProjectServiceImpl implements ProjectService {
     private final CustomerRepository customerRepository;
     private final AssetProjectLinkRepository assetProjectLinkRepository;
     private final UserRepository userRepository;
+    private final com.vulnaudit.repository.TaskRepository taskRepository;
 
     // ------------------------------------------------------------------ 项目查询
 
@@ -112,10 +116,181 @@ public class ProjectServiceImpl implements ProjectService {
                 .build();
     }
 
+    /**
+     * 分页查询项目（带聚合计数，t82）
+     *
+     * <p><b>为什么要有这个接口</b>：项目列表此前只返回项目本体，前端渲染「期次数/资产数」只能
+     * 对当页每个项目再发 {@code GET /projects/{id}}（上限 20 个并发）——典型 N+1。
+     * 客户详情已在 t76 用聚合解决，这里把同一套做法搬到项目列表。
+     *
+     * <p><b>查询次数（固定，与页大小无关）</b>：
+     * <ol>
+     *   <li>项目分页 1 次（+ count 1 次）；</li>
+     *   <li>期次数 group by 1 次；</li>
+     *   <li>资产数 group by 1 次（带可见范围条件）；</li>
+     *   <li>未完成任务数 group by 1 次；</li>
+     *   <li>客户名 findAllById 1 次、经理名 findAllById 1 次。</li>
+     * </ol>
+     *
+     * <p><b>口径差异（勿混用）</b>：{@code phaseCount} 是组织结构事实，**不收敛**；
+     * {@code assetCount} 与 {@code openTaskCount} 按 {@code visibleAssetIds} **收敛**
+     * （资产是权限边界，与 GET /assets、GET /customers/{id}/summary 一致）。
+     *
+     * <p><b>assetCount 排序</b>：计数是聚合结果，无法在库里直接 order by，因此
+     * {@code sort=assetCount} 时先取筛选命中的全部项目 ID（组织级数据量可控）、算完计数后在内存排序再切页；
+     * 默认 {@code createdAt} 排序仍走数据库分页。
+     */
     @Override
     @Transactional(readOnly = true)
-    public ProjectDetailResponse findDetail(@Nullable UUID id) {
-        Project project = requireProject(id);
+    public PageResponse<ProjectSummaryItem> findSummary(int page, int size, @Nullable UUID customerId,
+                                                        @Nullable String status, @Nullable String type,
+                                                        @Nullable String keyword, @Nullable String sort,
+                                                        @Nullable Set<UUID> visibleAssetIds) {
+        int safePage = Paging.page(page);
+        int safeSize = Paging.size(size);
+        boolean sortByAssetCount = "assetCount".equalsIgnoreCase(
+                sort == null ? "" : sort.trim());
+
+        Specification<Project> spec = projectFilter(customerId, status, type, keyword);
+
+        Page<Project> projectPage;
+        List<Project> pageContent;
+        long totalElements;
+        int totalPages;
+        if (sortByAssetCount) {
+            // 聚合字段无法在 SQL 里 order by：取全部命中 → 算计数 → 内存排序 → 切页
+            List<Project> all = projectRepository.findAll(spec, Sort.by(Sort.Direction.DESC, "createdAt"));
+            Map<UUID, Long> assetCounts = loadAssetCounts(
+                    all.stream().map(Project::getId).toList(), visibleAssetIds);
+            all = all.stream()
+                    .sorted(Comparator.comparingLong(
+                            (Project project) -> assetCounts.getOrDefault(project.getId(), 0L)).reversed()
+                            .thenComparing(Project::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                    .toList();
+            totalElements = all.size();
+            totalPages = (int) Math.ceil(totalElements / (double) safeSize);
+            int from = Math.min(safePage * safeSize, all.size());
+            pageContent = all.subList(from, Math.min(from + safeSize, all.size()));
+            projectPage = null;
+        } else {
+            // createdAt 可能同毫秒 → 追加 id 作为 tiebreak，保证分页稳定（两页不重复、不漏项）
+            PageRequest pageable = PageRequest.of(safePage, safeSize,
+                    Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.ASC, "id")));
+            projectPage = projectRepository.findAll(spec, pageable);
+            pageContent = projectPage.getContent();
+            totalElements = projectPage.getTotalElements();
+            totalPages = projectPage.getTotalPages();
+        }
+
+        List<ProjectSummaryItem> content = buildSummaries(pageContent, visibleAssetIds);
+
+        return PageResponse.<ProjectSummaryItem>builder()
+                .content(content)
+                .totalElements(totalElements)
+                .totalPages(totalPages)
+                .currentPage(safePage)
+                .pageSize(safeSize)
+                .build();
+    }
+
+    /** 项目列表筛选条件（findAll 与 findSummary 共用，避免两处口径漂移） */
+    private Specification<Project> projectFilter(@Nullable UUID customerId, @Nullable String status,
+                                                 @Nullable String type, @Nullable String keyword) {
+        return (root, query, cb) -> {
+            List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
+            if (customerId != null) {
+                predicates.add(cb.equal(root.get("customerId"), customerId));
+            }
+            if (StringUtils.hasText(status)) {
+                predicates.add(cb.equal(root.get("status"), normalizeStatusFilter(status)));
+            }
+            if (StringUtils.hasText(type)) {
+                predicates.add(cb.equal(root.get("type"), type.trim().toUpperCase(Locale.ROOT)));
+            }
+            if (StringUtils.hasText(keyword)) {
+                String like = "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("code")), like),
+                        cb.like(cb.lower(root.get("name")), like),
+                        cb.like(cb.lower(root.get("contractNo")), like)));
+            }
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+    }
+
+    /** 可见范围内的项目资产数（一次 group by；空可见集合直接全 0，避免非法 in ()） */
+    private Map<UUID, Long> loadAssetCounts(List<UUID> projectIds, @Nullable Set<UUID> visibleAssetIds) {
+        if (projectIds.isEmpty() || (visibleAssetIds != null && visibleAssetIds.isEmpty())) {
+            return Map.of();
+        }
+        return toCountMap(assetProjectLinkRepository.countVisibleAssetsGroupedByProjectIds(
+                projectIds, visibleAssetIds));
+    }
+
+    /** 组装配聚合计数的项目列表（此方法内查询次数固定，不随列表长度变化） */
+    private List<ProjectSummaryItem> buildSummaries(List<Project> projects, @Nullable Set<UUID> visibleAssetIds) {
+        if (projects.isEmpty()) {
+            return List.of();
+        }
+        List<UUID> projectIds = projects.stream().map(Project::getId).toList();
+
+        Map<UUID, Long> phaseCounts = toCountMap(
+                projectPhaseRepository.countGroupedByProjectIds(projectIds));
+        Map<UUID, Long> assetCounts = loadAssetCounts(projectIds, visibleAssetIds);
+        Map<UUID, Long> openTaskCounts = toCountMap(
+                taskRepository.countOpenTasksGroupedByProjectIds(projectIds));
+
+        // 客户名 / 经理名：各一次批量取名（不做 per-project findById）
+        Map<UUID, String> customerNames = new HashMap<>();
+        customerRepository.findAllById(projects.stream().map(Project::getCustomerId)
+                        .filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet()))
+                .forEach(customer -> customerNames.put(customer.getId(), customer.getName()));
+
+        Map<UUID, String> managerNames = new HashMap<>();
+        userRepository.findAllById(projects.stream().map(Project::getManagerId)
+                        .filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet()))
+                .forEach(user -> managerNames.put(user.getId(),
+                        StringUtils.hasText(user.getFullName()) ? user.getFullName() : user.getUsername()));
+
+        return projects.stream()
+                .map(project -> new ProjectSummaryItem(
+                        project.getId(),
+                        project.getCode(),
+                        project.getName(),
+                        project.getCustomerId(),
+                        customerNames.get(project.getCustomerId()),
+                        project.getType(),
+                        project.getStatus(),
+                        project.getManagerId(),
+                        managerNames.get(project.getManagerId()),
+                        project.getStartDate(),
+                        project.getEndDate(),
+                        project.getIsPhased(),
+                        project.getContractNo(),
+                        project.getDescription(),
+                        phaseCounts.getOrDefault(project.getId(), 0L),
+                        assetCounts.getOrDefault(project.getId(), 0L),
+                        openTaskCounts.getOrDefault(project.getId(), 0L),
+                        project.getCreatedBy(),
+                        project.getCreatedAt(),
+                        project.getUpdatedAt()))
+                .toList();
+    }
+
+    /** group by 结果 → Map&lt;projectId, count&gt; */
+    private static Map<UUID, Long> toCountMap(List<Object[]> rows) {
+        Map<UUID, Long> result = new HashMap<>();
+        for (Object[] row : rows) {
+            if (row[0] instanceof UUID key && row[1] instanceof Number count) {
+                result.put(key, count.longValue());
+            }
+        }
+        return result;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ProjectDetailResponse findDetail(@Nullable UUID id) {        Project project = requireProject(id);
         CustomerBrief brief = customerBrief(project.getCustomerId());
         List<PhaseResponse> phases = projectPhaseRepository
                 .findByProjectIdOrderByPhaseNo(project.getId()).stream()
