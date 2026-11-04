@@ -10,7 +10,7 @@
 
 ## 0. 验收结论
 
-**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**679 个后端用例 100% 通过**（历批累计，第五批新增 t82 聚合 8 例 + t85 导入 10 例；第七批 t93 审计 9 例 + t94 事务守卫 1 例 + t96 登录页偏好 10 例），线上冒烟 **228/228 全绿**（t13 的 92 + t41 的 16 + t47 的 20 + 后续批次增量），三账号交叉验证通过。
+**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**680 个后端用例 100% 通过**（历批累计，第五批新增 t82 聚合 8 例 + t85 导入 10 例；第七批 t93 审计 9 例 + t94 事务守卫 1 例 + t96 登录页偏好 11 例），线上冒烟 **228/228 全绿**（t13 的 92 + t41 的 16 + t47 的 20 + 后续批次增量），三账号交叉验证通过。
 
 第二批（t49/t50/t51/t55）之后**鉴权缺口清零（15 → 0 组）**：资产域 6 组、协作域 4 组、组织/工具域 2 组、工具域追加 3 个端点全部收口，资产可见性与团队可见性均统一为单一事实来源：3 组「高」severity 缺口（团队 CRUD、环境增删改与部署、公告写）已修复，资产认领「完成/放弃」状态机已打通（此前恒 403）。
 
@@ -18,7 +18,7 @@
 
 | 关键指标 | 数值 |
 |---|---|
-| 后端自动化测试 | **679 用例 / 通过率 100%**（含客户/项目/挂靠域 CustomerProjectApi 14、AssetProjectLink 15、CustomerSummary 8、ImportAssetProject 10 等），`mvn -B clean test` 全绿（2026-11-04 第七批复核 679/679，含 t93 审计 9 + t94 事务守卫 1 + t96 偏好 10） |
+| 后端自动化测试 | **680 用例 / 通过率 100%**（含客户/项目/挂靠域 CustomerProjectApi 14、AssetProjectLink 15、CustomerSummary 8、ImportAssetProject 10 等），`mvn -B clean test` 全绿（2026-11-04 第七批复核 680/680，含 t93 审计 9 + t94 事务守卫 1 + t96 偏好 11） |
 | 线上冒烟 | **228 用例 / 228 PASS / 0 FAIL / 0 SKIP**（含 t94 新增审计语义用例），发布后复跑全绿 |
 | 部署后专项核对 | 11a~11k 共 **13 项实测全 PASS** |
 | 空库引导（真实建库路径） | 56 张表、RBAC 90 权限点 / 261 关联、admin 登录 200、`permissionCount=90` |
@@ -905,7 +905,7 @@ customers(id, code uk, name, industry, level, owner_id, status)
 
 | 项 | 结果 |
 |---|---|
-| 后端回归 | `mvn -B clean test`（独占 target）→ **Tests run: 679, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS（2026-11-04 复核）；659 → 679（t93 9 例 + t94 守卫 1 例 + t96 偏好 10 例） |
+| 后端回归 | `mvn -B clean test`（独占 target）→ **Tests run: 680, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS（2026-11-04 复核）；659 → 680（t93 9 例 + t94 守卫 1 例 + t96 偏好 11 例） |
 | 后端重建 | package BUILD SUCCESS，jar **73,060,869 B**（md5 0ccf01e4…）；重启后 login=200、`/projects`=200、`/projects/summary`=200、`/users/me/preferences`=200，服务 active |
 | 线上审计实测 | `IMPERSONATE_START/STOP` 落库（START=11 / STOP=10）；details 四要素齐全（actor/target/ttlSeconds/reason）；一次模拟 START **+1**；今日拦截器重复行增量 **0**（全库 19 条均为 t90/t92 历史行）；`details` 列 TEXT、最长 165 字符未被截断 |
 | 缺陷修复 | `ImpersonationServiceImpl.impersonate()/stop()` 由 `@Transactional(readOnly=true)` 改为可写事务（原标记导致审计插入被静默丢弃，t93 的 H2 用例因测试事务读写而漏检）+ 新增反射守卫用例 |

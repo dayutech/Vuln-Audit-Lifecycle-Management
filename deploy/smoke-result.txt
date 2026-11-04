@@ -283,3 +283,20 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 冒烟适配（未放宽）：访问申请正例改由管理员发起；拦截器重复行改差值判定；脚本 $BASE → $BASE_URL（消除 set -u 下的 unbound variable 噪音）。
 - 数据清理：assets 18→3、customers 16→1、projects 21→1、phases 10→0、links 18→3、documents 1→0；orphan=0；
   终态 customers=1 / projects=1 / assets=3 / links=3。
+
+--- 第十四节补记（2026-11-04 复核，t96 源码树） ---
+- 环境：线上 jar 73,060,869 B（2026-11-04 06:56 构建，含 t93/t94/t96 代码），`vuln-audit-backend` active。
+- 冒烟复跑（远端 `BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh`，同步了本仓库 scripts/smoke.sh）：
+  **TOTAL=228 PASS=228 FAIL=0 SKIP=0**；关键 6 条：`audit/发起审计四要素`（actor=/target=/ttlSeconds=/reason=）、
+  `audit/一次模拟仅1条START`（before=13 after=14）、`audit/无拦截器重复行`（before=19 after=19）、
+  `audit/停止审计`（before=12 after=13 且含 actor=/target=）、`access-request/资产不存在-404`、`access-request/跨团队-403`。
+- 线上审计实测（curl，独立于冒烟）：`GET /audit-logs?action=IMPERSONATE_START` 发起前 11 条 → 一次模拟后 12 条（+1），
+  最新行 `IMPERSONATE_START`、`details=模拟开始: actor=admin(<id>), target=smoke_engineer(<id>), ttlSeconds=7200, reason=t96 交付前的审计复核`；
+  `IMPERSONATE_STOP` 10 → 11，`details=模拟结束: actor=…, target=…`（无 reason 键）；
+  `keyword=AdminImpersonationController` 恒为 19 条（不再新增，历史行保留）。
+- 数据清理（README §23.1）：删除本次冒烟夹具（`AST-20261104-%` 3 个资产、4 个项目、3 个客户及其期次/挂靠/子表）；
+  终态 **assets=3 / customers=1 / projects=1 / phases=0 / links=3 / documents=0 / vulns=0**，
+  `orphan_assets=0`、`orphan_links=0`、`orphan_projects=0`。
+- 登录页主题偏好（t96）线上复核：`PUT /users/me/preferences {"loginTheme":"owl"}` → 200，再次登录 `loginTheme=owl`；
+  `{"loginTheme":"neon"}` → **400** `不支持的登录页主题: neon`，`Accept-Language: en` → `Unsupported login page theme: neon`；
+  复核后已把 admin 偏好改回 `pencil`。

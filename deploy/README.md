@@ -2180,7 +2180,7 @@ cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   #
 
 | 项 | 结果 |
 |---|---|
-| 后端回归 | `mvn -B clean test`（服务端 JDK21 + Maven 3.9.9，独占 target）→ **Tests run: 679, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS；659 → 679（t93 9 + t94 守卫 1 + t96 偏好 10） |
+| 后端回归 | `mvn -B clean test`（本地 JDK 17 + Maven 3.9.4 复核 / 服务端 JDK21 亦跑过，独占 target）→ **Tests run: 680, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS；659 → 680（t93 9 + t94 守卫 1 + t96 偏好 11） |
 | 后端重建 | package BUILD SUCCESS，jar **73,060,869 B**（md5 0ccf01e4bef511c29357d1e813ab26ad）；`systemctl --user restart` 后 14s 内 login=200，`/projects`、`/projects/summary`、`/users/me/preferences` 均 200，服务 `active` |
 | 线上审计实测 | `IMPERSONATE_START` / `IMPERSONATE_STOP` 落库（累积 11 / 10）；`details` = `模拟开始: actor=admin(<id>), target=smoke_engineer(<id>), ttlSeconds=7200, reason=…`；一次模拟 START **+1**；**复核日拦截器重复行增量 0**（库内 19 条历史行来自 t90/t92，保留）；`details` 列 TEXT，最长 165 字符完整落库 |
 | 冒烟 | **TOTAL=228 / PASS=228 / FAIL=0 / SKIP=0** |
@@ -2199,7 +2199,7 @@ t93 上线后线上仍写不出 `IMPERSONATE_START`：日志有「记录审计�
 3. 脚本缺陷修正：`$BASE`（未定义，`set -u` 下报 `unbound variable`）改为 `$BASE_URL`，消除 stderr 噪音（判定结果不变，仅取 admin userId 的兜底路径不再被打断）。
 
 ```bash
-cd backend && mvn -B clean test                                   # 期望 679 passed
+cd backend && mvn -B clean test                                   # 期望 680 passed
 cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 228/228
 MYSQL_PWD='***' mariadb -uvulnapp -e "SELECT action, details FROM vuln_audit.audit_logs WHERE action LIKE 'IMPERSONATE%' ORDER BY created_at DESC LIMIT 5"
 ```
