@@ -311,3 +311,20 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
   复核后已改回 `pencil`。
 - 数据清理（同口径 cleanup2.sql）：删除 3 资产 / 4 项目 / 3 客户及其期次与挂靠；终态
   **assets=3 / customers=1 / projects=1 / phases=0 / links=3 / documents=0 / vulns=0**，`orphan_assets=0 / orphan_links=0 / orphan_projects=0`。
+
+########## 十五、第八批验收（登录页主题 + 模拟视角审计，t98，2026-11-04 18:0x） ##########
+- 后端：jar 73,064,121 B（md5 66156166…），重启 15s 内 login=200；前端已 sync-dist（index-DWByq4yl.js 2,574.60 kB）；无新增迁移。
+- 回归：Tests run 683, Failures 0, Errors 0, Skipped 0，BUILD SUCCESS（680 + t100 3）。
+- V19 双场景：空库加列 → varchar(32) NOT NULL DEFAULT 'pencil'；已有数据先插行再加列 → 历史行回填 pencil，改 owl 后重复执行不覆盖、不报错；生产库重复执行为 no-op（列由 Hibernate 建出，DEFAULT 为 NULL，靠应用回落 pencil；人为置 '' 后 login 与 preferences 均返回 pencil）。
+- 冒烟：TOTAL=244 PASS=244 FAIL=0 SKIP=0。新增 16 条：
+  pref/未认证-401、pref/PUT-归位pencil-200、pref/GET-默认pencil、
+  pref/主题-geometric|owl|pixel-eyes|pencil（PUT 200 且 /auth/me 回显一致）、pref/抽象主题-4套（aurora/mono-grid/orbit/big-type）、
+  pref/非法值-中文400、pref/非法值-英文400、pref/只能改自己-PUT200、pref/只能改自己-管理员不受影响、
+  pref/登录响应含loginTheme、pref/审计单条（UPDATE_LOGIN_THEME +1、拦截器行 +0）、
+  access-request/同团队-201、access-request/重复pending-409。
+- 页面（真实 Edge + CDP，线上站点）：47/47 PASS、pageErrors=[] —— 8 套主题渲染与底色、瞳孔三方向、密码遮挡/解除、
+  12s 内眨眼 2 次、reduced-motion 关动效、375px 窄屏不重叠、偏好弹窗 8 卡片/2 分组、选 owl 落库 + 退出保留 +
+  清缓存回落 pencil + 重新登录纠正为 owl、英文零中文残留。
+- 数据清理：assets 6→3、customers 4→1、projects 5→1、phases 2→0、links 6→3、documents 0；orphan=0。
+- 坑：mvn clean test 会删掉 systemd 正在使用的 target jar（表现为登录 500），顺序必须 clean test → package → restart；
+  登录失败 5 次锁 5 分钟，浏览器验证要用新 --user-data-dir 并避免 insertText 叠加。

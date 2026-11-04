@@ -2358,3 +2358,54 @@ cd backend && mvn -B test -Dtest=UserPreferenceTest   # 期望 14/14
 | 非法值 | `mono_grid` → 400 `不支持的登录页主题: mono_grid（支持: pencil, geometric, owl, pixel-eyes, aurora, mono-grid, orbit, big-type）`；`Accept-Language: en` + `monoGrid` → 英文同款列表 |
 | 默认值 | 复核后已把 admin 改回 `pencil`；`POST /auth/login` 回包 `loginTheme=pencil` |
 | 其它接口 | `/projects`=200、`/customers`=200（未受影响） |
+
+---
+
+## 48. 第八批发布与验收（登录页主题 + 模拟视角审计，t95–t100 / t98）
+
+时间：2026-11-04 17:20–18:10（Asia/Shanghai）。**无新增迁移**（V19 已随 t96 上线），前端**已 sync-dist**（`index-DWByq4yl.js` 2,574.60 kB / gzip 745.32 kB）。
+
+| 项 | 结果 |
+|---|---|
+| 后端回归 | `mvn -B clean test`（服务端 JDK21 + Maven 3.9.9，独占 target）→ **Tests run: 683, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS；680 → 683（t100 新增 3 例） |
+| 后端重建 | package BUILD SUCCESS，jar **73,064,121 B**（md5 `6615616644f9c56442b49d866cf7b2a7`）；重启 15s 内 login=200、`/projects`=200、`/customers`=200、`/users/me/preferences`=200，服务 `active` |
+| 前端发布 | `dist/` 上传后 `SUDO_PASS=… bash deploy/sync-dist.sh` → `/var/www/vuln-audit` **5 个文件**，旧 hash 已清；产物含 8 套主题 id 与 `preferences.*`(22×2) / `login.theme.*` 中英词条 |
+| 冒烟 | **TOTAL=244 / PASS=244 / FAIL=0 / SKIP=0**（新增 16 条，见下） |
+| 页面验证 | 真实 Edge + 原生 CDP（线上站点）：**47/47 PASS，`pageErrors=[]`** |
+| 数据清理 | assets 6→3、customers 4→1、projects 5→1、phases 2→0、links 6→3、documents 0；**orphan=0** |
+
+### 48.1 V19 迁移双场景（t98 实测）
+
+| 场景 | 做法 | 结果 |
+|---|---|---|
+| 空库 | 新建库 + 仅 `users(id, username)`，执行 V19 | `login_theme varchar(32) NOT NULL DEFAULT 'pencil'` |
+| 已有数据 | 先插入 2 条历史行再加列；随后改一行为 `owl` 并**重复执行** V19 | 历史行回填 `pencil`；重复执行不报错且 `owl` 未被覆盖 |
+| 生产库幂等 | 对 `vuln_audit.users` 重复执行 V19 | exit 0，值不变 |
+| 生产列形态 | `information_schema` 查列 | 列存在；**DEFAULT 为 NULL**（该列由 Hibernate `ddl-auto=update` 建出，非 V19 建出）→ 历史 9 行 `login_theme=''`，靠应用侧 `LoginTheme.fromCodeOrDefault` 回落 `pencil`（实测：人为置 `''` 后登录响应与 preferences 读取均为 `pencil`） |
+
+> 结论：`deploy/manual-ddl.sql` 的 V19 段（含 `IF NOT EXISTS` 与 `DEFAULT 'pencil'`）适用于**新建库**；线上既有库因列已由 Hibernate 建出，`ADD COLUMN IF NOT EXISTS` 为 no-op，行为由应用默认值兜底。若希望库层也有默认值，需单独执行 `ALTER TABLE users ALTER COLUMN login_theme SET DEFAULT 'pencil'`（本次未改线上 schema）。
+
+### 48.2 冒烟新增 16 条
+
+`pref/未认证-401`、`pref/PUT-归位pencil-200`、`pref/GET-默认pencil`、`pref/主题-geometric|owl|pixel-eyes|pencil`（PUT 200 且 `/auth/me` 回显一致）、`pref/抽象主题-4套`（aurora / mono-grid / orbit / big-type）、`pref/非法值-中文400`、`pref/非法值-英文400`（`Accept-Language: en`）、`pref/只能改自己-PUT200`、`pref/只能改自己-管理员不受影响`、`pref/登录响应含loginTheme`、`pref/审计单条`（`UPDATE_LOGIN_THEME` +1、拦截器行 +0）、`access-request/同团队-201`、`access-request/重复pending-409`。
+
+### 48.3 页面验证（真实浏览器）
+
+- 8 套主题渲染：角色组 `[data-testid=login-character][data-group=character]` + SVG `aria-hidden`；抽象组 `data-group=abstract` + 底色 `#0a0c11 / #f4f5f7 / #0f1218 / #f4f2ee` 全部命中。
+- 交互：瞳孔三方向（x=+3.20 / -3.19 / y=+2.80）、密码焦点 `is-shielding` 与失焦解除、12s 内 2 次眨眼、reduced-motion 下 `.char-bob` 动画关闭且瞳孔过渡 0s、375px 窄屏 8 套 `brandBottom ≤ cardTop` 且无横向溢出。
+- 偏好与持久化：弹窗 8 卡片 / 2 分组 / 8 缩略图；选 `owl` → localStorage 与 `GET /users/me/preferences` 双落库 → 退出后登录页仍 `owl` → 清空 localStorage 回落 `pencil` → 重新登录后缓存被服务端纠正为 `owl`。
+- 英文：登录页与偏好弹窗 `cjk=0`（`Login page theme` / `CHARACTERS` / `Current theme: Night owl`）。
+- 截图：`.tmp-t98/shot-theme-*.png`、`shot-eye-*.png`、`shot-narrow-375.png`、`shot-pref-modal-zh|en.png`。
+
+### 48.4 踩坑记档（重要）
+
+1. **`mvn clean test` 会删掉正在运行的 jar**：后端由 systemd 从 `backend/target/vuln-audit-backend-1.0.0-SNAPSHOT.jar` 启动，`clean` 后运行中的 JVM 懒加载类（如 JDBC 驱动 `ServiceLoader`）会抛 `NoSuchFileException`，表现为**登录 500**。顺序必须是 **先 `mvn clean test` → 再 `package` → 再 `systemctl --user restart`**；只想跑回归时可用 `-Dmaven.clean.skip=true` 或先 `package` 备份 jar。
+2. **登录失败限流会挡住后续验证**：`app.security.login.max-attempts=5` / `lock-seconds=300`，按「用户名+客户端 IP」计数。页面脚本若把口令填错（例如复用了持久化 profile 导致输入拼接），连续 5 次后 admin 被锁 **5 分钟**（`429`），期间冒烟与页面验证都会失败；浏览器验证请用**每次新建的 `--user-data-dir`**，并用 React 原生 setter 写值而不是 `insertText` 叠加。
+3. **选择偏好弹窗的菜单项要精确点**：头部有两个 `.ant-dropdown-trigger`（语言切换 + 用户菜单），必须先按 `.ant-avatar` 定位用户菜单，再点 `[role=menuitem]`，否则会点到语言菜单上。
+
+```bash
+cd backend && mvn -B clean test                                   # 期望 683 passed
+cd backend && mvn -B -DskipTests package && systemctl --user restart vuln-audit-backend
+cd frontend && npm run build && SUDO_PASS='***' bash ../deploy/sync-dist.sh
+cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 244/244
+```

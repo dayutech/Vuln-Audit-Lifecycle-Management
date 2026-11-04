@@ -656,11 +656,68 @@ customers(id, code uk, name, industry, level, owner_id, status)
 4. token 过期 → **401**；前端会自动回退原 token 并刷新。
 5. 关闭开关：`app.security.impersonation.enabled=false`（或 `APP_IMPERSONATION_ENABLED=false`）→ 两个端点均 **403**。
 
-**审计**：发起/停止由拦截器记录（`resourceType=admin`）；模拟期间的业务写 `userId`=**目标用户**、`details` 追加 `impersonatedBy=<adminId>`，因此**任何一次模拟期内的操作都能回溯到真实管理员**（见 §2.16 实测备注：`IMPERSONATE_START/STOP` 事件名与发起行 actor/target 字段尚未落库）。
+**审计**：发起/停止由**服务层**写专用事件 `IMPERSONATE_START` / `IMPERSONATE_STOP`（`details` 含 `actor` / `target` / `ttlSeconds` / `reason`，一次模拟仅 1 条；t93 修掉「拦截器重复写 + 截断」，t94 修掉「`@Transactional(readOnly=true)` 静默丢弃插入」，实测见 §2.16）；模拟期间的业务写 `userId`=**目标用户**、`details` 追加 `impersonatedBy=<adminId>`，因此**任何一次模拟期内的操作都能回溯到真实管理员**。
 
 **前端（t91）**：用户菜单「以其他用户视角查看」（`isAdmin && !impersonating` 才渲染）→ 选择用户（过滤 admin）→ 整页 reload → 顶部横幅「正在以 <用户名>（角色）的视角查看 · 管理员模拟模式」+ 剩余倒计时（<1 分钟变红）+ 退出模拟；localStorage 三键 `access_token` / `impersonation.original` / `impersonation.target`。
 
 **风险与建议**：TTL 内 token 等效目标用户，建议生产开启时配合「仅内网可用 + 审计日检 + reason 必填」；当前 `reason` 为可选字段。
+
+### 3.3 登录页主题与动态角色（t95 / t97 / t99 / t100，t98 验收）
+
+**用途**：登录页从「一张静态表单」升级为**可换肤的入口** —— 内置 4 套会跟随鼠标的卡通角色主题，另有 4 套「大气简约」抽象主题；用户选定的主题**跨设备保留**（存服务端 `users.login_theme`）。
+
+**八套主题（后端 `LoginTheme` 枚举 = 前端 `themes.ts` 注册表，一一对应）**
+
+| id | 组 | 视觉 | 动态 |
+|---|---|---|---|
+| `pencil` | 角色 | 米白 / 墨黑 / 橙，手绘线条小人 | 瞳孔跟随光标；呼吸浮动；4–6s 随机眨眼；聚焦密码时**抬臂遮眼 + 低头** |
+| `geometric` | 角色 | 浅蓝 / 深蓝 / 白，圆头方身大圆眼 | 同上；聚焦密码时**歪头 + 眼神偏移** |
+| `owl` | 角色 | 芥末黄 / 深棕 / 米色，猫头鹰 | 同上；聚焦密码时**抬翅膀遮眼** |
+| `pixel-eyes` | 角色 | 深绿 / 荧光绿 / 黑，像素方块脸 | 眨眼为 `steps()` 明暗跳变；聚焦密码时**脸侧过去** |
+| `aurora` | 抽象 | 深墨底 + 两团柔和径向光斑（≤3 色） | 光斑 17s / 14s 缓慢漂移；光标处极淡光晕跟随；聚焦密码时收拢 + 降亮 |
+| `mono-grid` | 抽象 | 浅灰底 + 1px 低对比网格 | 光标 120px 内交叉点轻微加深；聚焦密码时网格淡到 20% |
+| `orbit` | 抽象 | 纯色底 + 两个同心细环 + 一个点 | 点 12s 一圈；鼠标带来 ±2° 倾斜；聚焦密码时点缩小并加速到 4.5s |
+| `big-type` | 抽象 | 纯色底 + 超大产品名（细/粗字重对照） | ±6px 文字视差；聚焦密码时文字下沉 10px 并淡到 30% |
+
+**交互规格（角色组：纯受控组件 + 零新增依赖）**
+
+| 交互 | 实现 | t98 实测判据 |
+|---|---|---|
+| 眼睛跟随 | `mousemove` → `atan2` 归一化向量 → SVG `translate`，CSS `transition 180ms` 平滑，~30fps rAF 节流 | 光标在右 / 左 / 下时瞳孔位移 `x=+3.20 / -3.19 / y=+2.80`（方向相反、限幅正确；截图 `shot-eye-right|left|down.png`） |
+| 密码遮挡 | 密码框 focus 时给角色根 `<svg>` 加 `is-shielding`，各主题用 CSS 变换表达「遮眼 / 撇头」 | focus → `is-shielding` 且 `.pencil-arm` 旋转到位；blur → 类名移除 |
+| 眨眼 | `useBlink`：4–6s 随机间隔、单次闭合 ~150ms，卸载即清定时器 | 12s 观察窗内捕获 **2 次** `is-blinking` |
+| 错误反馈 | `hasError` 上升沿触发一次抖动（角色 620ms；抽象主题整层 1px 位移 480ms）+ 行内 Alert + 旁白切换 | 真实 401 下 `is-shaking` 出现、旁白「这次没成功，再试一次吧」 |
+| 减少动效 | `prefers-reduced-motion: reduce` → 呼吸 / 眨眼 / 抖动与过渡全关，**瞳孔仍跟随但不加缓动** | `.char-bob` `animation-name: none`、瞳孔 `transition-duration: 0s` |
+
+**preferences 接口**（安全边界与单测见 §2.17）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/users/me/preferences` | `{loginTheme}`；库内脏值回落 `pencil` |
+| PUT | `/api/v1/users/me/preferences` | body `{loginTheme}`；白名单 8 项、大小写/空格归一；非法 → **400**（中英）；只能改自己 |
+| POST | `/api/v1/auth/login`、`GET /auth/me` | 响应自带 `loginTheme`，登录后无需再查 |
+| 审计 | `UPDATE_LOGIN_THEME` | `resource_id`=本人；同值不写；`SKIP_ENDPOINTS` 精确跳过该端点，一次改动仅 1 条 |
+
+**持久化时序（前端 `utils/loginTheme.ts`）**
+
+1. **未认证进入登录页**：`?theme=` 深链（预览/验证）> `localStorage['login.theme']` > `pencil`；**认证前不调 preferences**（会 401）。
+2. **登录成功**：用登录响应里的 `loginTheme` 回写 localStorage（不比对、不刷新页面，下次进登录页生效）。
+3. **进入应用后**：`GET /auth/me` 返回后再同步一次，纠正「换设备 / 缓存过期」的偏差。
+4. **退出登录**：**不清**缓存（下次登录页仍显示上次主题）。
+5. **修改偏好**：用户菜单「偏好设置」→ 卡片选择 → `PUT /users/me/preferences` → **服务端成功后**才写 localStorage（避免「页面 A / 账号 B」分叉），并 toast 提示。
+
+**已知限制**
+
+1. **登录前只能读本地缓存**：换浏览器 / 清缓存后首次进登录页显示 `pencil`，登录成功（或 `/auth/me` 返回）后才纠正为该账号主题 —— 这是「认证前拿不到服务端偏好」的必然结果，不是缺陷。
+2. **主题白名单以后端为准**：前端注册表与后端 `LoginTheme` 需同时扩展；只改前端会收到 400，界面显示「服务端未启用该主题，已保持原主题」并置灰该卡片（过渡期行为，t97 已实测）。
+3. **偏好弹窗的「预览」是只读 iframe**（`/login?theme=<id>`），不触发任何认证请求。
+4. 抽象主题占据整页背景层（`pointer-events: none`），表单卡片始终在上层；装饰 `aria-hidden`，读屏器不朗读。
+
+**t98 验收证据**
+
+- 页面（真实 Edge + 原生 CDP，线上站点 192.168.188.200:8089）：**47/47 断言 PASS、`pageErrors=[]`** —— 8 套主题渲染与底色、瞳孔三方向跟随、密码遮挡与解除、12s 内眨眼 2 次、reduced-motion 关闭动效、375px 窄屏 8 套均不重叠、偏好弹窗 8 卡片 / 2 分组 / 8 缩略图、选 `owl` 落库 + 退出后仍 `owl`、清缓存回落 `pencil` 并在重新登录后被服务端纠正、英文登录页与偏好弹窗零中文残留。
+- 冒烟：**244/244**（新增 16 条：pref/未认证 401、默认 pencil、四套角色主题 PUT + `/auth/me` 回显、抽象四套、非法值中/英 400、只能改自己、登录响应含 `loginTheme`、审计单条（+1 且无拦截器重复行）、访问申请同团队 201 / 重复 pending 409）。
+- 截图与日志：`.tmp-t98/shot-theme-*.png`、`shot-eye-*.png`、`shot-narrow-375.png`、`shot-pref-modal-zh|en.png`、`verify.log`、`result.json`。
 
 ---
 
