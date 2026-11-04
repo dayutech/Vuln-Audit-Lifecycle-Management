@@ -451,7 +451,8 @@ ACCESS_REQ_ID=""
 ACCESS_REQ2_ID=""
 ACCESS_REQ2_TOKEN="${LEADER_TOKEN:-$ADMIN_TOKEN}"
 if [ -n "$ASSET_ID" ] && [ -n "$ENGINEER_TOKEN" ]; then
-  api_json POST "/api/v1/assets/${ASSET_ID}/access-requests" "$ENGINEER_TOKEN" \
+  # t93 起：非团队成员/非负责人申请会被 403，正例改由管理员发起（跨团队 403 由 audit/access-request 段覆盖）
+  api_json POST "/api/v1/assets/${ASSET_ID}/access-requests" "$ADMIN_TOKEN" \
     "{\"canViewDocuments\":true,\"canViewEnvironments\":false,\"canViewFiles\":true,\"requestNote\":\"冒烟申请-通过\"}"
   judge_ok "asset/访问申请-创建" '"id"' "POST /assets/{id}/access-requests"
   ACCESS_REQ_ID="$(jfirst id)"
@@ -1676,7 +1677,7 @@ if [ -n "$ADMIN_TOKEN" ] && [ -n "$ENGINEER_ID" ]; then
   api_json POST '/api/v1/admin/impersonate' "$ENGINEER_TOKEN" \
     "{\"userId\":\"${ENGINEER_ID}\"}"
   judge "impersonate/工程师发起-403" 403 '' "仅 ADMIN"
-  ADMIN_ID_FOR_IMP="$(curl -s -X POST "$BASE/api/v1/auth/login" -H 'Content-Type: application/json' -d '{"username":"admin","password":"admin"}' | sed -n 's/.*"userId":"\([^"]*\)".*/\1/p' | head -1)"
+  ADMIN_ID_FOR_IMP="$(curl -s -X POST "$BASE_URL/api/v1/auth/login" -H 'Content-Type: application/json' -d '{"username":"admin","password":"admin"}' | sed -n 's/.*"userId":"\([^"]*\)".*/\1/p' | head -1)"
   [ -z "$ADMIN_ID_FOR_IMP" ] && ADMIN_ID_FOR_IMP="$(request GET '/api/v1/auth/me' "$ADMIN_TOKEN" >/dev/null; jfirst id)"
   if [ -n "$ADMIN_ID_FOR_IMP" ]; then
     api_json POST '/api/v1/admin/impersonate' "$ADMIN_TOKEN" \
@@ -1726,17 +1727,86 @@ if [ -n "$ADMIN_TOKEN" ] && [ -n "$ENGINEER_ID" ]; then
     judge "impersonate/退出模拟-204" 204 '' "POST /admin/impersonate/stop"
   fi
 
-  # 7) 审计记录（实测语义：拦截器 action + impersonatedBy；t90 文档的 IMPERSONATE_START/STOP 未落库，见报告 §2.16 备注）
-  request GET '/api/v1/audit-logs?page=0&size=30&keyword=impersonate' "$ADMIN_TOKEN"
-  if flatten | grep -q 'AdminImpersonationController.impersonate'; then
-    pass "impersonate/审计-发起事件" 200 "action=POST AdminImpersonationController.impersonate（真实操作者=ADMIN）"
+  # 7) 审计记录（t93 起为专用事件 IMPERSONATE_START / IMPERSONATE_STOP，拦截器不再重复写）
+  request GET '/api/v1/audit-logs?page=0&size=5&action=IMPERSONATE_START' "$ADMIN_TOKEN"
+  if flatten | grep -q 'IMPERSONATE_START'; then
+    pass "impersonate/审计-发起事件" 200 "action=IMPERSONATE_START（专用事件）"
   else
-    fail "impersonate/审计-发起事件" "$LAST_STATUS" "未找到发起审计 ｜ $(snippet)"
+    fail "impersonate/审计-发起事件" "$LAST_STATUS" "未找到 IMPERSONATE_START ｜ $(snippet)"
   fi
-  if flatten | grep -q 'AdminImpersonationController.stop'; then
-    pass "impersonate/审计-停止事件" 200 "action=POST AdminImpersonationController.stop…（details 含 impersonatedBy）"
+  request GET '/api/v1/audit-logs?page=0&size=5&action=IMPERSONATE_STOP' "$ADMIN_TOKEN"
+  if flatten | grep -q 'IMPERSONATE_STOP'; then
+    pass "impersonate/审计-停止事件" 200 "action=IMPERSONATE_STOP（专用事件）"
   else
-    fail "impersonate/审计-停止事件" "$LAST_STATUS" "未找到停止审计 ｜ $(snippet)"
+    fail "impersonate/审计-停止事件" "$LAST_STATUS" "未找到 IMPERSONATE_STOP ｜ $(snippet)"
+  fi
+fi
+
+
+# ----------------------------------------------------------------------------- 审计语义补全与状态码统一（t93/t94）
+if [ -n "$ADMIN_TOKEN" ] && [ -n "$ENGINEER_ID" ]; then
+  START_BEFORE="$(request GET '/api/v1/audit-logs?page=0&size=1&action=IMPERSONATE_START' "$ADMIN_TOKEN" >/dev/null; jnum totalElements)"
+  STOP_BEFORE="$(request GET '/api/v1/audit-logs?page=0&size=1&action=IMPERSONATE_STOP' "$ADMIN_TOKEN" >/dev/null; jnum totalElements)"
+
+  CTRL_BEFORE="$(request GET '/api/v1/audit-logs?page=0&size=1&keyword=AdminImpersonationController' "$ADMIN_TOKEN" >/dev/null; jnum totalElements)"
+  api_json POST '/api/v1/admin/impersonate' "$ADMIN_TOKEN" \
+    "{\"userId\":\"${ENGINEER_ID}\",\"reason\":\"冒烟审计验证 ${TAG}\"}"
+  AUD_IMP_TOKEN="$(flatten | sed -n 's/.*"token":"\([^"]*\)".*/\1/p' | head -1)"
+  if [ -n "$AUD_IMP_TOKEN" ]; then
+    # ① 发起审计：四要素齐全（actor / target / ttlSeconds / reason）
+    request GET '/api/v1/audit-logs?page=0&size=5&action=IMPERSONATE_START' "$ADMIN_TOKEN"
+    AUD_START_BODY="$(flatten)"
+    if printf '%s' "$AUD_START_BODY" | grep -q 'actor=' && \
+       printf '%s' "$AUD_START_BODY" | grep -q 'target=' && \
+       printf '%s' "$AUD_START_BODY" | grep -q 'ttlSeconds=' && \
+       printf '%s' "$AUD_START_BODY" | grep -q 'reason='; then
+      pass "audit/发起审计四要素" 200 "details 含 actor= / target= / ttlSeconds= / reason="
+    else
+      fail "audit/发起审计四要素" "$LAST_STATUS" "四要素缺失 ｜ $(snippet)"
+    fi
+
+    # ② 一次模拟只 1 条 START（拦截器不再重复写）
+    START_AFTER="$(jnum totalElements)"
+    if [ -n "$START_BEFORE" ] && [ -n "$START_AFTER" ] && [ "$START_AFTER" -eq $((START_BEFORE + 1)) ]; then
+      pass "audit/一次模拟仅1条START" 200 "before=$START_BEFORE after=$START_AFTER"
+    else
+      fail "audit/一次模拟仅1条START" "$LAST_STATUS" "before=${START_BEFORE:-?} after=${START_AFTER:-?} ｜ $(snippet)"
+    fi
+
+    # ③ 不存在拦截器重复行（AdminImpersonationController）
+    CTRL_AFTER="$(request GET '/api/v1/audit-logs?page=0&size=1&keyword=AdminImpersonationController' "$ADMIN_TOKEN" >/dev/null; jnum totalElements)"
+    if [ -n "$CTRL_BEFORE" ] && [ -n "$CTRL_AFTER" ] && [ "$CTRL_AFTER" = "$CTRL_BEFORE" ]; then
+      pass "audit/无拦截器重复行" 200 "拦截器行数未增加（before=$CTRL_BEFORE after=$CTRL_AFTER；历史行来自 t90/t92 旧版本）"
+    else
+      fail "audit/无拦截器重复行" "$LAST_STATUS" "拦截器行数增加 before=${CTRL_BEFORE:-?} after=${CTRL_AFTER:-?} ｜ $(snippet)"
+    fi
+
+    # ④ 停止审计：STOP 条数 +1 且 details 含 actor/target
+    request POST '/api/v1/admin/impersonate/stop' "$AUD_IMP_TOKEN"
+    if [ "$LAST_STATUS" = "204" ]; then
+      request GET '/api/v1/audit-logs?page=0&size=5&action=IMPERSONATE_STOP' "$ADMIN_TOKEN"
+      AUD_STOP_BODY="$(flatten)"
+      STOP_AFTER="$(jnum totalElements)"
+      if printf '%s' "$AUD_STOP_BODY" | grep -q 'actor=' && \
+         printf '%s' "$AUD_STOP_BODY" | grep -q 'target=' && \
+         [ -n "$STOP_BEFORE" ] && [ "$STOP_AFTER" -eq $((STOP_BEFORE + 1)) ]; then
+        pass "audit/停止审计" 200 "before=$STOP_BEFORE after=$STOP_AFTER，details 含 actor=/target="
+      else
+        fail "audit/停止审计" "$LAST_STATUS" "before=${STOP_BEFORE:-?} after=${STOP_AFTER:-?} ｜ $(snippet)"
+      fi
+    else
+      fail "audit/停止审计" "$LAST_STATUS" "停止模拟失败 ｜ $(snippet)"
+    fi
+  fi
+
+  # ⑤ 访问申请状态码：不存在 404 / 跨团队工程师 403（t93 前为 400 或 201）
+  RAND6="00000000-0000-4000-8000-0000000aa94a"
+  api_json POST "/api/v1/assets/${RAND6}/access-requests" "$ADMIN_TOKEN" "{\"reason\":\"冒烟不存在资产\"}"
+  judge "access-request/资产不存在-404" 404 '' "资产不存在仍 404"
+  if [ -n "$ENGINEER_TOKEN" ] && [ -n "$ASSET_ID" ]; then
+    api_json POST "/api/v1/assets/${ASSET_ID}/access-requests" "$ENGINEER_TOKEN" \
+      "{\"reason\":\"冒烟跨团队申请 ${TAG}\"}"
+    judge "access-request/跨团队-403" 403 '' "非团队成员/非负责人（t93 前为 400）"
   fi
 fi
 
