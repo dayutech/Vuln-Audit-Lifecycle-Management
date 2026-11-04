@@ -2,7 +2,9 @@ package com.vulnaudit.controller;
 
 import com.vulnaudit.entity.AuditLog;
 import com.vulnaudit.entity.User;
+import com.vulnaudit.entity.enums.LoginTheme;
 import com.vulnaudit.repository.AuditLogRepository;
+import com.vulnaudit.service.UserPreferenceService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,7 +13,9 @@ import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -21,15 +25,21 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 用户登录页主题偏好测试（t96）。
+ * 用户登录页主题偏好测试（t96 / t100）。
  *
- * <p>覆盖：默认值 pencil、合法值更新（库内 + 响应）、非法值 400（中/英两种语言）、
- * 只能改自己（额外 userId 被忽略）、login / me 响应携带 loginTheme、未认证 401、审计落库。
+ * <p>覆盖：默认值 pencil、8 个合法值各存一次（库内 + 响应 + {@code /auth/me} 回显）、
+ * 大小写与空格归一、非法值 400（中/英两种语言，且文案带完整「支持: …」列表）、
+ * 只能改自己（额外 userId 被忽略）、login / me 响应携带 loginTheme、未认证 401、审计落库与去重、
+ * 以及「枚举 / 白名单 / 默认值」一致性守护（{@link LoginTheme} 为单一来源）。
  */
 @DisplayName("用户登录页主题偏好测试")
 public class UserPreferenceTest extends BaseTest {
 
     private static final String PREFS = "/api/v1/users/me/preferences";
+
+    /** 固定的期望白名单（顺序即展示顺序）：改主题时必须同步改这里，防止悄悄加/删/改名 */
+    private static final List<String> EXPECTED_THEMES = List.of(
+            "pencil", "geometric", "owl", "pixel-eyes", "aurora", "mono-grid", "orbit", "big-type");
 
     @Autowired
     private AuditLogRepository auditLogRepository;
@@ -78,24 +88,109 @@ public class UserPreferenceTest extends BaseTest {
     }
 
     @Test
-    @DisplayName("PUT 非法值 → 400 且中文文案（默认语言）")
+    @DisplayName("PUT 非法值 → 400，中文文案含「支持: …」完整列表（默认语言）")
     void invalidThemeRejectedInChinese() throws Exception {
         mockMvc.perform(put(PREFS).header("Authorization", engineerToken)
                         .contentType(APPLICATION_JSON).content("{\"loginTheme\":\"neon\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message", containsString("不支持的登录页主题: neon")));
+                .andExpect(jsonPath("$.message", containsString("不支持的登录页主题: neon")))
+                .andExpect(jsonPath("$.message", containsString("支持: " + LoginTheme.supportedCodes())));
 
         assertEquals("pencil", reload(engineerUserId).getLoginTheme(), "非法值不得落库");
     }
 
     @Test
-    @DisplayName("PUT 非法值 + Accept-Language: en → 400 且英文文案（t60 MessageSource）")
+    @DisplayName("PUT 非法值 + Accept-Language: en → 400，英文文案含 supported 列表（t60 MessageSource）")
     void invalidThemeRejectedInEnglish() throws Exception {
         mockMvc.perform(put(PREFS).header("Authorization", engineerToken)
                         .header("Accept-Language", "en-US")
                         .contentType(APPLICATION_JSON).content("{\"loginTheme\":\"neon\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message", containsString("Unsupported login page theme: neon")));
+                .andExpect(jsonPath("$.message", containsString("Unsupported login page theme: neon")))
+                .andExpect(jsonPath("$.message", containsString("supported: " + LoginTheme.supportedCodes())));
+    }
+
+    // ------------------------------------------------------------------ 8 个主题全量
+
+    @Test
+    @DisplayName("8 个合法主题各 PUT 一次均 200，库内更新且 GET /auth/me 回显")
+    void allSupportedThemesAccepted() throws Exception {
+        assertEquals(8, LoginTheme.codes().size(), "白名单应为 8 项");
+
+        for (String theme : new String[]{"pencil", "geometric", "owl", "pixel-eyes",
+                "aurora", "mono-grid", "orbit", "big-type"}) {
+            mockMvc.perform(put(PREFS).header("Authorization", engineerToken)
+                            .contentType(APPLICATION_JSON).content("{\"loginTheme\":\"" + theme + "\"}"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.loginTheme").value(theme));
+
+            assertEquals(theme, reload(engineerUserId).getLoginTheme(), "库内应更新为 " + theme);
+
+            // /auth/me 回显当前主题
+            mockMvc.perform(get("/api/v1/auth/me").header("Authorization", engineerToken))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.loginTheme").value(theme));
+        }
+
+        // 全量 8 次切换后仍只影响自己
+        assertEquals("pencil", reload(adminUserId).getLoginTheme(), "不应影响其他用户");
+    }
+
+    // ------------------------------------------------------------------ 单一来源守护
+
+    @Test
+    @DisplayName("枚举 / 服务层白名单 / 默认值 三处一致，且代码格式合法（mono-grid 用连字符）")
+    void enumAndWhitelistStayInSync() {
+        // 1) 枚举代码 = 期望的 8 项固定列表（顺序稳定）
+        assertEquals(EXPECTED_THEMES, LoginTheme.codes(), "LoginTheme 代码列表应与期望一致");
+
+        // 2) 服务层常量不再手写一份，直接派生自枚举
+        assertEquals(LoginTheme.codes(), UserPreferenceService.SUPPORTED_LOGIN_THEMES,
+                "服务层白名单应等于 LoginTheme.codes()");
+        assertEquals("pencil", UserPreferenceService.DEFAULT_LOGIN_THEME, "默认值保持 pencil");
+        assertEquals("pencil", LoginTheme.DEFAULT.getCode(), "枚举默认值应为 pencil");
+        assertEquals(LoginTheme.PENCIL, LoginTheme.DEFAULT);
+
+        // 3) 每个代码：唯一、小写+连字符、可正查/反查，isValid 成立
+        assertEquals(8, LoginTheme.codes().stream().distinct().count(), "主题代码不得重复");
+        for (LoginTheme theme : LoginTheme.values()) {
+            String code = theme.getCode();
+            assertTrue(code.matches("[a-z]+(-[a-z]+)*"),
+                    "主题代码应为小写字母+连字符，实际: " + code);
+            assertTrue(code.length() <= LoginTheme.MAX_CODE_LENGTH, "主题代码不得超长: " + code);
+            assertTrue(LoginTheme.isValid(code), "isValid 应接受: " + code);
+            assertTrue(LoginTheme.isValid(" " + code.toUpperCase() + " "), "大小写/空格应归一: " + code);
+            assertEquals(theme, LoginTheme.fromCode(code), "fromCode 应反查回枚举: " + code);
+            assertEquals(code, LoginTheme.fromCodeOrDefault(code).getCode());
+        }
+
+        // 4) mono-grid 必须是连字符形式（历史坑：写成 mono_grid / monoGrid 会 400）
+        assertTrue(LoginTheme.codes().contains("mono-grid"), "必须包含 mono-grid");
+        assertFalse(LoginTheme.codes().contains("mono_grid"), "不得出现 mono_grid（下划线错误写法）");
+
+        // 5) 非法值不通过：拼写错误、下划线变体、空值
+        for (String invalid : new String[]{"neon", "mono_grid", "monoGrid", "big_type", "", "  ", null}) {
+            assertFalse(LoginTheme.isValid(invalid), "非法值不应通过: " + invalid);
+            assertNull(LoginTheme.fromCode(invalid), "非法值 fromCode 应为 null: " + invalid);
+            assertEquals("pencil", LoginTheme.fromCodeOrDefault(invalid).getCode(),
+                    "非法值应回落 pencil: " + invalid);
+        }
+
+        // 6) 错误消息里的列表就是同一份数据
+        assertEquals("pencil, geometric, owl, pixel-eyes, aurora, mono-grid, orbit, big-type",
+                LoginTheme.supportedCodes());
+    }
+
+    @Test
+    @DisplayName("库内脏数据（不在白名单）读取时回落 pencil，不把非法值回吐")
+    void staleStoredThemeFallsBackToPencil() throws Exception {
+        User engineer = reload(engineerUserId);
+        engineer.setLoginTheme("legacy-neon");
+        userRepository.save(engineer);
+
+        mockMvc.perform(get(PREFS).header("Authorization", engineerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.loginTheme").value("pencil"));
     }
 
     // ------------------------------------------------------------------ 只能改自己

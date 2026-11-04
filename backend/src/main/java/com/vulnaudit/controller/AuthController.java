@@ -6,6 +6,7 @@ import com.vulnaudit.dto.ChangePasswordRequest;
 import com.vulnaudit.dto.LoginRequest;
 import com.vulnaudit.dto.LoginResponse;
 import com.vulnaudit.entity.User;
+import com.vulnaudit.entity.enums.LoginTheme;
 import com.vulnaudit.exception.TooManyRequestsException;
 import com.vulnaudit.security.JwtUtils;
 import com.vulnaudit.security.RoleAuthority;
@@ -111,7 +112,7 @@ public class AuthController {
                 .username(user.getUsername())
                 .fullName(user.getFullName())
                 .email(user.getEmail())
-                .loginTheme(user.getLoginTheme() == null ? "pencil" : user.getLoginTheme())
+                .loginTheme(LoginTheme.fromCodeOrDefault(user.getLoginTheme()).getCode())
                 .build();
 
         log.info("用户登录成功: username={}", user.getUsername());
@@ -253,7 +254,7 @@ public class AuthController {
                 .username(user.getUsername())
                 .fullName(user.getFullName())
                 .email(user.getEmail())
-                .loginTheme(user.getLoginTheme() == null ? "pencil" : user.getLoginTheme())
+                .loginTheme(LoginTheme.fromCodeOrDefault(user.getLoginTheme()).getCode())
                 .build();
 
         log.info("令牌刷新成功: username={}", username);

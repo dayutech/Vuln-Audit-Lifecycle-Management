@@ -575,7 +575,8 @@ public class UserController {
     /**
      * 更新当前用户的偏好（登录页主题）
      *
-     * <p>白名单：{@code pencil / geometric / owl / pixel-eyes}；非法值 → 400（中英文案由 MessageSource 决定）。
+     * <p>白名单：8 项，唯一定义在 {@link com.vulnaudit.entity.enums.LoginTheme}；
+     * 非法值 → 400，文案含「支持: …」完整列表（中英文案由 MessageSource 决定）。
      * 写审计 {@code UPDATE_LOGIN_THEME}（resourceType=user）。
      */
     @PutMapping("/me/preferences")

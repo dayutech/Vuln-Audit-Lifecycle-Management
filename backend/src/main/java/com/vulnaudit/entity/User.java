@@ -98,14 +98,14 @@ public class User {
     private String position;
 
     /**
-     * 登录页主题偏好（t96）：pencil / geometric / owl / pixel-eyes，默认 pencil。
+     * 登录页主题偏好（t96 / t100）：8 套主题见 {@link com.vulnaudit.entity.enums.LoginTheme}，默认 {@code pencil}。
      *
      * <p>DB 列 {@code login_theme VARCHAR(32) NOT NULL DEFAULT 'pencil'}（V19）；
-     * 写入前由服务层做白名单校验，非法值不会落库。
+     * 写入前由服务层按 {@code LoginTheme} 白名单校验，非法值不会落库。
      */
     @lombok.Builder.Default
     @Column(name = "login_theme", length = 32, nullable = false)
-    private String loginTheme = "pencil";
+    private String loginTheme = com.vulnaudit.entity.enums.LoginTheme.DEFAULT.getCode();
 
     /**
      * 用户状态
