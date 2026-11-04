@@ -169,7 +169,12 @@ public enum ErrorCode {
     /**
      * 无权访问该资产
      */
-    ASSET_ACCESS_DENIED(1203, "无权访问该资产"),
+    ASSET_ACCESS_DENIED(403, "无权访问该资产"),
+
+    /**
+     * 已拥有该资产的访问权限（重复申请）
+     */
+    ASSET_ACCESS_ALREADY_GRANTED(409, "你已有该资产的访问权限，无需重复申请"),
 
     /**
      * 资产编号已存在

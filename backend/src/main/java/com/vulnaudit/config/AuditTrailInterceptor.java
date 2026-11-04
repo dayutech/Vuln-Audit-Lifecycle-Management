@@ -53,7 +53,19 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
      * <p>当前仅这两个：TaskController（逐接口手写 action）与 ImportController
      * （ImportServiceImpl 手写带上下文详情的 action）。其余控制器统一由本拦截器记录。
      */
-    private static final String[] SKIP_CONTROLLERS = {"TaskController", "ImportController"};
+    private static final String[] SKIP_CONTROLLERS = {"TaskController", "ImportController", "AdminImpersonationController"};
+
+    /**
+     * 已手工记录审计的单个写端点（「方法 + URI」精确匹配），用于同一控制器里只有个别端点
+     * 需要保留语义化审计的场景（t96）。
+     *
+     * <p>{@code PUT /api/v1/users/me/preferences} 由 {@code UserPreferenceServiceImpl} 写
+     * {@code action=UPDATE_LOGIN_THEME}、{@code resourceType=user}、{@code resourceId=本人}，
+     * 拦截器再写一条「PUT UserController.updateMyPreferences」只会让一次改偏好出现两条审计。
+     * 注意不能把 {@code UserController} 整体加入 {@link #SKIP_CONTROLLERS} ——
+     * 用户 CRUD / 角色分配 / 重置密码的审计仍必须由拦截器覆盖。
+     */
+    private static final String[] SKIP_ENDPOINTS = {"PUT /api/v1/users/me/preferences"};
 
     private final AuditLogService auditLogService;
     private final UserService userService;
@@ -80,6 +92,9 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
                 return;
             }
         }
+        if (shouldSkipEndpoint(method, request.getRequestURI())) {
+            return;
+        }
         try {
             UUID userId = currentUserId();
             if (userId == null) {
@@ -102,6 +117,27 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
             // 审计失败不能影响主流程
             log.warn("写操作审计记录失败: {} {}", method, request.getRequestURI(), e);
         }
+    }
+
+    /**
+     * 该请求是否属于「已手工记录审计的单个端点」（见 {@link #SKIP_ENDPOINTS}）
+     */
+    private boolean shouldSkipEndpoint(String method, String uri) {
+        if (uri == null) {
+            return false;
+        }
+        String path = uri;
+        int queryIndex = path.indexOf('?');
+        if (queryIndex >= 0) {
+            path = path.substring(0, queryIndex);
+        }
+        String key = method + " " + path;
+        for (String skip : SKIP_ENDPOINTS) {
+            if (skip.equals(key)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private UUID currentUserId() {

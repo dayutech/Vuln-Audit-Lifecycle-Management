@@ -56,7 +56,9 @@ public class ImpersonationServiceImpl implements ImpersonationService {
     private final AuditLogService auditLogService;
 
     @Override
-    @Transactional(readOnly = true)
+    // 注意：这里必须可写。方法内要写 IMPERSONATE_START 审计，readOnly=true 时 Hibernate 会以
+    // FlushMode.MANUAL 忽略插入（不报错也不落库，t94 线上实测发现）；H2 单测因测试事务非只读而漏检。
+    @Transactional
     public ImpersonateResponse impersonate(@Nullable UUID actorId, ImpersonateRequest request) {
         if (!properties.isEnabled()) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "管理员模拟视角功能已关闭（app.security.impersonation.enabled=false）");
@@ -108,7 +110,8 @@ public class ImpersonationServiceImpl implements ImpersonationService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    // 同 impersonate()：内部写 IMPERSONATE_STOP 审计，必须可写事务。
+    @Transactional
     public UUID stop(@Nullable UUID actorId, @Nullable String targetUsername) {
         if (!properties.isEnabled()) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "管理员模拟视角功能已关闭（app.security.impersonation.enabled=false）");

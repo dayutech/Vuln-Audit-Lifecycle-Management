@@ -298,7 +298,8 @@ public class AssetController {
     // ==================== 访问申请相关 ====================
 
     @PostMapping("/{id}/access-requests")
-    @Operation(summary = "申请资产访问权限", description = "创建资产访问申请")
+    @Operation(summary = "申请资产访问权限",
+            description = "创建资产访问申请；资产不在调用者可见范围内 → 403（t93 与同类守卫统一，且不泄露存在性）")
     public ResponseEntity<ApiResponse<AssetAccess>> createAccessRequest(
             @PathVariable UUID id,
             @Valid @RequestBody AssetAccessRequest request) {
@@ -309,6 +310,13 @@ public class AssetController {
         subresourceGuard.requireAsset(id);
 
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        // t93：「不可见即无权限」—— 访问申请只针对「能看到但需额外授权（文档/文件/环境）」的资产；
+        // 完全不可见的资产按 403 处理（此前会一路走到服务层的 400/无权访问，语义与状态码都不统一）
+        if (!accessGuard.canRequestAssetAccess(id, authentication)) {
+            throw new com.vulnaudit.exception.BusinessException(
+                    com.vulnaudit.exception.ErrorCode.ASSET_ACCESS_DENIED,
+                    "无权访问该资产（你与该资产没有工作关系，不在本团队内）");
+        }
         UUID currentUserId = getCurrentUserId(authentication);
 
         AssetAccess access = AssetAccess.builder()

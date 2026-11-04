@@ -44,6 +44,9 @@ public class AssetControllerTest extends BaseTest {
     private TeamRepository teamRepository;
 
     @Autowired
+    private com.vulnaudit.repository.TeamMemberRepository teamMemberRepository;
+
+    @Autowired
     private UserRepository userRepository;
 
     @Autowired
@@ -82,6 +85,14 @@ public class AssetControllerTest extends BaseTest {
                 .createdBy(testUser.getId())
                 .build();
         testTeam = teamRepository.save(Objects.requireNonNull(testTeam));
+
+        // t93：访问申请要求资产在调用者可见范围内（不可见 → 403）。
+        // 本类后续用工程师申请 testAsset 的访问权限，故先把工程师加入该团队（不放宽任何守卫）。
+        teamMemberRepository.save(Objects.requireNonNull(com.vulnaudit.entity.TeamMember.builder()
+                .teamId(testTeam.getId())
+                .userId(engineerUserId)
+                .isLeader(false)
+                .build()));
 
         // 创建测试资产
         testAsset = Asset.builder()

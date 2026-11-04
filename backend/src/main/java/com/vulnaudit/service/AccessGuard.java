@@ -721,4 +721,44 @@ public class AccessGuard {
                 .map(project -> userId.equals(project.getManagerId()))
                 .orElse(false);
     }
+
+    /**
+     * 是否可对指定资产**发起访问申请**（t93）
+     *
+     * <p>语义与 {@link #canReadAsset} 不同：访问申请本身就是「看到资产、但需要额外授权（文档/文件/环境）」的入口，
+     * 因此判定口径放宽到「与本资产有正当工作关系」：
+     * <ul>
+     *   <li>管理层：放行；</li>
+     *   <li>资产负责人本人：放行；</li>
+     *   <li>该资产所属团队的成员（含组长）：放行；</li>
+     *   <li>已获批访问：放行（重复申请交由服务层按 409/403 处理）。</li>
+     * </ul>
+     *
+     * <p>其余情况（跨团队、无任何关系）→ false，控制器返回 <b>403</b>（不泄露资产是否存在）。
+     */
+    public boolean canRequestAssetAccess(java.util.UUID assetId, Authentication authentication) {
+        if (assetId == null) {
+            return false;
+        }
+        if (isManager(authentication)) {
+            return true;
+        }
+        java.util.UUID userId = currentUserId(authentication);
+        if (userId == null) {
+            return false;
+        }
+        var asset = assetRepository.findById(assetId).orElse(null);
+        if (asset == null) {
+            return false;
+        }
+        if (userId.equals(asset.getOwnerId())) {
+            return true;
+        }
+        java.util.UUID teamId = asset.getTeamId();
+        if (teamId != null && teamMemberRepository.existsByTeamIdAndUserId(teamId, userId)) {
+            return true;
+        }
+        return assetAccessRepository.findByUserIdAndStatus(userId, "approved").stream()
+                .anyMatch(access -> assetId.equals(access.getAssetId()));
+    }
 }

@@ -76,7 +76,7 @@ public class AssetAccessServiceImpl implements AssetAccessService {
             AssetAccess existingAccess = optExisting.get();
             if ("approved".equals(existingAccess.getStatus())) {
                 log.warn("用户已有该资产的访问权限: assetId={}, userId={}", assetId, userId);
-                throw new BusinessException(ErrorCode.ASSET_ACCESS_DENIED);
+                throw new BusinessException(ErrorCode.ASSET_ACCESS_ALREADY_GRANTED);
             }
             if ("pending".equals(existingAccess.getStatus())) {
                 log.warn("用户已有待审核的申请: assetId={}, userId={}", assetId, userId);
