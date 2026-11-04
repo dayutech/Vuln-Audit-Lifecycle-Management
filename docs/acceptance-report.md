@@ -1269,7 +1269,7 @@ t94 修复：两个方法改为可写事务 `@Transactional`，并新增守卫�
 
 ### 2.17 用户登录页主题偏好（t96）
 
-**目标**：登录页提供 4 套主题（`pencil` / `geometric` / `owl` / `pixel-eyes`），用户选择后**跨设备保留**。
+**目标**：登录页提供 4 套主题（`pencil` / `geometric` / `owl` / `pixel-eyes`，t100 已扩到 **8 套**，见本节末尾），用户选择后**跨设备保留**。
 本轮为后端部分（前端应用见 t97）。
 
 **数据模型**：`users.login_theme VARCHAR(32) NOT NULL DEFAULT 'pencil'`，
@@ -1289,10 +1289,11 @@ t94 修复：两个方法改为可写事务 `@Transactional`，并新增守卫�
 
 1. **只能改自己**：路径固定 `/me`，用户ID 来自 `CurrentUserProvider`；`UpdateUserPreferencesRequest` 只有 `loginTheme` 字段，
    请求体/查询参数带 `userId` 会被忽略（单测用「工程师带 admin 的 userId」验证 admin 偏好未被改动）。
-2. **白名单 + 归一化**：`pencil/geometric/owl/pixel-eyes`；` OWL ` → `owl`；非法值 **400** 且**不落库**；
+2. **白名单 + 归一化**：t96 首版 4 项（`pencil/geometric/owl/pixel-eyes`），**t100 扩到 8 项并收敛为 `LoginTheme` 枚举单一来源**
+   （新增 `aurora/mono-grid/orbit/big-type`）；` OWL ` → `owl`；非法值 **400** 且**不落库**；
    读取时库内脏值回落 `pencil`（不把非法值回吐）。
-3. **i18n**（t60 MessageSource）：中文 `不支持的登录页主题: neon`，英文 `Unsupported login page theme: neon`；
-   另补 `validation.user.login_theme.required/too_long` 两个校验消息码，避免 400 时回显原始 key。
+3. **i18n**（t60 MessageSource）：中文 `不支持的登录页主题: neon（支持: …）`，英文 `Unsupported login page theme: neon (supported: …)`，
+   支持列表由 `LoginTheme.supportedCodes()` 生成；另补 `validation.user.login_theme.required/too_long` 两个校验消息码，避免 400 时回显原始 key。
 4. **审计单条**：`action=UPDATE_LOGIN_THEME`、`resource_type=user`、`resource_id=本人`、
    `details=登录页主题变更: from=pencil -> to=owl`；**同值不写**；
    `AuditTrailInterceptor` 用 `SKIP_ENDPOINTS` 精确跳过该端点，避免再生成一条 `PUT UserController.updateMyPreferences`
@@ -1314,3 +1315,24 @@ t94 修复：两个方法改为可写事务 `@Transactional`，并新增守卫�
 | 审计去重 | `keyword=updateMyPreferences` 行数 2 → 2（+0）；`action=UPDATE_LOGIN_THEME` 2 → 3（+1），details=`登录页主题变更: from=pencil -> to=geometric`、resourceType=user、resourceId=本人 |
 | 回归 | `mvn -B clean test` **680/680**（`UserPreferenceTest` 11 例） |
 | 冒烟 | 重建重启后 **228/228**；清理后 assets=3 / customers=1 / projects=1 / links=3、`orphan=0` |
+
+
+**t100：白名单扩到 8 项并收敛为单一来源**
+
+t97/t99 前端已提供 8 套主题（角色组 4 + 抽象极简组 4），后端白名单必须同步，否则选新主题会 400。
+
+| 项 | 结果 |
+|---|---|
+| 白名单 | **8 项**：`pencil` / `geometric` / `owl` / `pixel-eyes` / `aurora` / `mono-grid` / `orbit` / `big-type`（`mono-grid` 用连字符，`mono_grid` / `monoGrid` 均判非法） |
+| 单一来源 | 新增枚举 `com.vulnaudit.entity.enums.LoginTheme`（`code` + `DEFAULT` + `MAX_CODE_LENGTH` + `isValid/fromCode/fromCodeOrDefault/codes/supportedCodes/normalize`）；服务层白名单、默认值、错误文案列表、DTO 长度上限、登录/刷新响应的兜底值全部派生自它 |
+| 默认值 | 仍为 `pencil`（`LoginTheme.DEFAULT`），**无新增迁移**，既有用户数据不变 |
+| 错误文案 | `error.user.login_theme.unsupported` 改为 `不支持的登录页主题: {0}（支持: {1}）` / `Unsupported login page theme: {0} (supported: {1})`，`{1}` 自动跟随枚举 |
+| 字段名 | 保持 `loginTheme`（请求体 / `GET /me/preferences` / `/auth/me` / login / refresh 均不变），前端 t97 无需改动 |
+| 单测 | `UserPreferenceTest` **14 例**：新增「8 主题逐个 PUT 200 + `/auth/me` 回显」「枚举-白名单-默认值一致性守护（含 `mono_grid` 反例）」「库内脏值回落 pencil」；非法值两例增断言「消息含完整支持列表」 |
+
+证据：`mvn -B test -Dtest=UserPreferenceTest` → **14/14**；全量 `mvn -B clean test` → **683/683**，BUILD SUCCESS。
+规则与 curl 复核见 README §47.2。
+
+**t100 线上复核（2026-11-04，jar 73,064,121 B）**：8 个主题逐个 `PUT /users/me/preferences` 均 200，`GET /auth/me` 逐个回显；
+`mono_grid`（下划线错写）与 `monoGrid` 均 400 且消息含 8 项支持列表（中英）；复核后 admin 恢复 `pencil`；
+`/projects`、`/customers` 未受影响。

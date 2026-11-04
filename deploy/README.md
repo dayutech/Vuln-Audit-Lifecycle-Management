@@ -2206,8 +2206,8 @@ MYSQL_PWD='***' mariadb -uvulnapp -e "SELECT action, details FROM vuln_audit.aud
 
 ## 47. 第三十一轮（用户登录页主题偏好：V19 + /users/me/preferences + 登录响应携带，t96）
 
-登录页提供 4 套主题（`pencil` / `geometric` / `owl` / `pixel-eyes`），用户在登录页选择后希望**跨设备保留**。
-本轮只做后端存储与接口，前端选择/应用由 t97 接入。
+登录页提供 **8 套主题**（角色组：`pencil` / `geometric` / `owl` / `pixel-eyes`；抽象极简组：`aurora` / `mono-grid` / `orbit` / `big-type`），
+用户在登录页选择后希望**跨设备保留**。t96 建后端存储与接口，t97/t99 接前端选择与四套抽象主题，t100 把白名单扩到 8 项并收敛为单一来源。
 
 ### 47.1 数据模型
 
@@ -2236,10 +2236,17 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS login_theme VARCHAR(32) NOT NULL DEFA
 **只能改自己**：路径固定 `/me`，服务层从 `CurrentUserProvider` 取当前用户；请求体/查询参数里**即便带 `userId` 也不会被使用**
 （`UpdateUserPreferencesRequest` 只有 `loginTheme` 一个字段，未知字段被 Jackson 忽略），因此不存在「改他人偏好」的入口。
 
-**白名单与归一化**：`pencil` / `geometric` / `owl` / `pixel-eyes`；大小写与首尾空格自动归一（` OWL ` → `owl`）；
-非法值 → **400**，中文 `不支持的登录页主题: neon`、英文 `Unsupported login page theme: neon`
+**白名单与归一化**：**8 项** —— `pencil` / `geometric` / `owl` / `pixel-eyes` / `aurora` / `mono-grid` / `orbit` / `big-type`
+（注意 `mono-grid` 用**连字符**，`mono_grid` / `monoGrid` 均视为非法）；大小写与首尾空格自动归一（` OWL ` → `owl`）；
+非法值 → **400**，中文 `不支持的登录页主题: neon（支持: pencil, geometric, owl, pixel-eyes, aurora, mono-grid, orbit, big-type）`、
+英文 `Unsupported login page theme: neon (supported: pencil, geometric, owl, pixel-eyes, aurora, mono-grid, orbit, big-type)`
 （消息走 t60 的 `MessageSource`，按 `?lang=` → `Accept-Language` → 中文 的顺序选语言）。
 读取时若库内值异常（历史脏数据）回落到 `pencil`，不会把非法值回吐给前端。
+
+**单一来源**：白名单、默认值、错误消息里的「支持: …」列表、DTO 长度上限、单测遍历**全部派生自**
+`com.vulnaudit.entity.enums.LoginTheme`（8 个枚举值 + `isValid/fromCode/fromCodeOrDefault/codes/supportedCodes`），
+服务层不再手写字符串列表；加主题只改枚举与前端 `frontend/src/components/login/themes.ts` 的注册表，
+`UserPreferenceTest#enumAndWhitelistStayInSync` 会守住「枚举 / 服务层白名单 / 默认值 / 期望列表」四处不脱节。
 
 三个错误码对应的消息键：
 
@@ -2247,7 +2254,9 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS login_theme VARCHAR(32) NOT NULL DEFA
 |---|---|---|
 | `validation.user.login_theme.required` | 登录页主题不能为空 | Login page theme must not be blank |
 | `validation.user.login_theme.too_long` | 登录页主题长度不能超过32个字符 | Login page theme must not exceed 32 characters |
-| `error.user.login_theme.unsupported` | 不支持的登录页主题: {0} | Unsupported login page theme: {0} |
+| `error.user.login_theme.unsupported` | 不支持的登录页主题: {0}（支持: {1}） | Unsupported login page theme: {0} (supported: {1}) |
+
+`{0}` 为提交的非法值，`{1}` 由 `LoginTheme.supportedCodes()` 生成，扩展主题后自动同步。
 
 ### 47.3 审计（一次改偏好只有 1 条）
 
@@ -2280,10 +2289,21 @@ curl -s -X PUT "http://192.168.188.200:8089/api/v1/users/me/preferences" \
 curl -s -X PUT "http://192.168.188.200:8089/api/v1/users/me/preferences" \
   -H "Authorization: Bearer $TOKEN" -H 'Accept-Language: en' \
   -H 'Content-Type: application/json' -d '{"loginTheme":"neon"}'
+# 4) 8 个主题逐个保存（全部 200），再登录应带回最后一次
+for t in pencil geometric owl pixel-eyes aurora mono-grid orbit big-type; do
+  curl -s -X PUT "http://192.168.188.200:8089/api/v1/users/me/preferences" \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+    -d "{\"loginTheme\":\"$t\"}"; echo
+done
+
+# 5) 非法值 → 400，消息里带完整「支持: …」列表
+curl -s -X PUT "http://192.168.188.200:8089/api/v1/users/me/preferences" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"loginTheme":"mono_grid"}'
 ```
 
-单测：`UserPreferenceTest` **11 例**（默认 pencil / 合法值更新且库内生效 / 大写归一二 / 非法值 400 中英各一 /
-只能改自己 / login 与 me 响应含 `loginTheme` / 未认证 401 / 审计落库 / 同值不重复写审计 / 一次改偏好仅 1 条审计）。
+单测：`UserPreferenceTest` **14 例**（默认 pencil / 合法值更新且库内生效 / 大小写归一二 / **8 主题逐个 PUT + `/auth/me` 回显** /
+非法值 400 中英各一且**消息含支持列表** / **枚举-白名单-默认值一致性守护** / **库内脏值回落 pencil** / 只能改自己 /
+login 与 me 响应含 `loginTheme` / 未认证 401 / 审计落库 / 同值不重复写审计 / 一次改偏好仅 1 条审计）。
 
 ### 47.5 已知边界
 
@@ -2302,3 +2322,39 @@ curl -s -X PUT "http://192.168.188.200:8089/api/v1/users/me/preferences" \
 | 审计去重 | `keyword=updateMyPreferences` 行数不变（**+0**）；`action=UPDATE_LOGIN_THEME` **+1**，details 含 `from=pencil -> to=geometric` |
 | 迁移 | 线上 `spring.flyway.enabled=false`，`users.login_theme` 由手工 DDL 建立（`deploy/manual-ddl.sql`「V19」段）；本次重启未触发新迁移 |
 | 数据清理 | 冒烟夹具清理后 assets=3 / customers=1 / projects=1 / phases=0 / links=3，`orphan=0` |
+
+### 47.7 t100：白名单扩到 8 项并收敛为单一来源
+
+t97/t99 前端已提供 8 套主题（角色组 `pencil` / `geometric` / `owl` / `pixel-eyes`，抽象极简组 `aurora` / `mono-grid` / `orbit` / `big-type`），
+后端白名单必须同步，否则选新主题会 400。本轮不改表结构（**无新增迁移**），也不改字段名。
+
+| 项 | 说明 |
+|---|---|
+| 单一来源 | `com.vulnaudit.entity.enums.LoginTheme`：8 个枚举值 + `DEFAULT`（`pencil`）+ `MAX_CODE_LENGTH`（32）+ `codes()` / `supportedCodes()` / `normalize()` / `isValid()` / `fromCode()` / `fromCodeOrDefault()` |
+| 服务层 | `UserPreferenceService.SUPPORTED_LOGIN_THEMES = LoginTheme.codes()`、`DEFAULT_LOGIN_THEME = LoginTheme.DEFAULT.getCode()`（不再手写列表） |
+| 校验与归一化 | `LoginTheme.fromCode()`（trim + 小写后比对）；非法值 → 400，文案 `不支持的登录页主题: xxx（支持: …）` |
+| DTO | `@Size(max = LoginTheme.MAX_CODE_LENGTH)`；取值合法性交给服务层，避免两处各写一份白名单 |
+| 登录链路 | `/auth/login`、`/auth/refresh` 的 `loginTheme` 兜底改为 `LoginTheme.fromCodeOrDefault(...)`；`/auth/me` 直接回显库内值 |
+| 前端对齐 | 枚举 code 与 `frontend/src/components/login/themes.ts` 的 `LoginThemeEntry.id` 一一对应（含 `mono-grid` 连字符） |
+| 单测 | `UserPreferenceTest` **14 例**：8 主题逐个 PUT 200 + `/auth/me` 回显；非法值中英各一（含支持列表断言）；枚举-白名单-默认值一致性守护（含 `mono_grid` / `monoGrid` / `big_type` 反例）；库内脏值回落 `pencil` |
+
+```bash
+# 8 个主题逐个保存（均 200），再登录应带回最后一次
+for t in pencil geometric owl pixel-eyes aurora mono-grid orbit big-type; do
+  curl -s -X PUT "http://192.168.188.200:8089/api/v1/users/me/preferences" \
+    -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+    -d "{\"loginTheme\":\"$t\"}" | head -c 120; echo
+done
+
+cd backend && mvn -B test -Dtest=UserPreferenceTest   # 期望 14/14
+```
+
+**t100 线上复核（2026-11-04 17:0x，jar 73,064,121 B）**
+
+| 项 | 实测 |
+|---|---|
+| 部署 | 远端 `mvn -B -DskipTests package` BUILD SUCCESS 15.1s；旧 jar/src 备份 `~/backups/vuln-audit-backend-t100_*.jar`；重启后 `active` |
+| 8 主题保存 | `pencil / geometric / owl / pixel-eyes / aurora / mono-grid / orbit / big-type` 逐个 `PUT /users/me/preferences` 均 200，且 `GET /auth/me` 逐个回显相同值 |
+| 非法值 | `mono_grid` → 400 `不支持的登录页主题: mono_grid（支持: pencil, geometric, owl, pixel-eyes, aurora, mono-grid, orbit, big-type）`；`Accept-Language: en` + `monoGrid` → 英文同款列表 |
+| 默认值 | 复核后已把 admin 改回 `pencil`；`POST /auth/login` 回包 `loginTheme=pencil` |
+| 其它接口 | `/projects`=200、`/customers`=200（未受影响） |

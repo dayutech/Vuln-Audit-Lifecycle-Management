@@ -291,9 +291,11 @@ WHERE NOT EXISTS (SELECT 1 FROM asset_project_links l WHERE l.asset_id = a.id);
 
 
 -- =============================================================================
--- V19：用户登录页主题偏好（t96）
+-- V19：用户登录页主题偏好（t96 / t100）
 -- =============================================================================
--- 登录页 4 套主题（pencil / geometric / owl / pixel-eyes），用户选择后跨设备保留。
+-- 登录页 8 套主题（角色组 pencil / geometric / owl / pixel-eyes；抽象极简组 aurora / mono-grid / orbit / big-type），
+-- 用户选择后跨设备保留。列宽 VARCHAR(32) 足够容纳最长主题码（pixel-eyes = 10）。
+-- 白名单在应用侧 LoginTheme 枚举中维护，DDL 无枚举约束（扩展主题不需要改表）。
 -- 幂等：ADD COLUMN IF NOT EXISTS（MariaDB 10.x 支持；重复执行不报错）。
 ALTER TABLE users ADD COLUMN IF NOT EXISTS login_theme VARCHAR(32) NOT NULL DEFAULT 'pencil';
 
