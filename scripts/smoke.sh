@@ -1810,6 +1810,111 @@ if [ -n "$ADMIN_TOKEN" ] && [ -n "$ENGINEER_ID" ]; then
   fi
 fi
 
+# ----------------------------------------------------------------------------- 登录页主题偏好（t96/t100/t98）
+PREF_PATH='/api/v1/users/me/preferences'
+if [ -n "$ADMIN_TOKEN" ]; then
+  # ① 未认证 → 401
+  request GET "$PREF_PATH" ""
+  judge "pref/未认证-401" 401 '' "GET /users/me/preferences 未带 token"
+
+  # ② 归位 pencil 并回读（同时作为后续用例的基线）
+  api_json PUT "$PREF_PATH" "$ADMIN_TOKEN" '{"loginTheme":"pencil"}'
+  judge "pref/PUT-归位pencil-200" 200 '"loginTheme"[[:space:]]*:[[:space:]]*"pencil"' "PUT /users/me/preferences"
+  request GET "$PREF_PATH" "$ADMIN_TOKEN"
+  judge "pref/GET-默认pencil" 200 '"loginTheme"[[:space:]]*:[[:space:]]*"pencil"' "GET 回读默认值"
+
+  # ③ 四套角色主题各一次：PUT 200 且 /auth/me 回显一致
+  for theme in geometric owl pixel-eyes pencil; do
+    api_json PUT "$PREF_PATH" "$ADMIN_TOKEN" "{\"loginTheme\":\"${theme}\"}"
+    put_st="$LAST_STATUS"
+    put_note="$(snippet)"
+    request GET '/api/v1/auth/me' "$ADMIN_TOKEN"
+    me_ok=no
+    flatten | grep -Eq "\"loginTheme\"[[:space:]]*:[[:space:]]*\"${theme}\"" && me_ok=yes
+    if [ "$put_st" = "200" ] && [ "$me_ok" = "yes" ]; then
+      pass "pref/主题-${theme}" 200 "PUT 200 且 /auth/me 回显 ${theme}"
+    else
+      fail "pref/主题-${theme}" "$put_st" "PUT=${put_st} me回显=${me_ok} ｜ ${put_note}"
+    fi
+  done
+
+  # ④ 抽象四套（t100 扩展）逐个 PUT → 200，并以最后一次回显收尾
+  abs_ok=yes; abs_bad=""
+  for theme in aurora mono-grid orbit big-type; do
+    api_json PUT "$PREF_PATH" "$ADMIN_TOKEN" "{\"loginTheme\":\"${theme}\"}"
+    [ "$LAST_STATUS" = "200" ] || { abs_ok=no; abs_bad="${abs_bad} ${theme}=${LAST_STATUS}"; }
+  done
+  request GET '/api/v1/auth/me' "$ADMIN_TOKEN"
+  if [ "$abs_ok" = "yes" ] && flatten | grep -q '"loginTheme":"big-type"'; then
+    pass "pref/抽象主题-4套" 200 "aurora / mono-grid / orbit / big-type 均 200 且回显 big-type"
+  else
+    fail "pref/抽象主题-4套" "$LAST_STATUS" "失败:${abs_bad:- none} ｜ $(snippet)"
+  fi
+
+  # ⑤ 非法值 → 400（中文 + 英文各一条，均需带完整支持列表）
+  api_json PUT "$PREF_PATH" "$ADMIN_TOKEN" '{"loginTheme":"mono_grid"}'
+  judge "pref/非法值-中文400" 400 '不支持的登录页主题' "下划线拼写非法；消息含支持列表"
+  printf '%s' '{"loginTheme":"monoGrid"}' >"$TMPD/payload.json"
+  request PUT "$PREF_PATH" "$ADMIN_TOKEN" -H 'Content-Type: application/json; charset=utf-8' \
+    -H 'Accept-Language: en' --data-binary "@$(pathify "$TMPD/payload.json")"
+  judge "pref/非法值-英文400" 400 'Unsupported login page theme' "Accept-Language: en"
+
+  # ⑥ 只能改自己：请求体带他人 userId 被忽略（工程师视角改自己，管理员偏好不受影响）
+  if [ -n "$ENGINEER_TOKEN" ]; then
+    request GET '/api/v1/auth/me' "$ADMIN_TOKEN"
+    admin_id_now="$(jfirst id)"
+    api_json PUT "$PREF_PATH" "$ENGINEER_TOKEN" \
+      "{\"loginTheme\":\"owl\",\"userId\":\"${admin_id_now}\"}"
+    judge "pref/只能改自己-PUT200" 200 '"loginTheme"[[:space:]]*:[[:space:]]*"owl"' "带 userId 被忽略"
+    request GET "$PREF_PATH" "$ADMIN_TOKEN"
+    judge "pref/只能改自己-管理员不受影响" 200 '"loginTheme"[[:space:]]*:[[:space:]]*"big-type"' "管理员仍为 big-type"
+    # 归位 pencil，保持环境干净
+    api_json PUT "$PREF_PATH" "$ADMIN_TOKEN" '{"loginTheme":"pencil"}' >/dev/null
+  fi
+
+  # ⑦ 登录响应携带 loginTheme
+  api_json POST '/api/v1/auth/login' "" '{"username":"admin","password":"admin"}'
+  judge "pref/登录响应含loginTheme" 200 '"loginTheme"[[:space:]]*:[[:space:]]*"pencil"' "POST /auth/login 自带主题，前端无需再查"
+
+  # ⑧ 审计单条：一次 PUT 只写一条 UPDATE_LOGIN_THEME，且拦截器不再重复写
+  before_theme="$(request GET '/api/v1/audit-logs?page=0&size=1&action=UPDATE_LOGIN_THEME' "$ADMIN_TOKEN" >/dev/null; jnum totalElements)"
+  before_ctrl="$(request GET '/api/v1/audit-logs?page=0&size=1&keyword=updateMyPreferences' "$ADMIN_TOKEN" >/dev/null; jnum totalElements)"
+  api_json PUT "$PREF_PATH" "$ADMIN_TOKEN" '{"loginTheme":"owl"}'
+  after_theme="$(request GET '/api/v1/audit-logs?page=0&size=1&action=UPDATE_LOGIN_THEME' "$ADMIN_TOKEN" >/dev/null; jnum totalElements)"
+  after_ctrl="$(request GET '/api/v1/audit-logs?page=0&size=1&keyword=updateMyPreferences' "$ADMIN_TOKEN" >/dev/null; jnum totalElements)"
+  if [ -n "$before_theme" ] && [ "$after_theme" -eq $((before_theme + 1)) ] && [ "$after_ctrl" = "$before_ctrl" ]; then
+    pass "pref/审计单条" 200 "UPDATE_LOGIN_THEME $before_theme→$after_theme（+1），拦截器行 ${before_ctrl:-0}→${after_ctrl:-0}（+0）"
+  else
+    fail "pref/审计单条" "$LAST_STATUS" "theme ${before_theme:-?}→${after_theme:-?} ctrl ${before_ctrl:-?}→${after_ctrl:-?} ｜ $(snippet)"
+  fi
+  # 收尾归位 pencil（与 t96/t97/t100 基线一致）
+  api_json PUT "$PREF_PATH" "$ADMIN_TOKEN" '{"loginTheme":"pencil"}' >/dev/null
+fi
+
+# ----------------------------------------------------------------------------- 访问申请：同团队 201 / 重复 pending 409（t93/t98）
+if [ -n "$ADMIN_TOKEN" ] && [ -n "$ENGINEER_TOKEN" ] && [ -n "$ENGINEER_ID" ] && [ -n "$ASSET_ID" ] && [ -n "$TEAM_ID" ]; then
+  request POST "/api/v1/teams/${TEAM_ID}/members?userId=${ENGINEER_ID}&role=member" "$ADMIN_TOKEN"
+  add_member_st="$LAST_STATUS"
+  if [ "$add_member_st" = "200" ] || [ "$add_member_st" = "201" ]; then
+    api_json POST "/api/v1/assets/${ASSET_ID}/access-requests" "$ENGINEER_TOKEN" \
+      "{\"canViewDocuments\":true,\"canViewEnvironments\":false,\"canViewFiles\":false,\"requestNote\":\"冒烟同团队申请 ${TAG}\"}"
+    judge "access-request/同团队-201" 201 '' "团队成员可申请（t93 前会被 400 挡掉）"
+    same_team_req_id="$(jfirst id)"
+
+    api_json POST "/api/v1/assets/${ASSET_ID}/access-requests" "$ENGINEER_TOKEN" \
+      "{\"requestNote\":\"冒烟重复申请 ${TAG}\"}"
+    judge "access-request/重复pending-409" 409 '' "同一人对同一资产已有 pending"
+
+    # 收尾：撤销该申请（驳回）并移出团队，避免影响后续/环境
+    [ -n "$same_team_req_id" ] && api_json POST "/api/v1/assets/access-requests/${same_team_req_id}/review" "$ADMIN_TOKEN" \
+      '{"approved":false,"reviewNote":"冒烟清理：同团队申请"}' >/dev/null
+    request DELETE "/api/v1/teams/${TEAM_ID}/members/${ENGINEER_ID}" "$ADMIN_TOKEN" >/dev/null
+  else
+    skip "access-request/同团队-201" "$add_member_st" "未能把工程师加入团队夹具（$(snippet)）"
+    skip "access-request/重复pending-409" "-" "依赖上一条"
+  fi
+fi
+
 printf '\n==== 冒烟汇总 ====\n'
 printf 'TOTAL=%d  PASS=%d  FAIL=%d  SKIP=%d\n' "$TOTAL" "$PASSED" "$FAILED" "$SKIPPED"
 if [ "$FAILED" -gt 0 ]; then
