@@ -1,0 +1,430 @@
+/* 登录页抽象极简主题（t99）—— 纯 CSS/SVG，无额外依赖。
+ *
+ * 共同约束：
+ * - 颜色 ≤ 3 个（每套主题在 .theme-* 里自证）；无 box-shadow、无描边噪点；
+ * - 动效周期 8–20s、幅度小、无弹跳；`prefers-reduced-motion: reduce` 下全静态；
+ * - 抽象主题铺满整页做背景层（pointer-events: none），表单区始终在上层且干净。
+ */
+
+/* ==================== 抽象主题通用 ==================== */
+
+.login-abstract {
+  /* 指针变量的默认值：reduced-motion / 指针尚未进入时也不会「跳到左上角」 */
+  --lp-x: 50%;
+  --lp-y: 42%;
+  --lp-nx: 0;
+  --lp-ny: 0;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: translate3d(0, 0, 0);
+}
+
+/* 登录失败：整层 1px 位移一次（不是卡通式抖动） */
+.login-abstract.is-nudged {
+  animation: login-abstract-nudge 480ms ease-out 1;
+}
+
+@keyframes login-abstract-nudge {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  32%,
+  68% {
+    transform: translate3d(1px, 0, 0);
+  }
+}
+
+/* 抽象主题的挂载层：固定在视口，作为背景层 */
+.login-abstract-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.login-theme-slot {
+  display: block;
+}
+
+.login-theme-slot--abstract {
+  position: absolute;
+  inset: 0;
+}
+
+/* ==================== 1. aurora：极简光晕（#0a0c11 / #7c9cff） ==================== */
+
+.theme-aurora {
+  background: #0a0c11;
+}
+
+.aurora-field {
+  position: absolute;
+  inset: 0;
+  transition:
+    transform 1600ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 1200ms ease;
+}
+
+/* 聚焦密码：光斑收拢（scale）并整体降亮 */
+.theme-aurora.is-focused .aurora-field {
+  transform: scale(0.86);
+  opacity: 0.74;
+}
+
+.aurora-blob {
+  position: absolute;
+  width: 66vmax;
+  height: 66vmax;
+  will-change: transform;
+}
+
+.aurora-blob--a {
+  left: -20vmax;
+  top: -28vmax;
+  animation: aurora-drift-a 17s ease-in-out infinite;
+}
+
+.aurora-blob--b {
+  right: -24vmax;
+  bottom: -32vmax;
+  animation: aurora-drift-b 14s ease-in-out infinite;
+}
+
+.aurora-blob__core {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle closest-side,
+    rgba(124, 156, 255, 0.3),
+    rgba(124, 156, 255, 0.09) 46%,
+    rgba(124, 156, 255, 0) 72%
+  );
+}
+
+@keyframes aurora-drift-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(4.5vmax, 3vmax, 0);
+  }
+}
+
+@keyframes aurora-drift-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-3.5vmax, -4vmax, 0);
+  }
+}
+
+/* 光标处极淡光晕跟随（低强度、大半径） */
+.aurora-follow {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle 360px at var(--lp-x) var(--lp-y),
+    rgba(124, 156, 255, 0.13),
+    rgba(124, 156, 255, 0) 72%
+  );
+  transition: opacity 900ms ease;
+}
+
+.theme-aurora.is-focused .aurora-follow {
+  opacity: 0.55;
+}
+
+/* ==================== 2. mono-grid：极简网格（#f4f5f7 / rgba(20,24,33,.07)） ==================== */
+
+.theme-mono-grid {
+  background: #f4f5f7;
+}
+
+.mono-grid__lines {
+  position: absolute;
+  inset: -1px;
+  background-image:
+    linear-gradient(to right, rgba(20, 24, 33, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(20, 24, 33, 0.07) 1px, transparent 1px);
+  background-size:
+    64px 64px,
+    64px 64px;
+  transition: opacity 900ms ease;
+}
+
+/* 聚焦密码：网格整体淡出到 20% 不透明度 */
+.theme-mono-grid.is-focused .mono-grid__lines {
+  opacity: 0.2;
+}
+
+/* 光标 120px 内的交叉点轻微加深并渐隐 */
+.mono-grid__spot {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    circle 120px at var(--lp-x) var(--lp-y),
+    rgba(20, 24, 33, 0.1),
+    rgba(20, 24, 33, 0) 70%
+  );
+  transition: opacity 700ms ease;
+}
+
+.theme-mono-grid.is-focused .mono-grid__spot {
+  opacity: 0.3;
+}
+
+/* ==================== 3. orbit：轨道（#0f1218 / #e8ecf5 / #9db4ff） ==================== */
+
+.theme-orbit {
+  background: #0f1218;
+}
+
+.orbit-svg {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* 略微缩小并向左让位：圆环整体落在表单卡左侧，装饰不压表单 */
+  width: min(70vmin, 620px);
+  height: min(70vmin, 620px);
+  transform: translate(-50%, -50%) translateX(-20vmin);
+}
+
+.orbit-ring {
+  fill: none;
+  stroke: #e8ecf5;
+  stroke-width: 1;
+  opacity: 0.22;
+}
+
+.orbit-ring--outer {
+  opacity: 0.14;
+}
+
+/* 鼠标移动：圆环 ±2° 轻微 3D 倾斜（视差） */
+.orbit-rings {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  transform: perspective(900px) rotateX(calc(var(--lp-ny) * -2deg)) rotateY(calc(var(--lp-nx) * 2deg));
+  transition: transform 900ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* 点沿外环 12s 一圈匀速运行 */
+.orbit-runner {
+  transform-box: view-box;
+  transform-origin: 50% 50%;
+  animation: orbit-spin 12s linear infinite;
+}
+
+@keyframes orbit-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.orbit-dot {
+  fill: #9db4ff;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 700ms ease;
+}
+
+/* 聚焦密码：点变小并加速 */
+.theme-orbit.is-focused .orbit-dot {
+  transform: scale(0.55);
+}
+
+.theme-orbit.is-focused .orbit-runner {
+  animation-duration: 4.5s;
+}
+
+/* ==================== 4. big-type：大字排版（#f4f2ee / #111318） ==================== */
+
+.theme-big-type {
+  background: #f4f2ee;
+}
+
+.big-type__word {
+  position: absolute;
+  left: clamp(20px, 6vw, 96px);
+  bottom: clamp(24px, 7vh, 88px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  color: #111318;
+  line-height: 0.9;
+  will-change: transform;
+  /* 鼠标移动：±6px 文字视差 */
+  transform: translate3d(calc(var(--lp-nx) * 6px), calc(var(--lp-ny) * 6px), 0);
+  transition:
+    transform 700ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 700ms ease;
+}
+
+/* 聚焦密码：文字下沉并淡到 30%，把注意力让给表单 */
+.theme-big-type.is-focused .big-type__word {
+  transform: translate3d(0, 10px, 0);
+  opacity: 0.3;
+}
+
+.big-type__line--thin {
+  font-size: clamp(22px, min(3.4vw, 5vh), 52px);
+  font-weight: 200;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: rgba(17, 19, 24, 0.55);
+}
+
+.big-type__line--thick {
+  font-size: clamp(44px, min(9vw, 13vh), 148px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+/* ==================== 登录页在抽象模式下的布局适配 ==================== */
+
+/* 背景交给主题层，页面本身透明（选择器加倍以压过 Login.tsx 的行内 <style>） */
+.login-page.login-page--abstract {
+  background: transparent;
+  --login-ink: #141821;
+  --login-ink-soft: rgba(20, 24, 33, 0.62);
+  --login-accent: #141821;
+}
+
+.login-page.login-page--abstract[data-abstract-theme='aurora'] {
+  --login-ink: #eef1fb;
+  --login-ink-soft: rgba(238, 241, 251, 0.62);
+  --login-accent: #7c9cff;
+}
+
+.login-page.login-page--abstract[data-abstract-theme='orbit'] {
+  --login-ink: #e8ecf5;
+  --login-ink-soft: rgba(232, 236, 245, 0.6);
+  --login-accent: #9db4ff;
+}
+
+.login-page.login-page--abstract[data-abstract-theme='mono-grid'] {
+  --login-ink: #141821;
+  --login-ink-soft: rgba(20, 24, 33, 0.6);
+  --login-accent: #141821;
+}
+
+.login-page.login-page--abstract[data-abstract-theme='big-type'] {
+  --login-ink: #111318;
+  --login-ink-soft: rgba(17, 19, 24, 0.6);
+  --login-accent: #111318;
+}
+
+.login-page.login-page--abstract .login-shell {
+  position: relative;
+  z-index: 1;
+}
+
+/* 品牌区跟随主题的明暗（深色主题用近白字） */
+.login-page--abstract .login-hero__brand,
+.login-page--abstract .login-hero__title {
+  color: var(--login-ink);
+}
+
+.login-page--abstract .login-hero__tagline,
+.login-page--abstract .login-hero__points {
+  color: var(--login-ink-soft);
+}
+
+.login-page--abstract .login-hero__points li::before {
+  background: var(--login-accent);
+}
+
+/* 极简：品牌标从实心色块改为 1px 描边 */
+.login-page--abstract .login-hero__mark {
+  background: transparent;
+  border: 1px solid currentColor;
+  color: var(--login-ink);
+}
+
+/* 极简：卡片去掉投影，只留 1px 分隔 */
+.login-page--abstract .login-form-panel {
+  box-shadow: none;
+  border: 1px solid rgba(15, 18, 24, 0.08);
+}
+
+/* 抽象主题没有角色，左侧留给品牌区 + 背景构图 */
+.login-page--abstract .login-hero {
+  gap: clamp(14px, 2vw, 22px);
+}
+
+/* ==================== 窄屏：装饰缩到「背景纹理」级别，不与文案/表单重叠 ==================== */
+
+@media (max-width: 768px) {
+  .aurora-blob {
+    width: 82vmax;
+    height: 82vmax;
+  }
+
+  .mono-grid__lines {
+    background-size:
+      44px 44px,
+      44px 44px;
+  }
+
+  /* 轨道移到页面中部、缩小并压暗，只作纹理；不挤占品牌与表单 */
+  .orbit-svg {
+    left: 50%;
+    top: 44%;
+    width: min(88vmin, 420px);
+    height: min(88vmin, 420px);
+    transform: translate(-50%, -50%);
+    opacity: 0.38;
+  }
+
+  /* 大字主题在窄屏隐藏超大字号（品牌区已给出产品名，避免与表单挤压） */
+  .big-type__word {
+    display: none;
+  }
+
+  .login-page--abstract .login-form-panel {
+    border-color: rgba(15, 18, 24, 0.06);
+  }
+}
+
+@media (max-width: 480px) {
+  .orbit-svg {
+    width: min(96vmin, 320px);
+    height: min(96vmin, 320px);
+    opacity: 0.3;
+  }
+}
+
+/* ==================== 降低动效：全部静态 ==================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .login-abstract,
+  .login-abstract * {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  /* 保留「收拢/淡出/下沉」的静态终态，只去掉过程动效 */
+  .theme-aurora.is-focused .aurora-field {
+    transform: none;
+  }
+
+  .theme-orbit.is-focused .orbit-dot {
+    transform: none;
+  }
+
+  .theme-big-type.is-focused .big-type__word,
+  .theme-big-type .big-type__word {
+    transform: none;
+  }
+}

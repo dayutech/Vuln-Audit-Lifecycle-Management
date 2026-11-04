@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Layout, Menu, Dropdown, Avatar, Badge } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { EyeOutlined, BankOutlined, ProjectOutlined, UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, SettingOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined, AuditOutlined, FileSearchOutlined, CloudUploadOutlined } from '@ant-design/icons';
+import { EyeOutlined, BankOutlined, ProjectOutlined, UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, SettingOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined, AuditOutlined, FileSearchOutlined, CloudUploadOutlined, BgColorsOutlined } from '@ant-design/icons';
 import { useUserStore } from '@/store/userStore';
 import { getCurrentUser, logout } from '@/api/auth';
 import { getUnreadNotificationCount } from '@/api/notification';
@@ -10,6 +10,8 @@ import { useT } from '@/i18n';
 import ImpersonationBanner from './ImpersonationBanner';
 import ImpersonationPicker from './ImpersonationPicker';
 import { isImpersonating } from '@/utils/impersonation';
+import { syncLoginThemeFromServer } from '@/utils/loginTheme';
+import LoginThemePreferenceModal from '@/components/preferences/LoginThemePreferenceModal';
 import LangSwitcher from '@/i18n/LangSwitcher';
 import AppBrand from './AppBrand';
 import { collectMenuKeys, collectOpenKeys, selectMenuKey } from './menuSelection';
@@ -31,6 +33,8 @@ const BasicLayout: React.FC = () => {
   /** t91：当前账号是否 ADMIN（决定「以其他用户视角查看」入口是否可见） */
   const [isAdmin, setIsAdmin] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  /** t97：偏好设置弹窗（登录页主题） */
+  const [prefsOpen, setPrefsOpen] = useState(false);
   /** 模拟态：后端 token 内已带 imp claim，这里读本地标记决定横幅与入口隐藏 */
   const impersonating = isImpersonating();
   const { t } = useT();
@@ -83,6 +87,12 @@ const BasicLayout: React.FC = () => {
         // Backend returns ApiResponse: { success: true, data: { ... } }
         if (res && res.data) {
           setUser(res.data);
+          /**
+           * t97：`GET /auth/me` 也携带 loginTheme（t96），这里再同步一次本机缓存 ——
+           * 覆盖「别的设备/浏览器改过主题，本机 localStorage 还是旧值」的情况。
+           * 服务端没给值或值不认识时不动缓存（见 utils/loginTheme）。
+           */
+          syncLoginThemeFromServer(res.data.loginTheme);
         }
       } catch (error) {
         clearAuth();
@@ -170,6 +180,13 @@ const BasicLayout: React.FC = () => {
             },
           ]
         : []),
+      // t97：偏好设置（登录页主题）——所有登录用户都可以改自己的偏好
+      {
+        key: 'preferences',
+        icon: <BgColorsOutlined />,
+        label: t('preferences.menu'),
+        onClick: () => setPrefsOpen(true),
+      },
       {
         key: 'logout',
         icon: <LogoutOutlined />,
@@ -220,6 +237,8 @@ const BasicLayout: React.FC = () => {
         </Content>
       </Layout>
       <ImpersonationPicker open={pickerOpen} onClose={() => setPickerOpen(false)} />
+      {/* t97：偏好设置弹窗按需挂载（每次打开都重新读服务端偏好，避免复用旧状态） */}
+      {prefsOpen ? <LoginThemePreferenceModal onClose={() => setPrefsOpen(false)} /> : null}
     </Layout>
   );
 };

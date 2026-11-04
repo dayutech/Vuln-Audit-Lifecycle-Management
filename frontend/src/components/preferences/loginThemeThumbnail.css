@@ -1,0 +1,71 @@
+/**
+ * 主题缩略图样式（t97 偏好弹窗）。
+ *
+ * 独立 CSS 文件而不是组件内联 <style>：8 张卡片各带一份 <style> 会重复 8 份文本，
+ * 也会让无障碍/文案检查把 CSS 注释当成页面文案。
+ */
+
+.theme-thumb {
+  position: relative;
+  height: 76px;
+  border-radius: 10px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(31, 35, 40, 0.08);
+}
+
+.theme-thumb__bg {
+  position: absolute;
+  inset: 0;
+  opacity: 0.95;
+}
+
+.theme-thumb__art {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.theme-thumb__art > div,
+.theme-thumb__art .login-char {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: none;
+}
+
+.theme-thumb__art svg {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+}
+
+/* 缩略图里关掉呼吸/眨眼动画：视觉更稳，也避免多个实例同时跑动 */
+.theme-thumb__art svg * {
+  animation: none !important;
+}
+
+.theme-thumb__swatches {
+  position: relative;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  backdrop-filter: blur(2px);
+}
+
+.theme-thumb__swatches span {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: block;
+  box-shadow: inset 0 0 0 1px rgba(31, 35, 40, 0.12);
+}

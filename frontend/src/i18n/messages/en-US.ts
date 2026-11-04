@@ -3,6 +3,8 @@ import { assetEn } from './domains/assetMessages';
 import { vulnEn } from './domains/vulnMessages';
 import { projectEn } from './domains/projectMessages';
 import { appEn } from './domains/appMessages';
+import { loginEn } from './domains/loginMessages';
+import { preferencesEn } from './domains/preferencesMessages';
 
 /**
  * English copy.
@@ -17,6 +19,8 @@ export const enUS: MessageCatalog = {
   ...vulnEn,
   ...projectEn,
   ...appEn,
+  ...loginEn,
+  ...preferencesEn,
   /* ==================== common ==================== */
   'common.appName': 'Vulnerability Audit Lifecycle Management',
   'common.loading': 'Loading…',

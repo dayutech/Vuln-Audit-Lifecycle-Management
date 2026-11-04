@@ -12,12 +12,16 @@ import { assetZh } from './domains/assetMessages';
 import { vulnZh } from './domains/vulnMessages';
 import { projectZh } from './domains/projectMessages';
 import { appZh } from './domains/appMessages';
+import { loginZh } from './domains/loginMessages';
+import { preferencesZh } from './domains/preferencesMessages';
 
 export const zhCN = {
   ...assetZh,
   ...vulnZh,
   ...projectZh,
   ...appZh,
+  ...loginZh,
+  ...preferencesZh,
   /* ==================== 通用 ==================== */
   'common.appName': '漏洞审计生命周期管理系统',
   'common.loading': '加载中…',

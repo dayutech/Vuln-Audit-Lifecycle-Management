@@ -84,7 +84,15 @@ request.interceptors.response.use(
           return Promise.reject(error);
         }
         localStorage.removeItem('access_token');
-        window.location.href = '/login';
+        /**
+         * 已经在登录页时**不要再整页跳转**（t95）：
+         * 登录失败本身就是 401，跳转会打断页面把「错误态」呈现给用户
+         * （角色抖动 + 行内错误提示），并让用户重填一遍表单。
+         * 其它页面仍按原逻辑回登录页。
+         */
+        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
         return Promise.reject(error);
       }
       if (!silent) {
