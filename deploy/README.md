@@ -2290,3 +2290,15 @@ curl -s -X PUT "http://192.168.188.200:8089/api/v1/users/me/preferences" \
 - 主题**只影响登录页外观**，登录后界面不随主题变化（避免与 t53 的 i18n / 布局主题混淆）；
 - 前端未登录时无法读取偏好 → 登录页默认主题为 `pencil`，登录成功后按 `loginTheme` 切换（t97 实现）；
 - `login_theme` 参与用户导出/详情响应？**否**（只在 `/auth/login`、`/auth/me`、`/auth/refresh`、`/users/me/preferences` 出现）。
+
+### 47.6 发布与线上复核（2026-11-04）
+
+| 项 | 结果 |
+|---|---|
+| 后端重建 | 远端 `mvn -B -DskipTests package` BUILD SUCCESS 16.6s，jar **73,061,357 B**；旧 jar/旧 src 备份到 `~/backups/` |
+| 重启 | `systemctl --user restart vuln-audit-backend` → `active`；login=200（`loginTheme=pencil`，兜底生效）、`/projects`=200、`/users/me/preferences`=200 |
+| 冒烟 | **TOTAL=228 PASS=228 FAIL=0 SKIP=0** |
+| 偏好接口 | `PUT {"loginTheme":"owl"}` → 200，再次登录 `loginTheme=owl`；`{"loginTheme":"neon"}` → 400 中文 / `Accept-Language: en` → 400 英文 |
+| 审计去重 | `keyword=updateMyPreferences` 行数不变（**+0**）；`action=UPDATE_LOGIN_THEME` **+1**，details 含 `from=pencil -> to=geometric` |
+| 迁移 | 线上 `spring.flyway.enabled=false`，`users.login_theme` 由手工 DDL 建立（`deploy/manual-ddl.sql`「V19」段）；本次重启未触发新迁移 |
+| 数据清理 | 冒烟夹具清理后 assets=3 / customers=1 / projects=1 / phases=0 / links=3，`orphan=0` |

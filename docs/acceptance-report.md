@@ -1303,3 +1303,14 @@ t94 修复：两个方法改为可写事务 `@Transactional`，并新增守卫�
 只能改自己 / login+me 响应含 `loginTheme` / 未认证 401 / 审计落库 / 同值不写审计 / 一次改动仅 1 条审计）。
 规则、DDL 与 curl 复核见 README §47。
 
+
+**线上复核（2026-11-04，jar 73,061,357 B）**
+
+| 项 | 实测 |
+|---|---|
+| 登录响应 | `loginTheme=pencil`（历史 NULL 行已被兜底为 pencil，不再返回 null） |
+| PUT 合法值 | `{"loginTheme":"owl"}` → 200，再次登录 `loginTheme=owl` |
+| PUT 非法值 | `{"loginTheme":"neon"}` → 400 `不支持的登录页主题: neon`；`Accept-Language: en` → 400 `Unsupported login page theme: neon` |
+| 审计去重 | `keyword=updateMyPreferences` 行数 2 → 2（+0）；`action=UPDATE_LOGIN_THEME` 2 → 3（+1），details=`登录页主题变更: from=pencil -> to=geometric`、resourceType=user、resourceId=本人 |
+| 回归 | `mvn -B clean test` **680/680**（`UserPreferenceTest` 11 例） |
+| 冒烟 | 重建重启后 **228/228**；清理后 assets=3 / customers=1 / projects=1 / links=3、`orphan=0` |

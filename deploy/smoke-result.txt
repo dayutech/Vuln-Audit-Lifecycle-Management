@@ -300,3 +300,14 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 登录页主题偏好（t96）线上复核：`PUT /users/me/preferences {"loginTheme":"owl"}` → 200，再次登录 `loginTheme=owl`；
   `{"loginTheme":"neon"}` → **400** `不支持的登录页主题: neon`，`Accept-Language: en` → `Unsupported login page theme: neon`；
   复核后已把 admin 偏好改回 `pencil`。
+
+--- 第十四节补记 2（2026-11-04 15:57 重建重启后复核，t96 代码上线） ---
+- 后端重建（远端 `~/opt/apache-maven-3.9.9/bin/mvn -B -DskipTests package`，BUILD SUCCESS 16.6s）：
+  jar **73,061,357 B**；旧 jar 与旧 src 已备份到 `~/backups/vuln-audit-backend-t94_20261104_075656.jar`、`backend_src_20261104_075656.tar.gz`
+  （远端 shell 为 UTC，对应本地 15:56）。`systemctl --user restart` 后 `active`，login=200（含 `loginTheme=pencil`）、`/projects`=200、`/users/me/preferences`=200。
+- 冒烟（同一命令，新 jar）**TOTAL=228 PASS=228 FAIL=0 SKIP=0**。
+- 偏好审计去重线上实测：`PUT /users/me/preferences` 后 `keyword=updateMyPreferences` 行数 2 → 2（**+0**，已被 SKIP_ENDPOINTS 跳过），
+  `action=UPDATE_LOGIN_THEME` 2 → 3（**+1**，`details=登录页主题变更: from=pencil -> to=geometric`，`resourceType=user`、`resourceId=本人`）；
+  复核后已改回 `pencil`。
+- 数据清理（同口径 cleanup2.sql）：删除 3 资产 / 4 项目 / 3 客户及其期次与挂靠；终态
+  **assets=3 / customers=1 / projects=1 / phases=0 / links=3 / documents=0 / vulns=0**，`orphan_assets=0 / orphan_links=0 / orphan_projects=0`。
