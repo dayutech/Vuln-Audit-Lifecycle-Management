@@ -291,6 +291,22 @@ WHERE NOT EXISTS (SELECT 1 FROM asset_project_links l WHERE l.asset_id = a.id);
 
 
 -- =============================================================================
+-- V19：用户登录页主题偏好（t96）
+-- =============================================================================
+-- 登录页 4 套主题（pencil / geometric / owl / pixel-eyes），用户选择后跨设备保留。
+-- 幂等：ADD COLUMN IF NOT EXISTS（MariaDB 10.x 支持；重复执行不报错）。
+ALTER TABLE users ADD COLUMN IF NOT EXISTS login_theme VARCHAR(32) NOT NULL DEFAULT 'pencil';
+
+-- 校验：列存在且默认值为 pencil
+SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'login_theme';
+
+-- 校验：存量用户全部落到默认主题（不应有 NULL / 空串）
+SELECT COUNT(*) AS users_without_theme FROM users WHERE login_theme IS NULL OR login_theme = '';
+
+
+-- =============================================================================
 -- 执行完成后的统一核对
 -- =============================================================================
 -- 1) Flyway 版本号唯一（防止后续误引入重号）：

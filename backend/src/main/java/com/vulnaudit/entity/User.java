@@ -98,6 +98,16 @@ public class User {
     private String position;
 
     /**
+     * 登录页主题偏好（t96）：pencil / geometric / owl / pixel-eyes，默认 pencil。
+     *
+     * <p>DB 列 {@code login_theme VARCHAR(32) NOT NULL DEFAULT 'pencil'}（V19）；
+     * 写入前由服务层做白名单校验，非法值不会落库。
+     */
+    @lombok.Builder.Default
+    @Column(name = "login_theme", length = 32, nullable = false)
+    private String loginTheme = "pencil";
+
+    /**
      * 用户状态
      * 可选值：active(活跃)/suspended(暂停)/deactivated(停用)
      * 默认值为 active

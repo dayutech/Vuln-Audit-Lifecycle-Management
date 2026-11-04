@@ -41,4 +41,10 @@ public class LoginResponse {
     @Schema(description = "用户邮箱", example = "admin@example.com")
     private String email;
 
+    /**
+     * 登录页主题偏好（t96）：登录后直接拿到，避免再发一次 /users/me/preferences
+     */
+    @Schema(description = "登录页主题偏好", example = "pencil")
+    private String loginTheme;
+
 }

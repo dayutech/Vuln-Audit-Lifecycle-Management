@@ -111,6 +111,7 @@ public class AuthController {
                 .username(user.getUsername())
                 .fullName(user.getFullName())
                 .email(user.getEmail())
+                .loginTheme(user.getLoginTheme() == null ? "pencil" : user.getLoginTheme())
                 .build();
 
         log.info("用户登录成功: username={}", user.getUsername());
@@ -139,7 +140,7 @@ public class AuthController {
      * 获取当前用户信息
      */
     @GetMapping("/me")
-    @Operation(summary = "获取当前用户信息", description = "获取当前登录用户的详细信息")
+    @Operation(summary = "获取当前用户信息", description = "获取当前登录用户的详细信息（含登录页主题偏好 loginTheme）")
     @SecurityRequirement(name = "bearerAuth")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "获取成功"),
@@ -252,6 +253,7 @@ public class AuthController {
                 .username(user.getUsername())
                 .fullName(user.getFullName())
                 .email(user.getEmail())
+                .loginTheme(user.getLoginTheme() == null ? "pencil" : user.getLoginTheme())
                 .build();
 
         log.info("令牌刷新成功: username={}", username);

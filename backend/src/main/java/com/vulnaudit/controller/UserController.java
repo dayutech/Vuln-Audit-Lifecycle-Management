@@ -73,6 +73,8 @@ public class UserController {
     private final PermissionService permissionService;
     private final UserRoleRepository userRoleRepository;
     private final UserPermissionRepository userPermissionRepository;
+    private final com.vulnaudit.service.UserPreferenceService userPreferenceService;
+    private final com.vulnaudit.security.CurrentUserProvider currentUserProvider;
 
     /**
      * 创建用户
@@ -552,4 +554,51 @@ public class UserController {
         return ApiResponse.success(result);
     }
 
+
+    // ------------------------------------------------------------------ 用户偏好（t96）
+
+    /**
+     * 读取当前用户的偏好
+     *
+     * <p>只读自己：路径固定 {@code /me}，不接收用户ID参数。
+     */
+    @GetMapping("/me/preferences")
+    @Operation(summary = "获取当前用户偏好", description = "返回登录页主题等偏好；登录即可访问，只作用于当前用户")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "查询成功"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "未授权")
+    })
+    public ApiResponse<com.vulnaudit.dto.UserPreferencesResponse> getMyPreferences() {
+        return ApiResponse.success(userPreferenceService.getPreferences(currentUserId()));
+    }
+
+    /**
+     * 更新当前用户的偏好（登录页主题）
+     *
+     * <p>白名单：{@code pencil / geometric / owl / pixel-eyes}；非法值 → 400（中英文案由 MessageSource 决定）。
+     * 写审计 {@code UPDATE_LOGIN_THEME}（resourceType=user）。
+     */
+    @PutMapping("/me/preferences")
+    @Operation(summary = "更新当前用户偏好", description = "仅支持修改自己的登录页主题；非法主题 400")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "更新成功"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "不支持的登录页主题"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "未授权")
+    })
+    public ApiResponse<com.vulnaudit.dto.UserPreferencesResponse> updateMyPreferences(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    description = "偏好更新请求", required = true)
+            @jakarta.validation.Valid @org.springframework.web.bind.annotation.RequestBody
+            com.vulnaudit.dto.UpdateUserPreferencesRequest request) {
+
+        return ApiResponse.success(
+                userPreferenceService.updatePreferences(currentUserId(), request.loginTheme()));
+    }
+
+    /**
+     * 当前登录用户ID（未认证返回 null，服务层按 401 处理）
+     */
+    private java.util.UUID currentUserId() {
+        return currentUserProvider.currentUserId().orElse(null);
+    }
 }
