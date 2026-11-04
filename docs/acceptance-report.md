@@ -10,7 +10,7 @@
 
 ## 0. 验收结论
 
-**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**659 个后端用例 100% 通过**（历批累计，第五批新增 t82 聚合 8 例 + t85 导入 10 例），线上冒烟 **208/208 全绿**（t13 的 92 + t41 的 16 + t47 的 20），三账号交叉验证通过。
+**结论：通过。** 三张清单逐项闭环（缺陷已修复、能力已实现、前后端契约已对齐），鉴权覆盖已逐端点核对（无注解缺口已列清并给出结论），SRS 十二个功能域全部达到「已实现」，**679 个后端用例 100% 通过**（历批累计，第五批新增 t82 聚合 8 例 + t85 导入 10 例；第七批 t93 审计 9 例 + t94 事务守卫 1 例 + t96 登录页偏好 10 例），线上冒烟 **228/228 全绿**（t13 的 92 + t41 的 16 + t47 的 20 + 后续批次增量），三账号交叉验证通过。
 
 第二批（t49/t50/t51/t55）之后**鉴权缺口清零（15 → 0 组）**：资产域 6 组、协作域 4 组、组织/工具域 2 组、工具域追加 3 个端点全部收口，资产可见性与团队可见性均统一为单一事实来源：3 组「高」severity 缺口（团队 CRUD、环境增删改与部署、公告写）已修复，资产认领「完成/放弃」状态机已打通（此前恒 403）。
 
@@ -18,8 +18,8 @@
 
 | 关键指标 | 数值 |
 |---|---|
-| 后端自动化测试 | **659 用例 / 通过率 100%**（含客户/项目/挂靠域 CustomerProjectApi 14、AssetProjectLink 15、CustomerSummary 8、ImportAssetProject 10 等），`mvn -B clean test` 35:26 全绿 |
-| 线上冒烟 | **222 用例 / 222 PASS / 0 FAIL / 0 SKIP**（含 t92 新增 14 条模拟视角用例），发布后复跑全绿 |
+| 后端自动化测试 | **679 用例 / 通过率 100%**（含客户/项目/挂靠域 CustomerProjectApi 14、AssetProjectLink 15、CustomerSummary 8、ImportAssetProject 10 等），`mvn -B clean test` 全绿（2026-11-04 第七批复核 679/679，含 t93 审计 9 + t94 事务守卫 1 + t96 偏好 10） |
+| 线上冒烟 | **228 用例 / 228 PASS / 0 FAIL / 0 SKIP**（含 t94 新增审计语义用例），发布后复跑全绿 |
 | 部署后专项核对 | 11a~11k 共 **13 项实测全 PASS** |
 | 空库引导（真实建库路径） | 56 张表、RBAC 90 权限点 / 261 关联、admin 登录 200、`permissionCount=90` |
 | 接口总数 / 已做鉴权 | 263 个端点；角色注解 74、数据级守卫 79、方法内校验 12 → **165 个显式鉴权端点**（写端点 108/135 = 80%），其余见 §2 |
@@ -900,6 +900,27 @@ customers(id, code uk, name, industry, level, owner_id, status)
 | 4 | 模拟视角 | **PASS**（入口可见 → 选择器可开 → 发起 200 → 横幅含用户名与倒计时 → 账号管理菜单隐藏、客户管理写入口（新建客户）隐藏 → 退出后横幅消失、admin 视图恢复、localStorage 三键清除） |
 | 5 | 工程师登录 | **PASS**（无「以其他用户视角查看」入口） |
 
+
+### 7.9 第七批发布与回归（t94：模拟视角审计实测与事务修复）
+
+| 项 | 结果 |
+|---|---|
+| 后端回归 | `mvn -B clean test`（独占 target）→ **Tests run: 679, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS（2026-11-04 复核）；659 → 679（t93 9 例 + t94 守卫 1 例 + t96 偏好 10 例） |
+| 后端重建 | package BUILD SUCCESS，jar **73,060,869 B**（md5 0ccf01e4…）；重启后 login=200、`/projects`=200、`/projects/summary`=200、`/users/me/preferences`=200，服务 active |
+| 线上审计实测 | `IMPERSONATE_START/STOP` 落库（START=11 / STOP=10）；details 四要素齐全（actor/target/ttlSeconds/reason）；一次模拟 START **+1**；今日拦截器重复行增量 **0**（全库 19 条均为 t90/t92 历史行）；`details` 列 TEXT、最长 165 字符未被截断 |
+| 缺陷修复 | `ImpersonationServiceImpl.impersonate()/stop()` 由 `@Transactional(readOnly=true)` 改为可写事务（原标记导致审计插入被静默丢弃，t93 的 H2 用例因测试事务读写而漏检）+ 新增反射守卫用例 |
+| 冒烟 | **TOTAL=228 / PASS=228 / FAIL=0 / SKIP=0**（新增 6 条；另修正 2 条旧用例：访问申请正例改由管理员发起、拦截器重复行改用前后差值判定；另修掉脚本 `$BASE` 未定义变量的噪音） |
+| 数据清理 | 按 README §23.1：assets 18→3、customers 16→1、projects 21→1、phases 10→0、links 18→3、documents 1→0；**orphan=0**，终态 `customers=1 / projects=1 / assets=3 / links=3` |
+| 前端 | 无改动，无需 sync-dist |
+
+| # | 校验点 | 结果 |
+|---|---|---|
+| 1 | 发起审计四要素 | **PASS**（details 含 actor= / target= / ttlSeconds= / reason=） |
+| 2 | 一次模拟仅 1 条 START | **PASS**（before=8 → after=9，差值恒为 1） |
+| 3 | 无拦截器重复行 | **PASS**（拦截器行数 before=19 after=19，历史行保留） |
+| 4 | 停止审计 | **PASS**（before=7 → after=8，details 含 actor/target） |
+| 5 | 访问申请：资产不存在 404 / 跨团队 403 | **PASS**（t93 前为 400） |
+
 ---
 
 ## 8. 仍建议后续跟进的事项（不阻塞验收）
@@ -920,8 +941,8 @@ customers(id, code uk, name, industry, level, owner_id, status)
 | 12 | ~~项目列表逐项目查询详情（N+1）~~ **已完成（t82/t83）** | 新增 `GET /projects/summary` 批量聚合（phaseCount/assetCount/openTaskCount + 客户名/经理名），前端一次请求拿全；查询数约 7 条与页大小无关，页面实测 `/projects/{id}` 请求 **0 个**，见 §2.14 |
 | 13 | ~~`message.success` 等提示文案仍中文~~ **已完成（t84/t88）** | `message.success/info/warning/error` 前端自有文案中文 **0 处**；导入/工具/知识库/文档四页正文同步迁移，见 §3.6 |
 | 14 | ~~未迁移页面正文仍有中文~~ **部分完成（t88 第二批）** | 已迁：导入/工具/知识库/文档/任务表格以外的主路径；仍余 tasks/users/teams/roles/approvals/asset-groups 等页面正文约 552 行，建议按「tasks → 组织域（users+roles+teams）→ 审批域」分批 |
-| 15 | 模拟视角审计事件名与字段对齐 | t92 实测：发起/停止记为拦截器 action（`POST AdminImpersonationController.impersonate`，且被截断为 40 字符），`IMPERSONATE_START/STOP` 与发起行 actor/target/reason 未落库；建议改文档或补专用审计（见 §2.16 实测备注） |
-| 16 | 统一“不可见资源”的状态码 | `POST /assets/{id}/access-requests` 对不可见资产返回 **400**「无权访问该资产」，同类守卫多为 403，建议统一 |
+| 15 | ~~模拟视角审计事件名与字段对齐~~ **已完成（t93/t94）** | 线上实测 `IMPERSONATE_START/STOP` 落库、details 含 actor/target/ttlSeconds/reason、一次模拟仅 1 条且无拦截器重复；期间修掉 `@Transactional(readOnly=true)` 导致插入被静默丢弃的缺陷（见 §2.16） |
+| 16 | ~~统一“不可见资源”的状态码~~ **已完成（t93）** | 访问申请对跨团队资产改为 **403**，资产不存在仍 **404**（`AccessGuard.canRequestAssetAccess`） |
 | 17 | 模拟视角上线运维要求 | TTL 内 token 等效目标用户：建议生产开启时限制内网、日检审计、把 `reason` 改为必填 |
 
 ---
@@ -1208,20 +1229,77 @@ level 非法 / 项目 2 行成功含 isPhased 变体+审计 / customerCode 不�
 
 证据：`ImpersonationTest` 11 例（签发与 claims、START/STOP 审计、业务审计 `impersonatedBy` + 普通态对照组、
 非 admin 发起、模拟 admin 409、目标 404/停用 400、链式 403、身份端点写 403 ×5 + 读放行、过期 401）。
+
+**t93 修订（审计补全 + 状态码统一）**
+
+| 问题（t92 实测） | 根因 | 修复 |
+|---|---|---|
+| 发起/停止记为 `POST AdminImpersonationController.impersonate`，details 只有 URI | `AuditTrailInterceptor` 按「方法名」生成 action（且截断到 50），同时服务层已写专用审计 → **两条** | `AdminImpersonationController` 加入 `SKIP_CONTROLLERS`，只保留服务层 `IMPERSONATE_START/STOP`（一次模拟 1 条） |
+| 无法回答「谁以什么理由模拟了谁」 | 拦截器行不含语义字段 | 服务层 details 固定四要素：`actor=<username(id)>`、`target=<username(id)>`、`ttlSeconds=`、`reason=`（未填记 `(未填写)`）；STOP 无 `reason=` 键 |
+| details 是否被截断 | 截断只作用于 `action`（varchar 50），详情另限 500 | `audit_logs.details` 为 **TEXT**，服务层详情完整落库（无需迁移） |
+| `POST /assets/{id}/access-requests` 对不可见资产返回 400「无权访问该资产」 | `ASSET_ACCESS_DENIED` 的 code=1203（非 HTTP 状态）被 handler 兜成 400；且端点此前**没有任何可见性守卫** | ① `ASSET_ACCESS_DENIED` 改 **403**；② 新增 `AccessGuard.canRequestAssetAccess`（管理层/负责人/资产所属团队成员/已获批 → 放行，其余 **403**），既统一语义又保留「同团队可申请」的功能路径；③ 资产不存在仍 **404**（存在性用 404、权限用 403） |
+
+证据：`ImpersonationAuditTest` 9 例（START 四要素齐全 / 未填 reason 显式标注 / 一次模拟仅 1 条且无 `AdminImpersonationController` 行 /
+STOP 含 actor+target 且无 reason / 模拟期业务写仍含 `impersonatedBy` / 跨团队资产申请 403 / 可见资产 201 / 重复申请 409 / 不存在资产 404）；
+回归 `ImpersonationTest`(11) + `AssetControllerTest` + `ApprovalFlowTest` + `AssetDomainAuthorizationTest` 共 55 例全绿（`AssetControllerTest` 夹具补「工程师加入团队」，未放宽任何守卫）。
 接口、清单与风险说明见 README §44。
 
 
-**t92 线上实测备注（审计语义与设计文档的差异）**
+**t92 实测备注 → t93/t94 已修复（当前线上口径）**
 
-| 项 | 设计（t90 文档） | 线上实测（v73,052,099） |
-|---|---|---|
-| 发起审计 `action` | `IMPERSONATE_START` | **`POST AdminImpersonationController.impersonate`**（拦截器按 Controller 方法名生成，且被截断到 40 字符 → 停止为 `…stopImpersonatio`） |
-| 发起审计 `details` | `模拟开始: actor=…, target=…, ttlSeconds=…, reason=…` | 仅 `"/api/v1/admin/impersonate"`（不含 actor/target/reason） |
-| 发起审计 `user_id` | 真实操作者 ADMIN | **正确**：`userId` = admin（截图中 `164503da-…`） |
-| 停止审计 | `IMPERSONATE_STOP` | `POST AdminImpersonationController.stopImpersonatio`，`user_id` = **被模拟用户**（请求带受限 token），`details` 含 `; impersonatedBy=<adminId>` |
-| 模拟期间业务写 | 目标用户 + `impersonatedBy` | **正确**：`action=POST AssetController…/DocumentController…`、`userId`=目标用户、`details` 含 `impersonatedBy=<adminId>` |
+t92 发现：发起/停止只留下拦截器生成的 `POST AdminImpersonationController.impersonate`（details 仅 URI，action 被截断 40 字符），设计文档里的 `IMPERSONATE_START/STOP` 未落库。t93 修复根因（控制器加入 `SKIP_CONTROLLERS`，由服务层写专用事件），t94 线上复核如下：
 
-结论：**「业务操作可追溯到真实管理员」这一安全目标已达成**（`impersonatedBy` 落在 details），
-但 t90 文档里的 `IMPERSONATE_START/STOP` 事件名与发起行的 actor/target/reason 字段**未落库**，需二选一：
-①把文档改为实测语义（推荐，零代码风险）；②在服务层显式写两条专用审计（`action=IMPERSONATE_START/STOP`、`details` 带 actor/target/reason/ttl），并解决 40 字符截断。
-另记：`POST /assets/{id}/access-requests` 在资产不可见时返回 **400「无权访问该资产」**（同类守卫多为 403），状态码语义待统一。
+| 项 | 线上实测（2026-11-04 14:5x–15:0x 复核，jar 73,060,869 B，md5 0ccf01e4…） |
+|---|---|
+| `action` | **`IMPERSONATE_START` / `IMPERSONATE_STOP`**（专用事件，不再是 Controller 行） |
+| 发起 `details` | `模拟开始: actor=admin(<id>), target=smoke_engineer(<id>), ttlSeconds=7200, reason=…` —— **四要素齐全** |
+| 停止 `details` | `模拟结束: actor=…, target=…`（无 reason 键，符合设计） |
+| 一次模拟的 START 条数 | **恰好 +1**（冒烟断言 before/after 差值为 1） |
+| 拦截器重复行增量 | **0**（`keyword=AdminImpersonationController` 总数不变；复核日新增行数为 **0**，库内 19 条历史行来自 t90/t92 旧版本，保留可追溯） |
+| 累积计数 | `action='IMPERSONATE_START'` **11 条** / `IMPERSONATE_STOP` **10 条**（第 11 条 START 为停止前中断所留，非重复写入） |
+| `details` 是否被截断 | 列类型 `TEXT`，实测最长 **165 字符** 完整落库（截断只作用于 `action` varchar(50)） |
+| 模拟期业务写 | `userId`=目标用户、`details` 含 `impersonatedBy=<adminId>`（回归通过） |
+
+**t94 额外发现并已修复的缺陷（重要）**
+
+t93 上线后线上**依然写不出** `IMPERSONATE_START`：日志有「记录审计日志」但库中无行。根因是 `ImpersonationServiceImpl.impersonate()/stop()` 标了 `@Transactional(readOnly = true)` —— Hibernate 只读会话以 `FlushMode.MANUAL` 丢弃插入，**既不报错也不落库**；而 `BaseTest` 的 `@Transactional` 会把该标记「合并」进读写事务，所以 `ImpersonationAuditTest` 9 例全绿却漏检。
+t94 修复：两个方法改为可写事务 `@Transactional`，并新增守卫用例 `impersonationServiceTransactionsMustBeWritable`（反射断言 `readOnly=false`），防止再次退化。
+
+**状态码统一（t93）**：`POST /assets/{id}/access-requests` 对跨团队不可见资产 **403**（原 400），资产不存在仍 **404**，同团队/负责人/管理层放行。
+
+### 2.17 用户登录页主题偏好（t96）
+
+**目标**：登录页提供 4 套主题（`pencil` / `geometric` / `owl` / `pixel-eyes`），用户选择后**跨设备保留**。
+本轮为后端部分（前端应用见 t97）。
+
+**数据模型**：`users.login_theme VARCHAR(32) NOT NULL DEFAULT 'pencil'`，
+迁移 `V19__add_user_login_theme.sql`（`ADD COLUMN IF NOT EXISTS`，幂等；H2 2.x 与 MariaDB 10.x 均可），
+生产 Flyway 关闭 → `deploy/manual-ddl.sql` 等价段。
+
+**接口**
+
+| 方法 | 路径 | 权限 | 返回 |
+|---|---|---|---|
+| GET | `/api/v1/users/me/preferences` | 登录即可 | `{loginTheme}`（默认 `pencil`） |
+| PUT | `/api/v1/users/me/preferences` | 登录即可 | 200 + 更新后的 `{loginTheme}` |
+| POST | `/api/v1/auth/login` | 公开 | 响应新增 `loginTheme`（省一次请求） |
+| GET | `/api/v1/auth/me`、`POST /auth/refresh` | 登录即可 | 响应含 `loginTheme` |
+
+**安全边界**
+
+1. **只能改自己**：路径固定 `/me`，用户ID 来自 `CurrentUserProvider`；`UpdateUserPreferencesRequest` 只有 `loginTheme` 字段，
+   请求体/查询参数带 `userId` 会被忽略（单测用「工程师带 admin 的 userId」验证 admin 偏好未被改动）。
+2. **白名单 + 归一化**：`pencil/geometric/owl/pixel-eyes`；` OWL ` → `owl`；非法值 **400** 且**不落库**；
+   读取时库内脏值回落 `pencil`（不把非法值回吐）。
+3. **i18n**（t60 MessageSource）：中文 `不支持的登录页主题: neon`，英文 `Unsupported login page theme: neon`；
+   另补 `validation.user.login_theme.required/too_long` 两个校验消息码，避免 400 时回显原始 key。
+4. **审计单条**：`action=UPDATE_LOGIN_THEME`、`resource_type=user`、`resource_id=本人`、
+   `details=登录页主题变更: from=pencil -> to=owl`；**同值不写**；
+   `AuditTrailInterceptor` 用 `SKIP_ENDPOINTS` 精确跳过该端点，避免再生成一条 `PUT UserController.updateMyPreferences`
+   （未把 `UserController` 整体加入 `SKIP_CONTROLLERS`，用户 CRUD 审计不受影响）。
+5. **未认证 → 401**（GET 与 PUT 均是）。
+
+证据：`UserPreferenceTest` **11 例**（默认 pencil / 合法值 200 且库内生效 / 大写归一 / 非法值 400 中文 / 非法值 400 英文 /
+只能改自己 / login+me 响应含 `loginTheme` / 未认证 401 / 审计落库 / 同值不写审计 / 一次改动仅 1 条审计）。
+规则、DDL 与 curl 复核见 README §47。
+

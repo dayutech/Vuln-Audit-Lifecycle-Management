@@ -2074,6 +2074,43 @@ cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   #
 
 即：业务动作「看起来是目标用户做的」，但每条都带真实操作者，可完整回溯「谁以谁的身份做了什么」。
 
+#### 44.4.1 审计落地细节（t93 修订，实测口径）
+
+| 项 | 结论 |
+|---|---|
+| 谁写 START/STOP | **服务层显式写入**（`ImpersonationServiceImpl`），不依赖拦截器 |
+| 拦截器是否重复 | 否 —— `AdminImpersonationController` 已加入 `AuditTrailInterceptor.SKIP_CONTROLLERS`，**一次模拟只产生 1 条**审计（t90 时曾出现「拦截器行 + 服务层行」两条，t93 修正） |
+| `details` 是否被截断 | 不会。`audit_logs.details` 列类型为 **TEXT**（`AuditLog#details` 用 `columnDefinition = "TEXT"`）；拦截器的 40/50 字符截断只作用于 `action`（`varchar(50)`），详情行另限 500。服务层写入的 details（约 150–220 字符）完整落库 |
+| 可检索性 | `SELECT action, resource_id, details FROM audit_logs WHERE action LIKE 'IMPERSONATE%'` 可直接读出 actor / target / reason / ttlSeconds |
+
+发起审计示例（实测格式）：
+
+```
+action       IMPERSONATE_START
+resourceType user
+resourceId   <目标用户ID>
+user_id      <管理员ID>
+details      模拟开始: actor=admin(5f1c…), target=engineer1(8c2e…), ttlSeconds=7200, reason=季度权限审阅
+```
+
+停止审计（无 `reason=` 键）：
+
+```
+details      模拟结束: actor=admin(5f1c…), target=engineer1(8c2e…)
+```
+
+### 44.4.2 顺带统一：资产访问申请的状态码（t93）
+
+| 场景 | 修复前 | 现在 |
+|---|---|---|
+| `POST /assets/{id}/access-requests`，调用者与资产**无工作关系**（跨团队、非负责人、无已批权限） | 一路走到服务层 → **400**「无权访问该资产」 | **403**（新增 `AccessGuard.canRequestAssetAccess` 守卫，不泄露存在性） |
+| 同上，资产**不存在** | 404 | 404（`SubresourceGuard`，保持「存在性用 404、权限用 403」） |
+| 同上，已有 **approved** 权限、重复申请 | 400（`ASSET_ACCESS_DENIED` 的 code 1203 被 handler 兜成 400） | **403**（`ASSET_ACCESS_DENIED` 的 code 改为 403，与其它守卫统一） |
+| 同上，已有 **pending** 申请 | 409 | 409（不变） |
+| 本团队成员 / 资产负责人 / 管理层 | 201 | 201（`canRequestAssetAccess` 放行，功能不被误伤） |
+
+`canRequestAssetAccess` 口径：管理层 → 放行；资产负责人 → 放行；资产所属**团队成员（含组长）** → 放行；已获批访问 → 放行；其余 → **403**。
+
 ### 44.5 安全约束（逐条实现 + 测试）
 
 | # | 约束 | 实现位置 | 测试 |
@@ -2084,7 +2121,7 @@ cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   #
 | 4 | 链式模拟 → 403 | 守卫过滤器的 `/admin/**` | `chainedImpersonationForbidden` |
 | 5 | 模拟态写身份端点 → 403 | 守卫过滤器 | `impersonationCannotWriteIdentityEndpoints` |
 | 6 | token 过期 → 401 | 既有 `AuthenticationEntryPoint` | `expiredImpersonationTokenUnauthorized` |
-| 7 | start/stop 审计 + 业务审计归属 | 服务层 + `AuditTrailInterceptor` | `impersonateWritesStartAudit` / `stopWritesAudit` / `businessAuditAttributedToTargetWithActor` |
+| 7 | start/stop 审计 + 业务审计归属（一次模拟仅 1 条） | 服务层显式写 + `SKIP_CONTROLLERS` + `AuditTrailInterceptor` | `ImpersonationAuditTest`（9 例）/ `ImpersonationTest`（11 例） |
 | 8 | 普通态非 ADMIN 调 stop → 403 | 服务层校验 `act`/当前用户的 admin 角色 | `nonAdminCannotStop` |
 
 ### 44.6 风险与关闭方式
@@ -2136,3 +2173,120 @@ cd backend && mvn -B clean test                      # 全量回归
 cd backend && mvn -B clean test                                   # 期望 659 passed
 cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 222/222
 ```
+
+## 46. 第七批发布（模拟视角审计实测与事务修复，t93/t94）
+
+时间：2026-11-03 17:0x 首轮，**2026-11-04 14:55–15:05 复核（本轮口径以复核为准）**。**无新增迁移**，前端无改动（未 sync-dist）。
+
+| 项 | 结果 |
+|---|---|
+| 后端回归 | `mvn -B clean test`（服务端 JDK21 + Maven 3.9.9，独占 target）→ **Tests run: 679, Failures: 0, Errors: 0, Skipped: 0**，BUILD SUCCESS；659 → 679（t93 9 + t94 守卫 1 + t96 偏好 10） |
+| 后端重建 | package BUILD SUCCESS，jar **73,060,869 B**（md5 0ccf01e4bef511c29357d1e813ab26ad）；`systemctl --user restart` 后 14s 内 login=200，`/projects`、`/projects/summary`、`/users/me/preferences` 均 200，服务 `active` |
+| 线上审计实测 | `IMPERSONATE_START` / `IMPERSONATE_STOP` 落库（累积 11 / 10）；`details` = `模拟开始: actor=admin(<id>), target=smoke_engineer(<id>), ttlSeconds=7200, reason=…`；一次模拟 START **+1**；**复核日拦截器重复行增量 0**（库内 19 条历史行来自 t90/t92，保留）；`details` 列 TEXT，最长 165 字符完整落库 |
+| 冒烟 | **TOTAL=228 / PASS=228 / FAIL=0 / SKIP=0** |
+| 数据清理 | assets 18→3、customers 16→1、projects 21→1、phases 10→0、links 18→3、documents 1→0；**orphan=0**，终态 `customers=1 / projects=1 / assets=3 / links=3` |
+
+**t94 发现并修复的缺陷（重要）**
+t93 上线后线上仍写不出 `IMPERSONATE_START`：日志有「记录审计日志」，库中无行。
+根因：`ImpersonationServiceImpl.impersonate()/stop()` 标注 `@Transactional(readOnly = true)` —— Hibernate 只读会话以 `FlushMode.MANUAL` **静默丢弃插入**（不报错也不落库）；而 `BaseTest` 的 `@Transactional` 会把该标记并入读写事务，导致 `ImpersonationAuditTest` 9 例全绿仍漏检。
+修复：改为可写事务 `@Transactional`；新增反射守卫用例 `impersonationServiceTransactionsMustBeWritable`（断言 `readOnly=false`）。
+
+**状态码统一（t93）**：`POST /assets/{id}/access-requests` 跨团队 → **403**（原 400）、资产不存在 **404**、同团队/负责人/管理层放行。
+
+**冒烟适配（旧用例跟随新契约，未放宽断言）**
+1. `asset/访问申请-创建`：t93 后工程师对跨团队资产会被 403，正例改由管理员发起（跨团队 403 由新增 `access-request/跨团队-403` 覆盖）；
+2. `audit/无拦截器重复行`：历史拦截器行无法清除，改为「发起前后拦截器行数不变」的差值判定；
+3. 脚本缺陷修正：`$BASE`（未定义，`set -u` 下报 `unbound variable`）改为 `$BASE_URL`，消除 stderr 噪音（判定结果不变，仅取 admin userId 的兜底路径不再被打断）。
+
+```bash
+cd backend && mvn -B clean test                                   # 期望 679 passed
+cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 228/228
+MYSQL_PWD='***' mariadb -uvulnapp -e "SELECT action, details FROM vuln_audit.audit_logs WHERE action LIKE 'IMPERSONATE%' ORDER BY created_at DESC LIMIT 5"
+```
+
+## 47. 第三十一轮（用户登录页主题偏好：V19 + /users/me/preferences + 登录响应携带，t96）
+
+登录页提供 4 套主题（`pencil` / `geometric` / `owl` / `pixel-eyes`），用户在登录页选择后希望**跨设备保留**。
+本轮只做后端存储与接口，前端选择/应用由 t97 接入。
+
+### 47.1 数据模型
+
+| 项 | 值 |
+|---|---|
+| 列 | `users.login_theme VARCHAR(32) NOT NULL DEFAULT 'pencil'` |
+| 迁移 | `backend/src/main/resources/db/migration/V19__add_user_login_theme.sql`（`ADD COLUMN IF NOT EXISTS`，幂等；MariaDB 10.x 与 H2 2.x 均可） |
+| 生产手写 DDL | `deploy/manual-ddl.sql`「V19」段（生产 `spring.flyway.enabled=false`，需手工执行后再重启） |
+| 实体 | `User.loginTheme`（`@Builder.Default` = `pencil`） |
+
+```sql
+-- 手工 DDL（与 V19 等价）
+ALTER TABLE users ADD COLUMN IF NOT EXISTS login_theme VARCHAR(32) NOT NULL DEFAULT 'pencil';
+```
+
+### 47.2 接口
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | `/api/v1/users/me/preferences` | 登录即可 | 返回 `{"loginTheme":"pencil"}`（默认 pencil） |
+| PUT | `/api/v1/users/me/preferences` | 登录即可 | 请求体 `{"loginTheme":"owl"}` → 200，返回更新后的偏好 |
+| — | `POST /api/v1/auth/login` | 公开 | 响应新增 `loginTheme`（登录后无需再请求一次） |
+| — | `GET /api/v1/auth/me` | 登录即可 | 响应含 `loginTheme` |
+| — | `POST /api/v1/auth/refresh` | 登录即可 | 响应含 `loginTheme` |
+
+**只能改自己**：路径固定 `/me`，服务层从 `CurrentUserProvider` 取当前用户；请求体/查询参数里**即便带 `userId` 也不会被使用**
+（`UpdateUserPreferencesRequest` 只有 `loginTheme` 一个字段，未知字段被 Jackson 忽略），因此不存在「改他人偏好」的入口。
+
+**白名单与归一化**：`pencil` / `geometric` / `owl` / `pixel-eyes`；大小写与首尾空格自动归一（` OWL ` → `owl`）；
+非法值 → **400**，中文 `不支持的登录页主题: neon`、英文 `Unsupported login page theme: neon`
+（消息走 t60 的 `MessageSource`，按 `?lang=` → `Accept-Language` → 中文 的顺序选语言）。
+读取时若库内值异常（历史脏数据）回落到 `pencil`，不会把非法值回吐给前端。
+
+三个错误码对应的消息键：
+
+| 键 | 中文 | 英文 |
+|---|---|---|
+| `validation.user.login_theme.required` | 登录页主题不能为空 | Login page theme must not be blank |
+| `validation.user.login_theme.too_long` | 登录页主题长度不能超过32个字符 | Login page theme must not exceed 32 characters |
+| `error.user.login_theme.unsupported` | 不支持的登录页主题: {0} | Unsupported login page theme: {0} |
+
+### 47.3 审计（一次改偏好只有 1 条）
+
+| 事件 | `action` | `resource_type` | `resource_id` | `details` |
+|---|---|---|---|---|
+| 修改主题 | `UPDATE_LOGIN_THEME` | `user` | 本人用户ID | `登录页主题变更: from=pencil -> to=owl` |
+
+- 由 `UserPreferenceServiceImpl` 写（语义化），**值未变化时不写**（避免来回切换产生噪声）；
+- `AuditTrailInterceptor` 新增 `SKIP_ENDPOINTS = {"PUT /api/v1/users/me/preferences"}` 精确跳过该端点，
+  避免再生成一条 `PUT UserController.updateMyPreferences`；
+  **没有**把 `UserController` 整体加入 `SKIP_CONTROLLERS`（用户 CRUD / 角色分配 / 重置密码的审计仍由拦截器覆盖）。
+- 检索：`SELECT action, resource_id, details, created_at FROM audit_logs WHERE action = 'UPDATE_LOGIN_THEME' ORDER BY created_at DESC LIMIT 5;`
+
+### 47.4 验证
+
+```bash
+# 1) 只读默认值
+curl -s -H "Authorization: Bearer $TOKEN" http://192.168.188.200:8089/api/v1/users/me/preferences
+# → {"success":true,"data":{"loginTheme":"pencil"},...}
+
+# 2) 改为 owl（再次登录应带回 owl）
+curl -s -X PUT "http://192.168.188.200:8089/api/v1/users/me/preferences" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"loginTheme":"owl"}'
+
+# 3) 非法值 → 400（中/英）
+curl -s -X PUT "http://192.168.188.200:8089/api/v1/users/me/preferences" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"loginTheme":"neon"}'
+curl -s -X PUT "http://192.168.188.200:8089/api/v1/users/me/preferences" \
+  -H "Authorization: Bearer $TOKEN" -H 'Accept-Language: en' \
+  -H 'Content-Type: application/json' -d '{"loginTheme":"neon"}'
+```
+
+单测：`UserPreferenceTest` **11 例**（默认 pencil / 合法值更新且库内生效 / 大写归一二 / 非法值 400 中英各一 /
+只能改自己 / login 与 me 响应含 `loginTheme` / 未认证 401 / 审计落库 / 同值不重复写审计 / 一次改偏好仅 1 条审计）。
+
+### 47.5 已知边界
+
+- 主题**只影响登录页外观**，登录后界面不随主题变化（避免与 t53 的 i18n / 布局主题混淆）；
+- 前端未登录时无法读取偏好 → 登录页默认主题为 `pencil`，登录成功后按 `loginTheme` 切换（t97 实现）；
+- `login_theme` 参与用户导出/详情响应？**否**（只在 `/auth/login`、`/auth/me`、`/auth/refresh`、`/users/me/preferences` 出现）。

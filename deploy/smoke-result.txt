@@ -266,3 +266,20 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 数据清理：assets 15→3、customers 13→1、projects 17→1、phases 8→0、links 15→3、documents 0；orphan=0。
 - 发现：①发起/停止审计 action 实为 POST AdminImpersonationController.impersonate（截断 40 字符），非 IMPERSONATE_START/STOP，
   发起行 details 缺 actor/target/reason（报告 §2.16 备注、§8 #15）；②access-requests 不可见资产返回 400（§8 #16）。
+
+########## 十四、第七批发布与回归（t94：模拟视角审计实测 + 事务修复，2026-11-04 15:0x 复核） ##########
+- 后端：jar 73,060,869 B（md5 0ccf01e4…）；重启后 14s 内 login=200，/projects、/projects/summary、/users/me/preferences 均 200，服务 active；前端无改动（未 sync-dist）；无新增迁移。
+- 回归：Tests run 679, Failures 0, Errors 0, Skipped 0，BUILD SUCCESS（659 + t93 9 + t94 守卫 1 + t96 偏好 10）。
+- 线上实测：IMPERSONATE_START 落库，details=模拟开始: actor=admin(<id>), target=<用户>(<id>), ttlSeconds=7200, reason=…；
+  IMPERSONATE_STOP 落库（无 reason 键）；一次模拟 START +1；复核日拦截器重复行增量 0（库内 19 条历史行来自 t90/t92）；
+  累积 START=11 / STOP=10；details 列 TEXT、最长 165 字符未被截断。
+- 修复：ImpersonationServiceImpl.impersonate()/stop() 由 @Transactional(readOnly=true) 改为可写事务
+  （原标记导致 Hibernate 静默丢弃审计插入；BaseTest 的读写事务掩盖了该缺陷），并新增反射守卫用例。
+- 状态码：POST /assets/{id}/access-requests 跨团队 403（原 400），不存在 404。
+- 冒烟：TOTAL=228 PASS=228 FAIL=0 SKIP=0（连跑两轮均 228/228）。新增 6 条：
+  audit/发起审计四要素（actor/target/ttlSeconds/reason）、audit/一次模拟仅1条START（before/after 差值 1）、
+  audit/无拦截器重复行（前后差值 0）、audit/停止审计（+1 且含 actor/target）、
+  access-request/资产不存在-404、access-request/跨团队-403；impersonate/审计-发起|停止事件 改为断言专用事件名。
+- 冒烟适配（未放宽）：访问申请正例改由管理员发起；拦截器重复行改差值判定；脚本 $BASE → $BASE_URL（消除 set -u 下的 unbound variable 噪音）。
+- 数据清理：assets 18→3、customers 16→1、projects 21→1、phases 10→0、links 18→3、documents 1→0；orphan=0；
+  终态 customers=1 / projects=1 / assets=3 / links=3。
