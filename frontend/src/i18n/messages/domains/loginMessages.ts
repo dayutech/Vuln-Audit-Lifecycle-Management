@@ -1,22 +1,18 @@
 /**
- * 登录页文案（t95 角色主题 / t99 抽象极简主题）。
+ * 登录页文案（t95 角色主题 / t99 抽象极简主题 / t101 视觉重构）。
  *
  * 表单本身的 `login.title`、`login.username` 等既有词条仍在主词条表里，这里只补新增文案。
  * 主题相关文案（`login.theme.*`）被 `components/login/types.ts` 的
  * `LOGIN_THEME_LABEL_KEYS` / `LOGIN_THEME_SUBTITLE_KEYS` 以 `Record<LoginThemeId, MessageKey>`
  * 引用 —— 缺一条 tsc 直接报错，八套主题的文案不会漏。
+ *
+ * t101 起页面上只剩「主题 + 品牌区 + 登录框」：卖点（point.*）与鼠标提示（hint.*）已删除，
+ * 品牌区只保留产品名与一句 slogan。
  */
 
 export const loginZh = {
-  'login.brand.title': '漏洞审计平台',
-  'login.brand.tagline': '把漏洞从发现管到交付',
-  'login.brand.point.assets': '资产 · 项目 · 期次，一处维护',
-  'login.brand.point.workflow': '漏洞状态机与交付闭环',
-  'login.brand.point.audit': '权限分级与审计留痕',
   'login.form.subtitle': '登录后继续',
-  'login.hint.idle': '鼠标动一动，它会一直看着你',
-  'login.hint.shielding': '到密码环节了——它把头转开了',
-  'login.hint.error': '这次没成功，再试一次吧',
+  'login.form.error': '这次没成功，请检查账号或密码',
   'login.theme.label': '登录主题',
   // 分组标题（t97 的偏好弹窗按分组渲染）
   'login.theme.group.character': '角色',
@@ -44,15 +40,8 @@ export const loginZh = {
 } as const;
 
 export const loginEn: Record<keyof typeof loginZh, string> = {
-  'login.brand.title': 'Vuln Audit',
-  'login.brand.tagline': 'From first finding to final delivery',
-  'login.brand.point.assets': 'Assets · projects · phases in one place',
-  'login.brand.point.workflow': 'Vulnerability state machine and delivery loop',
-  'login.brand.point.audit': 'Role-based access with audit trails',
   'login.form.subtitle': 'Sign in to continue',
-  'login.hint.idle': 'Move your cursor — it is watching you',
-  'login.hint.shielding': 'Password time — it looks away politely',
-  'login.hint.error': 'That did not work, please try again',
+  'login.form.error': 'Sign-in failed — check your username or password',
   'login.theme.label': 'Login theme',
   'login.theme.group.character': 'Characters',
   'login.theme.group.abstract': 'Minimal',

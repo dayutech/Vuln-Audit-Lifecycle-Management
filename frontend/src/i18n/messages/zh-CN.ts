@@ -14,6 +14,10 @@ import { projectZh } from './domains/projectMessages';
 import { appZh } from './domains/appMessages';
 import { loginZh } from './domains/loginMessages';
 import { preferencesZh } from './domains/preferencesMessages';
+import { settingsZh } from './domains/settingsMessages';
+import { authZh } from './domains/authMessages';
+import { ssoZh } from './domains/ssoMessages';
+import { registrationReviewZh } from './domains/registrationReviewMessages';
 
 export const zhCN = {
   ...assetZh,
@@ -22,6 +26,10 @@ export const zhCN = {
   ...appZh,
   ...loginZh,
   ...preferencesZh,
+  ...settingsZh,
+  ...authZh,
+  ...ssoZh,
+  ...registrationReviewZh,
   /* ==================== 通用 ==================== */
   'common.appName': '漏洞审计生命周期管理系统',
   'common.loading': '加载中…',
@@ -52,7 +60,7 @@ export const zhCN = {
   'error.backHome': '返回大盘',
 
   /* ==================== 登录页 ==================== */
-  'login.title': '漏洞审计生命周期管理系统',
+  'login.title': '登录',
   'login.username': '用户名',
   'login.password': '密码',
   'login.usernameRequired': '请输入用户名',
@@ -1042,3 +1050,5 @@ export const zhCN = {
 
 export type MessageKey = keyof typeof zhCN;
 export type MessageCatalog = Record<MessageKey, string>;
+
+

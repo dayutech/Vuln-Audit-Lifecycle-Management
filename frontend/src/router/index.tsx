@@ -23,6 +23,12 @@ import { ErrorPage } from '@/components/Feedback';
 import ImportPage from '@/pages/import/index';
 import Projects from '@/pages/projects/index';
 import ProjectDetail from '@/pages/projects/Detail';
+import Settings from '@/pages/settings/index';
+import Register from '@/pages/Register';
+import ForgotPassword from '@/pages/ForgotPassword';
+import SsoCallback from '@/pages/SsoCallback';
+import SsoBindings from '@/pages/account/SsoBindings';
+import RegistrationRequests from '@/pages/registration-requests/index';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const token = localStorage.getItem('access_token');
@@ -33,6 +39,20 @@ const router = createBrowserRouter([
   {
     path: '/login',
     element: <Login />,
+  },
+  // t105：登录页的自助入口（公开；与登录页共用主题外壳与 formSkin）
+  {
+    path: '/register',
+    element: <Register />,
+  },
+  {
+    path: '/forgot-password',
+    element: <ForgotPassword />,
+  },
+  // t106：第三方登录回调（公开；provider 由发起时写入 sessionStorage，回调地址对四家统一）
+  {
+    path: '/auth/sso/callback',
+    element: <SsoCallback />,
   },
   {
     path: '/',
@@ -137,6 +157,21 @@ const router = createBrowserRouter([
       {
         path: '/import',
         element: <ImportPage />,
+      },
+      {
+        // t110：系统设置（登录页默认主题；仅管理员，页面内再做一次画像判定）
+        path: '/settings',
+        element: <Settings />,
+      },
+      {
+        // t114：注册审批（仅 ADMIN / PROJECT_LEADER；页面内再判一次，非授权角色显示 403）
+        path: '/admin/registration-requests',
+        element: <RegistrationRequests />,
+      },
+      {
+        // t106：账号设置 - 社交账号绑定（登录用户都可访问，只操作自己）
+        path: '/account/sso-bindings',
+        element: <SsoBindings />,
       },
       // 403 / 404：i18n 化通用组件；未匹配路径落到 404，避免空白页
       {

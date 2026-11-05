@@ -1,0 +1,410 @@
+/* 注册 / 忘记密码 / 登录页自助入口的共用样式（t105）。
+ *
+ * 全部颜色取自登录框皮肤（`--skin-*`，由 AuthShell / Login 注入），
+ * 因此 8 套主题下这些控件自动换肤，不需要每套主题各写一份。
+ */
+
+/* ==================== 卡片内的次要链接 ==================== */
+
+.auth-footer {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--skin-ink) 12%, transparent);
+  font-size: 12px;
+  color: var(--skin-ink-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  text-align: center;
+}
+
+.auth-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--skin-ink);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--skin-ink) 35%, transparent);
+}
+
+.auth-link:hover {
+  color: var(--skin-input-focus);
+  text-decoration-color: var(--skin-input-focus);
+}
+
+.auth-link:focus-visible {
+  outline: 2px solid var(--skin-input-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ==================== 登录框下方：注册 / 忘记密码 / SSO ==================== */
+
+.login-entries {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid color-mix(in srgb, var(--skin-ink) 12%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+}
+
+.login-entries__item {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--skin-ink);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, var(--skin-ink) 35%, transparent);
+}
+
+.login-entries__item:hover {
+  color: var(--skin-input-focus);
+  text-decoration-color: var(--skin-input-focus);
+}
+
+.login-sso {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 「或」分隔线 */
+.login-sso__divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+  color: var(--skin-ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.login-sso__divider::before,
+.login-sso__divider::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: color-mix(in srgb, var(--skin-ink) 14%, transparent);
+}
+
+.login-sso__row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.login-sso__row > .ant-btn {
+  flex: 1 1 0;
+  min-width: 96px;
+  height: 38px;
+  border-radius: var(--skin-btn-radius);
+  border: 1px solid color-mix(in srgb, var(--skin-ink) 22%, transparent);
+  background: transparent;
+  color: var(--skin-ink);
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.login-sso__row > .ant-btn:hover {
+  border-color: var(--skin-input-focus);
+  color: var(--skin-input-focus);
+  background: color-mix(in srgb, var(--skin-ink) 6%, transparent);
+}
+
+/* ==================== 验证码输入行 ==================== */
+
+.auth-field {
+  margin-bottom: 16px;
+}
+
+.auth-field__label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  font-weight: var(--skin-label-weight);
+  letter-spacing: 0.2px;
+  color: var(--skin-ink);
+}
+
+.auth-field__label::after {
+  content: '';
+}
+
+.auth-code-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.auth-code-row .ant-input-affix-wrapper,
+.auth-code-row .ant-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.auth-code-row .ant-btn {
+  flex: 0 0 auto;
+  height: 40px;
+  padding-inline: 12px;
+  border-radius: calc(var(--skin-card-radius) * 0.34);
+  border: 1px solid var(--skin-input-border);
+  background: transparent;
+  color: var(--skin-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  box-shadow: none;
+  white-space: nowrap;
+}
+
+.auth-code-row .ant-btn:not(:disabled):hover {
+  border-color: var(--skin-input-focus);
+  color: var(--skin-input-focus);
+}
+
+.auth-code-row .ant-btn:disabled {
+  color: var(--skin-ink-soft);
+  opacity: 0.7;
+}
+
+/* ==================== 密码强度 ==================== */
+
+.pw-strength {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: -6px 0 14px;
+}
+
+.pw-strength__bars {
+  display: flex;
+  gap: 4px;
+}
+
+.pw-strength__bar {
+  flex: 1 1 0;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--skin-ink) 16%, transparent);
+  transition: background-color 180ms ease;
+}
+
+.pw-strength__bar.is-on.level-weak {
+  background: #d4380d;
+}
+
+.pw-strength__bar.is-on.level-fair {
+  background: #d48806;
+}
+
+.pw-strength__bar.is-on.level-good {
+  background: #389e0d;
+}
+
+.pw-strength__bar.is-on.level-strong {
+  background: #0958d9;
+}
+
+.pw-strength__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--skin-ink-soft);
+  line-height: 1.5;
+}
+
+.pw-strength__level {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pw-strength__rules {
+  margin: 0;
+  font-size: 11px;
+  color: var(--skin-ink-soft);
+  line-height: 1.5;
+}
+
+.pw-strength__rules.is-valid {
+  color: #389e0d;
+}
+
+/* ==================== 开发模式验证码提示 ==================== */
+
+.auth-devcode {
+  margin: -4px 0 12px;
+  font-size: 11px;
+  color: var(--skin-ink-soft);
+  background: color-mix(in srgb, var(--skin-ink) 7%, transparent);
+  border-radius: calc(var(--skin-card-radius) * 0.34);
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  word-break: break-all;
+}
+
+.auth-devcode__code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--skin-ink);
+}
+
+/* ==================== 结果页（注册待审批） ==================== */
+
+.auth-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 6px 0 2px;
+}
+
+.auth-result__icon {
+  font-size: 34px;
+  color: #389e0d;
+  line-height: 1;
+}
+
+.auth-result__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--skin-ink);
+}
+
+.auth-result__desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--skin-ink-soft);
+}
+
+.auth-result__meta {
+  width: 100%;
+  margin: 6px 0 2px;
+  padding: 10px 12px;
+  border-radius: calc(var(--skin-card-radius) * 0.5);
+  border: 1px dashed color-mix(in srgb, var(--skin-ink) 22%, transparent);
+  font-size: 12px;
+  color: var(--skin-ink);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+
+.auth-result__meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.auth-result__meta-label {
+  color: var(--skin-ink-soft);
+}
+
+.auth-result__actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.auth-result__actions .ant-btn {
+  flex: 1 1 0;
+  height: 40px;
+  border-radius: var(--skin-btn-radius);
+}
+
+/* ==================== 步骤指示（忘记密码） ==================== */
+
+.auth-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 11.5px;
+  color: var(--skin-ink-soft);
+}
+
+.auth-steps__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.auth-steps__index {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--skin-ink) 30%, transparent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10.5px;
+}
+
+.auth-steps__item.is-active {
+  color: var(--skin-ink);
+}
+
+.auth-steps__item.is-active .auth-steps__index {
+  background: var(--skin-btn-bg);
+  border-color: var(--skin-btn-bg);
+  color: var(--skin-btn-color);
+}
+
+.auth-steps__item.is-done .auth-steps__index {
+  border-color: var(--skin-ink);
+  color: var(--skin-ink);
+}
+
+.auth-steps__sep {
+  flex: 1 1 auto;
+  height: 1px;
+  background: color-mix(in srgb, var(--skin-ink) 16%, transparent);
+}
+
+/* ==================== 窄屏 ==================== */
+
+@media (max-width: 480px) {
+  .login-entries {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .auth-code-row {
+    flex-wrap: wrap;
+  }
+
+  .auth-code-row .ant-btn {
+    width: 100%;
+  }
+}

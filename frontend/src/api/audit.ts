@@ -38,6 +38,9 @@ export const getAuditLogDetail = async (id: string): Promise<AuditLogVO | null> 
  * silent：错误体是 Blob，全局拦截器读不到 message，统一交给调用方解析后端原始提示。
  */
 export const exportAuditLogs = (query: AuditLogQuery = {}): Promise<Blob> => {
-  const { page: _page, size: _size, ...params } = toParams(query);
+  // 导出走全量筛选，分页参数对后端无意义，这里剔除（用 delete 而非解构占位，避免未使用变量告警）
+  const params: Record<string, unknown> = { ...toParams(query) };
+  delete params.page;
+  delete params.size;
   return request.get('/audit-logs/export', { params, responseType: 'blob', silent: true });
 };

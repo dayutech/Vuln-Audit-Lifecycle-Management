@@ -1,0 +1,198 @@
+/* 第三方登录（SSO）相关样式（t106）。
+ *
+ * 颜色一律取自登录框皮肤（`--skin-*`）：登录页 / 回调页 / 账号设置沿用同一套变量，
+ * 因此 8 套主题自动换肤；这里只负责图标对齐、按钮换行与三态标签。
+ */
+
+.sso-btn__icon {
+  color: currentColor;
+  opacity: 0.92;
+}
+
+.sso-btn__label {
+  margin-inline-start: 6px;
+}
+
+/* 登录页：按钮行在窄屏可换行（t105 已建立 .login-sso__row 的样式，这里补图标间距） */
+.login-sso__row > .ant-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.login-sso__row > .ant-btn .ant-btn-loading-icon {
+  margin-inline-end: 4px;
+}
+
+/* ==================== 账号设置：社交账号绑定列表 ==================== */
+
+.sso-bindings {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sso-bindings__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(15, 18, 24, 0.08);
+  border-radius: 10px;
+  background: #fff;
+  flex-wrap: wrap;
+}
+
+.sso-bindings__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: rgba(15, 18, 24, 0.05);
+  color: #1f2328;
+  flex: 0 0 auto;
+}
+
+.sso-bindings__main {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.sso-bindings__name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #1f2328;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sso-bindings__meta {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: #6b7280;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.sso-bindings__actions {
+  display: flex;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* ==================== 管理员：登录方式开关 ==================== */
+
+.admin-sso-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(15, 18, 24, 0.06);
+  flex-wrap: wrap;
+}
+
+.admin-sso-row:last-child {
+  border-bottom: none;
+}
+
+.admin-sso-row__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: rgba(15, 18, 24, 0.05);
+  color: #1f2328;
+  flex: 0 0 auto;
+}
+
+.admin-sso-row__main {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 13px;
+  color: #1f2328;
+}
+
+.admin-sso-row__meta {
+  font-size: 11.5px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.admin-sso-row__tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* ==================== 回调结果 ==================== */
+
+.sso-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 6px 0 2px;
+}
+
+.sso-result__icon {
+  font-size: 34px;
+  line-height: 1;
+}
+
+.sso-result__icon--ok {
+  color: #389e0d;
+}
+
+.sso-result__icon--pending {
+  color: #d48806;
+}
+
+.sso-result__icon--error {
+  color: #cf1322;
+}
+
+.sso-result__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--skin-ink, #1f2328);
+}
+
+.sso-result__desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--skin-ink-soft, #6b7280);
+}
+
+.sso-result__detail {
+  width: 100%;
+  font-size: 11.5px;
+  color: var(--skin-ink-soft, #6b7280);
+  background: color-mix(in srgb, var(--skin-ink, #1f2328) 6%, transparent);
+  border-radius: 6px;
+  padding: 8px 10px;
+  word-break: break-word;
+  text-align: left;
+}
+
+.sso-result__actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+}
+
+.sso-result__actions .ant-btn {
+  flex: 1 1 0;
+  height: 40px;
+}

@@ -1,27 +1,46 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Modal, Spin, Tag, Tooltip, message } from 'antd';
-import { EyeOutlined } from '@ant-design/icons';
+import { EyeOutlined, ReloadOutlined, UndoOutlined } from '@ant-design/icons';
 import { LOGIN_THEME_GROUP_KEYS, getLoginTheme, loginThemesByGroup } from '@/components/login/themes';
-import type { LoginThemeGroup, LoginThemeId } from '@/components/login/types';
-import { getMyPreferences, updateMyPreferences, describePreferenceFailure } from '@/api/userPreferences';
-import { readLoginThemeCache, syncLoginThemeFromServer, writeLoginThemeCache } from '@/utils/loginTheme';
+import { DEFAULT_LOGIN_THEME, type LoginThemeGroup, type LoginThemeId } from '@/components/login/types';
+import {
+  getMyPreferences,
+  updateMyFollowDefault,
+  updateMyPreferences,
+  describePreferenceFailure,
+  type UserPreferences,
+} from '@/api/userPreferences';
+import { getPublicLoginThemeConfig } from '@/api/auth';
+import {
+  clearLocalLoginThemeMark,
+  readCachedDefaultLoginTheme,
+  readLocalLoginThemeMark,
+  writeLocalLoginThemeMark,
+} from '@/utils/loginTheme';
 import { useT } from '@/i18n';
 import LoginThemeThumbnail from './LoginThemeThumbnail';
 
 /**
- * 偏好设置弹窗：登录页主题（t97）。
+ * 偏好设置弹窗：登录页主题（t97 建立 / t110 按 v2 语义重写）。
  *
- * 行为约定：
- * - **打开即对齐服务端**：`GET /users/me/preferences` 成功后按服务端值同步本机缓存
- *   （跨设备换过主题时本机缓存会过期）；读取失败则退回本机缓存，不阻塞操作。
- * - **选中即保存**（没有"保存"按钮）：`PUT /users/me/preferences` 成功后
- *   **立即写 localStorage('login.theme')**，下次进登录页生效；不整页刷新。
- * - **只能改自己**：接口固定 `/me`，前端不传 userId（传了后端也忽略）。
- * - **失败分级**：400=服务端未启用该主题（t99 的四套抽象主题要等 t100 扩白名单，
- *   过渡期必须给明确解释并保持原主题）；403=无权（模拟视角）；5xx/网络=可读提示；
- *   401 由 request 拦截器统一提示并回登录页，这里不重复弹。
- * - **只给白名单**：卡片来自 `LOGIN_THEMES` 注册表，没有自由输入，UI 上无法触发非法值。
- * - **预览**：iframe 加载真实登录页 `?theme=<id>`（同一 no-auth 页面），只读查看配色与动效。
+ * ## v2 语义（用户更正后的模型）
+ *
+ * 登录页链条：`?theme=`（仅预览）> **本机标记** > **管理员缺省** > pencil。
+ * 本机标记（`localStorage('login.theme')`）只在三种时机变化：
+ * ①用户选主题（写）②「从账号同步到本机」（写）③「跟随系统默认」（清除）。
+ * 登录成功与 `/auth/me` **不写**（跨设备不自动生效）；`users.login_theme` 只是
+ * 「账号偏好」，用于预选与同步源。
+ *
+ * ## 本弹窗的三块操作
+ *
+ * - 卡片（`theme-card-*`）：选主题 → `PUT /users/me/preferences` + **写本机标记**；
+ * - `pref-sync-from-account`：把账号偏好写成本机标记（跨设备手动同步的唯一入口）；
+ * - `pref-follow-default`：清除本机标记（回到管理员缺省）。后端暂无「跟随默认」语义，
+ *   同时把当前管理员缺省值写成账号偏好（保证「账号偏好」与「登录页实际显示」不打架），
+ *   局限见下方 `LIMITATION_FOLLOW_DEFAULT` 注释与 t110 报告。
+ *
+ * 当前生效主题展示在 `pref-current-theme`，等于「本机标记 ?? 管理员缺省」。
+ * 文案全部走 i18n；缩略图/文案都来自 `LOGIN_THEMES` 注册表，**没有硬编码主题列表**。
  */
 export interface LoginThemePreferenceModalProps {
   onClose: () => void;
@@ -29,12 +48,33 @@ export interface LoginThemePreferenceModalProps {
 
 const GROUP_ORDER: LoginThemeGroup[] = ['character', 'abstract'];
 
+/**
+ * 后端三态（t112 起）：`users.login_theme`
+ *
+ * | 值 | 含义 | 前端表现 |
+ * |---|---|---|
+ * | 具体 code | 用户指定主题 | 对应卡片高亮 |
+ * | `NULL` | **跟随系统默认** | 不高亮任何卡片，高亮「跟随系统默认」；登录页按管理员缺省渲染 |
+ *
+ * 「跟随系统默认」现在走**真正的第三态**：`PUT /users/me/preferences {followDefault: true}` →
+ * 后端把 `users.login_theme` 置 NULL。**不再**像 t110 那样把当前管理员缺省写成账号偏好，
+ * 因此管理员之后改缺省时，这些用户不会滞留旧值（t113 的核心修复点）。
+ */
+
 const LoginThemePreferenceModal: React.FC<LoginThemePreferenceModalProps> = ({ onClose }) => {
   const { t } = useT();
-  /** 当前选中/生效的主题（初值取本机缓存，随后被服务端值覆盖） */
-  const [current, setCurrent] = useState<LoginThemeId>(() => readLoginThemeCache());
+  /** 本机标记：null = 本浏览器没选过（登录页回落到管理员缺省） */
+  const [localMark, setLocalMark] = useState<LoginThemeId | null>(() => readLocalLoginThemeMark());
+  /** 账号偏好（三态）：`loginTheme=null` ⇔ 跟随系统默认。只用于预选/同步，不参与登录页解析 */
+  const [account, setAccount] = useState<UserPreferences | null>(null);
+  /** 管理员缺省：先取会话缓存，再后台刷新 */
+  const [adminDefault, setAdminDefault] = useState<LoginThemeId>(
+    () => readCachedDefaultLoginTheme()?.theme ?? DEFAULT_LOGIN_THEME,
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<LoginThemeId | null>(null);
+  /** 正在执行的整块操作（同步/跟随默认），用于按钮 loading 与防重复点击 */
+  const [action, setAction] = useState<'sync' | 'followDefault' | null>(null);
   /** 服务端 400 拒绝过的主题：本次会话内标记为不可用，避免反复点同一个坑 */
   const [unavailable, setUnavailable] = useState<LoginThemeId[]>([]);
   const [previewTheme, setPreviewTheme] = useState<LoginThemeId | null>(null);
@@ -44,16 +84,14 @@ const LoginThemePreferenceModal: React.FC<LoginThemePreferenceModalProps> = ({ o
     getMyPreferences()
       .then((prefs) => {
         if (cancelled) return;
-        // 服务端是权威：同步本机缓存并回显（脏值/缺失时 sync 会保留缓存，不刷回 pencil）
-        const synced = syncLoginThemeFromServer(prefs.loginTheme);
-        setCurrent(synced.theme);
+        // 只记录账号偏好，**不写本机标记**（打开弹窗不等于用户做出了选择）
+        setAccount(prefs);
       })
       .catch((error) => {
         if (cancelled) return;
         const failure = describePreferenceFailure(error);
-        // 401 由拦截器提示并跳登录；其它情况提示"按本机缓存显示"
         if (failure.kind !== 'unauthorized') {
-          message.warning(t('preferences.loginTheme.loadFailed', { theme: readLoginThemeCache() }));
+          message.warning(t('preferences.loginTheme.loadFailed', { theme: localMark ?? adminDefault }));
         }
       })
       .finally(() => {
@@ -62,7 +100,22 @@ const LoginThemePreferenceModal: React.FC<LoginThemePreferenceModalProps> = ({ o
     return () => {
       cancelled = true;
     };
+    // 只在挂载时拉一次账号偏好：依赖里只放 t（语言变化时重新取文案，不影响请求次数语义）
   }, [t]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getPublicLoginThemeConfig()
+      .then((config) => {
+        if (!cancelled) setAdminDefault(config.defaultTheme);
+      })
+      .catch(() => {
+        // 静默：管理员缺省取不到时用会话缓存 / pencil，不影响本弹窗其它操作
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const groups = useMemo(
     () =>
@@ -74,18 +127,37 @@ const LoginThemePreferenceModal: React.FC<LoginThemePreferenceModalProps> = ({ o
     [t],
   );
 
-  const currentLabel = useMemo(() => t(getLoginTheme(current).labelKey), [current, t]);
+  /** 登录页当前会显示的主题（= 本机标记 ?? 管理员缺省） */
+  const effectiveTheme: LoginThemeId = localMark ?? adminDefault;
+  const effectiveLabel = t(getLoginTheme(effectiveTheme).labelKey);
+  const adminDefaultLabel = t(getLoginTheme(adminDefault).labelKey);
 
+  /**
+   * 账号是否处于「跟随系统默认」。
+   *
+   * 账号偏好还没取到时（`account === null`）按本机标记推断，避免首帧闪一下错误高亮。
+   */
+  const accountFollowsDefault = account ? account.followDefault : localMark === null;
+  /** 账号当前的具体主题（跟随默认时为 null） */
+  const accountTheme: LoginThemeId | null = account && !account.followDefault ? account.loginTheme : null;
+
+  /**
+   * 卡片是否高亮：**按账号偏好**预选（弹窗编辑的是账号偏好）。
+   * 账号处于跟随默认时不高亮任何卡片（需求 4）——本机标记的状态另有 `pref-mark-state` 展示。
+   */
+  const isCardActive = (id: LoginThemeId): boolean => (account ? accountTheme === id : localMark === id);
+
+  /** 选主题：先 PUT，成功后才写本机标记（避免"页面 A / 账号 B"分叉） */
   const choose = async (id: LoginThemeId) => {
-    if (saving || id === current) return;
+    if (saving || action || id === accountTheme) return;
     setSaving(id);
     try {
       const saved = await updateMyPreferences(id);
-      // 只在服务端确认成功后才写缓存：本地不能出现"页面显示 A、账号偏好 B"的分叉
-      const synced = writeLoginThemeCache(saved.loginTheme);
-      setCurrent(synced);
+      const written = writeLocalLoginThemeMark(saved.loginTheme);
+      setLocalMark(written);
+      setAccount(saved);
       setUnavailable((list) => list.filter((item) => item !== id));
-      message.success(t('preferences.loginTheme.saved', { name: t(getLoginTheme(synced).labelKey) }));
+      message.success(t('preferences.loginTheme.saved', { name: t(getLoginTheme(id).labelKey) }));
     } catch (error) {
       const failure = describePreferenceFailure(error);
       if (failure.kind === 'badRequest') {
@@ -99,6 +171,71 @@ const LoginThemePreferenceModal: React.FC<LoginThemePreferenceModalProps> = ({ o
     }
   };
 
+  /**
+   * 从账号同步到本机：把账号偏好写成本机标记（跨设备手动同步的唯一入口）。
+   *
+   * 账号处于「跟随系统默认」时**没有可同步的具体主题** → 按钮 disabled，点击时也只提示。
+   * 注意「值恰好等于管理员缺省也要显式写入」：这里不做任何相等判断，直接写 `writeLocalLoginThemeMark`。
+   */
+  const syncFromAccount = async () => {
+    if (saving || action) return;
+    if (accountFollowsDefault) {
+      message.info(t('preferences.syncDisabledFollowDefault'));
+      return;
+    }
+    setAction('sync');
+    try {
+      let target = accountTheme;
+      if (!target) {
+        const latest = await getMyPreferences();
+        setAccount(latest);
+        target = latest.followDefault ? null : latest.loginTheme;
+      }
+      if (!target) {
+        message.info(t('preferences.syncDisabledFollowDefault'));
+        return;
+      }
+      const written = writeLocalLoginThemeMark(target);
+      setLocalMark(written);
+      message.success(t('preferences.loginTheme.synced', { name: t(getLoginTheme(target).labelKey) }));
+    } catch (error) {
+      const failure = describePreferenceFailure(error);
+      if (failure.kind !== 'unauthorized') {
+        message.error(failure.kind === 'network' ? failure.text : t('preferences.loginTheme.needAccountTheme'));
+      }
+    } finally {
+      setAction(null);
+    }
+  };
+
+  /**
+   * 跟随系统默认（t113 第三态）：`PUT { followDefault: true }` → 后端置 NULL；**再**清本机标记。
+   *
+   * 顺序说明：先调后端、成功后才清本机标记 —— 后端失败时本机状态保持原样，
+   * 不会出现「账号还是具体主题、本机却已跟随默认」的半截状态。
+   * 成功后：`pref-current-theme` 的 `data-theme` = 当前管理员缺省、`data-source=adminDefault`。
+   */
+  const followDefault = async () => {
+    if (saving || action) return;
+    if (accountFollowsDefault && localMark === null) {
+      message.info(t('preferences.followDefaultActive', { name: adminDefaultLabel }));
+      return;
+    }
+    setAction('followDefault');
+    try {
+      const saved = await updateMyFollowDefault();
+      setAccount(saved);
+      clearLocalLoginThemeMark();
+      setLocalMark(null);
+      message.success(t('preferences.loginTheme.followedDefault', { name: adminDefaultLabel }));
+    } catch (error) {
+      const failure = describePreferenceFailure(error);
+      if (failure.kind !== 'unauthorized') message.error(failure.text);
+    } finally {
+      setAction(null);
+    }
+  };
+
   const previewEntry = previewTheme ? getLoginTheme(previewTheme) : null;
 
   return (
@@ -107,15 +244,13 @@ const LoginThemePreferenceModal: React.FC<LoginThemePreferenceModalProps> = ({ o
         open
         title={t('preferences.title')}
         onCancel={onClose}
-        width={720}
+        width={760}
         maskClosable={false}
         footer={
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <span style={{ fontSize: 12, color: '#6b7280', textAlign: 'left' }}>
-              {t('preferences.loginTheme.orderHint')}
-            </span>
+            <span style={{ fontSize: 12, color: '#6b7280', textAlign: 'left' }}>{t('preferences.loginTheme.orderHint')}</span>
             <span style={{ display: 'inline-flex', gap: 8 }}>
-              <Button icon={<EyeOutlined />} onClick={() => setPreviewTheme(current)} data-testid="pref-preview">
+              <Button icon={<EyeOutlined />} onClick={() => setPreviewTheme(effectiveTheme)} data-testid="pref-preview">
                 {t('preferences.loginTheme.preview')}
               </Button>
               <Button type="primary" onClick={onClose} data-testid="pref-close">
@@ -131,9 +266,63 @@ const LoginThemePreferenceModal: React.FC<LoginThemePreferenceModalProps> = ({ o
               <div className="pref-theme__title">{t('preferences.loginTheme.title')}</div>
               <div className="pref-theme__desc">{t('preferences.loginTheme.desc')}</div>
             </div>
-            <Tag color="blue" data-testid="pref-current-theme">
-              {t('preferences.loginTheme.current', { name: currentLabel })}
+            <Tag color="blue" data-testid="pref-current-theme" data-theme={effectiveTheme} data-source={localMark ? 'local' : 'adminDefault'}>
+              {t('preferences.loginTheme.current', { name: effectiveLabel })}
             </Tag>
+          </div>
+
+          {/* 本机标记状态 + 账号偏好三态 + 两个整块操作 */}
+          <div className="pref-theme__mark" data-testid="pref-mark-state" data-has-mark={localMark ? 'true' : 'false'}>
+            <div className="pref-theme__mark-text">
+              <div data-testid="pref-account-state" data-follow-default={accountFollowsDefault ? 'true' : 'false'}>
+                {accountFollowsDefault
+                  ? t('preferences.loginTheme.accountFollowDefault', { name: adminDefaultLabel })
+                  : t('preferences.loginTheme.accountTheme', {
+                      name: accountTheme ? t(getLoginTheme(accountTheme).labelKey) : '-',
+                    })}
+              </div>
+              <div>
+                {localMark
+                  ? t('preferences.loginTheme.markLocal', { name: t(getLoginTheme(localMark).labelKey) })
+                  : t('preferences.loginTheme.followingDefault', { name: adminDefaultLabel })}
+              </div>
+            </div>
+            <div className="pref-theme__mark-actions">
+              <Tooltip
+                title={
+                  accountFollowsDefault
+                    ? t('preferences.syncDisabledFollowDefault')
+                    : t('preferences.loginTheme.syncHint', {
+                        name: accountTheme ? t(getLoginTheme(accountTheme).labelKey) : '-',
+                      })
+                }
+              >
+                <Button
+                  size="small"
+                  icon={<ReloadOutlined />}
+                  loading={action === 'sync'}
+                  disabled={Boolean(saving) || action === 'followDefault' || accountFollowsDefault}
+                  onClick={syncFromAccount}
+                  data-testid="pref-sync-from-account"
+                  data-disabled-reason={accountFollowsDefault ? 'followDefault' : undefined}
+                >
+                  {t('preferences.loginTheme.syncFromAccount')}
+                </Button>
+              </Tooltip>
+              <Tooltip title={t('preferences.loginTheme.followDefaultHint', { name: adminDefaultLabel })}>
+                <Button
+                  size="small"
+                  icon={<UndoOutlined />}
+                  loading={action === 'followDefault'}
+                  disabled={Boolean(saving) || action === 'sync' || (accountFollowsDefault && localMark === null)}
+                  onClick={followDefault}
+                  data-testid="pref-follow-default"
+                  data-active={accountFollowsDefault && localMark === null ? 'true' : 'false'}
+                >
+                  {t('preferences.loginTheme.followDefault')}
+                </Button>
+              </Tooltip>
+            </div>
           </div>
 
           {loading ? (
@@ -147,7 +336,8 @@ const LoginThemePreferenceModal: React.FC<LoginThemePreferenceModalProps> = ({ o
               <div className="pref-theme__group-title">{title}</div>
               <div className="pref-theme__grid">
                 {entries.map((entry) => {
-                  const active = entry.id === current;
+                  // 高亮 = 账号偏好（三态）：跟随默认时任何卡片都不高亮（需求 4）
+                  const active = isCardActive(entry.id);
                   const blocked = unavailable.includes(entry.id);
                   const busy = saving === entry.id;
                   return (
@@ -158,11 +348,7 @@ const LoginThemePreferenceModal: React.FC<LoginThemePreferenceModalProps> = ({ o
                     >
                       <button
                         type="button"
-                        className={[
-                          'pref-theme__card',
-                          active ? 'is-active' : '',
-                          blocked ? 'is-blocked' : '',
-                        ]
+                        className={['pref-theme__card', active ? 'is-active' : '', blocked ? 'is-blocked' : '']
                           .filter(Boolean)
                           .join(' ')}
                         aria-pressed={active}
@@ -187,9 +373,7 @@ const LoginThemePreferenceModal: React.FC<LoginThemePreferenceModalProps> = ({ o
                               </Tag>
                             ) : null}
                           </div>
-                          {entry.subtitleKey ? (
-                            <div className="pref-theme__card-sub">{t(entry.subtitleKey)}</div>
-                          ) : null}
+                          {entry.subtitleKey ? <div className="pref-theme__card-sub">{t(entry.subtitleKey)}</div> : null}
                         </div>
                       </button>
                     </Tooltip>
@@ -217,8 +401,28 @@ const LoginThemePreferenceModal: React.FC<LoginThemePreferenceModalProps> = ({ o
             font-size: 12px;
             color: #6b7280;
             margin-top: 4px;
-            max-width: 500px;
+            max-width: 520px;
             line-height: 1.6;
+          }
+          .pref-theme__mark {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            background: #fafafa;
+            border: 1px solid #f0f0f0;
+            border-radius: 10px;
+            padding: 8px 10px;
+            margin-bottom: 8px;
+          }
+          .pref-theme__mark-text {
+            font-size: 12px;
+            color: #4b5563;
+          }
+          .pref-theme__mark-actions {
+            display: inline-flex;
+            gap: 8px;
           }
           .pref-theme__loading {
             display: flex;

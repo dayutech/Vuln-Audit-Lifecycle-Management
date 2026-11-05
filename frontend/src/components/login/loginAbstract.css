@@ -291,77 +291,12 @@
   letter-spacing: -0.02em;
 }
 
-/* ==================== 登录页在抽象模式下的布局适配 ==================== */
-
-/* 背景交给主题层，页面本身透明（选择器加倍以压过 Login.tsx 的行内 <style>） */
-.login-page.login-page--abstract {
-  background: transparent;
-  --login-ink: #141821;
-  --login-ink-soft: rgba(20, 24, 33, 0.62);
-  --login-accent: #141821;
-}
-
-.login-page.login-page--abstract[data-abstract-theme='aurora'] {
-  --login-ink: #eef1fb;
-  --login-ink-soft: rgba(238, 241, 251, 0.62);
-  --login-accent: #7c9cff;
-}
-
-.login-page.login-page--abstract[data-abstract-theme='orbit'] {
-  --login-ink: #e8ecf5;
-  --login-ink-soft: rgba(232, 236, 245, 0.6);
-  --login-accent: #9db4ff;
-}
-
-.login-page.login-page--abstract[data-abstract-theme='mono-grid'] {
-  --login-ink: #141821;
-  --login-ink-soft: rgba(20, 24, 33, 0.6);
-  --login-accent: #141821;
-}
-
-.login-page.login-page--abstract[data-abstract-theme='big-type'] {
-  --login-ink: #111318;
-  --login-ink-soft: rgba(17, 19, 24, 0.6);
-  --login-accent: #111318;
-}
-
-.login-page.login-page--abstract .login-shell {
-  position: relative;
-  z-index: 1;
-}
-
-/* 品牌区跟随主题的明暗（深色主题用近白字） */
-.login-page--abstract .login-hero__brand,
-.login-page--abstract .login-hero__title {
-  color: var(--login-ink);
-}
-
-.login-page--abstract .login-hero__tagline,
-.login-page--abstract .login-hero__points {
-  color: var(--login-ink-soft);
-}
-
-.login-page--abstract .login-hero__points li::before {
-  background: var(--login-accent);
-}
-
-/* 极简：品牌标从实心色块改为 1px 描边 */
-.login-page--abstract .login-hero__mark {
-  background: transparent;
-  border: 1px solid currentColor;
-  color: var(--login-ink);
-}
-
-/* 极简：卡片去掉投影，只留 1px 分隔 */
-.login-page--abstract .login-form-panel {
-  box-shadow: none;
-  border: 1px solid rgba(15, 18, 24, 0.08);
-}
-
-/* 抽象主题没有角色，左侧留给品牌区 + 背景构图 */
-.login-page--abstract .login-hero {
-  gap: clamp(14px, 2vw, 22px);
-}
+/* ==================== 页面级布局 ====================
+ *
+ * t101 起，整页布局（全屏舞台 / 左上角品牌区 / 居中偏上的登录框 / 每套主题的登录框皮肤）
+ * 全部收敛到 `loginStage.css`，这里只保留主题自身的视觉层。
+ * 抽象主题组件依旧 `position: absolute; inset: 0` 铺满舞台（`.login-stage`）。
+ */
 
 /* ==================== 窄屏：装饰缩到「背景纹理」级别，不与文案/表单重叠 ==================== */
 
@@ -390,10 +325,6 @@
   /* 大字主题在窄屏隐藏超大字号（品牌区已给出产品名，避免与表单挤压） */
   .big-type__word {
     display: none;
-  }
-
-  .login-page--abstract .login-form-panel {
-    border-color: rgba(15, 18, 24, 0.06);
   }
 }
 

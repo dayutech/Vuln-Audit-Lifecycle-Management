@@ -1,0 +1,433 @@
+/* 登录页舞台 / 品牌区 / 登录框皮肤（t101）—— 纯 CSS，无额外依赖。
+ *
+ * 结构（pages/Login.tsx）：
+ *   .login-page[data-theme=…][data-group=…]
+ *     .login-stage            全视口主题层（position: fixed; inset: 0），角色/抽象主题都铺满
+ *     .login-brand            左上角品牌区：Logo + 产品名 + slogan
+ *     .login-main > .login-card   视口内垂直居中偏上的登录框（宽度 clamp(320px,26vw,420px)）
+ *     .login-lang             右上角语言切换
+ *
+ * 皮肤：卡片从注册表的 `formSkin` 接收 `--skin-*` 变量，这里统一消费 ——
+ * 八套主题只换数据不换结构，新增主题不必再写 CSS。
+ */
+
+/* ==================== 一、页面与舞台：主题铺满全屏 ==================== */
+
+.login-page {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  margin: 0;
+  /* 横向绝不溢出；纵向允许滚动（横屏手机/极矮视口下登录框不能被裁掉） */
+  overflow-x: hidden;
+  overflow-y: auto;
+  background-color: var(--stage-base, #f4f5f7);
+  background-image: var(--stage-image, none);
+  font-family: inherit;
+}
+
+.login-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  /* 主题底色：任何主题都不允许两侧出现页面留白。
+     拆成「基色 + 可选渐变」两段，基色始终可测（对比度/像素校验都依赖它） */
+  background-color: var(--stage-base, #f4f5f7);
+  background-image: var(--stage-image, none);
+  background-size: cover;
+}
+
+/* 角色向主题：角色放大成舞台构图，贴在左下、底部略微出血 */
+.login-stage .login-theme-slot {
+  position: absolute;
+  inset: 0;
+}
+
+.login-stage .login-char {
+  position: absolute;
+  left: clamp(6px, 4vw, 96px);
+  bottom: clamp(-44px, -3vh, -10px);
+  width: clamp(260px, 30vw, 460px);
+  max-width: 62vw;
+  display: block;
+}
+
+.login-stage .login-char__svg {
+  width: 100%;
+  max-width: none;
+  height: auto;
+}
+
+/* 抽象向主题自带全屏背景层（t99），这里确保它一定撑满舞台 */
+.login-stage .login-theme-slot--abstract {
+  position: absolute;
+  inset: 0;
+}
+
+/* ==================== 二、八套主题的舞台底色与前景墨色 ==================== */
+
+.login-page[data-theme='pencil'] {
+  --stage-base: #fbf7f2;
+  --stage-image: radial-gradient(120% 95% at 18% 10%, #fff7ec 0%, #fbf7f2 46%, #efe9df 100%);
+  --stage-ink: #1f2328;
+  --stage-ink-soft: rgba(31, 35, 40, 0.55);
+}
+
+.login-page[data-theme='geometric'] {
+  --stage-base: #dcecff;
+  --stage-image: linear-gradient(158deg, #eaf4ff 0%, #dcecff 52%, #c9defa 100%);
+  --stage-ink: #12294f;
+  --stage-ink-soft: rgba(18, 41, 79, 0.56);
+}
+
+.login-page[data-theme='owl'] {
+  --stage-base: #f6ecd9;
+  --stage-image: radial-gradient(125% 105% at 82% 4%, #fdf6e6 0%, #f6ecd9 52%, #e9dcc2 100%);
+  --stage-ink: #3b2c20;
+  --stage-ink-soft: rgba(59, 44, 32, 0.56);
+}
+
+.login-page[data-theme='pixel-eyes'] {
+  --stage-base: #05150d;
+  --stage-image: radial-gradient(115% 90% at 24% 8%, #0c261a 0%, #05150d 58%, #020a06 100%);
+  --stage-ink: #b9ffd6;
+  --stage-ink-soft: rgba(185, 255, 214, 0.6);
+}
+
+.login-page[data-theme='aurora'] {
+  --stage-base: #0a0c11;
+  --stage-ink: #eef1fb;
+  --stage-ink-soft: rgba(238, 241, 251, 0.6);
+}
+
+.login-page[data-theme='mono-grid'] {
+  --stage-base: #f4f5f7;
+  --stage-ink: #141821;
+  --stage-ink-soft: rgba(20, 24, 33, 0.56);
+}
+
+.login-page[data-theme='orbit'] {
+  --stage-base: #0f1218;
+  --stage-ink: #e8ecf5;
+  --stage-ink-soft: rgba(232, 236, 245, 0.6);
+}
+
+.login-page[data-theme='big-type'] {
+  --stage-base: #f4f2ee;
+  --stage-ink: #111318;
+  --stage-ink-soft: rgba(17, 19, 24, 0.55);
+}
+
+/* ==================== 三、左上角品牌区（Logo + 产品名 + slogan） ==================== */
+
+.login-brand {
+  position: fixed;
+  top: clamp(16px, 3vh, 34px);
+  left: clamp(18px, 3vw, 44px);
+  z-index: 3;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 2px;
+  max-width: min(46vw, 360px);
+  color: var(--stage-ink);
+  pointer-events: none;
+}
+
+.login-brand__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  grid-row: 1 / span 2;
+  color: var(--stage-ink);
+}
+
+.login-brand__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* 产品名 ≤20px、slogan ≤13px，低对比度，不抢主题。
+   全名 15 个汉字 → 桌面最多两行，超出省略（不撑破布局） */
+.login-brand__name {
+  font-size: clamp(14px, 1.05vw, 19px);
+  font-weight: 650;
+  line-height: 1.22;
+  letter-spacing: 0.2px;
+  max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* 桌面隐藏短名，窄屏反之（纯 CSS 切换，不做 JS 媒体查询） */
+.login-brand__name--short {
+  display: none;
+}
+
+.login-brand__slogan {
+  font-size: clamp(11px, 0.82vw, 13px);
+  line-height: 1.35;
+  color: var(--stage-ink-soft);
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ==================== 四、登录框：视口内垂直居中偏上 ==================== */
+
+.login-main {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  box-sizing: border-box;
+  /* 上少下多 → 视觉重心略高于几何中心 */
+  padding: clamp(88px, 13vh, 150px) 20px clamp(104px, 20vh, 240px);
+}
+
+.login-card {
+  width: clamp(320px, 26vw, 420px);
+  max-width: 100%;
+  box-sizing: border-box;
+  background: var(--skin-card-bg);
+  border: var(--skin-card-border);
+  border-radius: var(--skin-card-radius);
+  padding: var(--skin-card-padding);
+  box-shadow: var(--skin-card-shadow, none);
+  backdrop-filter: var(--skin-card-backdrop, none);
+  -webkit-backdrop-filter: var(--skin-card-backdrop, none);
+  color: var(--skin-ink);
+}
+
+.login-card__title {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--skin-ink);
+}
+
+.login-card__subtitle {
+  margin: 0 0 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--skin-ink-soft);
+}
+
+/* ==================== 五、皮肤：表单控件统一按 --skin-* 渲染 ==================== */
+
+.login-card .ant-form-item-label > label {
+  color: var(--skin-ink);
+  font-weight: var(--skin-label-weight);
+  font-size: 12.5px;
+  letter-spacing: 0.2px;
+}
+
+.login-card .ant-form-item-label > label::after {
+  content: none;
+}
+
+.login-card .ant-input,
+.login-card .ant-input-affix-wrapper {
+  background: var(--skin-input-bg);
+  border-color: var(--skin-input-border);
+  color: var(--skin-ink);
+  box-shadow: none;
+}
+
+.login-card .ant-input::placeholder {
+  color: var(--skin-ink-soft);
+}
+
+.login-card .ant-input-prefix .anticon {
+  color: var(--skin-ink-soft);
+}
+
+.login-card .ant-input-affix-wrapper:hover,
+.login-card .ant-input:hover {
+  border-color: var(--skin-input-focus);
+}
+
+.login-card .ant-input-affix-wrapper-focused,
+.login-card .ant-input-affix-wrapper:focus-within,
+.login-card .ant-input:focus {
+  border-color: var(--skin-input-focus);
+  box-shadow: none;
+}
+
+/* 描边形态：1px/2px 描边 + 小圆角（圆角跟随卡片，角色向更圆、抽象向更硬） */
+.login-card--outline .ant-input,
+.login-card--outline .ant-input-affix-wrapper {
+  border-radius: calc(var(--skin-card-radius) * 0.34);
+}
+
+/* 下划线形态：无填充、仅底边，聚焦时底边变主题色 */
+.login-card--underline .ant-input-affix-wrapper,
+.login-card--underline .ant-input {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--skin-input-border);
+  border-radius: 0;
+  padding-inline: 0;
+}
+
+.login-card--underline .ant-input-affix-wrapper:hover,
+.login-card--underline .ant-input:hover {
+  border-bottom-color: var(--skin-input-focus);
+}
+
+.login-card--underline .ant-input-affix-wrapper-focused,
+.login-card--underline .ant-input-affix-wrapper:focus-within,
+.login-card--underline .ant-input:focus {
+  border-bottom-color: var(--skin-input-focus);
+}
+
+/* 填充形态：浅色底 + 弱描边 */
+.login-card--filled .ant-input,
+.login-card--filled .ant-input-affix-wrapper {
+  border: 1px solid var(--skin-input-border);
+  border-radius: calc(var(--skin-card-radius) * 0.5);
+}
+
+.login-card .ant-form-item {
+  margin-bottom: 16px;
+}
+
+.login-card .ant-btn-primary {
+  width: 100%;
+  height: 42px;
+  border: none;
+  border-radius: var(--skin-btn-radius);
+  background: var(--skin-btn-bg);
+  color: var(--skin-btn-color);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  box-shadow: none;
+}
+
+.login-card .ant-btn-primary:not(:disabled):hover,
+.login-card .ant-btn-primary:not(:disabled):focus-visible {
+  background: var(--skin-btn-bg);
+  color: var(--skin-btn-color);
+  filter: brightness(1.07);
+}
+
+.login-card .ant-btn-primary:not(:disabled):active {
+  filter: brightness(0.94);
+}
+
+.login-card .ant-alert {
+  border-radius: calc(var(--skin-card-radius) * 0.5);
+  margin-bottom: 14px;
+}
+
+/* ==================== 六、右上角语言切换 ==================== */
+
+.login-lang {
+  position: fixed;
+  top: clamp(12px, 2.4vh, 26px);
+  right: clamp(12px, 2.4vw, 32px);
+  z-index: 3;
+}
+
+.login-lang .ant-btn {
+  color: var(--stage-ink-soft);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.login-lang .ant-btn:hover {
+  color: var(--stage-ink);
+  background: color-mix(in srgb, var(--stage-ink) 8%, transparent);
+}
+
+/* ==================== 七、窄屏：品牌压成一行，卡片不溢出、不压品牌 ==================== */
+
+@media (max-width: 768px) {
+  .login-brand {
+    top: 14px;
+    left: 16px;
+    grid-template-columns: auto auto;
+    align-items: center;
+    column-gap: 8px;
+    max-width: calc(100vw - 96px);
+  }
+
+  .login-brand__mark {
+    width: 26px;
+    height: 26px;
+    grid-row: auto;
+  }
+
+  .login-brand__text {
+    flex-direction: row;
+    align-items: baseline;
+  }
+
+  /* 移动端缩为「图标 + 短名」一行 */
+  .login-brand__slogan {
+    display: none;
+  }
+
+  .login-brand__name--full {
+    display: none;
+  }
+
+  .login-brand__name--short {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    font-size: 15px;
+    white-space: nowrap;
+  }
+
+  .login-main {
+    padding: clamp(64px, 10vh, 96px) 16px clamp(72px, 14vh, 140px);
+  }
+
+  .login-card {
+    width: min(100%, 360px);
+  }
+
+  .login-stage .login-char {
+    width: min(64vw, 300px);
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: -24px;
+    max-width: none;
+    opacity: 0.9;
+  }
+}
+
+@media (max-width: 420px) {
+  .login-main {
+    padding: 60px 12px 88px;
+  }
+
+  .login-card {
+    width: 100%;
+  }
+}
+
+/* ==================== 八、减弱动效 ==================== */
+
+@media (prefers-reduced-motion: reduce) {
+  .login-brand,
+  .login-stage .login-char {
+    transition: none;
+    animation: none;
+  }
+}

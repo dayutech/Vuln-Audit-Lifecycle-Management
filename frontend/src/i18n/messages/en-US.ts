@@ -5,6 +5,10 @@ import { projectEn } from './domains/projectMessages';
 import { appEn } from './domains/appMessages';
 import { loginEn } from './domains/loginMessages';
 import { preferencesEn } from './domains/preferencesMessages';
+import { settingsEn } from './domains/settingsMessages';
+import { authEn } from './domains/authMessages';
+import { ssoEn } from './domains/ssoMessages';
+import { registrationReviewEn } from './domains/registrationReviewMessages';
 
 /**
  * English copy.
@@ -21,6 +25,10 @@ export const enUS: MessageCatalog = {
   ...appEn,
   ...loginEn,
   ...preferencesEn,
+  ...settingsEn,
+  ...authEn,
+  ...ssoEn,
+  ...registrationReviewEn,
   /* ==================== common ==================== */
   'common.appName': 'Vulnerability Audit Lifecycle Management',
   'common.loading': 'Loading…',
@@ -51,7 +59,7 @@ export const enUS: MessageCatalog = {
   'error.backHome': 'Back to dashboard',
 
   /* ==================== login ==================== */
-  'login.title': 'Vulnerability Audit Lifecycle Management',
+  'login.title': 'Sign in',
   'login.username': 'Username',
   'login.password': 'Password',
   'login.usernameRequired': 'Please enter your username',
@@ -1033,3 +1041,5 @@ export const enUS: MessageCatalog = {
   'impersonation.expired': 'Impersonation ended (expired); your admin account was restored',
   'impersonation.needRelogin': 'The original admin credentials are gone — please sign in again',
 };
+
+
