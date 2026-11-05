@@ -2534,3 +2534,108 @@ curl -s -X POST http://127.0.0.1:8089/api/v1/auth/login \
 | dev-mode 关闭后（生产默认） | 发码响应**不含 devCode**（`{"channel":"sms","target":"13900007777","purpose":"REGISTER","expiresInSeconds":300}`） |
 
 复核数据已清理（`users` 回到 10、`registration_requests=0`、`verification_codes=0`、`orphan_user_roles=0`），`APP_VERIFICATION_DEV_MODE` 已从 `deploy/backend.env` 移除并重启，`/projects`、`/users/me/preferences`、`/admin/registration-requests` 均 200。
+
+## 50. 第三十四轮（忘记密码：验证码重置 + 旧 token 失效 + 审计，t103）
+
+忘记密码**复用 t102 的验证码基础设施**（`verification_codes` 表 + `VerificationCodeService` + `VerificationCodeSender`），不新增表；只补两处数据与一条链路约束。
+
+### 50.1 数据（V21 幂等迁移 + manual-ddl「V21」段）
+
+| 变更 | 说明 |
+|---|---|
+| `users.token_invalid_before DATETIME(6) NULL` | 重置成功后写入「当前时间（秒级）」；`JwtAuthenticationFilter` 拒绝 `iat < token_invalid_before` 的 token，实现**改密后全端下线**（无状态 JWT 不维护黑名单） |
+| 回填 `email_verified = TRUE` | `email_verified` 是 t102 才有的列；管理员代建的历史账号邮箱在创建时已核对，不回填会让「忘记密码」对所有历史账号静默不可用。占位邮箱 `<username>@no-email.local` 保持未验证（不可达） |
+
+### 50.2 接口（公开，全部限流）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/v1/auth/password-reset/send-code` | body `{channel:'sms'|'email', target}`（purpose 固定 `RESET_PASSWORD`）→ **200**；target 必须是**已绑定且 `phone_verified=true` 的手机号**或 **`email_verified=true` 的邮箱** |
+| POST | `/api/v1/auth/password-reset/confirm` | body `{target, code, newPassword}` → 200；验证码哈希比对 + 过期 + 尝试上限 + 一次性消费；密码强度 `PasswordPolicy`；成功后改密 + 全端下线 + 写审计 |
+
+**防账号枚举**：`send-code` 对「不存在 / 未验证 / 已停用」的 target 一律返回 **200**，内部不发码也不落库（日志记 `target 不存在或未验证…`）。
+`devCode` 仅在 `app.security.verification.dev-mode=true` 且**验证码真的发出**时出现，因此测试环境可据 `devCode` 是否为空断言「未发送」。
+
+**限流**（沿用 t102 配置）：同一 target 冷却 `resend-interval-seconds`（默认 300s）→ 429；target 每小时 `max-per-hour`（5）→ 429；单 IP 每小时 `max-per-ip-per-hour`（20）→ 429。
+**新增**：`confirm` 连续失败按 IP 计数，窗口 `reset-failed-window-minutes`（默认 15 分钟）内达到 `reset-max-failed-attempts`（默认 5 次）→ **429**（带 Retry-After）。
+
+### 50.3 密码强度（单一实现）
+
+`com.vulnaudit.util.PasswordPolicy`：**≥8 位**，且「大写 / 小写 / 数字 / 符号」四类中**至少满足三类**；上限 64。
+不满足 → 400 `密码强度不足：至少 8 位，且需包含大写字母、小写字母、数字、符号中的至少三类`。
+
+> **口径差异（重要）**：仓库里既有的 `/auth/change-password`、`/users/{id}/reset-password` 历史上只有长度校验（6–100），
+> **不存在**任务书所说的「≥8 + 三类」实现。本轮把该策略实现为**单一可复用工具类**并只在新链路启用；
+> 若直接套到老接口，会改变既有契约并让已发布用例（如 `brandNew789`、`resetPass789` 这类仅「小写+数字」的取值）失败。
+> 统一收紧建议见报告 §8。
+
+### 50.4 重置后的安全效果
+
+1. `password_hash` 更新为 BCrypt 新哈希；
+2. `users.token_invalid_before = now`（秒级）→ 该用户**所有更早签发的 token 立即失效**（受保护端点 401）；
+3. 验证码标记 `consumed_at`（一次性，复用 t102 实现）；
+4. 审计 `RESET_PASSWORD`：`resource_type=user`、`resource_id=用户`、`details=忘记密码重置: channel=sms, target=137****1111, tokensInvalidBefore=…`
+   —— **不含验证码、不含明文新旧密码**；
+5. 新旧密码相同 → 400「新密码不能与旧密码相同」（在消费验证码之前判定，不白白烧掉验证码）。
+
+> **已知窗口**：JWT `iat` 为秒级精度，与重置**同一秒**内签发的 token 仍可用（≤1 秒）。这是「不维护 token 黑名单」的代价，已在 §50.7 记录。
+
+### 50.5 验证
+
+`PasswordResetFlowTest` **13 例**：已验证手机号发码 200 且落库 / 5 分钟内重复 429 / 未验证手机号与邮箱 200 但不发码（码表 0 行，等价于 Sender 未被调用）/
+不存在 target 200 且无 devCode 且不落库 / 错误码 400 / 过期 400 / 已消费 400 / 强度不足 400（且不消费验证码）/ 新旧密码相同 400 /
+重置后旧密码 401 新密码 200 / 旧 token 401 而新登录 token 200 / 邮箱渠道 + 审计（含 channel、不含验证码与明文密码、仅 1 条）/ 未知 target confirm 400 / 连续失败 429 / 重置后偏好接口仍 200。
+
+```bash
+cd backend && mvn -B test -Dtest=PasswordResetFlowTest    # 期望 13/13
+
+# 线上手工复核（dev-mode 打开时才能拿到 devCode）
+curl -s -X POST http://127.0.0.1:8089/api/v1/auth/password-reset/send-code \
+  -H 'Content-Type: application/json' -d '{"channel":"sms","target":"<已验证手机号>"}'
+curl -s -X POST http://127.0.0.1:8089/api/v1/auth/password-reset/confirm \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"<已验证手机号>","code":"<devCode>","newPassword":"NewPass@2026"}'
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8089/api/v1/auth/login \
+  -H 'Content-Type: application/json' -d '{"username":"<user>","password":"<旧密码>"}'   # 期望 401
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8089/api/v1/auth/login \
+  -H 'Content-Type: application/json' -d '{"username":"<user>","password":"NewPass@2026"}' # 期望 200
+```
+
+### 50.6 配置
+
+```yaml
+app:
+  security:
+    verification:
+      dev-mode: false                 # 生产必须 false（发码响应才不回传明文）
+      reset-max-failed-attempts: 5    # ENV: APP_VERIFICATION_RESET_MAX_FAILED
+      reset-failed-window-minutes: 15 # ENV: APP_VERIFICATION_RESET_FAILED_WINDOW_MINUTES
+```
+
+### 50.7 已知边界
+
+1. **同一秒窗口**：与重置同一秒签发的 token 仍有效（≤1 秒）；需要严格即时失效时改为 `token_invalid_before = iat 精度 + 1s` 并让登录侧签发 `iat+1`，或引入 token 版本号（`token_version` 递增 + 写进 JWT claim）。
+2. **密码策略未回填老接口**：`/auth/change-password`、管理员重置仍是 6–100 长度校验（见 §50.3）；建议下轮统一。
+3. **历史账号必须先回填 `email_verified`**（V21 已做）；新注册账号由审批流程置位。
+4. **IP 失败计数为进程内**：多实例部署按实例数放大，需网关层再叠加。
+
+### 50.8 线上复核（2026-11-05）
+
+- 部署：远端 `mvn -B -DskipTests package` BUILD SUCCESS → jar **73,152,953 B**（旧 jar / 旧 src 备份 `~/backups/vuln-audit-backend-t102_*.jar`）；
+  `deploy/manual-ddl.sql`「V21」段已在生产库执行（`users.token_invalid_before` 建列 + `email_verified` 回填，回填后仅占位邮箱仍为未验证）。
+- 复核用的临时账号 `t103user`（手机 13600001111，经 t102 注册 + 审批得到已验证手机号）：
+
+| 场景 | 实测 |
+|---|---|
+| 发码 | `POST /auth/password-reset/send-code {"channel":"sms","target":"13600001111"}` → 200，dev-mode 下 `devCode=180550` |
+| 重置 | `POST /auth/password-reset/confirm {"target":"13600001111","code":"180550","newPassword":"NewPass@2026"}` → 200 `密码已重置，请使用新密码登录` |
+| 旧密码 | 登录 **401** |
+| 新密码 | 登录 **200** |
+| 旧 token | 重置前签发的 token 访问 `GET /auth/me` → **401**（`token_invalid_before` 生效） |
+| 不存在 target 发码 | `{"channel":"sms","target":"13911112222"}` → **200**，响应**不含 devCode**（不泄露账号是否存在，也不发码） |
+| 不存在邮箱发码 | `{"channel":"email","target":"nobody@nowhere.local"}` → **200** 且无 devCode |
+| 审计 | `action=RESET_PASSWORD, resource_type=user, resource_id=<t103user>`，`details=忘记密码重置: channel=sms, target=136****1111, tokensInvalidBefore=2026-11-05T11:51:40`（**无验证码、无明文密码**），仅 1 条 |
+
+- 复核数据已清理（`users` 回到 10、`registration_requests=0`、`verification_codes=0`、`orphan_user_roles=0`）；
+  `APP_VERIFICATION_DEV_MODE` 已从 `deploy/backend.env` 移除并重启，生产发码响应不再含 devCode；`/projects`、`/users/me/preferences`、`/audit-logs` 均 200。
+- 回归：隔离副本 `mvn -B clean test` → **722/722**（基线 700 + 本任务 13 + 并行任务在途 9；`backend/target` 存在并发构建，故用副本独占）。

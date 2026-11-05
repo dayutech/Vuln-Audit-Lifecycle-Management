@@ -359,6 +359,31 @@ SHOW TABLES LIKE 'registration_requests';
 SHOW TABLES LIKE 'verification_codes';
 
 -- =============================================================================
+-- V21：忘记密码（验证码重置 + 旧 token 失效）配套变更（t103）
+-- =============================================================================
+-- 1) users.token_invalid_before：重置密码后写入「签发时间早于此时间戳的 JWT 一律失效」，
+--    JwtAuthenticationFilter 比较 token 的 iat 实现「改密后全端下线」（无状态 JWT 无需黑名单）。
+-- 2) 历史账号邮箱回填为已验证：email_verified 是 t102 才引入的列，管理员代建的历史账号邮箱
+--    在创建时已核对；不回填会导致「忘记密码」对所有历史账号静默不可用。
+--    占位邮箱（<username>@no-email.local）保持未验证（不可达）。
+-- 幂等：ADD COLUMN IF NOT EXISTS；UPDATE 只改 email_verified=false 的行，重复执行不再变更。
+ALTER TABLE users ADD COLUMN IF NOT EXISTS token_invalid_before DATETIME(6) NULL;
+
+UPDATE users
+   SET email_verified = TRUE
+ WHERE email_verified = FALSE
+   AND email IS NOT NULL
+   AND email LIKE '%@%'
+   AND email NOT LIKE '%@no-email.local';
+
+-- 校验：列存在；回填后仍为未验证的只应是占位邮箱
+SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'token_invalid_before';
+SELECT COUNT(*) AS unverified_real_emails FROM users
+ WHERE email_verified = FALSE AND email NOT LIKE '%@no-email.local';
+
+-- =============================================================================
 -- 执行完成后的统一核对
 -- =============================================================================
 -- 1) Flyway 版本号唯一（防止后续误引入重号）：

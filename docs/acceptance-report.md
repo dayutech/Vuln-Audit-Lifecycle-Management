@@ -1435,3 +1435,44 @@ t97/t99 前端已提供 8 套主题（角色组 4 + 抽象极简组 4），后�
 重复审批 409、拒绝后登录 403「注册申请已被拒绝」、非管理员 403、三类审计各 1 条；dev-mode 关闭后响应不含 devCode。
 V20 DDL 已在生产库执行（两张新表 + 两列 + phone 唯一索引），存量 10 个用户 `*_verified` 全 0 未受影响；复核数据已清理
 （`registration_requests=0` / `verification_codes=0` / `orphan_user_roles=0`），`APP_VERIFICATION_DEV_MODE` 已移除并重启。
+
+### 2.20 忘记密码（验证码重置 + 旧 token 失效 + 审计，t103）
+
+**目标**：复用 t102 的验证码基础设施，提供「验证码 → 重置密码 → 全端下线」的公开链路，不新增表。
+
+**数据（V21，幂等；生产 Flyway 关闭 → `deploy/manual-ddl.sql` V21 段）**
+
+| 变更 | 内容 |
+|---|---|
+| `users.token_invalid_before` | 重置成功后写当前时间（秒级）；`JwtAuthenticationFilter` 拒绝 `iat < token_invalid_before` 的 token |
+| 回填 `email_verified=TRUE` | 历史（管理员代建）账号邮箱视为已验证，否则忘记密码对其静默不可用；占位邮箱 `@no-email.local` 不回填 |
+
+**接口（公开）**：`POST /auth/password-reset/send-code`、`POST /auth/password-reset/confirm`；
+均已在 `SecurityConfig` permitAll，且都有服务层防线。
+
+**安全设计**
+
+1. **防账号枚举**：target 不存在/未验证/已停用时 `send-code` 仍 200，内部不发码不落库；`confirm` 对未知 target 统一返回
+   400「验证码无效或已过期，请重新获取」。
+2. **只用已验证联系方式**：手机号需 `phone_verified=true`、邮箱需 `email_verified=true`，且账号必须 `active`。
+3. **验证码**：只存 BCrypt 哈希、300s、一次性、失败 5 次作废（复用 t102 实现）；发码限流沿用 t102（冷却/小时/IP）。
+4. **密码强度单一实现**：`util/PasswordPolicy`（≥8 位 + 四类至少三类），**先在强度校验、再消费验证码**，弱密码不烧码。
+5. **新旧密码相同 → 400**。
+6. **改密即全端下线**：`users.token_invalid_before = now`；旧 token 访问受保护端点 → **401**，新登录 token 正常。
+7. **审计**：`RESET_PASSWORD`（resource_type=user、resource_id=用户、details 含 channel 与脱敏 target，**不含验证码/明文密码**），一次重置仅 1 条
+   （公开端点无登录主体，拦截器本就不写）。
+8. **连续失败按 IP 限流**：窗口 15 分钟内 5 次失败 → 429（带 Retry-After）。
+
+**证据**：`PasswordResetFlowTest` **13 例全绿**（发码 200 且落库、5 分钟内重复 429、未验证联系方式不发码、不存在 target 200 且不落库、
+错误/过期/已消费 400、强度不足 400 且不烧码、新旧相同 400、重置后旧密码 401 新密码 200、旧 token 401 新 token 200、
+邮箱渠道 + 审计内容断言、未知 target confirm 400、连续失败 429、重置后偏好接口 200）；全量回归在**隔离副本**执行
+`mvn -B clean test` → **722/722**（基线 700 + 本任务 13 + 并行任务在途 9；`backend/target` 存在并发构建，故用副本独占）。
+规则、DDL、配置与 curl 复核见 README §49。
+
+**线上复核（2026-11-05，jar 73,152,953 B）**：发码 200（dev-mode 临时打开时含 devCode）→ confirm 200「密码已重置」→ 旧密码登录 **401**、
+新密码登录 **200**、重置前签发的旧 token 访问 `/auth/me` **401**；不存在 target/邮箱发码仍 **200 且不含 devCode**（防枚举）；
+审计 `RESET_PASSWORD`（resource_type=user、details 含 channel=sms 与脱敏手机号、不含验证码与明文密码）仅 1 条。
+V21 已上生产库（`token_invalid_before` 建列 + `email_verified` 回填），复核数据已清理（users=10、requests=0、codes=0、orphan=0）。
+
+> **口径差异（已记录 §8）**：任务书所述「≥8 位 + 三类」密码规则在既有代码中并不存在（老接口只校验长度 6–100）；
+> 本轮实现为单一工具类并只在新链路启用，避免破坏既有契约与已发布用例。
