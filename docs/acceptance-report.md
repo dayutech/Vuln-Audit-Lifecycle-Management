@@ -1393,3 +1393,45 @@ t97/t99 前端已提供 8 套主题（角色组 4 + 抽象极简组 4），后�
 **t100 线上复核（2026-11-04，jar 73,064,121 B）**：8 个主题逐个 `PUT /users/me/preferences` 均 200，`GET /auth/me` 逐个回显；
 `mono_grid`（下划线错写）与 `monoGrid` 均 400 且消息含 8 项支持列表（中英）；复核后 admin 恢复 `pencil`；
 `/projects`、`/customers` 未受影响。
+
+### 2.18 自助注册 + 双验证码 + 管理员审批 + 待审批登录拦截（t102）
+
+**目标**：把「只能由管理员建号」扩展为「自助注册（手机必填 + 邮箱可选，双验证码）→ 管理员审批 → 才能登录」。
+
+**数据（V20，幂等；生产 Flyway 关闭 → `deploy/manual-ddl.sql` V20 段）**
+
+| 变更 | 内容 |
+|---|---|
+| `users` | `phone` 补唯一索引（可空，历史 NULL 不冲突）；新增 `email_verified` / `phone_verified`（BOOLEAN NOT NULL DEFAULT FALSE） |
+| `users.status` | 追加 `pending_approval` / `rejected`（既有 active/suspended/deactivated 未改） |
+| `registration_requests`（新） | username / password_hash / phone（必填）/ email / phone_verified / email_verified / status / reviewer_id / review_note / created_at / reviewed_at |
+| `verification_codes`（新） | target / purpose / **code_hash** / expires_at / attempts / consumed_at / created_at |
+
+**接口**：`POST /auth/register/send-code`（公开）、`POST /auth/register`（公开，201）、
+`GET /admin/registration-requests`（ADMIN/PL，分页）、`POST .../{id}/approve`、`POST .../{id}/reject`（ADMIN/PL）。
+
+**关键安全设计**
+
+1. **注册不产生可登录账号**：落 `users.status=pending_approval` 占位用户 + `registration_requests(PENDING)`；
+   用户名/手机号/邮箱的唯一性由 DB 唯一约束兜住（并发安全）。
+2. **登录拦截**：`UserServiceImpl.authenticate` 在密码校验前判定 —— `pending_approval` → **403「账号待管理员审批，请耐心等待」**、
+   `rejected` → **403「注册申请已被拒绝」**，均不签发 token（文案走 MessageSource，中英双语）。
+3. **验证码**：6 位数字、**只存 BCrypt 哈希**、300s 有效、一次性、失败 5 次作废；
+   target 冷却 300s（429）、target 每小时 5 次（429）、单 IP 每小时 20 次（429）；`dev-mode` 之外任何接口不回传明文。
+4. **投递抽象**：`VerificationCodeSender`（sendSms/sendEmail），默认 `LoggingVerificationCodeSender` 只打 WARN 且不打印明文；
+   生产换真实网关只需提供新 Bean（`@ConditionalOnMissingBean`）。
+5. **审计**：`REGISTER_SUBMIT`（挂申请人占位用户）/ `REGISTRATION_APPROVE` / `REGISTRATION_REJECT`（挂审批管理员），
+   审批两个端点加入 `SKIP_ENDPOINTS`（支持 `{id}` 路径变量）→ 一次审批仅 1 条。
+6. **权限**：审批三端点 `hasAnyRole('ADMIN','PROJECT_LEADER')`；模拟态下 `/api/v1/admin/**` 写方法仍由
+   `ImpersonationGuardFilter` 一律 403（防借壳批号）。
+
+**证据**：`RegistrationFlowTest` **17 例全绿**（手机号/邮箱格式 400、未知渠道/用途 400、未发码 400、验证码错误/过期/已消费 400、
+邮箱未验证 400、用户名/手机号/邮箱重复 409、注册成功 201 且 PENDING 且登录 403、审批通过可登录且 `phone_verified=true`、
+重复审批 409、拒绝后登录 403、非管理员 403、5 分钟内重复发码 429、dev-mode 关闭不含 devCode、审批审计仅 1 条、带邮箱注册 `email_verified=true`）；
+全量 `mvn -B clean test` **700/700**。规则、DDL 与 curl 复核见 README §48。
+
+**线上复核（2026-11-05，jar 73,118,449 B）**：手机号格式 400、发码 200（dev-mode 临时打开时含 devCode）、5 分钟内重复 429、
+注册 201（PENDING）、待审批登录 403「账号待管理员审批，请耐心等待」、管理员列表可见、审批通过后登录 200 且 `phoneVerified=true`、
+重复审批 409、拒绝后登录 403「注册申请已被拒绝」、非管理员 403、三类审计各 1 条；dev-mode 关闭后响应不含 devCode。
+V20 DDL 已在生产库执行（两张新表 + 两列 + phone 唯一索引），存量 10 个用户 `*_verified` 全 0 未受影响；复核数据已清理
+（`registration_requests=0` / `verification_codes=0` / `orphan_user_roles=0`），`APP_VERIFICATION_DEV_MODE` 已移除并重启。

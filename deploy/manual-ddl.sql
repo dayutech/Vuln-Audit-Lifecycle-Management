@@ -309,6 +309,56 @@ SELECT COUNT(*) AS users_without_theme FROM users WHERE login_theme IS NULL OR l
 
 
 -- =============================================================================
+-- V20：自助注册（手机必填 / 邮箱可选）+ 双验证码 + 管理员审批（t102）
+-- =============================================================================
+-- 1) users：phone 列早已由 Hibernate 建出（可空），此处补唯一索引并新增两个 verified 标记；
+--    历史用户 phone 为 NULL 不受影响（NULL 不参与唯一性冲突）。
+-- 2) registration_requests：注册申请（审批前不产生可登录账号）
+-- 3) verification_codes：验证码（只存 BCrypt 哈希；5 分钟内同 target+purpose 只发一次；单 target 每小时上限）
+-- 幂等：ADD COLUMN / CREATE INDEX / CREATE TABLE 均带 IF NOT EXISTS（MariaDB 10.x）。
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_users_phone ON users (phone);
+
+CREATE TABLE IF NOT EXISTS registration_requests (
+    id             VARCHAR(36)  NOT NULL PRIMARY KEY,
+    username       VARCHAR(50)  NOT NULL,
+    password_hash  VARCHAR(255) NOT NULL,
+    phone          VARCHAR(20)  NOT NULL,
+    email          VARCHAR(255) NULL,
+    phone_verified BOOLEAN      NOT NULL DEFAULT FALSE,
+    email_verified BOOLEAN      NOT NULL DEFAULT FALSE,
+    status         VARCHAR(20)  NOT NULL,
+    reviewer_id    VARCHAR(36)  NULL,
+    review_note    VARCHAR(500) NULL,
+    created_at     DATETIME(6)  NOT NULL,
+    reviewed_at    DATETIME(6)  NULL
+);
+CREATE INDEX IF NOT EXISTS idx_registration_requests_status ON registration_requests (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_registration_requests_username ON registration_requests (username);
+CREATE INDEX IF NOT EXISTS idx_registration_requests_phone ON registration_requests (phone);
+
+CREATE TABLE IF NOT EXISTS verification_codes (
+    id          VARCHAR(36)  NOT NULL PRIMARY KEY,
+    target      VARCHAR(120) NOT NULL,
+    purpose     VARCHAR(20)  NOT NULL,
+    code_hash   VARCHAR(255) NOT NULL,
+    expires_at  DATETIME(6)  NOT NULL,
+    attempts    INT          NOT NULL DEFAULT 0,
+    consumed_at DATETIME(6)  NULL,
+    created_at  DATETIME(6)  NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_verification_codes_target ON verification_codes (target, purpose, created_at);
+
+-- 校验：列与表存在、存量用户 verified 全为 0
+SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME IN ('phone','email_verified','phone_verified');
+SELECT COUNT(*) AS users_phone_verified FROM users WHERE phone_verified = 1;
+SHOW TABLES LIKE 'registration_requests';
+SHOW TABLES LIKE 'verification_codes';
+
+-- =============================================================================
 -- 执行完成后的统一核对
 -- =============================================================================
 -- 1) Flyway 版本号唯一（防止后续误引入重号）：

@@ -2409,3 +2409,128 @@ cd backend && mvn -B -DskipTests package && systemctl --user restart vuln-audit-
 cd frontend && npm run build && SUDO_PASS='***' bash ../deploy/sync-dist.sh
 cd ~/apps/vuln-audit && BASE_URL=http://127.0.0.1:8089 bash scripts/smoke.sh   # 期望 244/244
 ```
+## 48. 第三十二轮（自助注册 + 双验证码 + 管理员审批 + 待审批登录拦截，t102）
+
+自助注册采用「**验证码验证 → 提交申请 → 管理员审批 → 才能登录**」的三段式，注册成功**不产生可登录账号**。
+
+### 48.1 数据模型（V20）
+
+| 表 / 列 | 说明 |
+|---|---|
+| `users.phone` | 已有列（可空），本轮补**唯一索引** `uk_users_phone`；历史用户为 NULL 不参与冲突 |
+| `users.email_verified` / `users.phone_verified` | `BOOLEAN NOT NULL DEFAULT FALSE`（t102 新增） |
+| `users.status` 新增值 | `pending_approval`（待审批占位用户）/ `rejected`（申请被拒）；**既有 active/suspended/deactivated 未改** |
+| `registration_requests` | id / username / password_hash / phone（必填）/ email（可空）/ phone_verified / email_verified / status(PENDING·APPROVED·REJECTED) / reviewer_id / review_note / created_at / reviewed_at |
+| `verification_codes` | id / target / purpose(REGISTER·RESET_PASSWORD·BIND) / **code_hash** / expires_at（默认 +300s）/ attempts / consumed_at / created_at |
+
+- 迁移：`backend/src/main/resources/db/migration/V20__self_registration_and_verification_codes.sql`（`ADD COLUMN IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS` / `CREATE TABLE IF NOT EXISTS`，幂等）。
+- 生产 Flyway 关闭 → 执行 `deploy/manual-ddl.sql`「V20」段（含校验 SQL）。
+
+**为什么注册时就建一条 pending_approval 用户**：用户名/手机号/邮箱的唯一性由 `users` 唯一约束直接兜住（并发安全）；「待审批尝试登录 → 403」有真实主体可判定；审批通过只需把该用户置 active 并补齐验证标记。
+
+### 48.2 接口
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| POST | `/api/v1/auth/register/send-code` | **公开** | body `{channel:'sms'|'email', target, purpose:'REGISTER'}` → 200；`dev-mode` 下响应含 `devCode` |
+| POST | `/api/v1/auth/register` | **公开** | body `{username,password,phone,code,email?,emailCode?}` → **201**（只建 PENDING 申请 + 占位用户，不可登录） |
+| GET | `/api/v1/admin/registration-requests?status=PENDING&page=&size=` | ADMIN / PROJECT_LEADER | 分页；`status` 可为 PENDING/APPROVED/REJECTED，空则全部 |
+| POST | `/api/v1/admin/registration-requests/{id}/approve` | ADMIN / PROJECT_LEADER | 占位用户转 active + phone/email 落库并标记 verified + 申请 APPROVED + 审计 |
+| POST | `/api/v1/admin/registration-requests/{id}/reject` | ADMIN / PROJECT_LEADER | body `{note}`（必填）→ REJECTED，该用户登录 403 |
+
+**注册校验顺序**（任一不通过都不会留下数据）：用户名格式 → 唯一性（用户名/手机号/邮箱，与既有用户与 PENDING 申请比对，冲突 409）→ 手机验证码（必验）→ 邮箱验证码（填了邮箱必验）→ 落库。
+
+**邮箱可选**：不填时占位用户的 `email` 记为 `<username>@no-email.local`（`users.email` 为 NOT NULL 且唯一）。
+
+### 48.3 登录拦截（要求 7）
+
+| 用户状态 | 登录结果 |
+|---|---|
+| `pending_approval` | **403** `账号待管理员审批，请耐心等待`（`error.auth.pending_approval`），不签发 token |
+| `rejected` | **403** `注册申请已被拒绝`（`error.auth.rejected`），不签发 token |
+| `active` | 正常签发 token |
+
+判定发生在 `UserServiceImpl.authenticate` **密码校验之前**，因此待审批/被拒用户即使密码正确也拿不到 token。
+
+### 48.4 验证码策略与投递抽象
+
+- 生成：6 位数字（`SecureRandom`），**只存 BCrypt 哈希**，明文只交给 Sender；**任何接口都不回传明文**（除 `dev-mode`）。
+- 有效期：`code-ttl-seconds`（默认 300s）；一次性：校验成功写 `consumed_at`；失败累计 `attempts`，达到 `max-attempts`（默认 5）后作废。
+- 限流三层：① 同 target+purpose 冷却 `resend-interval-seconds`（默认 300s）→ **429**；② 同 target+purpose 每小时 `max-per-hour`（默认 5）→ 429；③ 单 IP 每小时 `max-per-ip-per-hour`（默认 20）→ 429（进程内滑动窗口）。
+- 投递抽象：`VerificationCodeSender#sendSms/sendEmail`；默认 `LoggingVerificationCodeSender` 只打 WARN（**不打印明文验证码**，只打脱敏 target + 长度）。生产接真实网关时提供自己的 Bean 即可顶上（`@ConditionalOnMissingBean`），业务代码不动。
+
+```yaml
+app:
+  security:
+    verification:
+      dev-mode: false            # 生产必须 false
+      code-length: 6
+      code-ttl-seconds: 300
+      resend-interval-seconds: 300
+      max-per-hour: 5
+      max-attempts: 5
+      max-per-ip-per-hour: 20
+```
+
+环境变量：`APP_VERIFICATION_DEV_MODE` / `APP_VERIFICATION_CODE_TTL_SECONDS` / `APP_VERIFICATION_RESEND_INTERVAL_SECONDS` / `APP_VERIFICATION_MAX_PER_HOUR` / `APP_VERIFICATION_MAX_ATTEMPTS` / `APP_VERIFICATION_MAX_PER_IP_PER_HOUR`。
+
+### 48.5 审计
+
+| 事件 | action | user_id | resource_type / id | details |
+|---|---|---|---|---|
+| 提交申请 | `REGISTER_SUBMIT` | 申请人（占位用户） | registration-request / 申请ID | username、手机号脱敏、email、status=PENDING_APPROVAL |
+| 审批通过 | `REGISTRATION_APPROVE` | 审批管理员 | registration-request / 申请ID | username、手机号脱敏、userId |
+| 审批拒绝 | `REGISTRATION_REJECT` | 审批管理员 | registration-request / 申请ID | username、手机号脱敏、note |
+
+审批两个端点已加入 `AuditTrailInterceptor.SKIP_ENDPOINTS`（支持 `{id}` 路径变量），**一次审批只有 1 条审计**。
+> 注：`audit_logs.user_id` 为 NOT NULL，因此「提交申请」这条记录挂申请人本人，而不是 null。
+
+### 48.6 验证
+
+单元/集成：`RegistrationFlowTest` **17 例**（手机号格式非法 400、邮箱格式非法 400、未知渠道/用途 400、未发码直接注册 400、验证码错误 400、过期 400、已消费 400、邮箱未验证 400、用户名/手机号/邮箱重复 409、注册成功 201 且 PENDING 且登录 403、审批通过后可登录且 phone_verified=true、重复审批 409、拒绝后登录 403、非管理员 403、5 分钟内重复发码 429、dev-mode 关闭不含 devCode、审批审计仅 1 条、邮箱注册 email_verified=true）。
+
+```bash
+cd backend && mvn -B test -Dtest=RegistrationFlowTest     # 期望 17/17
+
+# 线上手工复核（dev-mode 打开时才能拿到 devCode）
+curl -s -X POST http://127.0.0.1:8089/api/v1/auth/register/send-code \
+  -H 'Content-Type: application/json' -d '{"channel":"sms","target":"13800001111","purpose":"REGISTER"}'
+curl -s -X POST http://127.0.0.1:8089/api/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"zhangsan","password":"Passw0rd!","phone":"13800001111","code":"<devCode>"}'
+# 管理员审批
+curl -s -H "Authorization: Bearer $ADMIN" "http://127.0.0.1:8089/api/v1/admin/registration-requests?status=PENDING"
+curl -s -X POST -H "Authorization: Bearer $ADMIN" \
+  http://127.0.0.1:8089/api/v1/admin/registration-requests/<id>/approve
+curl -s -X POST http://127.0.0.1:8089/api/v1/auth/login \
+  -H 'Content-Type: application/json' -d '{"username":"zhangsan","password":"Passw0rd!"}'
+```
+
+### 48.7 已知边界
+
+1. **被拒后同名不可再申请**：占位用户仍占用 username/phone/email 唯一键（`rejected` 状态）。重新申请需换用户名/手机号，或由管理员清理该占位行——按需求「拒绝即终态」设计，未做自助重投。
+2. **IP 限流是单实例内存**：多实例部署时按实例数放大，真实防刷需网关层再叠加。
+3. **`dev-mode` 生产必须关闭**：打开时验证码随响应回传，等于绕过验证。
+4. **审批通过默认分配 `vulnerability_engineer` 角色**（存在该角色时；不存在则仅 `ROLE_USER`，登录后无业务权限）。
+
+### 48.8 线上复核（2026-11-05）
+
+部署：远端 `mvn -B -DskipTests package` BUILD SUCCESS → jar **73,118,449 B**（旧 jar / 旧 src 备份 `~/backups/vuln-audit-backend-t101_*.jar`）；
+`deploy/manual-ddl.sql`「V20」段已在生产库执行（`registration_requests` / `verification_codes` 建表、`users.email_verified/phone_verified` 建列、`uk_users_phone` 唯一索引；存量 10 个用户 `*_verified` 全为 0，未受影响）。
+
+| 场景 | 实测 |
+|---|---|
+| 手机号格式非法 | `POST /auth/register/send-code {"channel":"sms","target":"12345"}` → **400** `手机号格式不正确（需为中国大陆 11 位手机号…）` |
+| 发码（dev-mode 临时打开） | 200，`expiresInSeconds=300` 且回传 `devCode` |
+| 5 分钟内重复发码 | **429** `验证码发送过于频繁，请 299 秒后再试` |
+| 注册 | **201**，`status=PENDING`，`phoneVerified=true`，`message=注册申请已提交，请等待管理员审批` |
+| 待审批登录 | **403** `账号待管理员审批，请耐心等待`（无 token） |
+| 审批列表 | `GET /admin/registration-requests?status=PENDING` → 200，含该申请 |
+| 审批通过 | 200，`loginEnabled=true`；随后登录 **200**；`GET /auth/me` → `status=active`、`phoneVerified=true`、`phone=13900008888` |
+| 重复审批 | **409** `该注册申请已处理（当前状态: APPROVED）` |
+| 拒绝 | 200 `REJECTED` + `reviewNote`；该用户登录 **403** `注册申请已被拒绝` |
+| 非管理员（smoke_engineer） | 审批列表 **403** |
+| 审计 | `REGISTER_SUBMIT`（user_id=申请人占位用户）、`REGISTRATION_APPROVE`、`REGISTRATION_REJECT`（user_id=管理员 admin），各 1 条 |
+| dev-mode 关闭后（生产默认） | 发码响应**不含 devCode**（`{"channel":"sms","target":"13900007777","purpose":"REGISTER","expiresInSeconds":300}`） |
+
+复核数据已清理（`users` 回到 10、`registration_requests=0`、`verification_codes=0`、`orphan_user_roles=0`），`APP_VERIFICATION_DEV_MODE` 已从 `deploy/backend.env` 移除并重启，`/projects`、`/users/me/preferences`、`/admin/registration-requests` 均 200。
