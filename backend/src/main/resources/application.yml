@@ -97,6 +97,15 @@ app:
     impersonation:
       enabled: ${APP_IMPERSONATION_ENABLED:true}
       ttl-seconds: ${APP_IMPERSONATION_TTL_SECONDS:7200}
+    # 自助注册验证码（t102）：dev-mode 生产必须为 false，否则验证码会随响应回传
+    verification:
+      dev-mode: ${APP_VERIFICATION_DEV_MODE:false}
+      code-length: ${APP_VERIFICATION_CODE_LENGTH:6}
+      code-ttl-seconds: ${APP_VERIFICATION_CODE_TTL_SECONDS:300}
+      resend-interval-seconds: ${APP_VERIFICATION_RESEND_INTERVAL_SECONDS:300}
+      max-per-hour: ${APP_VERIFICATION_MAX_PER_HOUR:5}
+      max-attempts: ${APP_VERIFICATION_MAX_ATTEMPTS:5}
+      max-per-ip-per-hour: ${APP_VERIFICATION_MAX_PER_IP_PER_HOUR:20}
   # RBAC 基线数据初始化：启动时幂等写入权限点、内置角色与默认角色权限关联。
   # 权限点是后续 ABAC 的基础数据；关闭后接口仍按 @PreAuthorize 角色轨鉴权。
   rbac:

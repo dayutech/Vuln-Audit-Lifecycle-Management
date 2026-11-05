@@ -80,12 +80,13 @@ public class SecurityConfig {
                 
                 // 配置请求授权
                 .authorizeHttpRequests(auth -> {
-                    // 登录相关端点始终公开
+                    // 登录相关端点始终公开（t102 追加自助注册发码；/auth/register 原本已公开）
                     auth.requestMatchers(
                             "/api/v1/auth/login",
                             "/api/v1/auth/logout",
                             "/api/v1/auth/refresh",
                             "/api/v1/auth/register",
+                            "/api/v1/auth/register/send-code",
                             "/actuator/health"
                     ).permitAll();
 

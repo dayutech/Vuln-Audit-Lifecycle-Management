@@ -64,8 +64,16 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
      * 拦截器再写一条「PUT UserController.updateMyPreferences」只会让一次改偏好出现两条审计。
      * 注意不能把 {@code UserController} 整体加入 {@link #SKIP_CONTROLLERS} ——
      * 用户 CRUD / 角色分配 / 重置密码的审计仍必须由拦截器覆盖。
+     *
+     * <p>t102 追加：注册审批的通过/拒绝由 {@code RegistrationServiceImpl} 写
+     * {@code REGISTRATION_APPROVE / REGISTRATION_REJECT}（含 reviewer、申请ID、拒绝原因），
+     * 拦截器不再重复记录。
      */
-    private static final String[] SKIP_ENDPOINTS = {"PUT /api/v1/users/me/preferences"};
+    private static final String[] SKIP_ENDPOINTS = {
+            "PUT /api/v1/users/me/preferences",
+            "POST /api/v1/admin/registration-requests/{id}/approve",
+            "POST /api/v1/admin/registration-requests/{id}/reject"
+    };
 
     private final AuditLogService auditLogService;
     private final UserService userService;
@@ -121,6 +129,10 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
 
     /**
      * 该请求是否属于「已手工记录审计的单个端点」（见 {@link #SKIP_ENDPOINTS}）
+     *
+     * <p>支持路径变量占位符：条目里的 {@code {id}} / {@code {任何名字}} 会被当成「一个路径段」匹配
+     * （不允许跨 {@code /}），因此 {@code POST /api/v1/admin/registration-requests/{id}/approve}
+     * 能匹配真实 URI {@code .../registration-requests/<uuid>/approve}（t102）。
      */
     private boolean shouldSkipEndpoint(String method, String uri) {
         if (uri == null) {
@@ -133,11 +145,30 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
         }
         String key = method + " " + path;
         for (String skip : SKIP_ENDPOINTS) {
-            if (skip.equals(key)) {
+            if (skip.equals(key) || pathMatchesTemplate(key, skip)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * 「方法 + 路径」与模板比对：模板中的 {@code {xxx}} 匹配一个非空路径段
+     */
+    private boolean pathMatchesTemplate(String key, String template) {
+        if (!template.contains("{")) {
+            return false;
+        }
+        StringBuilder regex = new StringBuilder();
+        for (String part : template.split("\\{[^}]*}", -1)) {
+            if (regex.length() > 0) {
+                regex.append("[^/]+");
+            }
+            regex.append(Pattern.quote(part));
+        }
+        // split 以占位符为界：首段之后每段前都有一个占位符
+        String pattern = regex.toString();
+        return key.matches(pattern);
     }
 
     private UUID currentUserId() {

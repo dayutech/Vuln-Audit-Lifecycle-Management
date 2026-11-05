@@ -36,6 +36,21 @@ public class User {
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
 
+    /** 状态：正常（既有值，禁止改名） */
+    public static final String STATUS_ACTIVE = "active";
+
+    /** 状态：暂停（既有值，禁止改名） */
+    public static final String STATUS_SUSPENDED = "suspended";
+
+    /** 状态：停用/软删除（既有值，禁止改名） */
+    public static final String STATUS_DEACTIVATED = "deactivated";
+
+    /** 状态：待管理员审批（t102 追加，注册占位用户） */
+    public static final String STATUS_PENDING_APPROVAL = "pending_approval";
+
+    /** 状态：注册申请已被拒绝（t102 追加） */
+    public static final String STATUS_REJECTED = "rejected";
+
     /**
      * 用户名
      * 用于系统登录，全局唯一
@@ -54,11 +69,28 @@ public class User {
 
     /**
      * 手机号
-     * 用于短信通知，可选字段
+     * 用于短信通知 / 自助注册（t102 起唯一，可空——历史用户允许为空）
      * 最大长度20字符
      */
-    @Column(name = "phone", length = 20)
+    @Column(name = "phone", length = 20, unique = true)
     private String phone;
+
+    /**
+     * 手机号是否已验证（t102）
+     *
+     * <p>只有通过验证码校验或管理员审批通过的注册申请才会置 true；
+     * 历史用户与管理员代建的账号为 false。
+     */
+    @lombok.Builder.Default
+    @Column(name = "email_verified", nullable = false)
+    private boolean emailVerified = false;
+
+    /**
+     * 手机号是否已验证（t102）
+     */
+    @lombok.Builder.Default
+    @Column(name = "phone_verified", nullable = false)
+    private boolean phoneVerified = false;
 
     /**
      * 密码哈希值
@@ -184,6 +216,22 @@ public class User {
      */
     public boolean isDeactivated() {
         return "deactivated".equals(this.status);
+    }
+
+    /**
+     * 是否「待管理员审批」（t102 自助注册）
+     *
+     * <p>注册时即落一条该状态的占位用户（不可登录），管理员审批通过后转为 {@link #STATUS_ACTIVE}。
+     */
+    public boolean isPendingApproval() {
+        return STATUS_PENDING_APPROVAL.equals(this.status);
+    }
+
+    /**
+     * 是否「注册申请已被拒绝」（t102 自助注册）
+     */
+    public boolean isRejected() {
+        return STATUS_REJECTED.equals(this.status);
     }
 
 }

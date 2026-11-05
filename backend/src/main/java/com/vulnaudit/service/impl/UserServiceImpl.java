@@ -274,6 +274,16 @@ public class UserServiceImpl implements UserService {
                     return new BusinessException(ErrorCode.INVALID_CREDENTIALS);
                 });
         
+        // 检查用户状态（t102：待审批 / 已拒绝 在密码校验之前直接 403，且不签发 token）
+        if (user.isPendingApproval()) {
+            log.warn("账号待管理员审批，拒绝登录: username={}", username);
+            throw new BusinessException(ErrorCode.FORBIDDEN, "error.auth.pending_approval");
+        }
+        if (user.isRejected()) {
+            log.warn("注册申请已被拒绝，拒绝登录: username={}", username);
+            throw new BusinessException(ErrorCode.FORBIDDEN, "error.auth.rejected");
+        }
+
         // 检查用户状态
         if (!user.isActive()) {
             log.warn("用户账号未激活: username={}", username);

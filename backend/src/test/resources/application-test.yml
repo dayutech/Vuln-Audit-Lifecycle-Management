@@ -64,6 +64,17 @@ app:
       enabled: false
       command: definitely-not-a-real-docker-cli
       availability-cache-ms: 0
+  # 自助注册验证码（t102）：测试环境打开 dev-mode，便于用例直接从响应取 devCode；
+  # 「dev-mode 关闭时不回传 devCode」的用例用反射临时改该值验证。
+  security:
+    verification:
+      dev-mode: true
+      code-length: 6
+      code-ttl-seconds: 300
+      resend-interval-seconds: 300
+      max-per-hour: 5
+      max-attempts: 5
+      max-per-ip-per-hour: 100
 
 # 日志配置
 logging:
