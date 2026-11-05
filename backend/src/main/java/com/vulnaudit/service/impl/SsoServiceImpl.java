@@ -5,7 +5,9 @@ import com.vulnaudit.dto.LoginResponse;
 import com.vulnaudit.dto.SsoAuthorizeResponse;
 import com.vulnaudit.dto.SsoBindingVO;
 import com.vulnaudit.dto.SsoCallbackResponse;
+import com.vulnaudit.dto.SsoProviderConfigView;
 import com.vulnaudit.dto.SsoProviderOption;
+import com.vulnaudit.dto.UpdateSsoProviderRequest;
 import com.vulnaudit.entity.RegistrationRequest;
 import com.vulnaudit.entity.SsoBinding;
 import com.vulnaudit.entity.SsoPendingBinding;
@@ -15,6 +17,7 @@ import com.vulnaudit.entity.enums.LoginTheme;
 import com.vulnaudit.entity.enums.RegistrationStatus;
 import com.vulnaudit.exception.BusinessException;
 import com.vulnaudit.exception.ErrorCode;
+import com.vulnaudit.i18n.ApiMessageResolver;
 import com.vulnaudit.repository.RegistrationRequestRepository;
 import com.vulnaudit.repository.SsoBindingRepository;
 import com.vulnaudit.repository.SsoPendingBindingRepository;
@@ -29,6 +32,7 @@ import com.vulnaudit.service.sso.SsoClient;
 import com.vulnaudit.service.sso.SsoClientFactory;
 import com.vulnaudit.service.sso.SsoStateStore;
 import com.vulnaudit.service.sso.SsoUserInfo;
+import jakarta.annotation.Nullable;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -40,11 +44,12 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * SSO 登录与绑定实现（t104）
+ * SSO 登录、绑定与提供商 Web 配置实现（t104 / t116）
  */
 @Slf4j
 @Service
@@ -53,6 +58,16 @@ public class SsoServiceImpl implements SsoService {
 
     /** 陌生身份首次登录时，注册申请里落的来源标记 */
     private static final String SOURCE_SSO = "SSO";
+
+    /** 支持的 4 家提供商（配置接口只接受这些 code，其余 404） */
+    private static final Set<String> KNOWN_PROVIDER_CODES = Set.of("github", "microsoft", "google", "wechat");
+
+    private static final String NOT_FOUND_KEY = "error.sso.provider.not_found";
+    private static final String NOT_FOUND_FALLBACK = "不支持的登录方式: {0}";
+
+    private static final String URL_INVALID_KEY = "validation.sso.url.invalid";
+    private static final String URL_INVALID_FALLBACK =
+            "SSO 端点必须是 https（本地联调允许 http://localhost 与 http://127.0.0.1）: {0}";
 
     private final SsoProviderRepository ssoProviderRepository;
     private final SsoBindingRepository ssoBindingRepository;
@@ -66,22 +81,117 @@ public class SsoServiceImpl implements SsoService {
     private final JwtProperties jwtProperties;
     private final PasswordEncoder passwordEncoder;
     private final AuditLogService auditLogService;
+    private final ApiMessageResolver messageResolver;
 
     // ------------------------------------------------------------------ 提供商
 
     @Override
     @Transactional(readOnly = true)
     public List<SsoProviderOption> publicProviders() {
+        // t116：展示看 enabled（不再按 configured 过滤）；configured 只作为标记给前端
         return ssoProviderRepository.findAllByOrderByCodeAsc().stream()
-                .filter(SsoProvider::isUsable)
-                .map(p -> new SsoProviderOption(p.getCode(), p.getName(), p.getIcon()))
+                .filter(SsoProvider::isEnabled)
+                .map(p -> new SsoProviderOption(p.getCode(), p.getName(), p.getIcon(), p.isConfigured()))
                 .toList();
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<SsoProvider> allProviders() {
-        return ssoProviderRepository.findAllByOrderByCodeAsc();
+    public List<SsoProviderConfigView> providerConfigs() {
+        return ssoProviderRepository.findAllByOrderByCodeAsc().stream()
+                .map(this::toConfigView)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public SsoProviderConfigView updateProvider(@Nullable String providerCode,
+                                                UpdateSsoProviderRequest request,
+                                                @Nullable UUID adminId) {
+        String code = normalize(providerCode);
+        if (!KNOWN_PROVIDER_CODES.contains(code)) {
+            throw new BusinessException(ErrorCode.NOT_FOUND,
+                    messageResolver.resolve(NOT_FOUND_KEY, NOT_FOUND_FALLBACK, code));
+        }
+        SsoProvider provider = ssoProviderRepository.findByCode(code)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
+                        messageResolver.resolve(NOT_FOUND_KEY, NOT_FOUND_FALLBACK, code)));
+
+        List<String> changed = new java.util.ArrayList<>();
+
+        if (request.enabled() != null && request.enabled() != provider.isEnabled()) {
+            provider.setEnabled(request.enabled());
+            changed.add("enabled");
+        }
+        if (request.clientId() != null) {
+            String value = trimToNull(request.clientId());
+            if (!java.util.Objects.equals(value, provider.getClientId())) {
+                provider.setClientId(value);
+                changed.add("clientId");
+            }
+        }
+
+        // secret：省略/空串 = 保持不变；显式 clearClientSecret 才清空；审计只记 ***
+        if (Boolean.TRUE.equals(request.clearClientSecret())) {
+            if (provider.getClientSecret() != null) {
+                provider.setClientSecret(null);
+                changed.add("clientSecret=***");
+            }
+        } else if (StringUtils.hasText(request.clientSecret())) {
+            String value = request.clientSecret().trim();
+            if (!value.equals(provider.getClientSecret())) {
+                provider.setClientSecret(value);
+                changed.add("clientSecret=***");
+            }
+        }
+
+        // 三个端点：null = 不变；空串 = 清空；否则必须是 https（本地 localhost/127.0.0.1 放宽为 http）
+        if (request.authorizeUrl() != null) {
+            String value = validateUrl(request.authorizeUrl());
+            if (!java.util.Objects.equals(value, provider.getAuthorizeUrl())) {
+                provider.setAuthorizeUrl(value);
+                changed.add("authorizeUrl");
+            }
+        }
+        if (request.tokenUrl() != null) {
+            String value = validateUrl(request.tokenUrl());
+            if (!java.util.Objects.equals(value, provider.getTokenUrl())) {
+                provider.setTokenUrl(value);
+                changed.add("tokenUrl");
+            }
+        }
+        if (request.userinfoUrl() != null) {
+            String value = validateUrl(request.userinfoUrl());
+            if (!java.util.Objects.equals(value, provider.getUserInfoUrl())) {
+                provider.setUserInfoUrl(value);
+                changed.add("userinfoUrl");
+            }
+        }
+
+        // scopes：逗号分隔、去重、去空白
+        if (request.scopes() != null) {
+            String value = normalizeScopes(request.scopes());
+            if (!java.util.Objects.equals(value, provider.getScopes())) {
+                provider.setScopes(value);
+                changed.add("scopes");
+            }
+        }
+
+        if (!changed.isEmpty()) {
+            provider.setUpdatedBy(adminId);
+            provider.setUpdatedAt(LocalDateTime.now());
+            ssoProviderRepository.save(provider);
+            auditLogService.log(adminId, "UPDATE_SSO_PROVIDER", "sso_provider", provider.getId(),
+                    "SSO 配置更新: provider=" + provider.getCode()
+                            + ", enabled=" + provider.isEnabled()
+                            + ", configured=" + provider.isConfigured()
+                            + ", fields=[" + String.join(", ", changed) + "]");
+            log.info("SSO 提供商配置更新: provider={}, enabled={}, configured={}, fields={}",
+                    provider.getCode(), provider.isEnabled(), provider.isConfigured(), changed);
+        } else {
+            log.debug("SSO 提供商配置无变化: provider={}", provider.getCode());
+        }
+        return toConfigView(provider);
     }
 
     // ------------------------------------------------------------------ 授权 / 回调
@@ -185,26 +295,84 @@ public class SsoServiceImpl implements SsoService {
         log.info("SSO 解绑成功: userId={}, provider={}", userId, binding.getProviderCode());
     }
 
-    // ------------------------------------------------------------------ 管理员
+    // ------------------------------------------------------------------ 内部
 
-    @Override
-    @Transactional
-    public SsoProvider toggle(String providerCode, boolean enabled, UUID adminId) {
-        SsoProvider provider = ssoProviderRepository.findByCode(normalize(providerCode))
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
-                        "不支持的登录方式: " + providerCode));
-        provider.setEnabled(enabled);
-        ssoProviderRepository.save(provider);
-        auditLogService.log(adminId, "UPDATE_SSO_PROVIDER", "sso_provider", provider.getId(),
-                "SSO 开关: provider=" + provider.getCode()
-                        + ", enabled=" + enabled
-                        + ", configured=" + provider.isConfigured());
-        log.info("SSO 提供商开关更新: provider={}, enabled={}, configured={}",
-                provider.getCode(), enabled, provider.isConfigured());
-        return provider;
+    /** 管理端视图：secret 只回掩码，其余字段明文（都是非敏感配置） */
+    private SsoProviderConfigView toConfigView(SsoProvider provider) {
+        String updatedBy = null;
+        if (provider.getUpdatedBy() != null) {
+            updatedBy = userRepository.findById(provider.getUpdatedBy())
+                    .map(User::getUsername)
+                    .orElse(provider.getUpdatedBy().toString());
+        }
+        return new SsoProviderConfigView(
+                provider.getCode(),
+                provider.getName(),
+                provider.getIcon(),
+                provider.isEnabled(),
+                provider.isConfigured(),
+                provider.getClientId(),
+                provider.maskedClientSecret(),
+                provider.getAuthorizeUrl(),
+                provider.getTokenUrl(),
+                provider.getUserInfoUrl(),
+                provider.getScopes(),
+                provider.getUpdatedAt(),
+                updatedBy);
     }
 
-    // ------------------------------------------------------------------ 内部
+    /**
+     * URL 校验（t116）：必须 https；本地联调允许 http://localhost 与 http://127.0.0.1（README 已说明）。
+     * 空串 = 清空（返回 null）。
+     */
+    private String validateUrl(String raw) {
+        String value = raw == null ? "" : raw.trim();
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        java.net.URI uri;
+        try {
+            uri = java.net.URI.create(value);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, urlInvalidMessage(value));
+        }
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+        boolean https = "https".equals(scheme) && !host.isBlank();
+        boolean localHttp = "http".equals(scheme) && ("localhost".equals(host) || "127.0.0.1".equals(host));
+        if (!https && !localHttp) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, urlInvalidMessage(value));
+        }
+        return value;
+    }
+
+    private String urlInvalidMessage(String value) {
+        return messageResolver.resolve(URL_INVALID_KEY, URL_INVALID_FALLBACK, value);
+    }
+
+    /** scopes：逗号分隔、去空白、去重（保持首次出现顺序）；空串 = 清空 */
+    private String normalizeScopes(String raw) {
+        String value = raw == null ? "" : raw.trim();
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        java.util.LinkedHashSet<String> scopes = new java.util.LinkedHashSet<>();
+        for (String part : value.split(",")) {
+            String trimmed = part.trim();
+            if (!trimmed.isEmpty()) {
+                scopes.add(trimmed);
+            }
+        }
+        return scopes.isEmpty() ? null : String.join(", ", scopes);
+    }
+
+    private String trimToNull(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
 
     private SsoProvider requireUsable(String providerCode) {
         String code = normalize(providerCode);
@@ -250,6 +418,9 @@ public class SsoServiceImpl implements SsoService {
                 .map(RoleAuthority::of)
                 .map(SimpleGrantedAuthority::new)
                 .collect(Collectors.toList()));
+        // t112 三态：login_theme 为 NULL ⇒ 跟随系统默认，SSO 登录也必须返回 null（不回填 pencil），
+        // 并同时给 followDefault，避免前端把 null 当成「没有数据」。
+        boolean followDefault = user.getLoginTheme() == null;
         return LoginResponse.builder()
                 .token(token)
                 .tokenType(jwtProperties.getPrefix().trim())
@@ -258,7 +429,8 @@ public class SsoServiceImpl implements SsoService {
                 .username(user.getUsername())
                 .fullName(user.getFullName())
                 .email(user.getEmail())
-                .loginTheme(LoginTheme.fromCodeOrDefault(user.getLoginTheme()).getCode())
+                .loginTheme(followDefault ? null : LoginTheme.fromCodeOrDefault(user.getLoginTheme()).getCode())
+                .followDefault(followDefault)
                 .build();
     }
 

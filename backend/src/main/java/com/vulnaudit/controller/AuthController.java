@@ -52,9 +52,45 @@ public class AuthController {
     private final JwtUtils jwtUtils;
     private final JwtProperties jwtProperties;
     private final LoginAttemptService loginAttemptService;
+    private final com.vulnaudit.service.SystemSettingService systemSettingService;
 
-    /** 取真实客户端 IP：反向代理场景优先使用 X-Forwarded-For 首个地址 */
-    private String resolveClientIp(jakarta.servlet.http.HttpServletRequest request) {
+    /**
+     * 登录页主题公开配置（t109）
+     *
+     * <p><b>无需认证</b>：登录页在用户登录之前就要拿到「管理员设置的缺省主题」与「全部可选主题」，
+     * 因此该端点必须匿名可访问（见 {@code SecurityConfig} 的 permitAll 清单），
+     * 且读取路径对配置缺失/脏值做过兜底（回落 pencil），不会把登录页拖挂。
+     */
+    @GetMapping("/login-theme")
+    @Operation(summary = "登录页主题公开配置",
+            description = "无需认证；返回 {defaultTheme, themes:[{code}]}。缺省值由管理员设置，缺失/非法回落 pencil")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "查询成功")
+    })
+    public ApiResponse<com.vulnaudit.dto.PublicLoginThemeResponse> getPublicLoginTheme() {
+        return ApiResponse.success(systemSettingService.getPublicLoginTheme());
+    }
+
+    /**
+     * 登录/刷新响应里的 {@code loginTheme}（t112 三态）
+     *
+     * <p>用户行 {@code login_theme} 为 NULL 时<b>原样返回 null</b>（= 跟随系统默认），
+     * 不再回填管理员缺省值 —— 否则「跟随默认」会被固化成具体主题，管理员之后改缺省就跟随不上了。
+     * 历史脏值（非法 code）仍回落默认主题，避免把脏值回吐给前端。
+     */
+    private static String loginThemeOf(User user) {
+        if (user.getLoginTheme() == null) {
+            return null;
+        }
+        return LoginTheme.fromCodeOrDefault(user.getLoginTheme()).getCode();
+    }
+
+    /** 是否跟随系统默认（与 {@link #loginThemeOf(User)} 严格互补） */
+    private static boolean followDefaultOf(User user) {
+        return user.getLoginTheme() == null;
+    }
+
+    /** 取真实客户端 IP：反向代理场景优先使用 X-Forwarded-For 首个地址 */    private String resolveClientIp(jakarta.servlet.http.HttpServletRequest request) {
         String forwarded = request.getHeader("X-Forwarded-For");
         if (forwarded != null && !forwarded.isBlank()) {
             return forwarded.split(",")[0].trim();
@@ -112,7 +148,8 @@ public class AuthController {
                 .username(user.getUsername())
                 .fullName(user.getFullName())
                 .email(user.getEmail())
-                .loginTheme(LoginTheme.fromCodeOrDefault(user.getLoginTheme()).getCode())
+                .loginTheme(loginThemeOf(user))
+                .followDefault(followDefaultOf(user))
                 .build();
 
         log.info("用户登录成功: username={}", user.getUsername());
@@ -254,7 +291,8 @@ public class AuthController {
                 .username(user.getUsername())
                 .fullName(user.getFullName())
                 .email(user.getEmail())
-                .loginTheme(LoginTheme.fromCodeOrDefault(user.getLoginTheme()).getCode())
+                .loginTheme(loginThemeOf(user))
+                .followDefault(followDefaultOf(user))
                 .build();
 
         log.info("令牌刷新成功: username={}", username);

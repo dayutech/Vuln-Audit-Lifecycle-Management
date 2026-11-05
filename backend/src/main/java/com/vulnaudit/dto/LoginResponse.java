@@ -43,8 +43,18 @@ public class LoginResponse {
 
     /**
      * 登录页主题偏好（t96）：登录后直接拿到，避免再发一次 /users/me/preferences
+     *
+     * <p>t112 三态：{@code null} 表示该用户「跟随系统默认」（管理员缺省值）。
      */
-    @Schema(description = "登录页主题偏好", example = "pencil")
+    @Schema(description = "登录页主题偏好；null 表示跟随系统默认", example = "pencil", nullable = true)
     private String loginTheme;
+
+    /**
+     * 是否跟随系统默认（t112）：等价于 {@code loginTheme == null}
+     *
+     * <p>单独给布尔位，避免前端把 {@code loginTheme:null} 误当成「字段缺失」而回退到本地缓存。
+     */
+    @Schema(description = "是否跟随系统默认（loginTheme 为 null 时 true）", example = "false")
+    private Boolean followDefault;
 
 }

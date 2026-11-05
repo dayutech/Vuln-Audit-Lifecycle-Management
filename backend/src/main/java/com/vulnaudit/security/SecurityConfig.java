@@ -80,13 +80,17 @@ public class SecurityConfig {
                 
                 // 配置请求授权
                 .authorizeHttpRequests(auth -> {
-                    // 登录相关端点始终公开（t102 追加自助注册发码；/auth/register 原本已公开）
+                    // 登录相关端点始终公开（t102 追加自助注册发码；/auth/register 原本已公开；
+                    // t109 追加 /auth/login-theme：登录页在认证前就要拿到管理员设置的缺省主题；
+                    // t103 追加忘记密码两个端点：用户在未登录状态才能走「忘记密码」；
+                    // t104 追加 SSO：登录页要拿按钮列表、发起授权、接收回调，全部发生在未登录状态）
                     auth.requestMatchers(
                             "/api/v1/auth/login",
                             "/api/v1/auth/logout",
                             "/api/v1/auth/refresh",
                             "/api/v1/auth/register",
                             "/api/v1/auth/register/send-code",
+                            "/api/v1/auth/login-theme",
                             "/api/v1/auth/password-reset/send-code",
                             "/api/v1/auth/password-reset/confirm",
                             "/api/v1/auth/sso/providers",

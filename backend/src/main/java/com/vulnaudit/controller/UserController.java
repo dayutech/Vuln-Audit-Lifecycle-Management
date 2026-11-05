@@ -573,17 +573,21 @@ public class UserController {
     }
 
     /**
-     * 更新当前用户的偏好（登录页主题）
+     * 更新当前用户的偏好（登录页主题，三态）
      *
      * <p>白名单：8 项，唯一定义在 {@link com.vulnaudit.entity.enums.LoginTheme}；
      * 非法值 → 400，文案含「支持: …」完整列表（中英文案由 MessageSource 决定）。
+     *
+     * <p><b>三态（t112）</b>：{@code {"loginTheme":"owl"}} 写具体主题；
+     * {@code {"followDefault":true}} 清回 NULL（跟随管理员缺省）；两者同传或都不传 → 400。
      * 写审计 {@code UPDATE_LOGIN_THEME}（resourceType=user）。
      */
     @PutMapping("/me/preferences")
-    @Operation(summary = "更新当前用户偏好", description = "仅支持修改自己的登录页主题；非法主题 400")
+    @Operation(summary = "更新当前用户偏好",
+            description = "loginTheme（8 项之一）与 followDefault=true 二选一；followDefault=true 表示跟随系统默认（login_theme=NULL）")
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "更新成功"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "不支持的登录页主题"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "不支持的登录页主题 / 二选一冲突"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "未授权")
     })
     public ApiResponse<com.vulnaudit.dto.UserPreferencesResponse> updateMyPreferences(
@@ -592,8 +596,8 @@ public class UserController {
             @jakarta.validation.Valid @org.springframework.web.bind.annotation.RequestBody
             com.vulnaudit.dto.UpdateUserPreferencesRequest request) {
 
-        return ApiResponse.success(
-                userPreferenceService.updatePreferences(currentUserId(), request.loginTheme()));
+        return ApiResponse.success(userPreferenceService.updatePreferences(
+                currentUserId(), request.loginTheme(), request.followDefault()));
     }
 
     /**

@@ -359,6 +359,34 @@ SHOW TABLES LIKE 'registration_requests';
 SHOW TABLES LIKE 'verification_codes';
 
 -- =============================================================================
+-- V22：系统设置（key/value，t109）
+-- =============================================================================
+-- 用途：管理员统一设置的全局参数。首个设置项 login.defaultTheme = 登录页缺省主题
+-- （未登录访客在登录页看到的那套；用户自行选择后以本人 users.login_theme 为准）。
+-- 幂等：CREATE TABLE / CREATE INDEX 均带 IF NOT EXISTS，重复执行不报错、不影响已有数据。
+-- 默认值不在此 INSERT：应用启动时 SystemSettingServiceImpl#ensureDefaults() 幂等补行
+-- （多实例并发由 uk_system_settings_key 唯一键兜底）。
+CREATE TABLE IF NOT EXISTS system_settings (
+    id            VARCHAR(36)  NOT NULL PRIMARY KEY,
+    setting_key   VARCHAR(100) NOT NULL,
+    setting_value TEXT         NULL,
+    updated_by    VARCHAR(36)  NULL,
+    updated_at    DATETIME(6)  NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_system_settings_key ON system_settings (setting_key);
+
+-- 校验：表与唯一索引存在
+SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'system_settings';
+SELECT INDEX_NAME, COLUMN_NAME, NON_UNIQUE
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'system_settings';
+
+-- 校验：缺省主题行（应用启动后应恰好 1 行，值为 8 个主题之一）
+SELECT setting_key, setting_value, updated_by, updated_at FROM system_settings;
+
+-- =============================================================================
 -- V21：忘记密码（验证码重置 + 旧 token 失效）配套变更（t103）
 -- =============================================================================
 -- 1) users.token_invalid_before：重置密码后写入「签发时间早于此时间戳的 JWT 一律失效」，
@@ -462,3 +490,48 @@ SELECT COUNT(*) AS pending_bindings FROM sso_pending_bindings WHERE status = 'PE
 --    SELECT COUNT(*) FROM role_permissions;   -- 期望 261
 -- 4) 冒烟：bash scripts/smoke.sh
 -- =============================================================================
+
+-- =============================================================================
+-- V23：用户登录页主题补第三态（NULL = 跟随系统默认，t112）
+-- =============================================================================
+-- V19 建列时是 NOT NULL DEFAULT 'pencil'，导致「跟随系统默认」只能把当时的缺省值写死进用户行；
+-- 管理员之后改缺省（system_settings.login.defaultTheme），这些用户跟随不上。
+-- 现语义：
+--   login_theme IS NULL  → 跟随系统默认（管理员缺省值，随时可变）
+--   login_theme = <code> → 用户亲自指定（管理员改缺省不影响）
+--   历史行仍是具体值（如 'pencil'）→ 保持不变，视为用户指定（本段**不修改任何既有值**）
+-- 幂等：重复执行结果一致；MariaDB 10.x 用 MODIFY COLUMN（没有 PG 的 DROP NOT NULL 语法）。
+ALTER TABLE users MODIFY COLUMN login_theme VARCHAR(32) NULL DEFAULT NULL;
+
+-- 校验：列允许 NULL（期望 IS_NULLABLE = YES）、默认值为 NULL
+SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'login_theme';
+
+-- 校验：三态分布（NULL=跟随默认、具体值=用户指定；历史 pencil 行属后者，保留）
+SELECT CASE WHEN login_theme IS NULL THEN 'follow-default' ELSE 'explicit' END AS state,
+       COUNT(*) AS users
+FROM users GROUP BY state;
+
+-- =============================================================================
+-- V25：SSO 提供商「最后修改人」（t116）
+-- =============================================================================
+-- 凭据 Web 配置接口写入 updated_by（管理员用户ID），管理端列表回显「谁最后改的」。
+-- 只加一列；旧行 NULL（bootstrap 初始化 / 直接改库）。幂等：ADD COLUMN IF NOT EXISTS。
+ALTER TABLE sso_providers ADD COLUMN IF NOT EXISTS updated_by VARCHAR(36) NULL;
+
+-- 校验：列存在且可空
+SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'sso_providers' AND COLUMN_NAME = 'updated_by';
+
+-- 校验：各提供商配置状态（configured=5 项齐全；secret 只关心是否有值，不要在 SQL 里输出明文）
+SELECT code, enabled,
+       (client_id IS NOT NULL AND client_id <> ''
+        AND client_secret IS NOT NULL AND client_secret <> ''
+        AND authorize_url IS NOT NULL AND authorize_url <> ''
+        AND token_url IS NOT NULL AND token_url <> ''
+        AND userinfo_url IS NOT NULL AND userinfo_url <> '') AS configured,
+       (client_secret IS NOT NULL AND client_secret <> '') AS has_secret,
+       updated_by
+FROM sso_providers ORDER BY code;

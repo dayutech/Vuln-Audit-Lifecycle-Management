@@ -120,16 +120,19 @@ public class SsoFlowTest extends BaseTest {
     // ------------------------------------------------------------------ 提供商
 
     @Test
-    @DisplayName("providers 只返回「已开启且已配置」的提供商")
-    void providersOnlyUsable() throws Exception {
-        configure("google", true, false); // 开启但未配凭据 → 不应出现
-        configure("microsoft", true, true); // 开启且已配置 → 应出现
+    @DisplayName("providers 返回「已开启」的全部提供商（t116：未配置也返回，带 configured 标记）")
+    void providersReturnEnabledWithConfiguredFlag() throws Exception {
+        configure("google", true, false); // 开启但未配凭据 → 仍返回，configured=false
+        configure("microsoft", true, true); // 开启且已配置 → configured=true
 
         mockMvc.perform(get(PROVIDERS))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.length()").value(2))
+                .andExpect(jsonPath("$.data.length()").value(3))
                 .andExpect(jsonPath("$.data[?(@.code=='github')]").exists())
-                .andExpect(jsonPath("$.data[?(@.code=='microsoft')]").exists());
+                .andExpect(jsonPath("$.data[?(@.code=='microsoft')]").exists())
+                .andExpect(jsonPath("$.data[?(@.code=='google')]").exists())
+                .andExpect(jsonPath("$.data[?(@.code=='google')].configured").value(false))
+                .andExpect(jsonPath("$.data[?(@.code=='github')].configured").value(true));
     }
 
     @Test
@@ -235,6 +238,9 @@ public class SsoFlowTest extends BaseTest {
                         .content(objectMapper.writeValueAsString(Map.of("code", "bob", "state", authorizeState()))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.status").value("LOGIN"))
+                // t112 三态：审批建出的用户没有个人主题（NULL=跟随系统默认），SSO 登录不得回填 pencil
+                .andExpect(jsonPath("$.data.login.followDefault").value(true))
+                .andExpect(jsonPath("$.data.login.loginTheme").value(org.hamcrest.Matchers.nullValue()))
                 .andReturn().getResponse().getContentAsString();
 
         String token = objectMapper.readTree(body).path("data").path("login").path("token").asText();

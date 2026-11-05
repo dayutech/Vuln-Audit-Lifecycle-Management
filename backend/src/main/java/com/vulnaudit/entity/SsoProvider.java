@@ -12,13 +12,18 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * 第三方 SSO 提供商配置（t104）
+ * 第三方 SSO 提供商配置（t104 / t116）
  *
  * <p><b>凭据不写死在代码里</b>：`client_id` / `client_secret` / 三个 URL / scopes 都在本表，
- * 管理员可直接改库（或由运维填写）。缺 `client_id` 或 `client_secret` 视为「未配置」：
- * 即使 `enabled=true`，`authorize-url` 也会返回 503「该登录方式尚未完成配置」，登录页按钮也不展示。
+ * 管理员可通过 Web 配置接口（{@code PUT /api/v1/admin/sso/providers/{code}}）维护，**无需上服务器改库**。
  *
- * <p>默认 4 条（github / microsoft / google / wechat）由启动初始化器在表为空时插入，全部 `enabled=false`。
+ * <p><b>「已配置」判定（t116）</b>：`client_id`、`client_secret`、`authorize_url`、`token_url`、`userinfo_url`
+ * 五项都非空才算 configured（scopes 可选）。但「是否对登录页展示」只看 {@code enabled}：
+ * 开启但未配置时登录页仍展示按钮（带 {@code configured=false}，前端提示未配置），
+ * 真正点进去调 authorize-url 才会 503。
+ *
+ * <p>默认 4 条（github / microsoft / google / wechat）由启动初始化器在表为空时插入，全部 `enabled=false`
+ * （authorize/token/userinfo URL 与 scopes 预填，凭据留空）。
  */
 @Slf4j
 @Data
@@ -76,6 +81,10 @@ public class SsoProvider {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    /** 最后修改人（t116：Web 配置接口写入，管理员用户ID） */
+    @Column(name = "updated_by")
+    private UUID updatedBy;
+
     @PrePersist
     protected void onCreate() {
         LocalDateTime now = LocalDateTime.now();
@@ -91,17 +100,43 @@ public class SsoProvider {
     }
 
     /**
-     * 是否已配置凭据（缺 client_id / client_secret 即视为未配置）
+     * 是否已完整配置（t116）：5 个必填项都非空才算 ——
+     * {@code client_id}、{@code client_secret}、{@code authorize_url}、{@code token_url}、{@code userinfo_url}。
+     *
+     * <p>注意：**是否展示**只看 {@code enabled}；configured 只是给前端/管理端标注「点了能不能真的登录」。
      */
     public boolean isConfigured() {
-        return clientId != null && !clientId.isBlank()
-                && clientSecret != null && !clientSecret.isBlank();
+        return notBlank(clientId) && notBlank(clientSecret)
+                && notBlank(authorizeUrl) && notBlank(tokenUrl) && notBlank(userInfoUrl);
     }
 
     /**
-     * 是否可对外展示 / 可发起授权：既开启又已配置
+     * 是否可发起授权：既开启又已配置（两者缺一，authorize-url 分别返回 400 / 503）
      */
     public boolean isUsable() {
         return enabled && isConfigured();
+    }
+
+    /**
+     * secret 掩码（t116）：最多露首 4 位与末 4 位，中间固定 4 个星号；空值返回 null。
+     *
+     * <p>输出示例：{@code gh_****abcd}；过短（≤4 位）一律返回 {@code ****}，避免把整个 secret 露出来。
+     */
+    public String maskedClientSecret() {
+        if (!notBlank(clientSecret)) {
+            return null;
+        }
+        int length = clientSecret.length();
+        if (length <= 4) {
+            return "****";
+        }
+        int prefixLength = Math.min(4, length - 4);
+        String prefix = clientSecret.substring(0, prefixLength);
+        String suffix = clientSecret.substring(length - 4);
+        return prefix + "****" + suffix;
+    }
+
+    private static boolean notBlank(String value) {
+        return value != null && !value.isBlank();
     }
 }

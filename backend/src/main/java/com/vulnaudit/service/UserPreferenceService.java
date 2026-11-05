@@ -30,7 +30,7 @@ public interface UserPreferenceService {
     String DEFAULT_LOGIN_THEME = LoginTheme.DEFAULT.getCode();
 
     /**
-     * 读取自己的偏好（默认 pencil）
+     * 读取自己的偏好（三态：{@code loginTheme=null} 表示跟随系统默认）
      *
      * @param userId 当前登录用户
      */
@@ -38,12 +38,26 @@ public interface UserPreferenceService {
     UserPreferencesResponse getPreferences(@Nullable UUID userId);
 
     /**
-     * 更新自己的偏好（白名单校验；写审计 UPDATE_LOGIN_THEME）
+     * 更新自己的偏好（t112 三态；写审计 UPDATE_LOGIN_THEME）
      *
-     * @param userId     当前登录用户
-     * @param loginTheme 目标主题（{@link LoginTheme} 中的 code，大小写与空格不敏感）
-     * @throws com.vulnaudit.exception.BusinessException 非法主题 → 400（中英文案由 MessageSource 决定）
+     * @param userId        当前登录用户
+     * @param loginTheme    目标主题（{@link LoginTheme} 中的 code，大小写与空格不敏感）；与 followDefault 二选一
+     * @param followDefault true = 清回「跟随系统默认」（{@code login_theme=NULL}）
+     * @throws com.vulnaudit.exception.BusinessException 非法主题 / 二选一冲突 → 400（中英文案由 MessageSource 决定）
      */
     @Nonnull
-    UserPreferencesResponse updatePreferences(@Nullable UUID userId, @Nullable String loginTheme);
+    UserPreferencesResponse updatePreferences(@Nullable UUID userId,
+                                             @Nullable String loginTheme,
+                                             @Nullable Boolean followDefault);
+
+    /**
+     * 旧签名（t96）：等价于 {@code updatePreferences(userId, loginTheme, Boolean.FALSE)}
+     *
+     * @deprecated 用三参数版本明确表达三态；保留仅为兼容既有调用方
+     */
+    @Deprecated
+    @Nonnull
+    default UserPreferencesResponse updatePreferences(@Nullable UUID userId, @Nullable String loginTheme) {
+        return updatePreferences(userId, loginTheme, Boolean.FALSE);
+    }
 }

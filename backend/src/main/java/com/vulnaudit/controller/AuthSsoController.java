@@ -35,7 +35,8 @@ public class AuthSsoController {
 
     @GetMapping("/providers")
     @Operation(summary = "可用的第三方登录方式",
-            description = "仅返回「管理员已开启且已配置凭据」的提供商；未配置的不返回（登录页据此渲染按钮）")
+            description = "返回全部 enabled=true 的提供商，每项带 configured 标记（t116：不再按是否配置过滤）。"
+                    + "configured=false 时前端仍展示按钮但提示「未配置」；点进去 authorize-url 会 503")
     public ApiResponse<List<SsoProviderOption>> providers() {
         return ApiResponse.success(ssoService.publicProviders());
     }

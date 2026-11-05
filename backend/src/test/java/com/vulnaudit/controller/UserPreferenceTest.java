@@ -55,13 +55,14 @@ public class UserPreferenceTest extends BaseTest {
     // ------------------------------------------------------------------ 读取默认值
 
     @Test
-    @DisplayName("GET 默认 pencil；库内新建用户默认值也是 pencil")
-    void defaultThemeIsPencil() throws Exception {
+    @DisplayName("GET 默认 = 跟随系统默认（t112 三态：新建用户 login_theme 为 NULL）")
+    void defaultThemeFollowsSystemDefault() throws Exception {
         mockMvc.perform(get(PREFS).header("Authorization", adminToken))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.loginTheme").value("pencil"));
+                .andExpect(jsonPath("$.data.followDefault").value(true))
+                .andExpect(jsonPath("$.data.loginTheme").value(org.hamcrest.Matchers.nullValue()));
 
-        assertEquals("pencil", reload(engineerUserId).getLoginTheme());
+        assertNull(reload(engineerUserId).getLoginTheme(), "新建用户不预置主题（NULL=跟随系统默认）");
     }
 
     // ------------------------------------------------------------------ 更新
@@ -75,7 +76,7 @@ public class UserPreferenceTest extends BaseTest {
                 .andExpect(jsonPath("$.data.loginTheme").value("owl"));
 
         assertEquals("owl", reload(engineerUserId).getLoginTheme(), "库内应更新为 owl");
-        assertEquals("pencil", reload(adminUserId).getLoginTheme(), "不应影响其他用户");
+        assertNull(reload(adminUserId).getLoginTheme(), "不应影响其他用户（仍跟随系统默认）");
     }
 
     @Test
@@ -96,7 +97,7 @@ public class UserPreferenceTest extends BaseTest {
                 .andExpect(jsonPath("$.message", containsString("不支持的登录页主题: neon")))
                 .andExpect(jsonPath("$.message", containsString("支持: " + LoginTheme.supportedCodes())));
 
-        assertEquals("pencil", reload(engineerUserId).getLoginTheme(), "非法值不得落库");
+        assertNull(reload(engineerUserId).getLoginTheme(), "非法值不得落库（仍跟随系统默认）");
     }
 
     @Test
@@ -133,7 +134,7 @@ public class UserPreferenceTest extends BaseTest {
         }
 
         // 全量 8 次切换后仍只影响自己
-        assertEquals("pencil", reload(adminUserId).getLoginTheme(), "不应影响其他用户");
+        assertNull(reload(adminUserId).getLoginTheme(), "不应影响其他用户（仍跟随系统默认）");
     }
 
     // ------------------------------------------------------------------ 单一来源守护
@@ -206,7 +207,7 @@ public class UserPreferenceTest extends BaseTest {
                 .andExpect(jsonPath("$.data.loginTheme").value("pixel-eyes"));
 
         assertEquals("pixel-eyes", reload(engineerUserId).getLoginTheme(), "应改到自己");
-        assertEquals("pencil", reload(adminUserId).getLoginTheme(), "管理员偏好不应被改动");
+        assertNull(reload(adminUserId).getLoginTheme(), "管理员偏好不应被改动（仍跟随系统默认）");
         assertNotEquals("pixel-eyes", reload(adminUserId).getLoginTheme());
     }
 
@@ -275,6 +276,10 @@ public class UserPreferenceTest extends BaseTest {
     @Test
     @DisplayName("相同主题重复 PUT 不重复写审计（幂等，不产生噪声）")
     void sameThemeDoesNotWriteAuditTwice() throws Exception {
+        // 第一次：NULL（跟随默认）→ pencil，写 1 条；第二次同值，不再写
+        mockMvc.perform(put(PREFS).header("Authorization", engineerToken)
+                        .contentType(APPLICATION_JSON).content("{\"loginTheme\":\"pencil\"}"))
+                .andExpect(status().isOk());
         mockMvc.perform(put(PREFS).header("Authorization", engineerToken)
                         .contentType(APPLICATION_JSON).content("{\"loginTheme\":\"pencil\"}"))
                 .andExpect(status().isOk());
@@ -282,7 +287,7 @@ public class UserPreferenceTest extends BaseTest {
         long count = auditLogRepository.findByAction("UPDATE_LOGIN_THEME").stream()
                 .filter(log -> engineerUserId.equals(log.getResourceId()))
                 .count();
-        assertEquals(0, count, "值未变化时不应写审计");
+        assertEquals(1, count, "值未变化时不应重复写审计");
     }
 
     @Test

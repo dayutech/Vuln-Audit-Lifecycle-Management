@@ -69,11 +69,21 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
      * {@code REGISTRATION_APPROVE / REGISTRATION_REJECT}（含 reviewer、申请ID、拒绝原因），
      * 拦截器不再重复记录。
      *
-     * <p>t104 追加：SSO 提供商开关由 {@code SsoServiceImpl.toggle} 写 {@code UPDATE_SSO_PROVIDER}，
-     * 拦截器不再重复记录。
+     * <p>t109 追加：登录页缺省主题由 {@code SystemSettingServiceImpl} 写
+     * {@code UPDATE_SYSTEM_SETTING}（{@code resourceType=system_setting} + details {@code from→to}），
+     * 拦截器不再写「PUT AdminSettingsController.updateLoginThemeSetting」。
+     *
+     * <p>t104 追加：SSO 提供商开关由 {@code SsoServiceImpl.toggle} 写 {@code UPDATE_SSO_PROVIDER}
+     * （含 provider / enabled / configured），拦截器不再重复记录。
+     *
+     * <p>t116 追加：凭据 Web 配置的正式入口是 {@code PUT /api/v1/admin/sso/providers/{code}}
+     * （同样由 {@code SsoServiceImpl.updateProvider} 写 {@code UPDATE_SSO_PROVIDER}，details 只记变更字段名、
+     * secret 记 {@code ***}）；PATCH 保留为兼容入口，两者都必须跳过，否则一次保存会出现两条审计。
      */
     private static final String[] SKIP_ENDPOINTS = {
             "PUT /api/v1/users/me/preferences",
+            "PUT /api/v1/admin/settings/login-theme",
+            "PUT /api/v1/admin/sso/providers/{code}",
             "PATCH /api/v1/admin/sso/providers/{code}",
             "DELETE /api/v1/admin/registration-requests/{id}",
             "POST /api/v1/admin/registration-requests/{id}/approve",
