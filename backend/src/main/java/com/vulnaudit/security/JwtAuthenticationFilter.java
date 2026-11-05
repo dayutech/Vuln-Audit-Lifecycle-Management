@@ -38,6 +38,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtUtils jwtUtils;
     private final UserDetailsService userDetailsService;
     private final JwtProperties jwtProperties;
+    private final com.vulnaudit.repository.UserRepository userRepository;
 
     /**
      * 过滤器核心逻辑
@@ -58,7 +59,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             if (StringUtils.hasText(jwt) && jwtUtils.validateToken(jwt)) {
                 // 从令牌中获取用户名
                 String username = jwtUtils.getUsernameFromToken(jwt);
-                
+
+                // t103：忘记密码重置后，该用户「签发时间早于 token_invalid_before」的 token 一律失效。
+                // 直接返回（不设置认证上下文）→ 受保护端点由 AuthenticationEntryPoint 统一返回 401；
+                // 注意：过滤器链在 finally 中统一放行，这里不能自己再调 doFilter，否则会重复执行。
+                if (isInvalidatedByPasswordReset(jwt, username)) {
+                    log.warn("token 已被密码重置作废，拒绝认证: username={}", username);
+                    return;
+                }
+
                 // 加载用户详情
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);
                 
@@ -108,6 +117,34 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     /** 模拟 token 的真实操作者ID（请求属性，便于日志/调试与下游读取） */
     public static final String IMPERSONATION_ACTOR_ATTR = "impersonation.actorId";
+
+    /**
+     * token 是否已被「忘记密码重置」作废（t103）
+     *
+     * <p>判定：{@code users.token_invalid_before} 非空且 token 的 {@code iat} 早于该时间戳。
+     * iat 为秒级精度，重置写入的是当前时间（秒级），因此「与重置同一秒签发」的 token 仍可用
+     * —— 这是可接受的 ≤1 秒窗口，换取「无需维护 token 黑名单」。
+     *
+     * @param jwt      JWT 原文
+     * @param username 令牌 subject（用户名）
+     * @return true 表示该 token 已失效
+     */
+    private boolean isInvalidatedByPasswordReset(String jwt, String username) {
+        if (username == null) {
+            return false;
+        }
+        var user = userRepository.findByUsername(username).orElse(null);
+        if (user == null || user.getTokenInvalidBefore() == null) {
+            return false;
+        }
+        java.util.Date issuedAt = jwtUtils.getIssuedAt(jwt);
+        if (issuedAt == null) {
+            return false;
+        }
+        java.time.LocalDateTime iat = java.time.LocalDateTime.ofInstant(
+                issuedAt.toInstant(), java.time.ZoneId.systemDefault());
+        return iat.isBefore(user.getTokenInvalidBefore());
+    }
 
     /**
      * 从请求中解析JWT令牌

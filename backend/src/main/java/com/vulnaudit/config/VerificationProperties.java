@@ -48,4 +48,10 @@ public class VerificationProperties {
 
     /** 单 IP 每小时发码上限，默认 20 */
     private int maxPerIpPerHour = 20;
+
+    /** 忘记密码 confirm 连续失败上限（同一 IP，默认 5 次）——超过后 429 */
+    private int resetMaxFailedAttempts = 5;
+
+    /** 忘记密码失败计数窗口（分钟，默认 15） */
+    private int resetFailedWindowMinutes = 15;
 }

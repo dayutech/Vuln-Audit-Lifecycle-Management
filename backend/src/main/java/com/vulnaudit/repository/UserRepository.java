@@ -1,6 +1,7 @@
 package com.vulnaudit.repository;
 
 import com.vulnaudit.entity.User;
+import jakarta.annotation.Nullable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
@@ -54,6 +55,14 @@ public interface UserRepository extends JpaRepository<User, UUID>, JpaSpecificat
      * @return 如果邮箱已存在返回true，否则返回false
      */
     boolean existsByEmail(String email);
+
+    /**
+     * 按邮箱查询（大小写不敏感，t103 忘记密码：用户输入的邮箱大小写不应影响匹配）
+     *
+     * @param email 邮箱
+     * @return 用户实体（如果存在）
+     */
+    Optional<User> findByEmailIgnoreCase(@Nullable String email);
 
     /**
      * 检查手机号是否已存在（t102 自助注册：手机号唯一，历史用户可为空）

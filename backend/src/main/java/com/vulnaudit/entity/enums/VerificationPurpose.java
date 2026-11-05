@@ -36,9 +36,12 @@ public enum VerificationPurpose {
     }
 
     /**
-     * 当前是否已启用（仅注册）
+     * 当前是否已启用
+     *
+     * <p>REGISTER（t102 自助注册）与 RESET_PASSWORD（t103 忘记密码）已落地；
+     * BIND 仍未启用 —— 服务层对未启用用途返回 400，避免「能发码但不能用」的隐性漏洞。
      */
     public boolean isEnabled() {
-        return this == REGISTER;
+        return this == REGISTER || this == RESET_PASSWORD;
     }
 }

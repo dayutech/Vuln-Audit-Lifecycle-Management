@@ -87,6 +87,8 @@ public class SecurityConfig {
                             "/api/v1/auth/refresh",
                             "/api/v1/auth/register",
                             "/api/v1/auth/register/send-code",
+                            "/api/v1/auth/password-reset/send-code",
+                            "/api/v1/auth/password-reset/confirm",
                             "/actuator/health"
                     ).permitAll();
 

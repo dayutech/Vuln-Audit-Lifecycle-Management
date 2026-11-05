@@ -151,6 +151,19 @@ public class JwtUtils {
         return parseClaims(token).getExpiration();
     }
 
+    /**
+     * 读取 token 签发时间（t103）
+     *
+     * <p>用于「忘记密码重置后让该用户所有旧 token 失效」：
+     * {@code JwtAuthenticationFilter} 比较 {@code iat < users.token_invalid_before} 即拒绝。
+     *
+     * @param token JWT
+     * @return 签发时间；claim 缺失时返回 {@code null}
+     */
+    public Date getIssuedAt(String token) {
+        return parseClaims(token).getIssuedAt();
+    }
+
     private Claims parseClaims(String token) {
         return Jwts.parser()
                 .verifyWith(secretKey)

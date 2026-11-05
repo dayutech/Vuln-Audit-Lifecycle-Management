@@ -130,14 +130,31 @@ public class User {
     private String position;
 
     /**
-     * 登录页主题偏好（t96 / t100）：8 套主题见 {@link com.vulnaudit.entity.enums.LoginTheme}，默认 {@code pencil}。
+     * 登录页主题偏好（t96 / t100 / t112）：8 套主题见 {@link com.vulnaudit.entity.enums.LoginTheme}。
      *
-     * <p>DB 列 {@code login_theme VARCHAR(32) NOT NULL DEFAULT 'pencil'}（V19）；
+     * <p><b>三态语义</b>（t112）：
+     * <ul>
+     *   <li>{@code null} = <b>跟随系统默认</b>（admin 在 {@code system_settings.login.defaultTheme} 设置的值）——
+     *       不再把缺省值固化进用户行，管理员之后改缺省，这类用户自动跟随；</li>
+     *   <li>具体 code（pencil/…） = 用户**亲自指定**的主题，管理员改缺省不影响它；</li>
+     *   <li>历史行若已是具体值（t96 建表时的 {@code 'pencil'}），保持不变，视为用户指定（不迁移）。</li>
+     * </ul>
+     *
+     * <p>DB 列 {@code login_theme VARCHAR(32) NULL}（V19 建立 + V23 去掉 NOT NULL）；
      * 写入前由服务层按 {@code LoginTheme} 白名单校验，非法值不会落库。
      */
-    @lombok.Builder.Default
-    @Column(name = "login_theme", length = 32, nullable = false)
-    private String loginTheme = com.vulnaudit.entity.enums.LoginTheme.DEFAULT.getCode();
+    @Column(name = "login_theme", length = 32)
+    private String loginTheme;
+
+    /**
+     * 是否「跟随系统默认」：{@code login_theme IS NULL} 即跟随（t112）。
+     *
+     * <p>只用于 JSON 输出（{@code /auth/me}、{@code /users} 等），不落库；
+     * 前端可据此区分「null 表示跟随缺省」与「字段缺失/序列化异常」。
+     */
+    public boolean isFollowDefault() {
+        return this.loginTheme == null;
+    }
 
     /**
      * 用户状态
@@ -147,6 +164,18 @@ public class User {
     @Column(name = "status", length = 20, nullable = false)
     @Builder.Default
     private String status = "active";
+
+    /**
+     * token 失效时间戳（t103）
+     *
+     * <p>忘记密码重置成功后写入当前时间：{@code JwtAuthenticationFilter} 会拒绝
+     * 「签发时间（iat）早于此时间戳」的 token，从而让该用户所有已签发 token 立即失效。
+     *
+     * <p>当前是无状态 JWT，没有 token 黑名单；用「用户级时间戳 + iat 比较」实现全端下线，
+     * 代价是「与重置同一秒内签发的 token」仍然有效（≤1 秒窗口，已在 README §49 记录）。
+     */
+    @Column(name = "token_invalid_before")
+    private LocalDateTime tokenInvalidBefore;
 
     /**
      * 创建时间
