@@ -1915,6 +1915,239 @@ if [ -n "$ADMIN_TOKEN" ] && [ -n "$ENGINEER_TOKEN" ] && [ -n "$ENGINEER_ID" ] &&
   fi
 fi
 
+# ----------------------------------------------------------------------------- 账号体系：注册 / 审批 / 找回密码 / SSO（t102/t103/t104/t107）
+RUN_SEQ="$(date +%s)"
+SUF="${RUN_SEQ: -7}"
+PH_A="139${SUF}1"; PH_B="139${SUF}2"; PH_C="139${SUF}3"; PH_D="139${SUF}4"; PH_E="139${SUF}5"; PH_F="139${SUF}6"
+SMK_USER="smk_reg_${SUF}"
+SMK_USER2="smk_rej_${SUF}"
+REG_PASS="RegSmoke1!"
+REG_NEWPASS="RegSmoke2@"
+REG_ID=""
+REG_ID2=""
+DEV_CODE=""
+
+# ---- 注册：校验与限流 ----
+api_json POST '/api/v1/auth/register/send-code' "" \
+  "{\"channel\":\"sms\",\"target\":\"12345\",\"purpose\":\"REGISTER\"}"
+judge "reg/手机号非法-400" 400 '' "目标手机号格式非法"
+
+api_json POST '/api/v1/auth/register/send-code' "" \
+  "{\"channel\":\"sms\",\"target\":\"${PH_A}\",\"purpose\":\"REGISTER\"}"
+judge "reg/发码-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "POST /auth/register/send-code"
+DEV_CODE="$(jfirst devCode)"
+
+api_json POST '/api/v1/auth/register/send-code' "" \
+  "{\"channel\":\"sms\",\"target\":\"${PH_A}\",\"purpose\":\"REGISTER\"}"
+judge "reg/重复发码-429" 429 '' "同一 target 冷却期内再次发码"
+
+api_json POST '/api/v1/auth/register' "" \
+  "{\"username\":\"smk_nocode_${SUF}\",\"password\":\"${REG_PASS}\",\"phone\":\"${PH_B}\",\"code\":\"000000\"}"
+judge "reg/未发码直接注册-400" 400 '' "未发码即提交"
+
+# 邮箱填了但没验邮箱码 → 400
+api_json POST '/api/v1/auth/register/send-code' "" \
+  "{\"channel\":\"sms\",\"target\":\"${PH_C}\",\"purpose\":\"REGISTER\"}"
+code_c="$(jfirst devCode)"
+api_json POST '/api/v1/auth/register' "" \
+  "{\"username\":\"smk_mail_${SUF}\",\"password\":\"${REG_PASS}\",\"phone\":\"${PH_C}\",\"code\":\"${code_c:-000000}\",\"email\":\"smk_${SUF}@example.com\"}"
+judge "reg/邮箱未验-400" 400 '' "填了 email 但缺 emailCode"
+
+# 错误验证码 → 400
+api_json POST '/api/v1/auth/register/send-code' "" \
+  "{\"channel\":\"sms\",\"target\":\"${PH_D}\",\"purpose\":\"REGISTER\"}"
+api_json POST '/api/v1/auth/register' "" \
+  "{\"username\":\"smk_badcode_${SUF}\",\"password\":\"${REG_PASS}\",\"phone\":\"${PH_D}\",\"code\":\"999999\"}"
+judge "reg/错误验证码-400" 400 '' "验证码不匹配"
+
+# ---- 注册成功 → 待审批不可登录 ----
+if [ -z "$DEV_CODE" ]; then
+  skip "reg/注册成功-201" "-" "后端未开启 dev-mode（无 devCode），无法在冒烟中完成注册链路"
+  skip "reg/待审批登录-403" "-" "依赖上一条"
+  skip "reg/重复用户名-409" "-" "依赖上一条"
+else
+  api_json POST '/api/v1/auth/register/send-code' "" \
+    "{\"channel\":\"sms\",\"target\":\"${PH_E}\",\"purpose\":\"REGISTER\"}"
+  E_CODE="$(jfirst devCode)"
+  api_json POST '/api/v1/auth/register' "" \
+    "{\"username\":\"${SMK_USER}\",\"password\":\"${REG_PASS}\",\"phone\":\"${PH_E}\",\"code\":\"${E_CODE:-000000}\"}"
+  judge "reg/注册成功-201" 201 '"success"[[:space:]]*:[[:space:]]*true' "POST /auth/register（pending_approval）"
+  REG_ID="$(jfirst id)"
+
+  api_json POST '/api/v1/auth/login' "" "{\"username\":\"${SMK_USER}\",\"password\":\"${REG_PASS}\"}"
+  judge "reg/待审批登录-403" 403 '' "pending_approval 不可登录"
+
+  api_json POST '/api/v1/auth/register/send-code' "" \
+    "{\"channel\":\"sms\",\"target\":\"${PH_F}\",\"purpose\":\"REGISTER\"}"
+  code_f="$(jfirst devCode)"
+  api_json POST '/api/v1/auth/register' "" \
+    "{\"username\":\"${SMK_USER}\",\"password\":\"${REG_PASS}\",\"phone\":\"${PH_F}\",\"code\":\"${code_f:-000000}\"}"
+  judge "reg/重复用户名-409" 409 '' "用户名已被占位用户占用"
+fi
+
+# ---- 审批 ----
+request GET '/api/v1/admin/registration-requests?status=PENDING&page=0&size=20' "${ENGINEER_TOKEN:-}"
+judge "reg/非管理员列表-403" 403 '' "仅 ADMIN/PROJECT_LEADER"
+
+if [ -n "$REG_ID" ]; then
+  request GET '/api/v1/admin/registration-requests?status=PENDING&page=0&size=50' "$ADMIN_TOKEN"
+  if flatten | grep -q "${SMK_USER}"; then
+    pass "reg/管理员列表含申请" 200 "列表命中 ${SMK_USER}"
+  else
+    fail "reg/管理员列表含申请" "$LAST_STATUS" "未命中 ${SMK_USER} ｜ $(snippet)"
+  fi
+
+  api_json POST "/api/v1/admin/registration-requests/${REG_ID}/approve" "$ADMIN_TOKEN" \
+    '{"roles":["vulnerability_engineer"]}'
+  judge "reg/审批通过-200" 200 '"loginEnabled"[[:space:]]*:[[:space:]]*true' "approve → 账号激活"
+
+  api_json POST '/api/v1/auth/login' "" "{\"username\":\"${SMK_USER}\",\"password\":\"${REG_PASS}\"}"
+  judge "reg/审批后登录-200" 200 '"token"' "审批后可登录"
+else
+  skip "reg/管理员列表含申请" "-" "无注册申请夹具"
+  skip "reg/审批通过-200" "-" "无注册申请夹具"
+  skip "reg/审批后登录-200" "-" "无注册申请夹具"
+fi
+
+# ---- 拒绝 -> 登录 403（t111 拒绝后释放唯一键，可复用同名）----
+if [ -n "$DEV_CODE" ]; then
+  PH_G="139${SUF}7"
+  api_json POST '/api/v1/auth/register/send-code' "" \
+    "{\"channel\":\"sms\",\"target\":\"${PH_G}\",\"purpose\":\"REGISTER\"}"
+  code_g="$(jfirst devCode)"
+  api_json POST '/api/v1/auth/register' "" \
+    "{\"username\":\"${SMK_USER2}\",\"password\":\"${REG_PASS}\",\"phone\":\"${PH_G}\",\"code\":\"${code_g:-000000}\"}"
+  REG_ID2="$(jfirst id)"
+  if [ -n "$REG_ID2" ]; then
+    api_json POST "/api/v1/admin/registration-requests/${REG_ID2}/reject" "$ADMIN_TOKEN" '{"note":"冒烟拒绝"}'
+    judge "reg/拒绝-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "POST /{id}/reject"
+    api_json POST '/api/v1/auth/login' "" "{\"username\":\"${SMK_USER2}\",\"password\":\"${REG_PASS}\"}"
+    if [ "$LAST_STATUS" = "403" ]; then
+      pass "reg/拒绝后不可登录" 403 "rejected 状态 → 403（占位用户保留）"
+    elif [ "$LAST_STATUS" = "401" ]; then
+      pass "reg/拒绝后不可登录" 401 "t111 拒绝即删占位用户 → 401 用户名或密码错误（同样不可登录）"
+    else
+      fail "reg/拒绝后不可登录" "$LAST_STATUS" "期望 401/403 ｜ $(snippet)"
+    fi
+  else
+    skip "reg/拒绝-200" "$LAST_STATUS" "第二个注册未成功 ｜ $(snippet)"
+    skip "reg/拒绝后不可登录" "-" "依赖上一条"
+  fi
+else
+  skip "reg/拒绝-200" "-" "后端未开启 dev-mode"
+  skip "reg/拒绝后不可登录" "-" "依赖上一条"
+fi
+
+# ---- 忘记密码（用已审批账号的手机号）----
+if [ -n "$REG_ID" ]; then
+  api_json POST '/api/v1/auth/password-reset/send-code' "" "{\"channel\":\"sms\",\"target\":\"${PH_E}\"}"
+  judge "reset/发码-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "POST /auth/password-reset/send-code"
+  RST_CODE="$(jfirst devCode)"
+
+  api_json POST '/api/v1/auth/password-reset/send-code' "" "{\"channel\":\"sms\",\"target\":\"${PH_E}\"}"
+  judge "reset/重复发码-429" 429 '' "同一 target 冷却期内再次发码"
+
+  api_json POST '/api/v1/auth/password-reset/confirm' "" \
+    "{\"target\":\"${PH_E}\",\"code\":\"000000\",\"newPassword\":\"${REG_NEWPASS}\"}"
+  judge "reset/错误码-400" 400 '' "验证码不匹配"
+
+  if [ -n "$RST_CODE" ]; then
+    api_json POST '/api/v1/auth/password-reset/confirm' "" \
+      "{\"target\":\"${PH_E}\",\"code\":\"${RST_CODE}\",\"newPassword\":\"${REG_NEWPASS}\"}"
+    judge "reset/重置成功-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "验证码 + 新密码"
+
+    api_json POST '/api/v1/auth/login' "" "{\"username\":\"${SMK_USER}\",\"password\":\"${REG_PASS}\"}"
+    judge "reset/旧密码-401" 401 '' "旧密码失效"
+
+    api_json POST '/api/v1/auth/login' "" "{\"username\":\"${SMK_USER}\",\"password\":\"${REG_NEWPASS}\"}"
+    judge "reset/新密码-200" 200 '"token"' "新密码可登录"
+  else
+    skip "reset/重置成功-200" "-" "未取到 devCode"
+    skip "reset/旧密码-401" "-" "依赖上一条"
+    skip "reset/新密码-200" "-" "依赖上一条"
+  fi
+
+  api_json POST '/api/v1/auth/password-reset/send-code' "" \
+    "{\"channel\":\"sms\",\"target\":\"13900000000\"}"
+  if [ "$LAST_STATUS" = "200" ] && ! flatten | grep -q 'devCode'; then
+    pass "reset/未知账号-200-无devCode" 200 "防枚举：不存在账号也 200 且不发码"
+  else
+    fail "reset/未知账号-200-无devCode" "$LAST_STATUS" "期望 200 且无 devCode ｜ $(snippet)"
+  fi
+else
+  skip "reset/发码-200" "-" "无已审批账号夹具"
+  skip "reset/重复发码-429" "-" "依赖上一条"
+  skip "reset/错误码-400" "-" "依赖上一条"
+  skip "reset/重置成功-200" "-" "依赖上一条"
+  skip "reset/旧密码-401" "-" "依赖上一条"
+  skip "reset/新密码-200" "-" "依赖上一条"
+  skip "reset/未知账号-200-无devCode" "-" "依赖上一条"
+fi
+
+# ---- SSO（默认全关闭；未配置凭据时不显示、authorize-url 503）----
+request GET '/api/v1/auth/sso/providers' ""
+judge "sso/providers-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "公开端点，未登录可读"
+
+request PATCH '/api/v1/admin/sso/providers/github' "${ENGINEER_TOKEN:-}" \
+  -H 'Content-Type: application/json' --data-binary '{"enabled":true}'
+judge "sso/非管理员改开关-403" 403 '' "仅 ADMIN"
+
+api_json PATCH '/api/v1/admin/sso/providers/github' "$ADMIN_TOKEN" '{"enabled":true}'
+judge "sso/管理员开启-github-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "PATCH enabled=true"
+
+request GET '/api/v1/auth/sso/github/authorize-url?redirectUri=http%3A%2F%2Flocalhost%2Fcb' ""
+if [ "$LAST_STATUS" = "503" ]; then
+  pass "sso/未配置凭据-authorize-url-503" 503 "未填 client_id/secret 时给出 503"
+else
+  # 已配置占位凭据时允许 200，但必须带 URL
+  if [ "$LAST_STATUS" = "200" ] && flatten | grep -q 'authorizeUrl'; then
+    pass "sso/已配置凭据-authorize-url-200" 200 "返回第三方授权 URL（占位凭据）"
+  else
+    fail "sso/未配置凭据-authorize-url-503" "$LAST_STATUS" "期望 503 或 200+authorizeUrl ｜ $(snippet)"
+  fi
+fi
+
+request GET '/api/v1/auth/sso/providers' ""
+if flatten | grep -q '"code"[[:space:]]*:[[:space:]]*"github"'; then
+  pass "sso/开启且已配置-登录页可见" 200 "providers 含 github（enabled && configured）"
+else
+  pass "sso/开启未配置-登录页不可见" 200 "providers 不含 github（未配置凭据 → 不渲染按钮，符合 t104 设计）"
+fi
+
+api_json PATCH '/api/v1/admin/sso/providers/github' "$ADMIN_TOKEN" '{"enabled":false}'
+judge "sso/回收-关闭github-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "复原为默认关闭"
+
+# ----------------------------------------------------------------------------- 角色授予边界（t115，防自助提权）
+# 非 ADMIN 不得把 admin 等管理类角色授予他人；ADMIN 不受限。
+PL_TOKEN=""
+if [ -n "$ADMIN_TOKEN" ] && [ "$SMOKE_PROVISION" = "1" ]; then
+  PL_TOKEN="$(ensure_account "smoke_pl" "project_leader" "冒烟-项目经理")" || true
+fi
+if [ -z "$PL_TOKEN" ]; then
+  skip "rbac/PL授予admin-403" "-" "未取到 project_leader 账号"
+  skip "rbac/ADMIN授予admin-200" "-" "依赖上一条"
+else
+  # 造一个待审批申请（dev-mode 才能拿码；否则退化为直接构造请求体走 403 判定）
+  ROLE_PH="139${SUF}8"
+  api_json POST '/api/v1/auth/register/send-code' "" \
+    "{\"channel\":\"sms\",\"target\":\"${ROLE_PH}\",\"purpose\":\"REGISTER\"}"
+  ROLE_CODE="$(jfirst devCode)"
+  api_json POST '/api/v1/auth/register' "" \
+    "{\"username\":\"smk_role_${SUF}\",\"password\":\"${REG_PASS}\",\"phone\":\"${ROLE_PH}\",\"code\":\"${ROLE_CODE:-000000}\"}"
+  ROLE_REQ_ID="$(jfirst id)"
+
+  if [ -n "$ROLE_REQ_ID" ]; then
+    api_json POST "/api/v1/admin/registration-requests/${ROLE_REQ_ID}/approve" "$PL_TOKEN" '{"roles":["admin"]}'
+    judge "rbac/PL授予admin-403" 403 '' "PROJECT_LEADER 不能把 admin 授出去（t115）"
+
+    api_json POST "/api/v1/admin/registration-requests/${ROLE_REQ_ID}/approve" "$ADMIN_TOKEN" '{"roles":["admin"]}'
+    judge "rbac/ADMIN授予admin-200" 200 '"loginEnabled"[[:space:]]*:[[:space:]]*true' "ADMIN 可授予 admin（对照）"
+  else
+    skip "rbac/PL授予admin-403" "$LAST_STATUS" "未造出待审批申请（可能未开 dev-mode）｜ $(snippet)"
+    skip "rbac/ADMIN授予admin-200" "-" "依赖上一条"
+  fi
+fi
+
 printf '\n==== 冒烟汇总 ====\n'
 printf 'TOTAL=%d  PASS=%d  FAIL=%d  SKIP=%d\n' "$TOTAL" "$PASSED" "$FAILED" "$SKIPPED"
 if [ "$FAILED" -gt 0 ]; then
