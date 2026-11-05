@@ -719,6 +719,69 @@ customers(id, code uk, name, industry, level, owner_id, status)
 - 冒烟：**244/244**（新增 16 条：pref/未认证 401、默认 pencil、四套角色主题 PUT + `/auth/me` 回显、抽象四套、非法值中/英 400、只能改自己、登录响应含 `loginTheme`、审计单条（+1 且无拦截器重复行）、访问申请同团队 201 / 重复 pending 409）。
 - 截图与日志：`.tmp-t98/shot-theme-*.png`、`shot-eye-*.png`、`shot-narrow-375.png`、`shot-pref-modal-zh|en.png`、`verify.log`、`result.json`。
 
+### 3.4 账号体系（注册审批 / 找回密码 / SSO，t102–t106 + t111/t115，t107 验收）
+
+**状态机（占位用户 → 审批 → 可用）**
+
+```
+注册提交(201)  ──► users.status=pending_approval  ──approve──► active ──登录 200──► 正常使用
+                                    │
+                                    └─reject──► 申请 REJECTED + 占位用户被清理(t111，释放唯一键) ──登录──► 401/403（不可登录）
+
+SSO 首次回调(202) ──► registration_requests(source=SSO) + sso_pending_bindings(PENDING) + 占位用户
+                                  └─approve──► 激活 sso_bindings + 用户 active ──► 同回调 200 签发 token
+```
+
+**接口**
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| POST | `/api/v1/auth/register/send-code` | 公开 | `{channel: sms\|email, target, purpose: REGISTER}`；手机号 `^1[3-9]\d{9}$`；6 位码只存 BCrypt 哈希 |
+| POST | `/api/v1/auth/register` | 公开 | `{username,password,phone,code,email?,emailCode?}`；手机必验、填邮箱则邮箱码必验；重复 **409**；成功 **201**（不产生可登录账号） |
+| GET | `/api/v1/admin/registration-requests?status=` | ADMIN / PROJECT_LEADER | 分页列表 |
+| POST | `/api/v1/admin/registration-requests/{id}/approve` | ADMIN / PL（**授予 `admin` 等管理类角色仅 ADMIN，t115**） | `{roles:[...]}` → `{userId,username,loginEnabled}` |
+| POST | `/api/v1/admin/registration-requests/{id}/reject` | ADMIN / PL | `{note}`；拒绝即释放唯一键（t111） |
+| DELETE | `/api/v1/admin/registration-requests/{id}` | ADMIN | 清理申请（t111） |
+| POST | `/api/v1/auth/password-reset/send-code` | 公开 | `{channel,target}`；只对**已验证**的手机/邮箱发码；不存在/未验证一律 **200 且不发码**（防枚举） |
+| POST | `/api/v1/auth/password-reset/confirm` | 公开 | `{target,code,newPassword}`；成功改密 + 写 `token_invalid_before` → 旧 token 全端失效 |
+| GET | `/api/v1/auth/sso/providers` | 公开 | 只返回 `enabled && configured` 的 provider（未配置凭据 → 登录页不渲染按钮） |
+| GET | `/api/v1/auth/sso/{code}/authorize-url` | 公开 | 未开启 **400**、未配置凭据 **503**；state 5 分钟一次性 |
+| POST | `/api/v1/auth/sso/{code}/callback` | 公开 | 200 LOGIN / 200 BOUND / **202 PENDING_APPROVAL**（不签发 token） |
+| PATCH | `/api/v1/admin/sso/providers/{code}` | ADMIN | `{enabled}`；审计 `UPDATE_SSO_PROVIDER`，一次 1 条 |
+| DELETE | `/api/v1/users/me/sso-bindings/{code}` | 登录 | 解绑需**当前密码**（密码错 403） |
+
+**验证码与限流（全部可配：`app.security.verification.*` / `APP_VERIFICATION_*`）**
+
+| 维度 | 规则 | 超限 |
+|---|---|---|
+| 有效期 | 300s（`dev-mode` 之外不回传明文） | 过期 400 |
+| target 冷却 | 300s 内同 target 只发一次 | **429** + `Retry-After` |
+| target 小时上限 | 5 次/小时 | 429 |
+| IP 小时上限 | 20 次/小时 | 429 |
+| confirm 失败 | 15 分钟 5 次 | 429 |
+| 密码强度 | `PasswordPolicy`：8–64 位 + 大写/小写/数字/符号≥3 类；**先校验再消费验证码**（弱密码不烧码） | 400 |
+
+**SSO 配置说明**
+
+1. 往 `sso_providers` 填 `client_id` / `client_secret`（按需覆盖 authorize/token/userinfo/scopes）；
+2. `PATCH /api/v1/admin/sso/providers/{code} {"enabled":true}`；
+3. 未填凭据时登录页**不显示**按钮、`authorize-url` 返回 **503**（已实测）。
+
+**已知限制（如实记录）**
+
+1. **外部短信网关未联调**：默认 `VerificationCodeSender` 只把验证码写日志（WARN，不打印明文）；生产需提供新 Bean。
+2. **OAuth 凭据未联调**：本环境无第三方应用凭据，`authorize-url` 只会 503；真实跳转/回调需填凭据后在外部网络验证。state 目前是**进程内 Map**（单实例 OK，多实例需改 Redis/签名 token）。
+3. **dev-mode 验证码回显仅限开发**：`APP_VERIFICATION_DEV_MODE=true` 时响应才带 `devCode`；生产已确认为 false（本次复核后关闭并移除）。
+4. **前端错误文案**：t102/t103 部分服务层错误仍是硬编码中文，英文界面由前端 `utils/authErrors` 兜底成英文。
+
+**口径变更（t120 取代）**：SSO「未配置不显示」改为「全部展示 + `configured` 标记」，忘记密码 `send-code/confirm` 新增必填 `username`（不匹配仍 200 不发码）。本报告的 SSO 可见性断言与 `reset/*` target-only 用例属**旧口径**，由 t120 增量验收取代，未按旧口径改代码。\n\n**t107 验收证据**
+
+- 后端回归：`mvn -B clean test` → **760 → 773 例 / Failures 0 / Errors 1**（两次复跑的错误恒为 `AuditLogControllerTest` 的 H2 上下文串扰偶发；单跑该类 9/9 通过）。
+- 冒烟：**274/274 PASS / 0 FAIL / 0 SKIP**（重建重启后复跑仍全绿；新增 26 条：注册 8、审批 5、找回 8、SSO 6、RBAC 2 —— 含 `rbac/PL授予admin-403` 与 `rbac/ADMIN授予admin-200`）。
+- 页面：`T107_VERIFY 43/43` + `T107_FLOW 21/21`，`pageErrors=[]` —— 品牌 B1–B7、8 主题 × 3 尺寸（1440/1920/375）、主题解析 T1–T3、接口门禁 A1–A10、注册（dev-mode 取码 → 待审批页 → 审批 → 登录）、找回（发码 → 重置 → 旧密码 401 / 新密码 200）、SSO 可见性（未配置不显示 + 503）、绑定页 4 家 provider 状态。
+- 迁移：V20–V24 在空库与生产克隆上各跑两遍均幂等；生产库执行后 `users=10` 不变、`login_theme` 可空、SSO 三表就绪（`sso_providers` 4 条默认 `enabled=false` 由应用启动补种）。
+- 数据：清理后 `customers=1 projects=1 phases=0 assets=3 links=3`、`orphan=0`。
+
 ---
 
 ## 4. 本轮新增覆盖的薄弱分支（服务层专项）
@@ -981,7 +1044,6 @@ customers(id, code uk, name, industry, level, owner_id, status)
 ---
 
 ## 8. 仍建议后续跟进的事项（不阻塞验收）
-
 | # | 事项 | 理由/建议 |
 |---|---|---|
 | 1 | 收紧 §2.3.2 剩余的 13 组鉴权缺口 | 「高」3 组已于 t40 收口、认领 403 已于 t39 修复；其余 10 中 / 3 低建议按模块补 `@PreAuthorize` 与数据级守卫，优先 **#13 用户列表 PII**、**#1/#2/#3 资产与版本写权**、**#12 工具改删** |
@@ -1001,6 +1063,7 @@ customers(id, code uk, name, industry, level, owner_id, status)
 | 15 | ~~模拟视角审计事件名与字段对齐~~ **已完成（t93/t94）** | 线上实测 `IMPERSONATE_START/STOP` 落库、details 含 actor/target/ttlSeconds/reason、一次模拟仅 1 条且无拦截器重复；期间修掉 `@Transactional(readOnly=true)` 导致插入被静默丢弃的缺陷（见 §2.16） |
 | 16 | ~~统一“不可见资源”的状态码~~ **已完成（t93）** | 访问申请对跨团队资产改为 **403**，资产不存在仍 **404**（`AccessGuard.canRequestAssetAccess`） |
 | 17 | 模拟视角上线运维要求 | TTL 内 token 等效目标用户：建议生产开启时限制内网、日检审计、把 `reason` 改为必填 |
+| 18 | **角色授予边界入口矩阵（t115）** | 「写角色」入口已统一收口：`POST/DELETE /users/{id}/roles`、`/admin/registration-requests/{id}/approve`、`/roles/**`、模拟视角 `/admin/**` 写；非 ADMIN 授予 `admin`/`project_leader` 等管理类角色 → **403**，ADMIN 不受限（受限集合 `is_system` + 硬编码兜底双保险）。详见 README §53；冒烟 `rbac/PL授予admin-403` + `rbac/ADMIN授予admin-200` 守护 |
 
 ---
 
@@ -1394,6 +1457,26 @@ t97/t99 前端已提供 8 套主题（角色组 4 + 抽象极简组 4），后�
 `mono_grid`（下划线错写）与 `monoGrid` 均 400 且消息含 8 项支持列表（中英）；复核后 admin 恢复 `pencil`；
 `/projects`、`/customers` 未受影响。
 
+**t112：三态补齐 —— 原「跟随默认被固化」的局限已解决**
+
+t110 自报的局限（原文）：后端 `users.login_theme` 没有第三态，「跟随系统默认」只能把**当前**管理员缺省写成账号偏好；
+管理员之后改缺省，这类用户停留旧值，「从账号同步」还会把旧值搬回来。**本轮已从数据与接口两侧解决**。
+
+| 项 | 解决方式 |
+|---|---|
+| 数据 | `users.login_theme` 允许 **NULL**（V23：`ALTER TABLE users MODIFY COLUMN login_theme VARCHAR(32) NULL DEFAULT NULL`，MariaDB 10.x 无 PG 的 `DROP NOT NULL` 语法故用 MODIFY；幂等、**不改既有值**）；`deploy/manual-ddl.sql`「V23」段含 `IS_NULLABLE` 与三态分布校验 |
+| 语义 | `NULL` = 跟随系统默认（管理员缺省，随时可变）；具体 code = 用户指定（管理员改缺省不影响）；历史 `pencil` 行保持原值，**视为用户指定**（不迁移）；新建用户不再预置 pencil |
+| 接口 | `PUT /users/me/preferences` 二选一：`{"loginTheme":"owl"}` → `{loginTheme:"owl",followDefault:false}`；`{"followDefault":true}` → `{loginTheme:null,followDefault:true}`；同传 / 都不传 → **400**（`validation.user.login_theme.conflict` / `.missing`，中英） |
+| 登录链路 | `/auth/login`、`/auth/me`、`/auth/refresh` 对跟随默认用户返回 **`loginTheme:null` + `followDefault:true`**，**不回填**管理员缺省；`User` 实体新增只读 `followDefault` JSON 字段（`/auth/me` 直接带出） |
+| 审计 | `UPDATE_LOGIN_THEME` details 用 `<follow-default>` 标注 NULL（`from=owl -> to=<follow-default>`），同值不写 |
+| 解耦 | 管理员改 `system_settings.login.defaultTheme`（t109）只影响「NULL 用户」的**渲染结果**，不写任何用户行 |
+
+证据：`LoginThemeThirdStateTest` **9 例**（followDefault 置 NULL 且 GET `{null,true}` / 具体 code 写入且 `followDefault:false` /
+同传 400 中英 / 都不传 400 中英 / login+refresh 返回 null+true 且不回填管理员缺省 / 管理员改 orbit 后用户仍 NULL、
+连管理员自己也仍 NULL / 历史 `pencil` 保持且可清回默认 / 审计 `<follow-default>` 标记 / V23 空表与已有数据双场景幂等 + 既有值不变 + 改后可写 NULL）。
+`UserPreferenceTest` 同步改为「默认 = 跟随系统默认（NULL）」口径（默认值断言、其他用户断言、同值不写审计改为「第一次写 1 条、第二次不写」）。
+规则与 curl 见 README §47.8。
+
 ### 2.18 自助注册 + 双验证码 + 管理员审批 + 待审批登录拦截（t102）
 
 **目标**：把「只能由管理员建号」扩展为「自助注册（手机必填 + 邮箱可选，双验证码）→ 管理员审批 → 才能登录」。
@@ -1435,6 +1518,41 @@ t97/t99 前端已提供 8 套主题（角色组 4 + 抽象极简组 4），后�
 重复审批 409、拒绝后登录 403「注册申请已被拒绝」、非管理员 403、三类审计各 1 条；dev-mode 关闭后响应不含 devCode。
 V20 DDL 已在生产库执行（两张新表 + 两列 + phone 唯一索引），存量 10 个用户 `*_verified` 全 0 未受影响；复核数据已清理
 （`registration_requests=0` / `verification_codes=0` / `orphan_user_roles=0`），`APP_VERIFICATION_DEV_MODE` 已移除并重启。
+
+### 2.19 管理员统一登录页缺省主题（t109）
+
+**目标（需求更正）**：登录页缺省主题由**管理员统一设置**，新访客默认看到它；用户自行选择后以本人偏好为准。
+此前 `pencil` 硬编码在后端与前端，管理员无从调整。
+
+**数据模型**：`system_settings`（key/value，便于扩展全局开关）——
+`id VARCHAR(36) PK`、`setting_key VARCHAR(100) NOT NULL UNIQUE`、`setting_value TEXT`、`updated_by`、`updated_at`。
+迁移 `V22__system_settings.sql`（`CREATE TABLE IF NOT EXISTS` + `CREATE UNIQUE INDEX IF NOT EXISTS`，空库/已有数据均幂等），
+生产 Flyway 关闭 → `deploy/manual-ddl.sql`「V22」段。默认值不在迁移里 INSERT，由启动自愈幂等补行。
+
+**接口**
+
+| 方法 | 路径 | 权限 | 返回 |
+|---|---|---|---|
+| GET | `/api/v1/auth/login-theme` | **无需认证**（`SecurityConfig` permitAll） | `{defaultTheme, themes:[{code}]}`，缺省缺失/非法回落 `pencil` |
+| GET | `/api/v1/admin/settings/login-theme` | ADMIN | `{defaultTheme, updatedBy, updatedAt}` |
+| PUT | `/api/v1/admin/settings/login-theme` | ADMIN | 200 + 更新后设置；非法 **400**（中文含「支持: …」8 项列表，英文 `supported: …`） |
+
+**关键约束（逐条有测试）**
+
+1. **读取永不抛异常**：行缺失 → 自愈插入 `pencil`；值非法（如手工写入 `neon`）→ 回落 `pencil` + WARN，
+   登录页（认证前）不会因配置脏了而 500；**不静默改库**（运维能看到脏值）。
+2. **启动自愈**：`ApplicationReadyEvent` 调 `ensureDefaults()`，缺行才插入、失败只 WARN；多实例并发由唯一键兜底。
+3. **不污染用户偏好**：管理员只改 `system_settings`，绝不写任何 `users.login_theme`；
+   `PUT /users/me/preferences`（t96）语义不变。
+4. **审计单条**：`UPDATE_SYSTEM_SETTING` / `resource_type=system_setting` / `details=登录页缺省主题变更: from=pencil -> to=owl`；
+   `AuditTrailInterceptor.SKIP_ENDPOINTS` 精确跳过该端点，避免重复记 `PUT AdminSettingsController…`；值未变化不写。
+5. **权限**：非管理员读写 **403**、匿名读管理员端点 **401**、匿名读公开端点 **200**；
+   模拟视角下该写端点由 `ImpersonationGuardFilter` 拦为 403。
+
+**证据**：`SystemSettingTest` **9 例**（匿名公开端点 200 + pencil + 8 主题、管理员改 owl 后公开端点生效、
+非法值 400 中英且库内不变、非管理员 403/匿名 401、审计 from→to 且仅 1 条、缺行自愈且幂等、
+脏值回落不改库、V22 空库与已有数据双场景幂等 + 唯一键兜底、管理员缺省值不写用户偏好）。
+规则、DDL 与 curl 复核见 README §49。
 
 ### 2.20 忘记密码（验证码重置 + 旧 token 失效 + 审计，t103）
 
@@ -1507,6 +1625,10 @@ SSO 用户本地密码为 32 位随机串（不告知），需要本地密码走
 绑定成功与重复绑定 409、解绑密码错 403 与解绑后回到 202、非 ADMIN 403、开关审计 1 条、关闭后列表与 authorize-url 同步变化）；
 全量回归在隔离副本执行（`backend/target` 有并发构建），结果见 §7.10 / 部署记录。
 规则、DDL 与已知边界见 README §51。
+
+**t104 后续补记（与 t112 三态对齐）**：SSO 回调签发 JWT 时 `login` 对象与 `/auth/login` 同构 ——
+审批新建的 SSO 用户 `login_theme` 为 NULL，响应返回 `loginTheme: null` + `followDefault: true`（不回填 pencil / 管理员缺省），
+`SsoFlowTest#approveThenCallbackIssuesToken` 已加断言；说明见 README §51.7。
 
 ### 2.22 拒绝即释放唯一键 + 管理端清理 + 审批角色显式化（t111）
 

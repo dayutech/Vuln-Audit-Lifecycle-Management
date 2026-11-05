@@ -328,3 +328,20 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 数据清理：assets 6→3、customers 4→1、projects 5→1、phases 2→0、links 6→3、documents 0；orphan=0。
 - 坑：mvn clean test 会删掉 systemd 正在使用的 target jar（表现为登录 500），顺序必须 clean test → package → restart；
   登录失败 5 次锁 5 分钟，浏览器验证要用新 --user-data-dir 并避免 insertText 叠加。
+########## 十六、第九批验收（注册审批 / 找回密码 / SSO / 登录页视觉 + 主题三态 + 更名，t107，2026-11-05 15:2x） ##########
+- 后端：jar 73,232,580 B；重启 23s 内 login=200；前端 index-BbaH0LZQ.js 2,679.68 kB 已 sync-dist；生产库补执行 V23/V24。
+- 回归：Tests run 760 → 773, Failures 0, Errors 1 —— 两次复跑的唯一 ERROR 恒为 AuditLogControllerTest 的 H2 上下文串扰偶发（单跑该类 9/9 PASS）。
+- 迁移：V20–V24 在空库与生产克隆各跑两遍均幂等；生产 users=10 不变、login_theme 可空、SSO 三表 + 4 家 provider（enabled=false）。
+- 冒烟：TOTAL=274 PASS=274 FAIL=0 SKIP=0。新增 26 条：
+  注册 8（手机号非法 400 / 发码 200 / 重复发码 429 / 未发码注册 400 / 邮箱未验 400 / 错误码 400 / 注册成功 201 / 重复用户名 409）、
+  审批 5（非管理员 403 / 列表含申请 / approve 200 / 审批后登录 200 / reject 200 + 拒绝后不可登录）、
+  找回 8（发码 200 / 重复 429 / 错误码 400 / 重置 200 / 旧密码 401 / 新密码 200 / 未知名 200 无 devCode）、
+  SSO 6（providers 200 / 非管理员 403 / 开启 200 / 未配置 authorize-url 503 / 未配置不显示 / 回收 200）、
+  RBAC 2（t115：PL 授予 admin 403 / ADMIN 授予 admin 200）。
+- 页面（真实 Edge + CDP）：T107_VERIFY 43/43 + T107_FLOW 21/21，pageErrors=[] ——
+  品牌（title/favicon/侧边栏展开+折叠 tooltip/登录页徽标+全名+短名+slogan/英文）、
+  8 主题 × 3 尺寸（1440/1920/375）24 张截图（舞台铺满、品牌左上、皮肤 8/8 不同、无「动一动鼠标」与营销文案）、
+  主题三态 T1–T3 + 门禁 A1–A10（含 A6 等于缺省也物化键、A7 删键、A8 第三态、A10 同传 400）、
+  注册全链路（devCode → 待审批 → 审批 → 登录）、找回全链路（旧 401 / 新 200）、SSO 可见性与 503、绑定页 4 家状态。
+- 数据清理：users 回落 10、registration_requests=0、verification_codes=0；终态 customers=1 projects=1 phases=0 assets=3 links=3、orphan=0。
+- 收尾：dev-mode 已从 backend.env 移除并重启（发码响应不再含 devCode）；SSO 4 家 provider 复原 enabled=false、凭据清空。\n- 口径变更：SSO「未配置不显示」与找回密码 target-only 用例已被 t120 口径取代（全部展示+configured 标记；找回需 username）。

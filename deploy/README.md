@@ -2359,6 +2359,59 @@ cd backend && mvn -B test -Dtest=UserPreferenceTest   # 期望 14/14
 | 默认值 | 复核后已把 admin 改回 `pencil`；`POST /auth/login` 回包 `loginTheme=pencil` |
 | 其它接口 | `/projects`=200、`/customers`=200（未受影响） |
 
+### 47.8 t112：用户偏好补「第三态」（NULL = 跟随系统默认）
+
+**为什么补**（t110 自报的局限）：t96 的 `users.login_theme` 是 `NOT NULL DEFAULT 'pencil'`，只有两态。
+「跟随系统默认」被迫实现成「把**当前**管理员缺省写进用户行」——管理员之后改缺省，这类用户跟随不上，
+而且「从账号同步」会把旧值搬回来（两态混淆）。
+
+**三态语义（当前口径）**
+
+| `users.login_theme` | 含义 | 管理员改缺省（`system_settings.login.defaultTheme`）时 |
+|---|---|---|
+| `NULL` | **跟随系统默认** | 自动跟随（用户行仍是 NULL，不写任何值） |
+| 具体 code（`pencil`/`owl`/…） | 用户**亲自指定** | 不受影响 |
+| 历史行（V19 时期的 `pencil` 等） | 保持原值，**视为用户指定**（不迁移、不改写） | 不受影响 |
+
+- 数据：`V23__user_login_theme_follow_default.sql` = `ALTER TABLE users MODIFY COLUMN login_theme VARCHAR(32) NULL DEFAULT NULL;`
+  （MariaDB 10.x 没有 PG 的 `ALTER COLUMN … DROP NOT NULL` 语法，用 `MODIFY COLUMN` 表达同一语义；重复执行幂等，**不修改任何既有值**）。
+  生产 Flyway 关闭 → `deploy/manual-ddl.sql`「V23」段（含 `IS_NULLABLE` 与三态分布校验 SQL）。
+- 新建用户不再预置 `pencil`（实体默认值为 NULL），即新用户默认跟随系统缺省。
+
+**接口（`PUT /users/me/preferences`，二选一）**
+
+| 请求体 | 行为 | 响应 |
+|---|---|---|
+| `{"loginTheme":"owl"}` | 写入具体主题 | `{"loginTheme":"owl","followDefault":false}` |
+| `{"followDefault":true}` | 置 NULL（跟随系统默认） | `{"loginTheme":null,"followDefault":true}` |
+| 两者同传 | **400** `登录页主题与「跟随系统默认」只能二选一` | — |
+| 都不传 | **400** `必须指定 loginTheme，或将 followDefault 设为 true` | — |
+
+`GET /users/me/preferences` → `{loginTheme: null|code, followDefault: boolean}`（NULL ⇒ true）。
+登录链路 `/auth/login`、`/auth/me`、`/auth/refresh` 对跟随默认用户返回 **`loginTheme: null` + `followDefault: true`**，
+**不再回填**管理员缺省（否则又退回两态混淆）；`User` 实体提供只读 `followDefault` JSON 字段，`/auth/me` 直接带出。
+审计 `UPDATE_LOGIN_THEME` 的 details 用 `<follow-default>` 标注 NULL：`from=owl -> to=<follow-default>`。
+
+```bash
+# 跟随系统默认（清空个人主题）
+curl -s -X PUT "http://127.0.0.1:8089/api/v1/users/me/preferences" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"followDefault":true}'
+# → {"success":true,"data":{"loginTheme":null,"followDefault":true}}
+
+curl -s "http://127.0.0.1:8089/api/v1/users/me/preferences" -H "Authorization: Bearer $TOKEN"
+# 管理员随后把缺省改成 orbit：该用户仍是 loginTheme=null（跟随），不会被写成 orbit
+curl -s -X PUT "http://127.0.0.1:8089/api/v1/admin/settings/login-theme" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' -d '{"defaultTheme":"orbit"}'
+
+cd backend && mvn -B test -Dtest=LoginThemeThirdStateTest   # 期望 9/9
+```
+
+单测 `LoginThemeThirdStateTest` **9 例**：followDefault=true → 库内 NULL 且 GET `{null,true}` / 具体 code → 写入且 `followDefault:false` /
+两者同传 400（中英）/ 都不传 400（中英）/ login+refresh 对跟随默认用户返回 `null + true` 且不回填管理员缺省 /
+管理员改缺省 orbit 后用户仍 NULL / 历史 `pencil` 保持且可清回默认 / 审计 `<follow-default>` 标记 /
+V23 空表与已有数据双场景幂等且既有值不变 + 改后可写 NULL。原 `UserPreferenceTest` 同步改为「默认=跟随系统默认（NULL）」口径。
+
+
 ---
 
 ## 48. 第八批发布与验收（登录页主题 + 模拟视角审计，t95–t100 / t98）
@@ -2534,6 +2587,85 @@ curl -s -X POST http://127.0.0.1:8089/api/v1/auth/login \
 | dev-mode 关闭后（生产默认） | 发码响应**不含 devCode**（`{"channel":"sms","target":"13900007777","purpose":"REGISTER","expiresInSeconds":300}`） |
 
 复核数据已清理（`users` 回到 10、`registration_requests=0`、`verification_codes=0`、`orphan_user_roles=0`），`APP_VERIFICATION_DEV_MODE` 已从 `deploy/backend.env` 移除并重启，`/projects`、`/users/me/preferences`、`/admin/registration-requests` 均 200。
+
+## 49. 第三十三轮（管理员统一登录页缺省主题：system_settings + 公开端点 + 审计，t109）
+
+**需求更正**：登录页主题的**缺省值应由管理员统一设置**（每个新访客默认看到它）；
+用户若自行选择主题，则以**本人偏好**为准（浏览器缓存 + 服务端 `users.login_theme`）。
+此前缺省值硬编码 `pencil`，管理员无法控制。
+
+### 49.1 数据模型（V22）
+
+| 项 | 值 |
+|---|---|
+| 表 | `system_settings`（key/value，便于以后扩展全局开关） |
+| 列 | `id VARCHAR(36) PK` / `setting_key VARCHAR(100) NOT NULL`（唯一） / `setting_value TEXT NULL` / `updated_by VARCHAR(36) NULL` / `updated_at DATETIME(6) NOT NULL` |
+| 迁移 | `backend/src/main/resources/db/migration/V22__system_settings.sql`（`CREATE TABLE IF NOT EXISTS` + `CREATE UNIQUE INDEX IF NOT EXISTS`，幂等） |
+| 生产手写 DDL | `deploy/manual-ddl.sql`「V22」段（生产 `spring.flyway.enabled=false`） |
+| 默认值 | **不在迁移里 INSERT**：应用启动 `SystemSettingServiceImpl#ensureDefaults()` 幂等补 `login.defaultTheme=pencil`（多实例并发由唯一键兜底） |
+
+```sql
+-- 手工 DDL（与 V22 等价）
+CREATE TABLE IF NOT EXISTS system_settings (
+    id            VARCHAR(36)  NOT NULL PRIMARY KEY,
+    setting_key   VARCHAR(100) NOT NULL,
+    setting_value TEXT         NULL,
+    updated_by    VARCHAR(36)  NULL,
+    updated_at    DATETIME(6)  NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_system_settings_key ON system_settings (setting_key);
+```
+
+### 49.2 接口
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | `/api/v1/auth/login-theme` | **无需认证** | `{defaultTheme, themes:[{code}]}`；登录页在认证前调用；已在 `SecurityConfig` 的 permitAll 清单，不会被 `AuthenticationEntryPoint` 拦成 401 |
+| GET | `/api/v1/admin/settings/login-theme` | ADMIN | `{defaultTheme, updatedBy, updatedAt}` |
+| PUT | `/api/v1/admin/settings/login-theme` | ADMIN | body `{defaultTheme}` → 200；白名单 8 项（复用 `LoginTheme`），非法 **400** 且消息列出支持列表 |
+
+**读写语义**
+
+- 缺省值只存 `system_settings`，**不写任何用户的 `users.login_theme`**；
+- 用户个人偏好仍走 `PUT /api/v1/users/me/preferences`（t96 语义不变）；
+- 读取容错：行缺失 → 自愈插入 `pencil`；值非法（如手工塞 `neon`）→ **回落 `pencil` + WARN**，不抛异常、不静默改库（便于运维发现脏值）；
+- 模拟视角（t90）下 `PUT /admin/**` 由 `ImpersonationGuardFilter` 拦为 403，避免「借他人身份改全站配置」。
+
+**审计**：`UPDATE_SYSTEM_SETTING`、`resource_type=system_setting`、`resource_id=设置行ID`、
+`details=登录页缺省主题变更: from=pencil -> to=owl`；值未变化不写；`AuditTrailInterceptor` 用
+`SKIP_ENDPOINTS` 精确跳过该端点，**一次修改只有 1 条**审计（不重复记 `PUT AdminSettingsController…`）。
+
+**新访客 → 用户选择 的时序**
+
+1. 登录页加载 → `GET /auth/login-theme`（匿名）→ 用 `defaultTheme` 渲染；
+2. 用户在选择器里选主题 → `PUT /users/me/preferences` → 服务端存 `users.login_theme`，前端写 `localStorage('login.theme')`；
+3. 之后进登录页：`?theme=` 深链 > `localStorage` > 公开端点缺省值；
+4. 管理员的改动**不会**覆盖已选择过的用户（第 3 步优先本地/个人偏好）。
+
+### 49.3 验证
+
+```bash
+# 匿名可读（不带 token）
+curl -s http://192.168.188.200:8089/api/v1/auth/login-theme
+# → {"success":true,"data":{"defaultTheme":"pencil","themes":[{"code":"pencil"},...8 项]}}
+
+# 管理员改缺省为 owl
+curl -s -X PUT http://192.168.188.200:8089/api/v1/admin/settings/login-theme \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"defaultTheme":"owl"}'
+
+# 非法值 → 400（含支持列表）
+curl -s -X PUT http://192.168.188.200:8089/api/v1/admin/settings/login-theme \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"defaultTheme":"neon"}'
+
+cd backend && mvn -B test -Dtest=SystemSettingTest    # 期望 9/9
+```
+
+单测 `SystemSettingTest` **9 例**：匿名公开端点 200 且返回 pencil + 8 主题 / 管理员改 owl 后公开端点立即生效 /
+非法值 400（中英，含支持列表）且库内不变 / 非管理员读写 403、匿名读 401 / 审计 from→to 且仅 1 条 /
+缺行自愈插入且幂等 / 脏值 `neon` 回落 pencil 不抛异常不改库 / V22 空库与已有数据双场景幂等 + 唯一键兜底 /
+管理员缺省值不写用户偏好。
 
 ## 50. 第三十四轮（忘记密码：验证码重置 + 旧 token 失效 + 审计，t103）
 
@@ -2726,6 +2858,12 @@ curl -s "http://127.0.0.1:8089/api/v1/auth/sso/github/authorize-url?redirectUri=
 3. **SSO 用户没有手机号**：只能走邮箱渠道找回密码；provider 未给邮箱时连邮箱也没有 → 只能管理员重置。
 4. **解绑后需重新审批**：解绑只删 `sso_bindings`，对应 `sso_pending_bindings` 已是 ACTIVATED，因此该第三方身份再登录会重新进入 202 审批流程（不会自动恢复）。
 
+### 51.7 与登录页主题三态（t112）的衔接
+
+SSO 回调签发本地 JWT 时，`login` 对象与 `POST /auth/login` 完全同构：`login_theme` 为 `NULL` 的用户
+（含审批新建的 SSO 用户）返回 **`loginTheme: null` + `followDefault: true`**，**不回填** `pencil` 或管理员缺省值；
+管理员随后改缺省，这类 SSO 用户自动跟随。`SsoFlowTest#approveThenCallbackIssuesToken` 已加断言守住这一点。
+
 ## 52. 第三十六轮（拒绝即释放唯一键 + 管理端清理入口 + 审批角色显式化，t111）
 
 **修复 t102 自报的可用性缺陷**：申请被拒后，同一用户名/手机号被 `pending_approval` 占位用户占用 → 重新注册 409，
@@ -2856,3 +2994,122 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST \
 1. 受限集合里 `admin` / `project_leader` 是**硬编码兜底**：即使有人把库里 `is_system` 改成 false，也不会被下放；新增管理类角色应同时置 `is_system=true`。
 2. 策略只看 `ROLE_ADMIN`：如果要引入「角色管理员」这类细分权限，需要扩展为权限点（`ROLE_ADMIN` 或 `role:grant:*` 权限）。
 3. 无认证上下文放行是给初始化/批处理留的口子，已在代码里 WARN 留痕；若未来有「无上下文的任务线程授予角色」，应改为显式传 actor。
+---
+
+## 54. 第三十八轮（t107 验收发布：注册审批 / 找回密码 / SSO / 登录页视觉 + 主题三态 + 更名）
+
+时间：2026-11-05 14:1x–15:3x（Asia/Shanghai）。**无新增业务迁移**（V20–V24 随 t102/t103/t104/t109/t112 已入库，本轮**在生产库补执行 V23/V24**）。前端 `sync-dist` 已发布。
+
+| 项 | 结果 |
+|---|---|
+| 后端回归 | `mvn -B clean test`（宿主 JDK21，pom `java.version=17`）复跑两次：**760 → 773 例**（第二次含 t115 的 10 例 + t111 增量），两次均 **Failures: 0 / Errors: 1**，唯一 ERROR 恒为 `AuditLogControllerTest#getUserAuditLogs_Success`（`Table "USER_ROLES" not found`，H2 上下文串扰**偶发**；单跑 `-Dtest=AuditLogControllerTest` → **9/9 PASS**）。`@Disabled` 0 命中 |
+| 后端重建 | `package` BUILD SUCCESS，jar **73,232,580 B**（旧 jar 备份 `~/backups/vuln-audit-backend-t107_*.jar`），重启 23s 内 login=200，服务 `active` |
+| 前端发布 | `index-BbaH0LZQ.js` 2,679.68 kB / `index-BtKt5F9b.css` 23.0 kB；`sync-dist.sh` 同步 5 文件并 reload nginx |
+| 冒烟 | **TOTAL=274 / PASS=274 / FAIL=0 / SKIP=0**（新增 26 条，见 §54.2）；重建重启后复跑仍 274/274 |
+| 页面验证 | `T107_VERIFY 43/43` + `T107_FLOW 21/21`，`pageErrors=[]`（见 §54.3） |
+| 迁移双场景 | V20–V24 在**空库**与**生产克隆**各执行两遍均幂等；生产库执行后 `users=10` 不变、`login_theme` 可空、SSO 三表就绪 |
+| 数据清理 | 终端 `customers=1 projects=1 phases=0 assets=3 links=3`、`orphan_assets=0`、`registration_requests=0`、`verification_codes=0` |
+
+### 54.1 迁移执行顺序与幂等验证（V20–V24）
+
+```bash
+# 逐个执行（每个都可重复执行，第二遍必须同样成功且不改数据）
+MIG=~/apps/vuln-audit/backend/src/main/resources/db/migration
+for f in V20__self_registration_and_verification_codes.sql \
+         V21__password_reset_token_invalidation.sql \
+         V22__system_settings.sql \
+         V23__user_login_theme_follow_default.sql \
+         V24__sso_login_and_bindings.sql; do
+  sudo mariadb vuln_audit < "$MIG/$f" || echo "FAIL $f"
+done
+```
+
+实测：空库（模拟 V19 后 `users` 形态）→ `login_theme` 变为可空、`email_verified/phone_verified/token_invalid_before` 就绪、`uk_users_phone` 唯一索引 1 个、`registration_requests.phone` 可空、SSO 三表 3 张；回填断言 `admin=1 / engineer1=1 / @no-email.local=0 / 邮箱 NULL=0`。生产克隆执行后 `users` 10 → 10、`login_theme` 分布 `'owl'=1 / 'pencil'=9` 不变。
+
+> `sso_providers` 默认 4 条由**应用启动**补种（`SsoProviderBootstrapRunner`），DDL 只建表；本轮重启后表内 4 行 `enabled=false`。
+
+### 54.2 冒烟新增 26 条
+
+注册 8：手机号非法 400 / 发码 200 / 重复发码 429 / 未发码直接注册 400 / 邮箱未验 400 / 错误码 400 / 注册成功 201 / 重复用户名 409；
+审批 5：非管理员列表 403 / 管理员列表含申请 / approve 200 / 审批后登录 200 / reject 200 + 拒绝后不可登录（t111 拒绝即删占位用户 → 401，脚本接受 401/403）；
+找回 8：发码 200 / 重复发码 429 / 错误码 400 / 重置成功 200 / 旧密码 401 / 新密码 200 / 未知账号 200 且无 devCode；
+SSO 6：providers 200 / 非管理员改开关 403 / 管理员开启 200 / 未配置 authorize-url 503 / 开启但未配置登录页不可见 / 回收关闭 200；
+RBAC 2（t115）：`rbac/PL授予admin-403`、`rbac/ADMIN授予admin-200`。
+
+### 54.3 页面验证（真实 Edge + 原生 CDP）
+
+- **品牌（t108）**：`document.title` 前缀 = `猫头鹰漏洞审计生命周期管理系统`（登录页后缀 `· 登录`）；favicon `/favicon.svg`（猫头鹰）；登录页 `login-brand` 徽标 30px + 全名 + 短名 + slogan「洞察入微 · 审计可溯」；侧边栏展开全名、折叠仅徽标 + `aria-label`/Tooltip 短名「猫头鹰审计」；英文 `Owl Vulnerability Audit Lifecycle Management System` / `Owl Audit` / slogan「See deeper. Audit further.」。
+- **视觉（t101/t105）**：8 主题 × 3 尺寸（1440×900 / 1920×1080 / 375×812）共 24 张截图，断言舞台铺满视口、品牌在左上（x<120,y<120）、卡片可见、`overflowX=0`；登录框皮肤 8/8 互不相同（圆角 18/26/22/0/6/2/4/0 px）；页面**无**「动一动鼠标」提示、**无**资产/项目营销文案。
+- **主题解析三态**：T1 新浏览器显示管理员缺省（orbit）；T2 选 owl 后刷新仍 owl；T3 缺省改 geometric → 有标记仍 owl、无标记跟 geometric；A1 未登录 `GET /auth/login-theme` 200；A2 非 ADMIN PUT 403；A3 非法值 400 且库内不变；A4 登录前后本地标记完全相同；A5 弹窗只预选；A6 从账号同步写入标记（等于缺省也物化）；A7 跟随默认删键（`getItem=null`）；A8 第三态 `loginTheme:null + followDefault:true`；A9 改缺省后仍 null 且登录页跟随；A10 同传 → 400。
+- **流程**：注册页真机（真实按键）→ devCode 自动填入 → 提交 → 「待审批」结果页 → 管理员审批 → 新账号登录成功；找回密码 → 发码 → 重置 → 跳回登录 → 旧密码 401 / 新密码 200；SSO 未配置不显示按钮、开启仍不显示、`authorize-url` 503；绑定页展示 4 家 provider 与「未启用」状态。
+
+### 54.4 口径变更（t120 取代本轮的 SSO/找回密码断言）\n\n1. **SSO「未配置不显示」已作废**：新口径为 `GET /auth/sso/providers` 返回**所有 enabled 项**并带 `configured` 标记，登录页按钮**全部展示**，未配置的点击提示「尚未完成配置」。本轮 §54.3 中「开启但未配置 → 登录页不显示」的断言属旧口径，**由 t120 增量验收取代**，代码未为旧口径改动。\n2. **忘记密码新增 `username`**：t116–t119 后 `send-code`/`confirm` 均要求 `username` 且需与手机号/邮箱一致（不匹配仍 200 但不发码）。本轮冒烟 `reset/*` 用例传的是 target-only 版本，**t120 需同步补 `username`**。\n3. 与上述两块无关的部分（部署、全量回归、8 主题×3 尺寸、徽标/更名、注册审批、主题三态）仍以本轮结论为准。\n\n### 54.5 踩坑记档（本轮新增）
+
+1. **dev-mode 只用于验证码链路**：冒烟需要 `devCode` 才能跑完注册/找回；本轮临时在 `backend.env` 加 `APP_VERIFICATION_DEV_MODE=true`，**冒烟与页面验证结束后已移除并重启**，并复核发码响应不再包含 `devCode`。
+2. **antd 受控输入在 CDP 下必须用真实按键**：给 `input.value` 赋值 + `dispatchEvent('input')` 对登录页有效，但注册/找回表单（Form + 自定义校验）会判为空 → 表现为「提交无反应/提示请输入验证码」。改用 `Input.insertText`（先 focus）后全部通过。
+3. **`mvn clean test` 会删除运行中的 jar**（老坑，再次确认）：必须 `clean test → package → restart`，否则运行中的 JVM 懒加载类时抛 `NoSuchFileException`，表现为登录 500。
+4. **H2 上下文串扰偶发**：全量跑时 `AuditLogControllerTest` 曾出现 `Table "USER_ROLES" not found (this database is empty)`，单跑该类 9/9 通过，属测试执行顺序/上下文隔离的偶发，未复现。
+### 51.8 t116：凭据 Web 配置 + 「启用即展示」
+
+**两条用户反馈的修复**
+
+| 反馈 | 原因 | 现在的行为 |
+|---|---|---|
+| 社交凭据没有 Web 配置入口，只能上服务器改库 | 只有 t104 的 `PATCH {enabled}` | 新增 `PUT /api/v1/admin/sso/providers/{code}`（部分更新 clientId/clientSecret/三个端点/scopes）与 `GET` 配置列表；**本项目不需要上服务器改库** |
+| 开关打开后登录页仍不显示按钮 | 公开列表按 `enabled && configured` 过滤，未配凭据直接被滤掉 | `GET /api/v1/auth/sso/providers` 改为**返回全部 enabled=true**，每项带 `configured`；未配置的按钮也展示（前端标「未配置」），点进去 authorize-url 才 503 |
+
+**configured 判定**：`client_id`、`client_secret`、`authorize_url`、`token_url`、`userinfo_url` 五项都非空才为 true（scopes 可选）。
+
+**接口（全部 ADMIN，非 ADMIN 403 / 匿名 401）**
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/admin/sso/providers` | 全部 4 家的配置：`code/name/icon/enabled/configured/clientId/clientSecretMasked/authorizeUrl/tokenUrl/userinfoUrl/scopes/updatedAt/updatedBy` |
+| PUT | `/api/v1/admin/sso/providers/{code}` | 部分更新；code 不属于 4 家 → **404**；URL 非 https（且非本地）→ **400** |
+| PATCH | `/api/v1/admin/sso/providers/{code}` | t104 兼容，等价于 PUT 只传 enabled |
+
+**部分更新与 secret 语义（重点）**
+
+- 未传的字段（JSON 省略 / `null`）**保持不变**；传空字符串表示清空该字段（secret 除外）。
+- `clientSecret` 省略或传 `""` → **保持不变**（避免「只改 URL 却把 secret 清空」）；
+  要清空必须显式 `{"clearClientSecret": true}`。
+- 响应里 `clientSecretMasked` 形如 `gh_****abcd`（最多露首尾各 4 位，长度 ≤4 时只回 `****`）；
+  **接口 / 日志 / 审计都不出现明文**；审计只记 `clientSecret=***` 与其它变更字段名。
+- URL 必须 `https`；本地联调放宽 `http://localhost` 与 `http://127.0.0.1`（其余 http 一律 400）。
+- `scopes` 逗号分隔、自动去重（`a, b ,a` → `a, b`）；传空串清空。
+- 保存**即时生效**：公开列表下一个请求就能看到新的 `configured`（无需重启）。
+
+**Web 配置流程（管理员操作，截图步骤）**
+
+1. 用管理员账号登录 → 左侧菜单 **系统管理 → 第三方登录**（页面路径 `/admin/sso`；若菜单未接入，可直接打开该路由）。
+2. 列表 4 行（GitHub / Google / Microsoft / 微信），每行显示「已开启 / 未配置」等标签。
+   截图要点：*① 行内 `未配置` 红色标签、②「配置」按钮、③「启用」开关*。
+3. 点「配置」→ 抽屉表单填 `Client ID`、`Client Secret`、三个端点（默认已预填各平台官方地址，通常不用改）、`scopes`；
+   保存后抽屉回显 `configured=true`。截图要点：*④ secret 输入框为密码型、保存后回显 `gh_****abcd`*。
+4. 打开「启用」开关 → 保存。截图要点：*⑤ 开关变蓝 + 行内标签变「已配置」*。
+5. 打开登录页（无痕窗口）→「使用第三方账号登录」区域出现对应按钮。截图要点：*⑥ 登录页三个按钮*。
+   - 若显示「未配置」徽标，说明还有必填项没填（`configured=false`），点按钮会提示「该登录方式尚未完成配置」。
+
+```bash
+# 配好一家（示例：GitHub），无需重启
+curl -s -X PUT http://127.0.0.1:8089/api/v1/admin/sso/providers/github \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"enabled":true,"clientId":"Ov23liXXXX","clientSecret":"8f2cXXXXXXXXXXXX",
+       "scopes":"read:user, user:email"}'
+
+# 公开列表立即出现该方式，configured=true
+curl -s http://127.0.0.1:8089/api/v1/auth/sso/providers
+# → {"data":[{"code":"github","name":"GitHub","icon":"github","configured":true}]}
+
+# 管理端列表：secret 只回掩码
+curl -s http://127.0.0.1:8089/api/v1/admin/sso/providers -H "Authorization: Bearer $ADMIN_TOKEN"
+# → "clientSecretMasked":"8f2c****XXXX"
+
+cd backend && mvn -B test -Dtest=SsoProviderConfigTest   # 期望 14/14
+```
+
+**安全与风险**
+
+- `client_secret` 目前在本表**明文存储**（t104 既定）。本任务至少做到：接口不回传明文（掩码）、
+  日志不打印 secret、审计只记 `***`；**加密存储（Jasypt / AES + 主密钥 / KMS）已列入报告 §8 建议项**。
+- `GET /api/v1/auth/sso/providers` 仍然公开（登录页需要），但**不含任何凭据**，只有 code/name/icon/configured。
