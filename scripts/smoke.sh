@@ -2040,20 +2040,32 @@ fi
 
 # ---- 忘记密码（用已审批账号的手机号）----
 if [ -n "$REG_ID" ]; then
-  api_json POST '/api/v1/auth/password-reset/send-code' "" "{\"channel\":\"sms\",\"target\":\"${PH_E}\"}"
-  judge "reset/发码-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "POST /auth/password-reset/send-code"
+  api_json POST '/api/v1/auth/password-reset/send-code' "" "{\"username\":\"${SMK_USER}\",\"channel\":\"sms\",\"target\":\"${PH_E}\"}"
+  judge "reset/发码-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "username + target 匹配（t117 双因子）"
   RST_CODE="$(jfirst devCode)"
 
-  api_json POST '/api/v1/auth/password-reset/send-code' "" "{\"channel\":\"sms\",\"target\":\"${PH_E}\"}"
+  # t117：用户名存在但 target 属于别人 → 200 且不发码（dev-mode 下无 devCode 即证明未发送）
+  api_json POST '/api/v1/auth/password-reset/send-code' "" "{\"username\":\"${SMK_USER}\",\"channel\":\"sms\",\"target\":\"13900000000\"}"
+  if [ "$LAST_STATUS" = "200" ] && ! flatten | grep -q 'devCode'; then
+    pass "reset/双因子不匹配-200且不发码" 200 "username 与 target 不属于同一账号 → 防枚举"
+  else
+    fail "reset/双因子不匹配-200且不发码" "$LAST_STATUS" "期望 200 且无 devCode ｜ $(snippet)"
+  fi
+
+  api_json POST '/api/v1/auth/password-reset/send-code' "" "{\"username\":\"${SMK_USER}\",\"channel\":\"sms\",\"target\":\"${PH_E}\"}"
   judge "reset/重复发码-429" 429 '' "同一 target 冷却期内再次发码"
 
   api_json POST '/api/v1/auth/password-reset/confirm' "" \
-    "{\"target\":\"${PH_E}\",\"code\":\"000000\",\"newPassword\":\"${REG_NEWPASS}\"}"
+    "{\"username\":\"${SMK_USER}\",\"target\":\"${PH_E}\",\"code\":\"000000\",\"newPassword\":\"${REG_NEWPASS}\"}"
   judge "reset/错误码-400" 400 '' "验证码不匹配"
+
+  api_json POST '/api/v1/auth/password-reset/confirm' "" \
+    "{\"username\":\"someone_else\",\"target\":\"${PH_E}\",\"code\":\"${RST_CODE:-000000}\",\"newPassword\":\"${REG_NEWPASS}\"}"
+  judge "reset/confirm双因子不匹配-400" 400 '' "username 与 target 不一致 → 400 且密码不变"
 
   if [ -n "$RST_CODE" ]; then
     api_json POST '/api/v1/auth/password-reset/confirm' "" \
-      "{\"target\":\"${PH_E}\",\"code\":\"${RST_CODE}\",\"newPassword\":\"${REG_NEWPASS}\"}"
+      "{\"username\":\"${SMK_USER}\",\"target\":\"${PH_E}\",\"code\":\"${RST_CODE}\",\"newPassword\":\"${REG_NEWPASS}\"}"
     judge "reset/重置成功-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "验证码 + 新密码"
 
     api_json POST '/api/v1/auth/login' "" "{\"username\":\"${SMK_USER}\",\"password\":\"${REG_PASS}\"}"
@@ -2068,7 +2080,7 @@ if [ -n "$REG_ID" ]; then
   fi
 
   api_json POST '/api/v1/auth/password-reset/send-code' "" \
-    "{\"channel\":\"sms\",\"target\":\"13900000000\"}"
+    "{\"username\":\"no_such_user\",\"channel\":\"sms\",\"target\":\"13900000000\"}"
   if [ "$LAST_STATUS" = "200" ] && ! flatten | grep -q 'devCode'; then
     pass "reset/未知账号-200-无devCode" 200 "防枚举：不存在账号也 200 且不发码"
   else
@@ -2085,38 +2097,69 @@ else
 fi
 
 # ---- SSO（默认全关闭；未配置凭据时不显示、authorize-url 503）----
+# ---- SSO（t116 新口径：启用即展示 + configured 标记；凭据 Web 可配）----
 request GET '/api/v1/auth/sso/providers' ""
 judge "sso/providers-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "公开端点，未登录可读"
 
-request PATCH '/api/v1/admin/sso/providers/github' "${ENGINEER_TOKEN:-}" \
-  -H 'Content-Type: application/json' --data-binary '{"enabled":true}'
-judge "sso/非管理员改开关-403" 403 '' "仅 ADMIN"
+api_json PUT '/api/v1/admin/sso/providers/github' "${ENGINEER_TOKEN:-}" \
+  '{"enabled":true}'
+judge "sso/非管理员配置-403" 403 '' "仅 ADMIN（t116 PUT 配置面）"
 
-api_json PATCH '/api/v1/admin/sso/providers/github' "$ADMIN_TOKEN" '{"enabled":true}'
-judge "sso/管理员开启-github-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "PATCH enabled=true"
+api_json PUT '/api/v1/admin/sso/providers/github' "$ADMIN_TOKEN" \
+  '{"enabled":true,"clientId":"smoke-client","clientSecret":"smoke-secret-123","authorizeUrl":"https://github.com/login/oauth/authorize","tokenUrl":"https://github.com/login/oauth/access_token","userinfoUrl":"https://api.github.com/user"}'
+judge "sso/管理员配置凭据-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "PUT clientId+secret+URLs"
 
-request GET '/api/v1/auth/sso/github/authorize-url?redirectUri=http%3A%2F%2Flocalhost%2Fcb' ""
-if [ "$LAST_STATUS" = "503" ]; then
-  pass "sso/未配置凭据-authorize-url-503" 503 "未填 client_id/secret 时给出 503"
+request GET '/api/v1/admin/sso/providers' "$ADMIN_TOKEN"
+if [ "$LAST_STATUS" = "200" ] && ! flatten | grep -q 'smoke-secret-123'; then
+  pass "sso/密钥不回显明文" 200 "管理端响应仅掩码，无明文 secret"
 else
-  # 已配置占位凭据时允许 200，但必须带 URL
-  if [ "$LAST_STATUS" = "200" ] && flatten | grep -q 'authorizeUrl'; then
-    pass "sso/已配置凭据-authorize-url-200" 200 "返回第三方授权 URL（占位凭据）"
-  else
-    fail "sso/未配置凭据-authorize-url-503" "$LAST_STATUS" "期望 503 或 200+authorizeUrl ｜ $(snippet)"
-  fi
+  fail "sso/密钥不回显明文" "$LAST_STATUS" "响应疑似含明文密钥 ｜ $(snippet)"
 fi
 
 request GET '/api/v1/auth/sso/providers' ""
-if flatten | grep -q '"code"[[:space:]]*:[[:space:]]*"github"'; then
-  pass "sso/开启且已配置-登录页可见" 200 "providers 含 github（enabled && configured）"
+if flatten | grep -q '"code":"github"' && flatten | grep -q '"configured":true'; then
+  pass "sso/启用且已配置-公开列表含configured=true" 200 "t116：启用即展示"
 else
-  pass "sso/开启未配置-登录页不可见" 200 "providers 不含 github（未配置凭据 → 不渲染按钮，符合 t104 设计）"
+  fail "sso/启用且已配置-公开列表含configured=true" "$LAST_STATUS" "未出现 configured=true ｜ $(snippet)"
 fi
 
-api_json PATCH '/api/v1/admin/sso/providers/github' "$ADMIN_TOKEN" '{"enabled":false}'
-judge "sso/回收-关闭github-200" 200 '"success"[[:space:]]*:[[:space:]]*true' "复原为默认关闭"
+# 空串保存不清空密钥
+api_json PUT '/api/v1/admin/sso/providers/github' "$ADMIN_TOKEN" '{"clientSecret":""}'
+st_keep="$LAST_STATUS"
+request GET '/api/v1/auth/sso/providers' ""
+if [ "$st_keep" = "200" ] && flatten | grep -q '"configured":true'; then
+  pass "sso/空串保存不清空密钥" 200 "留空 = 保持原值（configured 仍 true）"
+else
+  fail "sso/空串保存不清空密钥" "$st_keep" "configured 变 false ｜ $(snippet)"
+fi
 
+# 只改 scopes 保存 → 密钥仍在
+api_json PUT '/api/v1/admin/sso/providers/github' "$ADMIN_TOKEN" '{"scopes":"read:user,user:email"}'
+request GET '/api/v1/auth/sso/providers' ""
+if flatten | grep -q '"configured":true'; then
+  pass "sso/只改scopes不丢密钥" 200 "部分更新语义正确"
+else
+  fail "sso/只改scopes不丢密钥" "$LAST_STATUS" "configured 变 false ｜ $(snippet)"
+fi
+
+# 清除密钥 → configured=false，但仍展示（enabled）
+api_json PUT '/api/v1/admin/sso/providers/github' "$ADMIN_TOKEN" '{"clearClientSecret":true}'
+request GET '/api/v1/auth/sso/providers' ""
+if flatten | grep -q '"code":"github"' && flatten | grep -q '"configured":false'; then
+  pass "sso/清除密钥后仍展示且configured=false" 200 "启用即展示（t116 口径）"
+else
+  fail "sso/清除密钥后仍展示且configured=false" "$LAST_STATUS" "未命中 ｜ $(snippet)"
+fi
+
+# enabled=false → 公开列表不再返回
+api_json PUT '/api/v1/admin/sso/providers/github' "$ADMIN_TOKEN" '{"enabled":false}'
+request GET '/api/v1/auth/sso/providers' ""
+if flatten | grep -q '"code":"github"'; then
+  fail "sso/关闭后公开列表不返回" "$LAST_STATUS" "已关闭仍返回 ｜ $(snippet)"
+else
+  pass "sso/关闭后公开列表不返回" 200 "enabled=false 即不展示"
+fi
+api_json PUT '/api/v1/admin/sso/providers/github' "$ADMIN_TOKEN" '{"enabled":false,"clearClientSecret":true}' >/dev/null
 # ----------------------------------------------------------------------------- 角色授予边界（t115，防自助提权）
 # 非 ADMIN 不得把 admin 等管理类角色授予他人；ADMIN 不受限。
 PL_TOKEN=""
