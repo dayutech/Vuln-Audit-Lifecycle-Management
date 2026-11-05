@@ -2789,25 +2789,27 @@ app:
 **默认数据**：启动时若 `sso_providers` 为空，`SsoProviderBootstrapRunner` 插入 4 条 **enabled=false** 的记录
 （authorize/token/userinfo URL 与 scopes 按各平台默认值预填；`client_id`/`client_secret` 留空）。
 
-### 51.2 「可用」判定（关键）
+### 51.2 「展示」与「可用」的判定（t116 起分离）
 
-`usable = enabled && configured`，其中 `configured = client_id 与 client_secret 均非空`。
+- **展示只看 `enabled`**：`GET /api/v1/auth/sso/providers` 返回全部 `enabled=true` 的提供商，
+  每项带 `configured` 标记（登录页据此渲染按钮；未配置的按钮也展示，前端标「未配置」）。
+- **可用看 `configured`**：`configured = client_id、client_secret、authorize_url、token_url、userinfo_url 五项均非空`
+  （scopes 可选）。
 
 | 状态 | 登录页按钮 | `GET /auth/sso/{code}/authorize-url` |
 |---|---|---|
-| disabled | 不展示 | **400**「该登录方式未开放」 |
-| enabled 但未配凭据 | **不展示** | **503**「该登录方式尚未完成配置」 |
-| enabled 且已配置 | 展示 | 200 `{url, state}` |
+| disabled（enabled=false） | 不展示 | **400**「该登录方式未开放」 |
+| enabled 但未配齐 5 项 | **展示**（`configured=false`，标「未配置」） | **503**「该登录方式尚未完成配置」 |
+| enabled 且已配置 | 展示（`configured=true`） | 200 `{url, state}` |
 
-> **真实对接方式**：在 `sso_providers` 里为对应平台填入 OAuth 应用的 `client_id`/`client_secret`
->（以及按需覆盖 authorize/token/userinfo URL 与 scopes），再由管理员 `PATCH /admin/sso/providers/{code} {"enabled":true}`。
-> 本地无凭据时按钮天然不显示——这就是「未配置即不可见」的实现口径。
+> **t116 变更**：以前「未配置就不展示」导致管理员打开开关后登录页没按钮（用户反馈 #2）。
+> 现在**开启即展示**，是否真的能登录由 `configured` 表达；配置入口见 §51.8（Web 配置，不需要上服务器改库）。
 
 ### 51.3 接口
 
 | 方法 | 路径 | 权限 | 说明 |
 |---|---|---|---|
-| GET | `/api/v1/auth/sso/providers` | 公开 | 仅 `enabled && configured` 的 `[{code,name,icon}]` |
+| GET | `/api/v1/auth/sso/providers` | 公开 | **全部 `enabled=true`** 的 `[{code,name,icon,configured}]`（t116：不再按 configured 过滤） |
 | GET | `/api/v1/auth/sso/{code}/authorize-url?redirectUri=` | 公开 | `{url, state}`；state **5 分钟**有效、一次性（内存 Map） |
 | POST | `/api/v1/auth/sso/{code}/callback` | 公开 | body `{code, state}`；三态见下 |
 | PATCH | `/api/v1/admin/sso/providers/{code}` | **ADMIN** | body `{enabled}`；审计 `UPDATE_SSO_PROVIDER`（一次开关仅 1 条） |
@@ -3257,3 +3259,63 @@ spring:
 
 `@DirtiesContext(AFTER_CLASS)` 仍然让「每个测试类」重建一次上下文（约 8–12s）。若要进一步提速，可评估：
 按需只在**真正修改了单例状态**的类上加 `@DirtiesContext`，其余类共享同一个上下文；或把 `spring.main.lazy-initialization=true` 开进测试 profile。
+---
+
+## 57. 第四十轮（t120 增量验收：SSO 凭据 Web 配置 + 启用即展示 + 找回密码双因子 + 徽标放大）
+
+时间：2026-11-05 18:40–19:2x。**新增一条迁移 V25**（`sso_providers.updated_by`，t116 记录「最后修改人」）；生产库已确认该列存在（`updated_by uuid NULL`，本环境 `ddl-auto=update` 已加，手工段见 `deploy/manual-ddl.sql`）。
+
+| 项 | 结果 |
+|---|---|
+| 增量测试 | `mvn -B test -Dtest='SsoProviderConfigTest,PasswordResetIdentityTest,PasswordResetFlowTest,SsoFlowTest,RegistrationFlowTest'` → **69 例 / 0 失败**（BUILD SUCCESS） |
+| 全量回归 | `mvn -B clean test` **连续 3 次全绿**：**798 例、Failures 0、Errors 0**（t121 修复了 `USER_ROLES not found` 的上下文串扰，单轮 ~6–7 分钟） |
+| 后端重建 | jar **73,240,955 B**，重启 18–20s 内 login=200，核心接口 200，服务 `active` |
+| 前端发布 | 清理 `node_modules/.tmp` 后构建：`index-Dlbmut95.js` 2,696.95 kB（gzip 775.05 kB）/ `index-BCj_UGw5.css` 23.42 kB；sync-dist 5 文件 |
+| 接口验收 | **14/14 PASS**（SSO 8 项 + 找回双因子 3 项 + 前置 3 项），见 §57.2 |
+| 冒烟 | **279 / 279 / 0 / 0**（新增 SSO 配置 8 条 + 找回双因子 3 条） |
+| 页面验收 | `T120_VERIFY 25/25 PASS`，`pageErrors=[]`，见 §57.3 |
+| 质量门禁 | `npx eslint src` → **0 error**（4 warning 为历史 unused-disable）；`TODO(i18n)` **0**；旧品牌名 grep **0** |
+| 数据 | 终态 `customers=1 projects=1 phases=0 assets=3 links=3`、`orphan=0`、`users=12`、`codes=0`、`requests=0`、`sso enabled=0 / with_secret=0`；**dev-mode 与临时放宽的 IP 上限均已移除并重启复核** |
+
+### 57.1 SSO 凭据 Web 配置流程（**不需要上服务器改库**）
+
+1. 用 ADMIN 登录 → **系统设置 → 登录方式**；
+2. 目标 provider 行点「配置」→ 填 `Client ID` / `Client Secret` / 授权端点 / Token 端点 / 用户信息端点（远端必须 https；`http://localhost`、`http://127.0.0.1` 仅联调可用）/ scopes；
+3. 保存 → 行徽标立刻变「**已配置**」，`configured=true`；打开开关即出现在登录页；
+4. **留空 secret 保存 = 保持原值**（只改 scopes/URL 不会丢密钥）；勾「**清除密钥**」保存才会清空并回到「未配置」；
+5. 密钥**永不回显明文**：回读只有掩码（如 `gh****abcd`）；
+6. 回调地址固定 `https://<站点>/auth/sso/callback`，页面提供一键复制。
+
+> 新口径（t116）：`GET /api/v1/auth/sso/providers` 返回**所有 enabled 项**并带 `configured`；登录页按钮**全部展示**，未配置的点击提示「尚未完成配置，请联系管理员」（**不是禁用态**），绑定页同样显示「未配置」但按钮可点。
+
+### 57.2 接口验收（curl 级，14/14）
+
+| # | 断言 | 结果 |
+|---|---|---|
+| A1 | `PUT /admin/sso/providers/github`（clientId+secret+3 URL）→ 200 | ✅ |
+| A2 | `GET /auth/sso/providers` 立即含 github 且 `configured=true` | ✅ |
+| A3 | `GET /admin/sso/providers` 响应**不含明文 secret**（只掩码） | ✅ |
+| A4 | `{"clientSecret":""}` 保存 → `configured` 仍 true（不清空） | ✅ |
+| A5 | 只改 `scopes` 保存 → 密钥仍在 | ✅ |
+| A6 | `clearClientSecret:true` → `configured=false` 且**仍展示** | ✅ |
+| A7 | `enabled=false` → 公开列表不返回 | ✅ |
+| A8 | 非 ADMIN `PUT` → **403** | ✅ |
+| B1 | `{username,channel,target}` 三者匹配 → 200 **且落库 1 条验证码**（codes 2→3，dev-mode 下回 devCode） | ✅ |
+| B2 | username 存在但 target 属他人 → 200 **且不落库、无 devCode**（`verification_codes` 计数不变，DB 级证据） | ✅ |
+| B3 | confirm 的 username 与 target 不一致 → **400 且旧密码仍可登录** | ✅ |
+
+### 57.3 页面验收（真实 Edge + 原生 CDP，25/25）
+
+- **徽标放大**：1440 → **37.4px**、1920 → **40px**、375 → **27px**（t108/t101 为 30px 固定），品牌名可见不被挤压、无横向溢出；侧边栏展开 **32px** / 折叠 **26px**（80px 栏宽不撑破）。截图 `brand-1440/1920/375.png`、`sidebar-brand.png`。
+- **忘记密码**：登录框已填用户名 → 点「忘记密码」→ URL `?username=carry_user`、字段预填、「已带入登录时输入的用户名」提示、**焦点自动落到手机号/邮箱**；空用户名 → **表单字段级拦截**（不发请求）；用户名与手机号不匹配时前端统一提示「如果信息匹配，验证码已发送」，无差异措辞。
+- **SSO 启用即展示**：配置 github + 开启未配置的 wechat → 登录页按钮 `["GitHub","Google","Microsoft","微信"]` **全部可见**；wechat 按钮 `disabled=false`、带 `sso-btn--unconfigured`；点击 → toast「「微信」尚未完成配置，请联系管理员」且**页面不跳转**。
+- **绑定页**：未配置行显示「未配置 / 管理员已开启该登录方式，但凭据还没配齐」，**按钮可点**（admin 不再看到全灰）。
+- **管理端配置界面**：行徽标 `data-configured=true`；弹窗 `secret value=""` + `placeholder=t120****cret`（掩码）；只改 scopes 保存 → 仍已配置；勾「清除密钥」→ `configured=false` 且公开列表仍展示。
+- **English**：英文登录页 cjk=**0**。
+
+### 57.4 本轮踩坑与处理
+
+1. **IP 验证码上限会咬人**：连续多轮冒烟触发「该 IP 验证码发送过于频繁」（默认 20 次/小时）。本轮验证期临时把 `APP_VERIFICATION_MAX_PER_IP_PER_HOUR` 提到 200，**验证结束已删除该行并重启**（默认值回落 20）。后续批量验证建议预留间隔或使用专用环境。
+2. **`systemctl --user` 不能在 `sudo -s` 里跑**：`sudo bash` 丢失 `XDG_RUNTIME_DIR` → `Failed to connect to bus`，服务没重启。以 leo 身份直接执行即可。
+3. **t107 清理误删冒烟账号角色**：清理 SQL 命中了 `smoke_engineer/smoke_leader/smoke_pl` 的 `user_roles`，导致后续冒烟 `claim/管理层强制放弃` 403。已恢复三个角色（`user_roles` 需 `id` + `assigned_by`，不能用裸 INSERT）。
+4. **数据清理误删基线项目**：`tmp_projects` 把 `PRJ-HISTORY` 一并删了（`projects=0`）。已重建基线项目并把 3 个示例资产重新挂载（`asset_project_links` 需 `phase_key`/`customer_id`/`link_type`），恢复到 `projects=1 / links=3`。

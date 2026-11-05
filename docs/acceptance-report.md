@@ -774,7 +774,7 @@ SSO 首次回调(202) ──► registration_requests(source=SSO) + sso_pending_
 3. **dev-mode 验证码回显仅限开发**：`APP_VERIFICATION_DEV_MODE=true` 时响应才带 `devCode`；生产已确认为 false（本次复核后关闭并移除）。
 4. **前端错误文案**：t102/t103 部分服务层错误仍是硬编码中文，英文界面由前端 `utils/authErrors` 兜底成英文。
 
-**口径变更（t120 取代）**：SSO「未配置不显示」改为「全部展示 + `configured` 标记」，忘记密码 `send-code/confirm` 新增必填 `username`（不匹配仍 200 不发码）。本报告的 SSO 可见性断言与 `reset/*` target-only 用例属**旧口径**，由 t120 增量验收取代，未按旧口径改代码。\n\n**t107 验收证据**
+**t120 增量（已取代旧口径）**：SSO 改为「启用即展示 + `configured` 标记」，凭据可在**系统设置 → 登录方式**里 Web 配置（无需上服务器改库；留空 secret 不丢密钥、清除密钥需显式勾选、密钥只回显掩码）；忘记密码改为「用户名 + 手机/邮箱」双因子一致校验（不匹配仍 200 但不发码，confirm 不匹配 400 且密码不变）。验收证据见 README §57：接口 14/14、冒烟 279/279、页面 25/25、全量回归 798 例连续三次全绿。\n\n**t107 验收证据**
 
 - 后端回归：`mvn -B clean test` → **760 → 773 例 / Failures 0 / Errors 1**（两次复跑的错误恒为 `AuditLogControllerTest` 的 H2 上下文串扰偶发；单跑该类 9/9 通过）。
 - 冒烟：**274/274 PASS / 0 FAIL / 0 SKIP**（重建重启后复跑仍全绿；新增 26 条：注册 8、审批 5、找回 8、SSO 6、RBAC 2 —— 含 `rbac/PL授予admin-403` 与 `rbac/ADMIN授予admin-200`）。
@@ -1064,6 +1064,9 @@ SSO 首次回调(202) ──► registration_requests(source=SSO) + sso_pending_
 | 16 | ~~统一“不可见资源”的状态码~~ **已完成（t93）** | 访问申请对跨团队资产改为 **403**，资产不存在仍 **404**（`AccessGuard.canRequestAssetAccess`） |
 | 17 | 模拟视角上线运维要求 | TTL 内 token 等效目标用户：建议生产开启时限制内网、日检审计、把 `reason` 改为必填 |
 | 18 | **角色授予边界入口矩阵（t115）** | 「写角色」入口已统一收口：`POST/DELETE /users/{id}/roles`、`/admin/registration-requests/{id}/approve`、`/roles/**`、模拟视角 `/admin/**` 写；非 ADMIN 授予 `admin`/`project_leader` 等管理类角色 → **403**，ADMIN 不受限（受限集合 `is_system` + 硬编码兜底双保险）。详见 README §53；冒烟 `rbac/PL授予admin-403` + `rbac/ADMIN授予admin-200` 守护 |
+| 19 | **SSO client_secret 存储方式** | 已做到「接口只回掩码 / 日志不打印 / 审计记 `***`」，但 `sso_providers.client_secret` 列仍是明文。建议生产用 Jasypt 或 AES+主密钥（KMS/环境变量注入）加密存储，并把掩码逻辑收敛到公共工具类 |
+| 20 | **SSO state 为进程内 Map** | `SsoStateStore` 用 `ConcurrentHashMap` + TTL，单实例可用；多实例部署会因落不到同一节点而校验失败，需换 Redis 或改签名为自包含 token（HMAC + 时间戳） |
+| 21 | **外部短信/邮件网关未联调** | 默认 sender 只写日志（不打印明文）；生产需注入真实网关 Bean，并把「IP/号码小时上限」按运营商配额重新标定 |
 
 ---
 

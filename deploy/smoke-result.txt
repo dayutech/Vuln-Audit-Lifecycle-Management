@@ -345,3 +345,14 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
   注册全链路（devCode → 待审批 → 审批 → 登录）、找回全链路（旧 401 / 新 200）、SSO 可见性与 503、绑定页 4 家状态。
 - 数据清理：users 回落 10、registration_requests=0、verification_codes=0；终态 customers=1 projects=1 phases=0 assets=3 links=3、orphan=0。
 - 收尾：dev-mode 已从 backend.env 移除并重启（发码响应不再含 devCode）；SSO 4 家 provider 复原 enabled=false、凭据清空。\n- 口径变更：SSO「未配置不显示」与找回密码 target-only 用例已被 t120 口径取代（全部展示+configured 标记；找回需 username）。
+########## 十七、第十批增量验收（SSO 凭据 Web 配置 + 启用即展示 + 找回密码双因子 + 徽标放大，t120，2026-11-05 19:2x） ##########
+- 增量测试：mvn -B test -Dtest='SsoProviderConfigTest,PasswordResetIdentityTest,PasswordResetFlowTest,SsoFlowTest,RegistrationFlowTest' → 69 例 / 0 失败。
+- 全量回归：mvn -B clean test 连续 3 次全绿 → 798 例 / Failures 0 / Errors 0（t121 修复 USER_ROLES 串扰，单轮 6–7 分钟）。
+- 部署：jar 73,240,955 B，重启 18–20s 内 login=200；前端 index-Dlbmut95.js 2,696.95 kB（gzip 775.05 kB）+ index-BCj_UGw5.css 23.42 kB，sync-dist 5 文件。
+- 迁移：新增 V25（sso_providers.updated_by），生产库已确认存在。
+- 接口验收 14/14：SSO 8 项（配置 200 / 公开 configured=true / 无明文 secret / 空串不清空 / 只改 scopes 不丢 / clear 后 configured=false 仍展示 / enabled=false 不返回 / 非 ADMIN 403）+ 找回 3 项（匹配 200 且落库 / 不匹配 200 且不落库无 devCode / confirm 不匹配 400 且旧密码仍 200）。
+- 冒烟：TOTAL=279 PASS=279 FAIL=0 SKIP=0（新增 SSO 配置 8 + 找回双因子 3）。
+- 页面：T120_VERIFY 25/25，pageErrors=[] —— 徽标 37.4/40/27px、侧栏 32/26px；忘记密码 username 带入 + 焦点落 target + 空值字段级拦截；SSO 全部展示且未配置非禁用（点击 toast 不跳转）；绑定页「未配置」按钮可点；管理端徽标/掩码/只改 scopes 不丢/清除密钥；英文 cjk=0。
+- 质量门禁：eslint 0 error（4 历史 warning）；TODO(i18n) 0；旧品牌名 0。
+- 数据：终态 customers=1 projects=1 phases=0 assets=3 links=3、orphan=0、users=12、codes=0、requests=0、sso enabled=0 / with_secret=0；dev-mode 与临时 IP 上限均移除并重启复核（发码响应无 devCode）。
+- 已知限制（报告 §8 #19–#21）：secret 明文列、state 进程内 Map、外部短信/邮件网关未联调。
