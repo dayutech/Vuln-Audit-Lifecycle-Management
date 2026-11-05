@@ -68,9 +68,13 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
      * <p>t102 追加：注册审批的通过/拒绝由 {@code RegistrationServiceImpl} 写
      * {@code REGISTRATION_APPROVE / REGISTRATION_REJECT}（含 reviewer、申请ID、拒绝原因），
      * 拦截器不再重复记录。
+     *
+     * <p>t104 追加：SSO 提供商开关由 {@code SsoServiceImpl.toggle} 写 {@code UPDATE_SSO_PROVIDER}，
+     * 拦截器不再重复记录。
      */
     private static final String[] SKIP_ENDPOINTS = {
             "PUT /api/v1/users/me/preferences",
+            "PATCH /api/v1/admin/sso/providers/{code}",
             "POST /api/v1/admin/registration-requests/{id}/approve",
             "POST /api/v1/admin/registration-requests/{id}/reject"
     };

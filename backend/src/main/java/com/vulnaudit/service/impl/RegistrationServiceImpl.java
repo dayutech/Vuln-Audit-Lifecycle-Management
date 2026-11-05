@@ -15,6 +15,8 @@ import com.vulnaudit.exception.BusinessException;
 import com.vulnaudit.exception.ErrorCode;
 import com.vulnaudit.repository.RegistrationRequestRepository;
 import com.vulnaudit.repository.RoleRepository;
+import com.vulnaudit.repository.SsoBindingRepository;
+import com.vulnaudit.repository.SsoPendingBindingRepository;
 import com.vulnaudit.repository.UserRepository;
 import com.vulnaudit.repository.UserRoleRepository;
 import com.vulnaudit.service.AuditLogService;
@@ -33,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
@@ -71,6 +74,8 @@ public class RegistrationServiceImpl implements RegistrationService {
     private final VerificationCodeService verificationCodeService;
     private final PasswordEncoder passwordEncoder;
     private final AuditLogService auditLogService;
+    private final SsoBindingRepository ssoBindingRepository;
+    private final SsoPendingBindingRepository ssoPendingBindingRepository;
 
     // ------------------------------------------------------------------ 注册
 
@@ -176,14 +181,20 @@ public class RegistrationServiceImpl implements RegistrationService {
                         "注册申请对应的占位用户不存在: " + request.getUsername()));
 
         user.setStatus(User.STATUS_ACTIVE);
-        user.setPhone(request.getPhone());
-        user.setPhoneVerified(true);
+        if (StringUtils.hasText(request.getPhone())) {
+            // SSO 申请没有手机号（t104）→ 不能把已有手机号置空
+            user.setPhone(request.getPhone());
+            user.setPhoneVerified(true);
+        }
         if (StringUtils.hasText(request.getEmail())) {
             user.setEmail(request.getEmail());
             user.setEmailVerified(request.isEmailVerified());
         }
         userRepository.save(user);
         assignDefaultRole(user.getId(), reviewerId);
+
+        // t104：SSO 首次登录的「待审批绑定」在审批通过时转为正式绑定
+        activateSsoBindings(request, user, reviewerId);
 
         request.setStatus(RegistrationStatus.APPROVED);
         request.setReviewerId(reviewerId);
@@ -232,6 +243,42 @@ public class RegistrationServiceImpl implements RegistrationService {
     }
 
     // ------------------------------------------------------------------ 内部
+
+    /**
+     * 审批通过时把 SSO 待审批绑定转为正式绑定（t104）
+     *
+     * <p>只在 {@code registration_requests.source=SSO} 且存在 PENDING 记录时生效；
+     * 已存在同一 binding 时跳过（幂等），并写 {@code SSO_BIND} 审计。
+     */
+    private void activateSsoBindings(RegistrationRequest request, User user, UUID reviewerId) {
+        List<com.vulnaudit.entity.SsoPendingBinding> pendings =
+                ssoPendingBindingRepository.findByRegistrationRequestIdAndStatus(request.getId(), "PENDING");
+        if (pendings.isEmpty()) {
+            return;
+        }
+        for (com.vulnaudit.entity.SsoPendingBinding pending : pendings) {
+            if (ssoBindingRepository
+                    .findByProviderCodeAndExternalId(pending.getProviderCode(), pending.getExternalId())
+                    .isEmpty()) {
+                ssoBindingRepository.save(com.vulnaudit.entity.SsoBinding.builder()
+                        .userId(user.getId())
+                        .providerCode(pending.getProviderCode())
+                        .externalId(pending.getExternalId())
+                        .displayName(pending.getDisplayName())
+                        .boundAt(LocalDateTime.now())
+                        .build());
+            }
+            pending.setStatus("ACTIVATED");
+            pending.setActivatedAt(LocalDateTime.now());
+            ssoPendingBindingRepository.save(pending);
+
+            auditLogService.log(reviewerId != null ? reviewerId : user.getId(),
+                    "SSO_BIND", "user", user.getId(),
+                    "审批通过并绑定 SSO: provider=" + pending.getProviderCode()
+                            + ", externalId=" + pending.getExternalId()
+                            + ", requestId=" + request.getId());
+        }
+    }
 
     private void assertUsernameAvailable(String username) {
         if (userRepository.existsByUsername(username)

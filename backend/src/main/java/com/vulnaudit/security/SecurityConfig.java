@@ -89,6 +89,9 @@ public class SecurityConfig {
                             "/api/v1/auth/register/send-code",
                             "/api/v1/auth/password-reset/send-code",
                             "/api/v1/auth/password-reset/confirm",
+                            "/api/v1/auth/sso/providers",
+                            "/api/v1/auth/sso/*/authorize-url",
+                            "/api/v1/auth/sso/*/callback",
                             "/actuator/health"
                     ).permitAll();
 

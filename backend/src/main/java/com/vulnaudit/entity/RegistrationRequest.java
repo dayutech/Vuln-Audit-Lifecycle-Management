@@ -54,9 +54,26 @@ public class RegistrationRequest {
     @Column(name = "password_hash", length = 255, nullable = false)
     private String passwordHash;
 
-    /** 手机号（必填，中国大陆 11 位） */
-    @Column(name = "phone", length = 20, nullable = false)
+    /** 手机号（本地注册必填；SSO 注册没有手机号，t104 起可空） */
+    @Column(name = "phone", length = 20)
     private String phone;
+
+    /** 来源：LOCAL（自助注册）/ SSO（第三方首次登录），t104 */
+    @Column(name = "source", length = 16, nullable = false)
+    @Builder.Default
+    private String source = "LOCAL";
+
+    /** SSO 提供商代码（source=SSO 时非空） */
+    @Column(name = "provider_code", length = 32)
+    private String providerCode;
+
+    /** 第三方稳定用户ID（source=SSO 时非空） */
+    @Column(name = "external_id", length = 255)
+    private String externalId;
+
+    /** 第三方昵称（审批列表展示用） */
+    @Column(name = "display_name", length = 128)
+    private String displayName;
 
     /** 邮箱（可选） */
     @Column(name = "email", length = 255)

@@ -7,9 +7,14 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 /**
- * 注册申请视图（t102）
+ * 注册申请视图（t102 / t104）
  *
  * <p>对外<b>绝不</b>包含 passwordHash。
+ *
+ * @param source       LOCAL（自助注册）/ SSO（第三方首次登录，t104）
+ * @param providerCode SSO 提供商代码（source=SSO 时非空）
+ * @param externalId   第三方稳定用户ID
+ * @param displayName  第三方昵称
  */
 @Schema(description = "注册申请")
 public record RegistrationRequestVO(
@@ -23,7 +28,11 @@ public record RegistrationRequestVO(
         UUID reviewerId,
         String reviewNote,
         LocalDateTime createdAt,
-        LocalDateTime reviewedAt) {
+        LocalDateTime reviewedAt,
+        String source,
+        String providerCode,
+        String externalId,
+        String displayName) {
 
     /** 由实体转换（不含密码哈希） */
     public static RegistrationRequestVO from(RegistrationRequest entity) {
@@ -38,6 +47,10 @@ public record RegistrationRequestVO(
                 entity.getReviewerId(),
                 entity.getReviewNote(),
                 entity.getCreatedAt(),
-                entity.getReviewedAt());
+                entity.getReviewedAt(),
+                entity.getSource(),
+                entity.getProviderCode(),
+                entity.getExternalId(),
+                entity.getDisplayName());
     }
 }
