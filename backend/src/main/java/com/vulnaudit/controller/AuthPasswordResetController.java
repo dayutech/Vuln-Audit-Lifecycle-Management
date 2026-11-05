@@ -43,16 +43,17 @@ public class AuthPasswordResetController {
             @Valid @RequestBody PasswordResetSendCodeRequest request,
             jakarta.servlet.http.HttpServletRequest httpRequest) {
         return ApiResponse.success(passwordResetService.sendCode(
-                request.channel(), request.target(), resolveClientIp(httpRequest)));
+                request.username(), request.channel(), request.target(), resolveClientIp(httpRequest)));
     }
 
     @PostMapping("/confirm")
     @Operation(summary = "校验验证码并重置密码",
-            description = "公开接口。验证码一次性消费；新密码需 ≥8 位且含大小写/数字/符号至少三类；"
+            description = "公开接口。需再次带上 username（与发码时同一账号，防止拿 A 的验证码改 B 的密码）；"
+                    + "验证码一次性消费；新密码需 ≥8 位且含大小写/数字/符号至少三类；"
                     + "成功后更新密码并使该用户所有已签发 token 失效")
     public ApiResponse<Void> confirm(@Valid @RequestBody PasswordResetConfirmRequest request,
                                      jakarta.servlet.http.HttpServletRequest httpRequest) {
-        passwordResetService.confirm(request.target(), request.code(), request.newPassword(),
+        passwordResetService.confirm(request.username(), request.target(), request.code(), request.newPassword(),
                 resolveClientIp(httpRequest));
         return ApiResponse.success(null, "密码已重置，请使用新密码登录");
     }

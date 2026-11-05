@@ -3113,3 +3113,71 @@ cd backend && mvn -B test -Dtest=SsoProviderConfigTest   # 期望 14/14
 - `client_secret` 目前在本表**明文存储**（t104 既定）。本任务至少做到：接口不回传明文（掩码）、
   日志不打印 secret、审计只记 `***`；**加密存储（Jasypt / AES + 主密钥 / KMS）已列入报告 §8 建议项**。
 - `GET /api/v1/auth/sso/providers` 仍然公开（登录页需要），但**不含任何凭据**，只有 code/name/icon/configured。
+
+## 55. 第三十九轮（忘记密码改为「用户名 + 手机/邮箱」双因子确认，t117）
+
+**修复的问题**：t103 的找回密码只校验手机号/邮箱，不要求用户名 —— 手机号是可枚举的弱标识，
+**知道他人手机号就能重置他人密码**。现在改为「用户名 + 手机号/邮箱」必须同时指向同一账号。
+
+### 55.1 接口变化（请求体新增必填 `username`）
+
+| 端点 | 请求体 |
+|---|---|
+| `POST /api/v1/auth/password-reset/send-code` | `{username, channel, target}`（`username` **必填**，`@NotBlank`） |
+| `POST /api/v1/auth/password-reset/confirm` | `{username, target, code, newPassword}`（`username` **必填**） |
+
+空/空白 `username` → **400**（参数校验层拦截，不是静默 200）。
+
+### 55.2 一致性校验（发码与重置都做）
+
+四条件同时成立才发码：
+1. `username` 存在；2. 该用户 `phone`（`channel=sms`）或 `email`（`channel=email`）与 `target` **完全一致**
+（邮箱大小写不敏感）；3. 该渠道已验证（`phone_verified` / `email_verified`）；4. 账号 `active`。
+
+`confirm` 阶段**再校验一次** `username ↔ target`：即使拿到别人的验证码，也无法改另一个账号的密码（→ 400，密码不变）。
+
+### 55.3 防枚举语义
+
+任一项不匹配（用户名不存在 / target 不属于该用户 / 未验证 / 账号停用 / username 处于冷却期）：
+- 对外**一律 200**，响应体与成功路径**完全同构**（`devCode` 为空），不含任何原因字段；
+- 服务端只写 **WARN** 日志（含 username 与脱敏 target，不含验证码/明文）；
+- 不创建验证码行，`sender` 不被调用（可用投递通道录制验证）。
+
+### 55.4 限流与「按 username 的失败计数」
+
+| 维度 | 规则 | 超限表现 |
+|---|---|---|
+| target 冷却 / 每小时 / IP 每小时 | 沿用 t102（`app.security.verification.*`） | 429 + `Retry-After` |
+| confirm 失败（按 IP） | 沿用 t103（窗口 15 分钟 / 5 次） | 429 |
+| **不匹配计数（按 username）** | 连续 5 次「双因子不匹配」→ 该 username **冷却 15 分钟** | **仍返回 200，只是不发码**（冷却期内即使因子正确也不发码；成功一次即清零） |
+
+验证码仍按 `target + purpose(RESET_PASSWORD)` 存储（投递需要 target），唯一绑定由「发码/重置两端都强制 username↔target」保证：
+同一手机号无法被另一个用户名复用（手机号本身还有唯一键约束）。
+
+### 55.5 审计
+
+`RESET_PASSWORD` 的 details 增加 `username=<用户名>`，保留脱敏 target 与 `tokensInvalidBefore`；**不含**验证码与明文密码。
+
+### 55.6 验证
+
+`PasswordResetIdentityTest` **12 例全绿**：匹配手机号 → 200 且 sender 被调用 / 手机号属于别人 → 200 但 sender 未调用 /
+用户名不存在 → 200 未调用 / 匹配邮箱 → 200 / 手机号未验证 → 200 未调用 / 账号停用 → 200 未调用 /
+同一手机号换用户名 → 未调用 / username 连续 5 次不匹配 → 冷却期内仍 200 但不发送 /
+confirm 阶段 username↔target 不一致 → 400 且双方密码均未变 / 完整重置链路（旧密码 401、新密码 200）/
+审计含 username 且不含验证码 / 空 username → 400。
+`PasswordResetFlowTest`（t103，13 例）夹具已补 `username`（`createUser` 自动记录），**未放宽任何校验**，全部仍绿。
+
+```bash
+cd backend && mvn -B test -Dtest='PasswordResetIdentityTest,PasswordResetFlowTest'   # 12 + 13 全绿
+
+# 线上等价 curl（部署后）
+curl -s -X POST http://127.0.0.1:8089/api/v1/auth/password-reset/send-code -H 'Content-Type: application/json' \
+  -d '{"username":"t103user","channel":"sms","target":"13700001111"}'          # 200 且真的发码
+curl -s -X POST http://127.0.0.1:8089/api/v1/auth/password-reset/send-code -H 'Content-Type: application/json' \
+  -d '{"username":"t103user","channel":"sms","target":"13700009999"}'          # 200 但不发码
+```
+
+### 55.7 兼容性说明（前端需同步）
+
+`send-code` / `confirm` 的请求体**新增必填 `username`**：旧前端只传 `channel/target` 会得到 **400**（参数校验），
+这是刻意的破坏性收紧（安全优先）。前端「忘记密码」表单需要增加用户名输入框，并把 `confirm` 一起补上。

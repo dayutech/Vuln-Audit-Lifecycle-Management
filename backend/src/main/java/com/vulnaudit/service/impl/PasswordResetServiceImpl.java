@@ -32,10 +32,17 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 忘记密码实现（t103）
+ * 忘记密码实现（t103 / t117 双因子）
  *
- * <p>复用 t102 的验证码基础设施（{@link VerificationCodeService} + {@code verification_codes} 表），
- * 不新增表。
+ * <p>复用 t102 的验证码基础设施（{@link VerificationCodeService} + {@code verification_codes} 表），不新增表。
+ *
+ * <h3>t117：用户名 + 手机/邮箱「双因子一致」</h3>
+ * 只看手机号/邮箱就能重置密码是不安全的（手机号是可枚举的弱标识）。现在要求：
+ * <b>username 存在</b> + <b>该用户的 phone/email 与 target 完全一致</b> + <b>该渠道已验证</b> + <b>账号可用</b>，
+ * 四者同时成立才发码；confirm 阶段再校验一次 username↔target，防止「拿 A 的验证码改 B 的密码」。
+ *
+ * <p>防枚举：任一项不匹配一律 <b>返回 200 但不发码</b>，响应体与成功路径完全同构（devCode 为空），
+ * 只在服务端写 WARN（不含敏感值）。
  */
 @Slf4j
 @Service
@@ -54,11 +61,17 @@ public class PasswordResetServiceImpl implements PasswordResetService {
     /** IP → 最近 confirm 失败时间戳（进程内滑动窗口） */
     private final Map<String, Deque<LocalDateTime>> failedWindows = new ConcurrentHashMap<>();
 
+    /** username → 最近「双因子不匹配」时间戳（进程内滑动窗口，t117） */
+    private final Map<String, Deque<LocalDateTime>> usernameFailures = new ConcurrentHashMap<>();
+
+    /** username → 冷却截止时间（连续不匹配达到上限后 15 分钟，t117） */
+    private final Map<String, LocalDateTime> usernameCooldownUntil = new ConcurrentHashMap<>();
+
     // ------------------------------------------------------------------ 发码
 
     @Override
     @Transactional
-    public PasswordResetSendCodeResponse sendCode(String channelRaw, String targetRaw, String clientIp) {
+    public PasswordResetSendCodeResponse sendCode(String usernameRaw, String channelRaw, String targetRaw, String clientIp) {
         VerificationChannel channel = VerificationChannel.fromCode(channelRaw);
         if (channel == null) {
             throw new BusinessException(ErrorCode.BAD_REQUEST,
@@ -68,23 +81,33 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         if (!StringUtils.hasText(target)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "接收方不能为空");
         }
+        String username = normalizeUsername(usernameRaw);
+        if (!StringUtils.hasText(username)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "用户名不能为空");
+        }
 
-        User user = resolveUser(channel, target);
+        // username 级冷却：连续「双因子不匹配」达到上限后，该用户名 15 分钟内一律不发码（仍返回 200）
+        if (isUsernameCoolingDown(username)) {
+            log.warn("忘记密码发码：该用户名处于冷却期，按成功返回但不发送: username={}", username);
+            return silentSuccess(channel, target);
+        }
+
+        User user = resolveUser(username, channel, target);
         if (user == null) {
-            // 防账号枚举：对外仍是 200，内部不发码
-            log.info("忘记密码发码：target 不存在或未验证，按成功返回但不发送: channel={}, target={}",
-                    channel, mask(target, channel));
-            return new PasswordResetSendCodeResponse(
-                    channel.name().toLowerCase(Locale.ROOT), target,
-                    VerificationPurpose.RESET_PASSWORD.name(), properties.getCodeTtlSeconds(), null);
+            // 防账号枚举：对外仍是 200，内部不发码；只在服务端留 WARN（不含手机号/邮箱明文）
+            recordUsernameFailure(username);
+            log.warn("忘记密码发码：用户名与接收方未匹配（不存在/不匹配/未验证/停用），按成功返回但不发送: "
+                    + "username={}, channel={}, target={}", username, channel, mask(target, channel));
+            return silentSuccess(channel, target);
         }
 
         SendCodeResponse sent = verificationCodeService.sendCode(
                 new SendCodeRequest(channel.name().toLowerCase(Locale.ROOT), target,
                         VerificationPurpose.RESET_PASSWORD.name()), clientIp);
 
-        log.info("忘记密码发码成功: userId={}, channel={}, target={}",
-                user.getId(), channel, mask(target, channel));
+        clearUsernameFailures(username);
+        log.info("忘记密码发码成功: userId={}, username={}, channel={}, target={}",
+                user.getId(), user.getUsername(), channel, mask(target, channel));
         return new PasswordResetSendCodeResponse(sent.channel(), sent.target(), sent.purpose(),
                 sent.expiresInSeconds(), sent.devCode());
     }
@@ -93,30 +116,36 @@ public class PasswordResetServiceImpl implements PasswordResetService {
 
     @Override
     @Transactional
-    public void confirm(String targetRaw, String code, String newPassword, String clientIp) {
+    public void confirm(String usernameRaw, String targetRaw, String code, String newPassword, String clientIp) {
         enforceFailureLimit(clientIp);
 
-        // 先按手机号匹配，再按邮箱匹配（两者都归一化后比较）
-        User user = null;
+        String username = normalizeUsername(usernameRaw);
+        if (!StringUtils.hasText(username)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "用户名不能为空");
+        }
+
+        // 目标归一化：先按手机号，再按邮箱（模板格式不同，不会互相误判）
         String target = null;
         VerificationChannel channel = null;
         if (StringUtils.hasText(targetRaw)) {
             String phone = verificationCodeService.normalize(VerificationChannel.SMS, targetRaw);
-            user = resolveUser(VerificationChannel.SMS, phone);
-            if (user != null) {
+            if (StringUtils.hasText(phone) && phone.matches(VerificationCodeService.CN_MOBILE_REGEX)) {
                 target = phone;
                 channel = VerificationChannel.SMS;
             } else {
                 String email = verificationCodeService.normalize(VerificationChannel.EMAIL, targetRaw);
-                user = resolveUser(VerificationChannel.EMAIL, email);
-                if (user != null) {
+                if (StringUtils.hasText(email) && email.matches(VerificationCodeService.EMAIL_REGEX)) {
                     target = email;
                     channel = VerificationChannel.EMAIL;
                 }
             }
         }
-        if (user == null || channel == null) {
+
+        // 再次校验 username ↔ target 属于同一账号（防止先拿 A 的验证码再改 B 的密码）
+        User user = (channel == null) ? null : resolveUser(username, channel, target);
+        if (user == null) {
             recordFailure(clientIp);
+            log.warn("忘记密码重置：用户名与接收方未匹配，拒绝: username={}", username);
             throw new BusinessException(ErrorCode.BAD_REQUEST, INVALID_CODE_MESSAGE);
         }
 
@@ -140,32 +169,91 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         user.setTokenInvalidBefore(invalidBefore);
         userRepository.save(user);
 
+        clearUsernameFailures(username);
         auditLogService.log(user.getId(), "RESET_PASSWORD", "user", user.getId(),
-                "忘记密码重置: channel=" + channel.name().toLowerCase(Locale.ROOT)
+                "忘记密码重置: username=" + user.getUsername()
+                        + ", channel=" + channel.name().toLowerCase(Locale.ROOT)
                         + ", target=" + mask(target, channel)
                         + ", tokensInvalidBefore=" + invalidBefore);
 
-        log.info("忘记密码重置成功: userId={}, channel={}, target={}",
-                user.getId(), channel, mask(target, channel));
+        log.info("忘记密码重置成功: userId={}, username={}, channel={}, target={}",
+                user.getId(), user.getUsername(), channel, mask(target, channel));
     }
 
     // ------------------------------------------------------------------ 内部
 
     /**
-     * 只接受「已绑定并验证 + 账号可用」的联系方式
+     * 双因子一致校验：username 存在 + 该用户的对应联系方式与 target 一致 + 该渠道已验证 + 账号可用
+     *
+     * @return 匹配到的用户；任一条件不成立返回 null（调用方按「静默成功」处理）
      */
-    private User resolveUser(VerificationChannel channel, String target) {
-        if (!StringUtils.hasText(target)) {
+    private User resolveUser(String username, VerificationChannel channel, String target) {
+        if (!StringUtils.hasText(username) || !StringUtils.hasText(target)) {
+            return null;
+        }
+        User user = userRepository.findByUsername(username).orElse(null);
+        if (user == null || !user.isActive()) {
             return null;
         }
         if (channel == VerificationChannel.SMS) {
-            return userRepository.findByPhone(target)
-                    .filter(user -> user.isPhoneVerified() && user.isActive())
-                    .orElse(null);
+            return user.isPhoneVerified() && target.equals(user.getPhone()) ? user : null;
         }
-        return userRepository.findByEmailIgnoreCase(target)
-                .filter(user -> user.isEmailVerified() && user.isActive())
-                .orElse(null);
+        return user.isEmailVerified() && user.getEmail() != null && target.equalsIgnoreCase(user.getEmail())
+                ? user
+                : null;
+    }
+
+    /** 与成功响应同构（devCode 为空），不泄露失败原因 */
+    private PasswordResetSendCodeResponse silentSuccess(VerificationChannel channel, String target) {
+        return new PasswordResetSendCodeResponse(
+                channel.name().toLowerCase(Locale.ROOT), target,
+                VerificationPurpose.RESET_PASSWORD.name(), properties.getCodeTtlSeconds(), null);
+    }
+
+    private String normalizeUsername(String raw) {
+        return raw == null ? "" : raw.trim();
+    }
+
+    private boolean isUsernameCoolingDown(String username) {
+        LocalDateTime until = usernameCooldownUntil.get(username);
+        if (until == null) {
+            return false;
+        }
+        if (until.isBefore(LocalDateTime.now())) {
+            usernameCooldownUntil.remove(username);
+            return false;
+        }
+        return true;
+    }
+
+    /** 记录一次「双因子不匹配」；达到上限 → 该 username 冷却 15 分钟 */
+    private void recordUsernameFailure(String username) {
+        if (!StringUtils.hasText(username)) {
+            return;
+        }
+        LocalDateTime threshold = LocalDateTime.now().minusMinutes(properties.getResetFailedWindowMinutes());
+        Deque<LocalDateTime> window = usernameFailures.computeIfAbsent(username, key -> new ArrayDeque<>());
+        synchronized (window) {
+            while (!window.isEmpty() && window.peekFirst().isBefore(threshold)) {
+                window.pollFirst();
+            }
+            window.addLast(LocalDateTime.now());
+            if (window.size() >= properties.getResetMaxFailedAttempts()) {
+                usernameCooldownUntil.put(username,
+                        LocalDateTime.now().plusMinutes(properties.getResetFailedWindowMinutes()));
+                window.clear();
+                log.warn("忘记密码：该用户名连续不匹配达到上限，进入冷却: username={}, minutes={}",
+                        username, properties.getResetFailedWindowMinutes());
+            }
+        }
+    }
+
+    private void clearUsernameFailures(String username) {
+        if (!StringUtils.hasText(username)) {
+            return;
+        }
+        usernameFailures.remove(username);
+        usernameCooldownUntil.remove(username);
     }
 
     /** 连续失败限流：同一 IP 在窗口内失败次数达到上限 → 429 */

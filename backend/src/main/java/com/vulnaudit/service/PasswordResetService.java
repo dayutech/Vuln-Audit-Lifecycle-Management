@@ -24,13 +24,15 @@ public interface PasswordResetService {
     /**
      * 发送重置验证码
      *
+     * @param username 用户名（t117：与 target 必须是同一账号）
      * @param channel  渠道 sms / email
      * @param target   手机号或邮箱
      * @param clientIp 调用方 IP（限流）
      * @return 统一结构响应（不存在/未验证的 target 也会成功返回，但不发码）
      */
     @Nonnull
-    PasswordResetSendCodeResponse sendCode(@Nullable String channel, @Nullable String target, @Nullable String clientIp);
+    PasswordResetSendCodeResponse sendCode(@Nullable String username, @Nullable String channel,
+                                                       @Nullable String target, @Nullable String clientIp);
 
     /**
      * 校验验证码并重置密码
@@ -41,5 +43,6 @@ public interface PasswordResetService {
      * @param clientIp    调用方 IP（连续失败限流）
      * @throws com.vulnaudit.exception.BusinessException 400（验证码/强度/与旧密码相同）、429（失败过多）
      */
-    void confirm(@Nullable String target, @Nullable String code, @Nullable String newPassword, @Nullable String clientIp);
+    void confirm(@Nullable String username, @Nullable String target, @Nullable String code,
+                 @Nullable String newPassword, @Nullable String clientIp);
 }

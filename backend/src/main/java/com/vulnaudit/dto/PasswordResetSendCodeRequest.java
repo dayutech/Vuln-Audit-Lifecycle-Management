@@ -12,6 +12,11 @@ import jakarta.validation.constraints.Size;
  */
 @Schema(description = "忘记密码-发送验证码请求")
 public record PasswordResetSendCodeRequest(
+        @Schema(description = "用户名（t117：必须与该手机号/邮箱属于同一账号）", example = "zhangsan",
+                requiredMode = Schema.RequiredMode.REQUIRED)
+        @NotBlank(message = "validation.user.username.required")
+        @Size(max = 50, message = "validation.user.username.size")
+        String username,
         @Schema(description = "渠道：sms / email", example = "sms", requiredMode = Schema.RequiredMode.REQUIRED)
         @NotBlank(message = "validation.verification.channel.required")
         String channel,

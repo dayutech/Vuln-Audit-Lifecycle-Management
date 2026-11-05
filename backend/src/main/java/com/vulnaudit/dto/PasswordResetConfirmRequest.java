@@ -16,6 +16,11 @@ import jakarta.validation.constraints.Size;
  */
 @Schema(description = "忘记密码-确认重置请求")
 public record PasswordResetConfirmRequest(
+        @Schema(description = "用户名（t117：必须与手机号/邮箱属于同一账号）", example = "zhangsan",
+                requiredMode = Schema.RequiredMode.REQUIRED)
+        @NotBlank(message = "validation.user.username.required")
+        @Size(max = 50, message = "validation.user.username.size")
+        String username,
         @Schema(description = "手机号或邮箱", example = "13800001111", requiredMode = Schema.RequiredMode.REQUIRED)
         @NotBlank(message = "validation.verification.target.required")
         @Size(max = 120, message = "validation.verification.target.too_long")

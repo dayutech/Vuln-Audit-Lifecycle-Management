@@ -53,10 +53,15 @@ public class PasswordResetFlowTest extends BaseTest {
     @Autowired
     private AuditLogRepository auditLogRepository;
 
+    /** t117：createUser 记录最近创建的用户名，供夹具自动带上 username */
+    private String currentUsername;
+
     // ------------------------------------------------------------------ 工具
 
     private User createUser(String username, String phone, String email,
                             boolean phoneVerified, boolean emailVerified, String password) {
+        // t117：夹具自动记录用户名，后续发码/重置请求都会带上（不放宽后端校验）
+        this.currentUsername = username;
         return userRepository.save(java.util.Objects.requireNonNull(User.builder()
                 .username(username)
                 .passwordHash(passwordEncoder.encode(password))
@@ -71,7 +76,8 @@ public class PasswordResetFlowTest extends BaseTest {
 
     private String sendCodeAndGetDevCode(String channel, String target) throws Exception {
         String body = mockMvc.perform(post(SEND_CODE).contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("channel", channel, "target", target))))
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "username", currentUsername, "channel", channel, "target", target))))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         String devCode = objectMapper.readTree(body).path("data").path("devCode").asText(null);
@@ -81,7 +87,7 @@ public class PasswordResetFlowTest extends BaseTest {
 
     private String confirmJson(String target, String code, String newPassword) throws Exception {
         return objectMapper.writeValueAsString(Map.of(
-                "target", target, "code", code, "newPassword", newPassword));
+                "username", currentUsername, "target", target, "code", code, "newPassword", newPassword));
     }
 
     private int loginStatus(String username, String password) throws Exception {
@@ -104,7 +110,8 @@ public class PasswordResetFlowTest extends BaseTest {
         createUser("reset1", PHONE, "reset1@test.com", true, true, OLD_PASSWORD);
 
         mockMvc.perform(post(SEND_CODE).contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("channel", "sms", "target", PHONE))))
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "username", currentUsername, "channel", "sms", "target", PHONE))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.purpose").value("RESET_PASSWORD"))
                 .andExpect(jsonPath("$.data.expiresInSeconds").value(300));
@@ -119,7 +126,8 @@ public class PasswordResetFlowTest extends BaseTest {
         sendCodeAndGetDevCode("sms", PHONE);
 
         mockMvc.perform(post(SEND_CODE).contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("channel", "sms", "target", PHONE))))
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "username", currentUsername, "channel", "sms", "target", PHONE))))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.message", containsString("过于频繁")));
     }
@@ -130,7 +138,8 @@ public class PasswordResetFlowTest extends BaseTest {
         createUser("reset3", "13700002222", "reset3@test.com", false, false, OLD_PASSWORD);
 
         String phoneBody = mockMvc.perform(post(SEND_CODE).contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("channel", "sms", "target", "13700002222"))))
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "username", currentUsername, "channel", "sms", "target", "13700002222"))))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertNull(objectMapper.readTree(phoneBody).path("data").path("devCode").asText(null),
@@ -138,7 +147,8 @@ public class PasswordResetFlowTest extends BaseTest {
         assertEquals(0, codesFor("13700002222"));
 
         String emailBody = mockMvc.perform(post(SEND_CODE).contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("channel", "email", "target", "reset3@test.com"))))
+                        .content(objectMapper.writeValueAsString(Map.of(
+                                "username", currentUsername, "channel", "email", "target", "reset3@test.com"))))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         assertNull(objectMapper.readTree(emailBody).path("data").path("devCode").asText(null));
@@ -150,7 +160,7 @@ public class PasswordResetFlowTest extends BaseTest {
     void unknownTargetReturns200WithoutSending() throws Exception {
         mockMvc.perform(post(SEND_CODE).contentType(APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(
-                                Map.of("channel", "sms", "target", "13700003333"))))
+                                Map.of("username", "ghost_user", "channel", "sms", "target", "13700003333"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.devCode").doesNotExist());
 
@@ -304,6 +314,7 @@ public class PasswordResetFlowTest extends BaseTest {
     @Test
     @DisplayName("未知 target 的 confirm → 400（统一文案，不泄露账号是否存在）")
     void confirmUnknownTargetRejected() throws Exception {
+        currentUsername = "ghost_user";
         mockMvc.perform(post(CONFIRM).contentType(APPLICATION_JSON)
                         .content(confirmJson("13700004444", "123456", NEW_PASSWORD)))
                 .andExpect(status().isBadRequest())

@@ -1668,3 +1668,48 @@ SSO 用户本地密码为 32 位随机串（不告知），需要本地密码走
 
 **验证**：`RoleGrantPolicyTest` **13/13**（PL→admin 403 且账号仍待审批、PL→业务角色 200、ADMIN→admin 200、PL→project_leader 403、非法码 400、空数组 200、去重、审计含角色、PL 调用户角色接口 403、服务层策略强制、策略分类）。
 权限矩阵见 README §53.2。线上 curl 复核（PL 403 / ADMIN 200）随下一次部署执行。
+
+### 2.23 忘记密码双因子（用户名 + 手机/邮箱一致，t117）
+
+**缺陷**：t103 的找回密码只看手机号/邮箱，不要求用户名 —— 手机号可枚举，知道他人手机号即可重置其密码。
+
+**修复**：`send-code` 与 `confirm` 请求体新增必填 `username`；四条件（用户名存在 + 该用户对应联系方式与 target 完全一致 +
+该渠道已验证 + 账号 active）同时成立才发码；`confirm` 再校验一次 `username↔target`（拿 A 的码改不了 B 的密码，→ 400 且密码不变）。
+空 username → 400。
+
+**防枚举**：任何不匹配一律 **200**，响应体与成功路径同构（`devCode` 为空），只在服务端写 WARN（含 username 与脱敏 target）；
+不建验证码行、`sender` 不被调用。
+
+**限流**：沿用 target 冷却/每小时/IP 每小时 与 confirm 按 IP 的 15 分钟 5 次；新增**按 username 的不匹配计数**（连续 5 次 →
+冷却 15 分钟，仍返回 200 仅不发送，成功即清零）。
+
+**审计**：`RESET_PASSWORD` details 增加 `username=`，保留脱敏 target，不含验证码/明文密码。
+
+**验证**：`PasswordResetIdentityTest` **12/12**（匹配发码、手机号属于别人不发码、用户名不存在不发码、邮箱匹配、未验证/停用不发码、
+同手机号换用户名不发码、连续不匹配冷却、confirm 不一致 400 且密码未变、完整重置旧 401/新 200、审计含 username、空 username 400）；
+`PasswordResetFlowTest` 13 例夹具补 username 后仍全绿（未放宽校验）。前端表单需同步增加用户名字段（README §55.7）。
+
+### 2.23 SSO 凭据 Web 配置 + 「启用即展示」（t116）
+
+**背景（用户反馈 2 条）**：① 社交凭据只能上服务器改 `sso_providers` 表；② 管理员打开开关后登录页仍不显示按钮（公开列表按 `enabled && configured` 过滤，未配凭据被滤掉）。
+
+**修复**
+
+| 项 | 变更前 | 现在 |
+|---|---|---|
+| 公开列表 | 只返回 `enabled && configured` | **返回全部 `enabled=true`**，每项新增 `configured`（5 项必填是否齐全）；未配置也展示，前端标「未配置」 |
+| 凭据配置 | 只有 `PATCH {enabled}`，凭据靠改库 | `PUT /api/v1/admin/sso/providers/{code}` 部分更新（clientId/clientSecret/三个端点/scopes），**保存即生效、无需重启、无需上服务器** |
+| 管理端读取 | 只回 code/enabled/configured/scopes | 全字段 + `clientSecretMasked`（`gh_****abcd`）+ `updatedAt/updatedBy`（V25 新增列） |
+| secret 语义 | — | 省略/空串 **保持不变**；显式 `clearClientSecret=true` 才清空；接口/日志/审计均无明文（审计记 `clientSecret=***`） |
+| 校验 | — | URL 必须 https（本地 `http://localhost`、`http://127.0.0.1` 放宽）；scopes 逗号分隔去重；非 4 家 code → 404；非 ADMIN → 403 |
+
+**审计**：`UPDATE_SSO_PROVIDER`，details 形如
+`SSO 配置更新: provider=github, enabled=true, configured=true, fields=[clientId, clientSecret=***, scopes]`，
+一次保存仅 1 条（拦截器 `SKIP_ENDPOINTS` 已含该端点）。
+
+**证据**：`SsoProviderConfigTest` **13 例全绿**（公开列表含未配置项且 configured=false / disabled 不返回 / 部分更新只改传入字段 /
+secret 空串不清空与 clearClientSecret 清空 / 响应不含明文且掩码露末 4 位 / 非法 URL 400 与本地 http 放宽 / 未知 code 404 /
+非 ADMIN 403 匿名 401 / scopes 去重与清空 / 5 项齐全才 configured 且公开列表即时反映 / updatedBy 落库回显 /
+审计字段名与 `***` / PATCH 兼容 / 管理端 4 家排序）。`SsoFlowTest` 同步改为 t116 语义后仍 **14/14**。
+接口细节、Web 配置截图步骤与 curl 见 README §51.8；`deploy/manual-ddl.sql` 新增 V25 段（`updated_by` 列 + 配置状态校验 SQL）。
+**风险**：`client_secret` 仍明文落库（见 §8 第 19 项）。
