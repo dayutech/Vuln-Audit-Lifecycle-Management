@@ -7,6 +7,7 @@ import com.vulnaudit.dto.RegistrationRequestVO;
 import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -36,13 +37,32 @@ public interface RegistrationService {
 
     /**
      * 审批通过：占位用户转 active，手机/邮箱落库并标记 verified
+     *
+     * <p>t111（用户拍板）：角色必须由审批人**显式指定**（{@code roles: string[]}）；
+     * <b>空数组 = 建号但不授角色</b>（登录后仅默认 ROLE_USER），不再隐式分配 {@code vulnerability_engineer}。
+     *
+     * @param requestId  申请ID
+     * @param reviewerId 审批人
+     * @param roleCodes  角色码列表（可空 = 不授角色）
      */
     @Nonnull
-    ApproveRegistrationResponse approve(@Nonnull UUID requestId, @Nullable UUID reviewerId);
+    ApproveRegistrationResponse approve(@Nonnull UUID requestId, @Nullable UUID reviewerId,
+                                        @Nullable List<String> roleCodes);
 
     /**
-     * 审批拒绝：申请置 REJECTED，占位用户置 rejected（登录 403）
+     * 审批拒绝：申请置 REJECTED，占位用户置 rejected（登录 403），并**释放唯一键**（t111）
      */
     @Nonnull
     RegistrationRequestVO reject(@Nonnull UUID requestId, @Nullable UUID reviewerId, @Nullable String note);
+
+    /**
+     * 彻底清理申请及其占位用户（t111，管理员）
+     *
+     * <p>幂等：申请不存在时直接返回（上层回 204）；已通过（APPROVED）的申请拒绝清理（409），
+     * 避免把「已激活的账号」删除后同名/同手机可重复注册。
+     *
+     * @param requestId  申请ID
+     * @param operatorId 操作管理员
+     */
+    void purge(@Nonnull UUID requestId, @Nullable UUID operatorId);
 }

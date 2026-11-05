@@ -2725,3 +2725,70 @@ curl -s "http://127.0.0.1:8089/api/v1/auth/sso/github/authorize-url?redirectUri=
 2. **`client_secret` 明文存表**：当前按任务要求「加密或仅占位」取后者（仅占位），生产建议接 KMS/环境变量注入并加密列。
 3. **SSO 用户没有手机号**：只能走邮箱渠道找回密码；provider 未给邮箱时连邮箱也没有 → 只能管理员重置。
 4. **解绑后需重新审批**：解绑只删 `sso_bindings`，对应 `sso_pending_bindings` 已是 ACTIVATED，因此该第三方身份再登录会重新进入 202 审批流程（不会自动恢复）。
+
+## 52. 第三十六轮（拒绝即释放唯一键 + 管理端清理入口 + 审批角色显式化，t111）
+
+**修复 t102 自报的可用性缺陷**：申请被拒后，同一用户名/手机号被 `pending_approval` 占位用户占用 → 重新注册 409，
+只能换号或人工清库。同时补上管理员自助清理入口，并把「审批角色」改为显式指定。
+
+### 52.1 拒绝即释放唯一键（策略：先删后归档）
+
+`POST /admin/registration-requests/{id}/reject` 在把申请置 REJECTED 之后，处理占位用户：
+
+| 条件 | 处理 | 效果 |
+|---|---|---|
+| **从未登录**（`last_login` 为空）**且无关联数据**（无 user_roles / 无任务 / 无资产 / 无 SSO 绑定） | **直接删除用户行** | 唯一键自然释放（注册占位用户的常态路径） |
+| 存在关联数据或曾登录 | **归档释放**：username → `rejected_<id8>_原值`（截断 50），phone → `rej_<id8>_尾号4`，状态置 `rejected` | 保留行与外键语义，同时释放唯一键 |
+
+- `registration_requests` 记录**不删除**，作为审批审计证据（状态 REJECTED，含 review_note/reviewer/时间）。
+- 释放策略写入 `REGISTRATION_REJECT` 审计的 `details`（`release=deleted(...)` / `release=archived(...)`）。
+- 为什么先删后归档：占位用户在审批前**无法登录**、也不会被分配角色/任务/资产，删除是最干净的释放方式；
+  只有在未来允许「预分配」时才需要归档（当前归档分支主要用于防御性兜底与历史脏数据）。
+
+### 52.2 被拒后登录 = 401（口径：不泄露「曾被拒绝」）
+
+占位用户被删除（或用户名已归档改写）后，用**原用户名+原密码**登录就是「用户不存在」→ **401「用户名或密码错误」**。
+
+- 刻意**不**返回 403「注册申请已被拒绝」：那会向攻击者确认「该用户名/手机号确实申请过、只是被拒」，属于账号枚举信息泄露；
+  与 t103「忘记密码对不存在 target 也返回 200」的不泄露口径一致。
+- 若采用归档分支（行仍在、状态 `rejected`）：**原用户名**登录 401；**归档用户名**登录 403（内部口径，外部不知道该用户名）。
+- 保留 403 语义仅用于「占位用户仍存在且状态为 rejected」的场景（如管理员手工改库造成）。
+
+### 52.3 管理员清理入口
+
+`DELETE /api/v1/admin/registration-requests/{id}`（**仅 ADMIN**）：
+
+- 删除申请记录 + 占位用户（同样走「先删后归档」释放逻辑），并清理该申请下仍 PENDING 的 `sso_pending_bindings`；
+- **幂等**：申请不存在 → **204**；删两次 → 第二次仍 204，且**不重复写审计**；
+- 已通过（APPROVED）的申请 → **409**「该申请已通过审批并生成正式账号，不能清理」（否则删号后同名可重复注册）；
+- 审计 `REGISTRATION_PURGE`（一次清理仅 1 条；端点已加入 `SKIP_ENDPOINTS`）。
+
+### 52.4 并发与幂等
+
+- 审批 / 拒绝 / 清理三条路径统一用 `findByIdForUpdate`（`PESSIMISTIC_WRITE` 行锁）读取申请：
+  并发时串行化，**先到者胜**，后到者看到状态已变更 → **409**。
+- 重复 reject → 409（沿用 t102）；approve 之后再 purge → 409；purge 之后再 approve → 404。
+
+### 52.5 审批角色显式化（用户拍板）
+
+`POST /admin/registration-requests/{id}/approve` 支持 body `{roles: string[]}`：
+
+| roles | 行为 |
+|---|---|
+| `[]` 或省略 | **建号但不授角色**（登录后仅默认 `ROLE_USER`，无业务权限） |
+| `["vulnerability_engineer"]` 等 | 按角色码逐条授予；**未知角色码 → 400「角色不存在: xxx」**（显式失败，不静默跳过） |
+
+**不再隐式分配 `vulnerability_engineer`**：避免「批了账号 = 批了工程师权限」的越权默认。
+
+### 52.6 验证
+
+`RegistrationReapplyTest` **15 例**：拒绝后同手机号重新注册 201 / 同用户名 201 / 同手机号不会有两个 active·pending 用户 /
+有关联角色时归档而非删除（`rejected_` 前缀 + 手机号改写 + 状态 rejected）且仍可重注册 / 重复 reject 409 /
+拒绝审计 1 条且含释放策略 / purge 删除申请与用户后同手机号可再注册 / purge 幂等 204 / purge 审计仅 1 条 /
+已通过申请 purge 409 / approve·purge 互斥 / 非 ADMIN 403 / approve 空 roles 不授角色 / approve 指定 roles 精确授权且未知码 400 /
+归档方案下原用户名 401、归档用户名 403。
+`RegistrationFlowTest` 的 `rejectThenLogin` 已同步为 **401 + 通用文案**（并断言不得出现「注册申请已被拒绝」）。
+
+```bash
+cd backend && mvn -B test -Dtest='RegistrationReapplyTest,RegistrationFlowTest'   # 15 + 17 全绿
+```

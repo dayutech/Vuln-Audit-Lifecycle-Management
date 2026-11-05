@@ -75,6 +75,7 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
     private static final String[] SKIP_ENDPOINTS = {
             "PUT /api/v1/users/me/preferences",
             "PATCH /api/v1/admin/sso/providers/{code}",
+            "DELETE /api/v1/admin/registration-requests/{id}",
             "POST /api/v1/admin/registration-requests/{id}/approve",
             "POST /api/v1/admin/registration-requests/{id}/reject"
     };

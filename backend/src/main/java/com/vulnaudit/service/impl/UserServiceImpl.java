@@ -44,6 +44,7 @@ public class UserServiceImpl implements UserService {
     private final UserRoleRepository userRoleRepository;
     private final PermissionService permissionService;
     private final PasswordEncoder passwordEncoder;
+    private final RegistrationRequestRepository registrationRequestRepository;
 
     /**
      * 创建用户
@@ -270,6 +271,10 @@ public class UserServiceImpl implements UserService {
         
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> {
+                    // t111：拒绝后占位用户被删除（或用户名已归档改写）→ 用原用户名登录就是「用户不存在」。
+                    // 这里刻意返回 401「用户名或密码错误」而**不是** 403「注册申请已被拒绝」：
+                    // 403 会向攻击者确认「该用户名/手机号确实申请过、只是被拒」，属于账号枚举信息泄露；
+                    // 与 t103「忘记密码对不存在 target 也返回 200」的不泄露口径一致。
                     log.warn("用户不存在: username={}", username);
                     return new BusinessException(ErrorCode.INVALID_CREDENTIALS);
                 });

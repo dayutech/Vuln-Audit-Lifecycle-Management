@@ -1507,3 +1507,26 @@ SSO 用户本地密码为 32 位随机串（不告知），需要本地密码走
 绑定成功与重复绑定 409、解绑密码错 403 与解绑后回到 202、非 ADMIN 403、开关审计 1 条、关闭后列表与 authorize-url 同步变化）；
 全量回归在隔离副本执行（`backend/target` 有并发构建），结果见 §7.10 / 部署记录。
 规则、DDL 与已知边界见 README §51。
+
+### 2.22 拒绝即释放唯一键 + 管理端清理 + 审批角色显式化（t111）
+
+**背景**：t102 自报边界「被拒后同名/同手机被占位用户唯一键占用，只能换号或人工清库」被判定为需修缺陷。
+
+**修复方式（先删后归档）**：`reject` 之后，占位用户若**从未登录且无关联数据**（无角色/任务/资产/SSO 绑定）→ **直接删除行**；
+否则**归档释放**（username → `rejected_<id8>_原值`、phone → `rej_<id8>_尾号4`、状态 `rejected`）。
+`registration_requests` 记录保留为审批证据；释放策略写入 `REGISTRATION_REJECT` 审计的 details。
+
+**被拒后登录 = 401（captain 口径，不泄露拒绝状态）**：删除/改写后原用户名登录即「用户不存在」→ 401「用户名或密码错误」；
+刻意不返回 403「注册申请已被拒绝」（会确认账号存在性）。归档分支下：原用户名 401、归档用户名 403。403 仅保留给「占位行仍在且 rejected」的场景。
+
+**管理端清理**：`DELETE /admin/registration-requests/{id}`（仅 ADMIN）删除申请 + 占位用户（走同一释放逻辑）并清理 PENDING 的 SSO 待绑定；
+幂等（不存在 → 204，重复删除不重复写审计）；APPROVED 申请 → **409**（否则删号后同名可重复注册）；审计 `REGISTRATION_PURGE`。
+
+**并发**：approve / reject / purge 统一 `PESSIMISTIC_WRITE` 行锁，先到者胜，后到者 409。
+
+**审批角色显式化（用户拍板）**：`approve` 接受 `{roles: string[]}`；**空数组 = 建号但不授角色**（仅默认 ROLE_USER）；
+未知角色码 → 400；**不再隐式给 `vulnerability_engineer`**。
+
+**证据**：`RegistrationReapplyTest` **15 例全绿**（见 README §52.6 列表）；`RegistrationFlowTest` 的 `rejectThenLogin` 同步为 401 + 通用文案；
+`SsoFlowTest` 14 例仍全绿（approve 无 body 时按空 roles 处理，不影响 SSO 绑定激活）。
+规则与策略细节见 README §52。

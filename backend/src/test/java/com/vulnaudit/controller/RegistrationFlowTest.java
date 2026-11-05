@@ -366,10 +366,16 @@ public class RegistrationFlowTest extends BaseTest {
                 .andExpect(jsonPath("$.data.status").value("REJECTED"))
                 .andExpect(jsonPath("$.data.reviewNote").value("手机号与工号不匹配"));
 
-        assertEquals(403, loginStatus("selfreg3", PASSWORD));
+        // t111（captain 口径）：拒绝即释放唯一键 → 占位用户被删除（或用户名被归档改写），
+        // 用**原用户名**登录就是「用户不存在」，返回 **401 通用文案**，而不再返回 403「注册申请已被拒绝」——
+        // 403 会向攻击者确认「该账号确实申请过、只是被拒」，属于账号枚举信息泄露。
+        assertEquals(401, loginStatus("selfreg3", PASSWORD));
         String body = loginBody("selfreg3", PASSWORD);
-        assertTrue(body.contains("注册申请已被拒绝"), "应返回被拒文案: " + body);
-        assertEquals("rejected", userRepository.findByUsername("selfreg3").orElseThrow().getStatus());
+        assertTrue(body.contains("用户名或密码错误"), "应返回通用文案: " + body);
+        assertFalse(body.contains("注册申请已被拒绝"), "不得泄露「曾被拒绝」这一事实: " + body);
+
+        var placeholder = userRepository.findByUsername("selfreg3");
+        assertTrue(placeholder.isEmpty(), "从未登录且无关联的占位用户应被直接删除（释放唯一键）");
 
         assertTrue(auditLogRepository.findByAction("REGISTRATION_REJECT").stream()
                         .anyMatch(log -> log.getDetails() != null && log.getDetails().contains("selfreg3")),

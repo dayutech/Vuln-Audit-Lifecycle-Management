@@ -1,6 +1,7 @@
 package com.vulnaudit.controller;
 
 import com.vulnaudit.dto.ApiResponse;
+import com.vulnaudit.dto.ApproveRegistrationRequest;
 import com.vulnaudit.dto.ApproveRegistrationResponse;
 import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.dto.RegistrationRequestVO;
@@ -14,9 +15,11 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -54,19 +57,34 @@ public class RegistrationRequestAdminController {
     @PostMapping("/{id}/approve")
     @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
     @Operation(summary = "审批通过",
-            description = "把占位用户转为 active（手机/邮箱落库并标记 verified），申请置 APPROVED，写审计")
-    public ApiResponse<ApproveRegistrationResponse> approve(@PathVariable UUID id) {
+            description = "把占位用户转为 active（手机/邮箱落库并标记 verified），申请置 APPROVED，写审计。"
+                    + "body {roles: string[]} 由审批人**显式指定角色**；空数组=建号但不授角色（不再隐式给 vulnerability_engineer）")
+    public ApiResponse<ApproveRegistrationResponse> approve(
+            @PathVariable UUID id,
+            @RequestBody(required = false) ApproveRegistrationRequest body) {
         UUID reviewerId = currentUserProvider.currentUserId().orElse(null);
-        return ApiResponse.success(registrationService.approve(id, reviewerId), "审批通过");
+        List<String> roles = body == null ? List.of() : body.roles();
+        return ApiResponse.success(registrationService.approve(id, reviewerId, roles), "审批通过");
     }
 
     @PostMapping("/{id}/reject")
     @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
     @Operation(summary = "审批拒绝",
-            description = "申请置 REJECTED 且该用户登录返回 403；note 必填并写入 review_note 与审计")
+            description = "申请置 REJECTED 且该用户登录返回 403；note 必填并写入 review_note 与审计；"
+                    + "同时**释放**占位用户占用的用户名/手机号唯一键（t111），使同一手机号可重新申请")
     public ApiResponse<RegistrationRequestVO> reject(@PathVariable UUID id,
                                                      @Valid @RequestBody RejectRegistrationRequest request) {
         UUID reviewerId = currentUserProvider.currentUserId().orElse(null);
         return ApiResponse.success(registrationService.reject(id, reviewerId, request.note()), "已拒绝");
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "清理注册申请（t111，仅 ADMIN）",
+            description = "彻底清理该申请及其占位用户（并释放唯一键），写审计 REGISTRATION_PURGE；"
+                    + "幂等：申请不存在返回 204；已通过（APPROVED）的申请返回 409")
+    public ResponseEntity<Void> purge(@PathVariable UUID id) {
+        registrationService.purge(id, currentUserProvider.currentUserId().orElse(null));
+        return ResponseEntity.noContent().build();
     }
 }
