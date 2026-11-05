@@ -384,6 +384,73 @@ SELECT COUNT(*) AS unverified_real_emails FROM users
  WHERE email_verified = FALSE AND email NOT LIKE '%@no-email.local';
 
 -- =============================================================================
+-- V24：第三方 SSO 登录（GitHub / Microsoft / Google / WeChat，t104）
+-- =============================================================================
+-- 1) sso_providers：提供商配置。凭据（client_id/client_secret）不写死在代码里，从本表读取；
+--    缺 client_id 或 client_secret 视为「未配置」——即使 enabled=true，authorize-url 也返回 503，
+--    登录页按钮也不展示。启动时表为空会由应用插入 4 条默认记录（enabled=false）。
+-- 2) sso_bindings：本地账号 ↔ 第三方身份（(provider_code, external_id) 与 (user_id, provider_code) 各唯一）。
+-- 3) sso_pending_bindings：SSO 首次登录的「待审批绑定」，审批通过后转为 sso_bindings。
+-- 4) registration_requests 增加 source/provider_code/external_id/display_name，phone 改为可空。
+-- 幂等：CREATE TABLE/INDEX、ADD COLUMN IF NOT EXISTS；MODIFY COLUMN 可重复执行。
+
+CREATE TABLE IF NOT EXISTS sso_providers (
+    id            VARCHAR(36)  NOT NULL PRIMARY KEY,
+    code          VARCHAR(32)  NOT NULL,
+    name          VARCHAR(64)  NOT NULL,
+    icon          VARCHAR(64)  NULL,
+    enabled       BOOLEAN      NOT NULL DEFAULT FALSE,
+    client_id     VARCHAR(255) NULL,
+    client_secret VARCHAR(512) NULL,
+    authorize_url VARCHAR(512) NULL,
+    token_url     VARCHAR(512) NULL,
+    userinfo_url  VARCHAR(512) NULL,
+    scopes        VARCHAR(255) NULL,
+    created_at    DATETIME(6)  NOT NULL,
+    updated_at    DATETIME(6)  NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_sso_providers_code ON sso_providers (code);
+
+CREATE TABLE IF NOT EXISTS sso_bindings (
+    id            VARCHAR(36)  NOT NULL PRIMARY KEY,
+    user_id       VARCHAR(36)  NOT NULL,
+    provider_code VARCHAR(32)  NOT NULL,
+    external_id   VARCHAR(255) NOT NULL,
+    display_name  VARCHAR(128) NULL,
+    bound_at      DATETIME(6)  NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_sso_bindings_provider_external ON sso_bindings (provider_code, external_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_sso_bindings_user_provider ON sso_bindings (user_id, provider_code);
+
+CREATE TABLE IF NOT EXISTS sso_pending_bindings (
+    id                      VARCHAR(36)  NOT NULL PRIMARY KEY,
+    registration_request_id VARCHAR(36)  NULL,
+    provider_code           VARCHAR(32)  NOT NULL,
+    external_id             VARCHAR(255) NOT NULL,
+    email                   VARCHAR(255) NULL,
+    display_name            VARCHAR(128) NULL,
+    status                  VARCHAR(20)  NOT NULL,
+    created_at              DATETIME(6)  NOT NULL,
+    activated_at            DATETIME(6)  NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_sso_pending_provider_external ON sso_pending_bindings (provider_code, external_id);
+CREATE INDEX IF NOT EXISTS idx_sso_pending_request ON sso_pending_bindings (registration_request_id);
+
+ALTER TABLE registration_requests ADD COLUMN IF NOT EXISTS source VARCHAR(16) NOT NULL DEFAULT 'LOCAL';
+ALTER TABLE registration_requests ADD COLUMN IF NOT EXISTS provider_code VARCHAR(32) NULL;
+ALTER TABLE registration_requests ADD COLUMN IF NOT EXISTS external_id VARCHAR(255) NULL;
+ALTER TABLE registration_requests ADD COLUMN IF NOT EXISTS display_name VARCHAR(128) NULL;
+ALTER TABLE registration_requests MODIFY COLUMN phone VARCHAR(20) NULL;
+
+-- 校验：三张表存在；4 条默认 provider（应用首次启动后）且默认全部未开启
+SHOW TABLES LIKE 'sso_providers';
+SHOW TABLES LIKE 'sso_bindings';
+SHOW TABLES LIKE 'sso_pending_bindings';
+SELECT code, name, enabled FROM sso_providers ORDER BY code;
+SELECT COUNT(*) AS enabled_providers FROM sso_providers WHERE enabled = 1;
+SELECT COUNT(*) AS pending_bindings FROM sso_pending_bindings WHERE status = 'PENDING';
+
+-- =============================================================================
 -- 执行完成后的统一核对
 -- =============================================================================
 -- 1) Flyway 版本号唯一（防止后续误引入重号）：

@@ -2639,3 +2639,89 @@ app:
 - 复核数据已清理（`users` 回到 10、`registration_requests=0`、`verification_codes=0`、`orphan_user_roles=0`）；
   `APP_VERIFICATION_DEV_MODE` 已从 `deploy/backend.env` 移除并重启，生产发码响应不再含 devCode；`/projects`、`/users/me/preferences`、`/audit-logs` 均 200。
 - 回归：隔离副本 `mvn -B clean test` → **722/722**（基线 700 + 本任务 13 + 并行任务在途 9；`backend/target` 存在并发构建，故用副本独占）。
+
+## 51. 第三十五轮（第三方 SSO 登录：4 家 provider + 管理员开关 + 待审批关联 + 绑定/解绑，t104）
+
+支持 GitHub / Microsoft / Google / WeChat 四家 OAuth 登录；**开放哪些由管理员决定**，凭据只从表里读、不写死在代码里；
+陌生第三方身份**仍需管理员审批**才能建本地账号。
+
+### 51.1 数据（V24 幂等迁移 + manual-ddl「V24」段）
+
+| 表 / 列 | 说明 |
+|---|---|
+| `sso_providers` | code(github/microsoft/google/wechat)、name、icon、**enabled**、client_id、client_secret、authorize_url、token_url、userinfo_url、scopes、created_at/updated_at |
+| `sso_bindings` | user_id ↔ (provider_code, external_id)，`(provider_code, external_id)` 与 `(user_id, provider_code)` 各唯一 |
+| `sso_pending_bindings` | SSO 首次登录的待审批绑定（PENDING → ACTIVATED），关联 registration_request_id |
+| `registration_requests` 追加 | `source`（LOCAL/SSO）、`provider_code`、`external_id`、`display_name`；`phone` 改为**可空**（SSO 没有手机号） |
+
+**默认数据**：启动时若 `sso_providers` 为空，`SsoProviderBootstrapRunner` 插入 4 条 **enabled=false** 的记录
+（authorize/token/userinfo URL 与 scopes 按各平台默认值预填；`client_id`/`client_secret` 留空）。
+
+### 51.2 「可用」判定（关键）
+
+`usable = enabled && configured`，其中 `configured = client_id 与 client_secret 均非空`。
+
+| 状态 | 登录页按钮 | `GET /auth/sso/{code}/authorize-url` |
+|---|---|---|
+| disabled | 不展示 | **400**「该登录方式未开放」 |
+| enabled 但未配凭据 | **不展示** | **503**「该登录方式尚未完成配置」 |
+| enabled 且已配置 | 展示 | 200 `{url, state}` |
+
+> **真实对接方式**：在 `sso_providers` 里为对应平台填入 OAuth 应用的 `client_id`/`client_secret`
+>（以及按需覆盖 authorize/token/userinfo URL 与 scopes），再由管理员 `PATCH /admin/sso/providers/{code} {"enabled":true}`。
+> 本地无凭据时按钮天然不显示——这就是「未配置即不可见」的实现口径。
+
+### 51.3 接口
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | `/api/v1/auth/sso/providers` | 公开 | 仅 `enabled && configured` 的 `[{code,name,icon}]` |
+| GET | `/api/v1/auth/sso/{code}/authorize-url?redirectUri=` | 公开 | `{url, state}`；state **5 分钟**有效、一次性（内存 Map） |
+| POST | `/api/v1/auth/sso/{code}/callback` | 公开 | body `{code, state}`；三态见下 |
+| PATCH | `/api/v1/admin/sso/providers/{code}` | **ADMIN** | body `{enabled}`；审计 `UPDATE_SSO_PROVIDER`（一次开关仅 1 条） |
+| GET | `/api/v1/admin/sso/providers` | ADMIN | 全部 provider（含未开启/未配置，凭据不回传） |
+| GET | `/api/v1/users/me/sso-bindings` | 登录 | 我的绑定列表 |
+| POST | `/api/v1/users/me/sso-bindings/{code}/start` | 登录 | 返回带「绑定态」的授权地址；已绑同一 provider → **409** |
+| DELETE | `/api/v1/users/me/sso-bindings/{code}` | 登录 | body `{password}`；密码错 **403**；成功后该 provider 回到「待审批」路径 |
+
+**回调三态**
+
+| 场景 | 状态码 | 响应 |
+|---|---|---|
+| 已绑定且账号 `active` | 200 | `{status:"LOGIN", login:{token,...}, provider}` —— 直接签发本地 JWT，并写 `SSO_LOGIN` 审计 |
+| 陌生身份（含曾被解绑） | **202** | `{status:"PENDING_APPROVAL"}` —— 不发 token；建 `registration_requests(source=SSO)` + `sso_pending_bindings(PENDING)` + `pending_approval` 占位用户，写 `SSO_REGISTER_SUBMIT` 审计 |
+| 绑定账号非 active | 403 | 待审批 → 「账号待管理员审批，请耐心等待」；已拒绝 → 「注册申请已被拒绝」；停用 → 「账号已被停用」 |
+| state 无效/过期/重放 | 400 | 「登录状态已失效，请重新发起第三方登录」 |
+
+**审批联动（复用 t102 的审批）**：管理员在 `/admin/registration-requests/{id}/approve` 通过 SSO 申请时，
+占位用户转 active、`sso_pending_bindings` 置 ACTIVATED **并落 `sso_bindings`**（写 `SSO_BIND` 审计）；
+拒绝则占位用户转 rejected。SSO 用户的本地密码是 32 位随机串（**不告诉用户**），需要本地密码时走「忘记密码」。
+
+### 51.4 抽象与实现
+
+- `SsoClient`：`authorizeUrl(state, redirectUri)` + `exchange(code) → SsoUserInfo(provider, externalId, email, displayName)`。
+- 四个实现（`GithubSsoClient` / `MicrosoftSsoClient` / `GoogleSsoClient` / `WechatSsoClient`）继承 `AbstractSsoClient`，
+  只做 URL/表单拼装与 JSON 取值，**凭据与端点全部来自 `SsoProvider`**；微信走 QRConnect（`appid` + `#wechat_redirect`）。
+- `SsoClientFactory` 按 code 选实现；测试用 `FakeSsoClientFactory`（`@Primary`）整链替换，**不触网**。
+
+### 51.5 验证
+
+`SsoFlowTest` **14 例**：providers 只返回可用项 / 未配置 authorize-url 503 / 未开启 400 / 正常返回 url+state /
+state 无效与重放 400 / 首次回调 202 且无 token 且建 PENDING 申请+绑定+占位用户 / 重复首次回调幂等 /
+审批通过后回调用 200 且 token 可访问 `/auth/me` / 绑定账号非 active 403 / 绑定成功且重复绑定 409 /
+解绑密码错 403、解绑成功后列表空且该身份回调回到 202 / 非 ADMIN 改开关 403 / 管理员开关写 1 条审计 / 关闭后列表与 authorize-url 同步变化。
+
+```bash
+cd backend && mvn -B test -Dtest=SsoFlowTest            # 期望 14/14
+
+# 线上联调（需先在 sso_providers 填好某平台凭据并开启）
+curl -s http://127.0.0.1:8089/api/v1/auth/sso/providers
+curl -s "http://127.0.0.1:8089/api/v1/auth/sso/github/authorize-url?redirectUri=http://127.0.0.1:8089/sso/callback"
+```
+
+### 51.6 已知边界
+
+1. **state 是进程内 Map**：多实例部署需换 Redis 或改为签名 token（无状态）；单实例当前满足 5 分钟 TTL + 一次性。
+2. **`client_secret` 明文存表**：当前按任务要求「加密或仅占位」取后者（仅占位），生产建议接 KMS/环境变量注入并加密列。
+3. **SSO 用户没有手机号**：只能走邮箱渠道找回密码；provider 未给邮箱时连邮箱也没有 → 只能管理员重置。
+4. **解绑后需重新审批**：解绑只删 `sso_bindings`，对应 `sso_pending_bindings` 已是 ACTIVATED，因此该第三方身份再登录会重新进入 202 审批流程（不会自动恢复）。

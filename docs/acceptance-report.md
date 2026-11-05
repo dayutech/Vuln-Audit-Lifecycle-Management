@@ -1476,3 +1476,34 @@ V21 已上生产库（`token_invalid_before` 建列 + `email_verified` 回填）
 
 > **口径差异（已记录 §8）**：任务书所述「≥8 位 + 三类」密码规则在既有代码中并不存在（老接口只校验长度 6–100）；
 > 本轮实现为单一工具类并只在新链路启用，避免破坏既有契约与已发布用例。
+
+### 2.21 第三方 SSO 登录（4 家 provider + 管理员开关 + 待审批关联 + 绑定/解绑，t104）
+
+**目标**：GitHub / Microsoft / Google / WeChat OAuth 登录；开放哪些由管理员决定；陌生身份仍需审批；已建账号可绑定/解绑。
+
+**数据（V24，幂等；生产 Flyway 关闭 → `deploy/manual-ddl.sql` V24 段）**：`sso_providers`（含 enabled + 凭据 + 三个端点 + scopes）、
+`sso_bindings`（`(provider_code, external_id)` 与 `(user_id, provider_code)` 各唯一）、`sso_pending_bindings`（PENDING→ACTIVATED）、
+`registration_requests` 追加 `source/provider_code/external_id/display_name` 且 `phone` 改可空。
+启动时表为空则插入 4 条 `enabled=false` 默认记录（凭据留空）。
+
+**可用判定**：`usable = enabled && configured`（client_id 与 client_secret 均非空）——
+未开启 → authorize-url 400；开启但未配凭据 → **503**「该登录方式尚未完成配置」且登录页不展示按钮；两者都满足才返回 200 `{url,state}`。
+
+**接口**：`GET /auth/sso/providers`、`GET /auth/sso/{code}/authorize-url`、`POST /auth/sso/{code}/callback`（公开）；
+`PATCH /admin/sso/providers/{code}`（ADMIN，审计 `UPDATE_SSO_PROVIDER`）；`GET/POST/DELETE /users/me/sso-bindings`（登录用户，解绑需密码）。
+
+**回调语义**：已绑定且 active → 200 签发本地 JWT（`SSO_LOGIN` 审计）；陌生身份 → **202** 不发 token，
+建 `registration_requests(source=SSO)` + `sso_pending_bindings(PENDING)` + `pending_approval` 占位用户（`SSO_REGISTER_SUBMIT` 审计）；
+绑定账号非 active → 403；state 无效/过期/重放 → 400（5 分钟一次性）。
+
+**审批联动**：t102 的 approve 在 SSO 申请上额外把待审批绑定转成 `sso_bindings`（`SSO_BIND` 审计）；
+SSO 用户本地密码为 32 位随机串（不告知），需要本地密码走忘记密码。
+
+**抽象**：`SsoClient`（authorizeUrl / exchange → SsoUserInfo）+ 四个实现（继承 `AbstractSsoClient`，凭据全部取自表）+
+`SsoClientFactory` 按 code 选择；测试用 `FakeSsoClientFactory`（@Primary）不触网。
+
+**证据**：`SsoFlowTest` **14 例全绿**（providers 仅可用项、未配置 503、未开启 400、url+state、state 无效与重放 400、
+首次回调 202 无 token 且建 PENDING 申请/绑定/占位用户、重复回调幂等、审批后回调 200 且 token 可用、非 active 403、
+绑定成功与重复绑定 409、解绑密码错 403 与解绑后回到 202、非 ADMIN 403、开关审计 1 条、关闭后列表与 authorize-url 同步变化）；
+全量回归在隔离副本执行（`backend/target` 有并发构建），结果见 §7.10 / 部署记录。
+规则、DDL 与已知边界见 README §51。
