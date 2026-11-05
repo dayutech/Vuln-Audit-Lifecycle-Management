@@ -11,6 +11,7 @@ import {
   type AdminSsoProvider,
 } from '@/api/sso';
 import SsoIcon from '@/components/sso/SsoIcon';
+import SsoProviderConfigModal from '@/components/sso/SsoProviderConfigModal';
 import { knownSsoLabelKey } from '@/components/sso/providers';
 import { getApiErrorMessage } from '@/utils/errorMessage';
 import '@/components/sso/sso.css';
@@ -52,6 +53,8 @@ const Settings: React.FC = () => {
   const [ssoLoading, setSsoLoading] = useState(false);
   const [ssoLoadFailed, setSsoLoadFailed] = useState(false);
   const [ssoSaving, setSsoSaving] = useState<string | null>(null);
+  /** t119：正在配置凭据的 provider（null = 弹窗关闭） */
+  const [configTarget, setConfigTarget] = useState<AdminSsoProvider | null>(null);
 
   /** t106：加载 SSO 提供商（含未开启 / 未配置）；仅管理员会走到这里 */
   const loadSso = useCallback(async () => {
@@ -214,15 +217,38 @@ const Settings: React.FC = () => {
           {ssoProviders.map((provider) => {
             const labelKey = knownSsoLabelKey(provider.code);
             const label = labelKey ? t(labelKey) : provider.name;
+            /** t119：开启但没配好凭据 → 行内警告（用户点登录会被提示"未完成配置"） */
+            const enabledButUnconfigured = provider.enabled && !provider.configured;
             return (
-              <div className="admin-sso-row" key={provider.code} data-testid={`admin-sso-row-${provider.code}`}>
+              <div
+                className="admin-sso-row"
+                key={provider.code}
+                data-testid={`sso-row-${provider.code}`}
+                data-configured={provider.configured ? 'true' : 'false'}
+                data-enabled={provider.enabled ? 'true' : 'false'}
+              >
                 <span className="admin-sso-row__icon">
                   <SsoIcon code={provider.icon || provider.code} size={16} />
                 </span>
                 <div className="admin-sso-row__main">
-                  <div>{label}</div>
-                  <div className="admin-sso-row__meta" data-testid={`admin-sso-meta-${provider.code}`}>
-                    {provider.configured ? t('admin.sso.configured') : t('admin.sso.notConfigured')}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span>{label}</span>
+                    <Tag color={provider.configured ? 'green' : 'orange'} data-testid={`admin-sso-meta-${provider.code}`}>
+                      {provider.configured ? t('admin.sso.configured') : t('admin.sso.notConfigured')}
+                    </Tag>
+                    {enabledButUnconfigured ? (
+                      <Tag color="red" data-testid={`sso-row-warning-${provider.code}`}>
+                        {t('admin.ssoConfig.rowWarning')}
+                      </Tag>
+                    ) : null}
+                  </div>
+                  <div className="admin-sso-row__meta" data-testid={`sso-updated-${provider.code}`}>
+                    {provider.updatedAt
+                      ? t('admin.ssoConfig.updatedLine', {
+                          time: provider.updatedAt.replace('T', ' ').slice(0, 19),
+                          user: provider.updatedBy || '-',
+                        })
+                      : t('admin.ssoConfig.neverUpdated')}
                   </div>
                 </div>
                 <div className="admin-sso-row__tags">
@@ -235,6 +261,9 @@ const Settings: React.FC = () => {
                     onChange={(checked) => void toggleSso(provider, checked)}
                     data-testid={`admin-sso-switch-${provider.code}`}
                   />
+                  <Button size="small" onClick={() => setConfigTarget(provider)} data-testid={`sso-config-open-${provider.code}`}>
+                    {t('admin.ssoConfig.open')}
+                  </Button>
                 </div>
               </div>
             );
@@ -376,6 +405,16 @@ const Settings: React.FC = () => {
           padding: 0 6px;
         }
       `}</style>
+
+      {/* t119：SSO 凭据配置弹窗（每家一个；保存成功后原地更新该行徽标与更新时间） */}
+      <SsoProviderConfigModal
+        provider={configTarget}
+        onClose={() => setConfigTarget(null)}
+        onSaved={(updated) => {
+          setSsoProviders((list) => list.map((item) => (item.code === updated.code ? updated : item)));
+          setConfigTarget(null);
+        }}
+      />
     </div>
   );
 };

@@ -8,6 +8,7 @@ import {
   beginSsoRedirect,
   getMySsoBindings,
   getSsoProviders,
+  isProviderConfigured,
   startSsoBind,
   unbindSso,
 } from '@/api/sso';
@@ -29,7 +30,10 @@ interface RowModel {
   code: string;
   label: string;
   binding: SsoBinding | null;
+  /** 在公开列表里（= 管理员已启用） */
   available: boolean;
+  /** 已启用但凭据没配齐（t116 `configured=false`）：显示「未配置」，按钮仍可点 */
+  configured: boolean;
 }
 
 const SsoBindings: React.FC = () => {
@@ -74,11 +78,17 @@ const SsoBindings: React.FC = () => {
         label: labelKey ? t(labelKey) : fromProviders?.name ?? code,
         binding: bindings.find((item) => item.code === code) ?? null,
         available: Boolean(fromProviders),
+        configured: isProviderConfigured(fromProviders),
       };
     });
   }, [bindings, providers, t]);
 
   const startBind = async (row: RowModel) => {
+    // 已启用但凭据未配置：按钮可点，只提示「联系管理员」，不发起跳转
+    if (!row.configured) {
+      message.warning(t('sso.notConfiguredNotice', { name: row.label }));
+      return;
+    }
     setStarting(row.code);
     try {
       const authorize = await startSsoBind(row.code);
@@ -155,7 +165,14 @@ const SsoBindings: React.FC = () => {
 
         <div className="sso-bindings" data-testid="sso-bindings-list">
           {rows.map((row) => {
-            const status = row.binding ? 'bound' : row.available ? 'unbound' : 'disabled';
+            // t118：已启用但未配置 → 'unconfigured'（可点、提示联系管理员），只有「未启用」才禁用
+            const status = row.binding
+              ? 'bound'
+              : !row.available
+                ? 'disabled'
+                : row.configured
+                  ? 'unbound'
+                  : 'unconfigured';
             return (
               <div className="sso-bindings__row" key={row.code} data-testid={`sso-binding-row-${row.code}`} data-status={status}>
                 <span className="sso-bindings__icon">
@@ -164,7 +181,10 @@ const SsoBindings: React.FC = () => {
                 <div className="sso-bindings__main">
                   <div className="sso-bindings__name">
                     {row.label}
-                    <Tag color={status === 'bound' ? 'green' : status === 'unbound' ? 'default' : 'orange'} data-testid={`sso-binding-status-${row.code}`}>
+                    <Tag
+                      color={status === 'bound' ? 'green' : status === 'unbound' ? 'default' : 'orange'}
+                      data-testid={`sso-binding-status-${row.code}`}
+                    >
                       {t(`ssoBinding.status.${status}`)}
                     </Tag>
                   </div>
@@ -175,7 +195,13 @@ const SsoBindings: React.FC = () => {
                         <div>{t('ssoBinding.boundAt', { time: row.binding.boundAt ?? '-' })}</div>
                       </>
                     ) : (
-                      <div>{status === 'disabled' ? t('ssoBinding.disabledHint') : t('ssoBinding.unbindNote')}</div>
+                      <div>
+                        {status === 'disabled'
+                          ? t('ssoBinding.disabledHint')
+                          : status === 'unconfigured'
+                            ? t('ssoBinding.unconfiguredHint')
+                            : t('ssoBinding.unbindNote')}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -188,10 +214,11 @@ const SsoBindings: React.FC = () => {
                     <Button
                       type="primary"
                       size="small"
-                      disabled={!row.available}
+                      disabled={status === 'disabled'}
                       loading={starting === row.code}
                       onClick={() => void startBind(row)}
                       data-testid={`sso-bind-${row.code}`}
+                      data-sso-configured={row.configured ? 'true' : 'false'}
                     >
                       {t('ssoBinding.bind')}
                     </Button>

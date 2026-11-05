@@ -1,22 +1,26 @@
 import React, { useEffect, useState } from 'react';
-import { Button, message } from 'antd';
+import { Button, Tooltip, message } from 'antd';
 import { useT } from '@/i18n';
 import SsoIcon from './SsoIcon';
-import { beginSsoRedirect, getSsoAuthorizeUrl, getSsoProviders } from '@/api/sso';
+import { beginSsoRedirect, getSsoAuthorizeUrl, getSsoProviders, isProviderConfigured } from '@/api/sso';
 import type { SsoProvider } from '@/api/sso';
 import { knownSsoLabelKey } from './providers';
 import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
 import './sso.css';
 
 /**
- * 登录页的第三方登录按钮组（t106，后端 t104）。
+ * 登录页的第三方登录按钮组（t106 建立，t118 改为「启用即展示」）。
  *
- * - 数据源 `GET /auth/sso/providers`（后端只返回「已开启 **且** 已配置」的，未配置的不会出现）；
- * - **没有 provider 或接口失败 → 整块不渲染**（不留空壳，也不阻塞登录框）；
- * - 点击：`GET /auth/sso/{code}/authorize-url?redirectUri=…` → 记下「登录流程 + provider」
- *   （回调页据此调 callback 并决定文案）→ 整页跳转外链；
- * - 失败分级：`400` 该登录方式未开启、`503` 尚未完成配置、其它走通用提示（`getApiErrorMessage`）；
- * - 视觉：跟随登录框 `formSkin`（`.login-sso` 样式在 t105 已建立，这里只加图标与换行）。
+ * - 数据源 `GET /auth/sso/providers`：t116 起后端**返回全部已启用项**并带 `configured` 标记
+ *   （老后端只返回已配置项、无该字段 → 视为 `configured=true`，行为不变）；
+ * - **按钮全部渲染**（有多少 enabled 就有多少按钮）；没有 provider 或接口失败才整块不渲染；
+ * - 点击：
+ *   - `configured=true` → `GET /auth/sso/{code}/authorize-url` → 记「登录流程 + provider」→ 整页跳转；
+ *   - `configured=false` → **不跳转**，直接提示「该登录方式尚未完成配置，请联系管理员」
+ *     （后端 authorize-url 也会 503，这里提前拦一次，少一次往返且文案更明确）；
+ * - **不用禁用态**：禁用的按钮会被误读成「没有权限」；这里用可点按钮 + 未配置小圆点 + tooltip；
+ * - 失败分级：`400` 未开启、`503` 未配置、其它走 `getApiErrorMessage`；
+ * - 视觉：跟随登录框 `formSkin`（`.login-sso` 样式在 t105 已建立）。
  */
 export interface SsoButtonsProps {
   /** 测试/埋点用前缀，默认 `login-sso` */
@@ -48,6 +52,11 @@ const SsoButtons: React.FC<SsoButtonsProps> = ({ testIdPrefix = 'login-sso', bef
   };
 
   const start = async (provider: SsoProvider) => {
+    // 未配置凭据：不跳转，直接提示（按钮仍可点，不是禁用态）
+    if (!isProviderConfigured(provider)) {
+      message.warning(t('sso.notConfiguredNotice', { name: labelOf(provider) }));
+      return;
+    }
     setStarting(provider.code);
     try {
       const authorize = await getSsoAuthorizeUrl(provider.code);
@@ -74,18 +83,31 @@ const SsoButtons: React.FC<SsoButtonsProps> = ({ testIdPrefix = 'login-sso', bef
     <div className="login-sso" data-testid={testIdPrefix}>
       <div className="login-sso__divider">{t('login.sso.title')}</div>
       <div className="login-sso__row">
-        {providers.map((provider) => (
-          <Button
-            key={provider.code}
-            onClick={() => void start(provider)}
-            loading={starting === provider.code}
-            data-testid={`${testIdPrefix}-${provider.code}`}
-            data-sso-provider={provider.code}
-          >
-            <SsoIcon code={provider.icon || provider.code} size={16} className="sso-btn__icon" />
-            <span className="sso-btn__label">{labelOf(provider)}</span>
-          </Button>
-        ))}
+        {providers.map((provider) => {
+          const configured = isProviderConfigured(provider);
+          return (
+            <Tooltip
+              key={provider.code}
+              title={configured ? undefined : t('sso.notConfiguredHint')}
+              placement="top"
+            >
+              <Button
+                onClick={() => void start(provider)}
+                loading={starting === provider.code}
+                className={configured ? undefined : 'sso-btn--unconfigured'}
+                data-testid={`${testIdPrefix}-${provider.code}`}
+                data-sso-provider={provider.code}
+                data-sso-configured={configured ? 'true' : 'false'}
+              >
+                <SsoIcon code={provider.icon || provider.code} size={16} className="sso-btn__icon" />
+                <span className="sso-btn__label">{labelOf(provider)}</span>
+                {configured ? null : (
+                  <span className="sso-btn__dot" data-testid={`${testIdPrefix}-${provider.code}-dot`} aria-hidden="true" />
+                )}
+              </Button>
+            </Tooltip>
+          );
+        })}
       </div>
     </div>
   );

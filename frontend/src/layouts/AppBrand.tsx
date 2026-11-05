@@ -57,7 +57,7 @@ const AppBrand: React.FC<AppBrandProps> = ({ collapsed = false }) => {
         boxSizing: 'border-box',
       }}
     >
-      <OwlMark size={collapsed ? 26 : 30} variant="monochrome" />
+      <OwlMark size={collapsed ? 26 : 32} variant="monochrome" />
       {collapsed ? null : (
         <span data-testid="app-brand-name" title={name} style={nameStyle}>
           {name}
@@ -79,3 +79,4 @@ const AppBrand: React.FC<AppBrandProps> = ({ collapsed = false }) => {
 };
 
 export default AppBrand;
+

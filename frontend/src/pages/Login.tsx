@@ -37,6 +37,14 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [hasError, setHasError] = useState(false);
+  /** t118：读登录框里已填的用户名，点「忘记密码」时带进 query（自动带入） */
+  const [form] = Form.useForm<{ username?: string; password?: string }>();
+
+  /** 跳到忘记密码页：用户名非空则预填并聚焦下一项，空则让用户自己填 */
+  const goForgotPassword = () => {
+    const username = String(form.getFieldValue('username') ?? '').trim();
+    navigate(username ? `/forgot-password?username=${encodeURIComponent(username)}` : '/forgot-password');
+  };
   const navigate = useNavigate();
   const { setToken, setUser } = useUserStore();
   const { t } = useT();
@@ -123,7 +131,14 @@ const Login: React.FC = () => {
             />
           ) : null}
 
-          <Form name="login" layout="vertical" initialValues={{ remember: true }} onFinish={onFinish} size="large">
+          <Form
+            form={form}
+            name="login"
+            layout="vertical"
+            initialValues={{ remember: true }}
+            onFinish={onFinish}
+            size="large"
+          >
             <Form.Item
               name="username"
               label={t('login.username')}
@@ -166,7 +181,7 @@ const Login: React.FC = () => {
             <button
               type="button"
               className="login-entries__item"
-              onClick={() => navigate('/forgot-password')}
+              onClick={goForgotPassword}
               data-testid="login-entry-forgot"
             >
               {t('login.entry.forgotPassword')}

@@ -25,6 +25,27 @@
   margin-inline-end: 4px;
 }
 
+/* t118：启用但「凭据未配置」的提供商 —— 仍然是可点按钮（不用禁用态，
+ * 禁用的按钮会被误读成权限问题），只在右下角点一个小圆点 + tooltip 说明。 */
+.login-sso__row > .ant-btn.sso-btn--unconfigured,
+.sso-bindings__actions .ant-btn.sso-btn--unconfigured {
+  position: relative;
+}
+
+.sso-btn__dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #faad14;
+  box-shadow: 0 0 0 2px var(--skin-card-bg, #fff);
+  pointer-events: none;
+}
+
+/* 绑定页里「未配置」行的按钮同样可点，标记走 Tag，不再重复画点 */
+
 /* ==================== 账号设置：社交账号绑定列表 ==================== */
 
 .sso-bindings {

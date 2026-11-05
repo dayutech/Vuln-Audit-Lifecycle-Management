@@ -8,9 +8,11 @@ import request from '@/utils/request';
  *   → `{channel, target, purpose, expiresInSeconds, devCode?}`；
  * - `POST /auth/register  {username, password, phone, code, email?, emailCode?}` → **201** + `RegistrationRequestVO`
  *   （只落 PENDING 申请，不产生可登录账号）；
- * - `POST /auth/password-reset/send-code  {channel, target}` → 同上结构（purpose=RESET_PASSWORD，target 不存在也 200）；
- * - `POST /auth/password-reset/confirm  {target, code, newPassword}` → 200；
- * - `GET  /auth/sso/providers` → `[{code, name, icon}]`（仅返回已开启且已配置凭据的提供商）。
+ * - `POST /auth/password-reset/send-code  {username, channel, target}` → 同上结构（purpose=RESET_PASSWORD；
+ *   t117 起 `username` 必填，「用户名 ↔ 手机/邮箱」不匹配时仍 200 但**不发码**）；
+ * - `POST /auth/password-reset/confirm  {username, target, code, newPassword}` → 200（身份不一致 400）；
+ * - `GET  /auth/sso/providers` → `[{code, name, icon, configured}]`（t116 起「启用即返回」，
+ *   `configured=false` 表示凭据没配齐，登录页仍展示按钮但不可真正跳转）。
  *
  * 统一 `silent: true`：这些表单要**把错误定位到具体字段/行内提示**，
  * 不能让全局拦截器先弹一条 toast（会与行内提示重复）。
@@ -48,6 +50,8 @@ export interface RegisterPayload {
 }
 
 export interface PasswordResetConfirmPayload {
+  /** t117：用户名 + 手机/邮箱 双因子，缺一会 400 */
+  username: string;
   target: string;
   code: string;
   newPassword: string;
@@ -72,13 +76,20 @@ export const registerAccount = async (payload: RegisterPayload): Promise<Registr
   return (unwrap(res) ?? {}) as RegistrationResult;
 };
 
+/**
+ * 忘记密码发码（t117 契约：`{username, channel, target}`）。
+ *
+ * 「用户名 ↔ 手机/邮箱」不匹配时后端仍返回 **200 但不发码**（防枚举），
+ * 所以调用方**不能**根据响应判断匹配性，只能统一提示「如果信息匹配，验证码已发送」。
+ */
 export const sendPasswordResetCode = async (params: {
+  username: string;
   channel: VerificationChannel;
   target: string;
 }): Promise<SendCodeResult> => {
   const res = await request.post(
     '/auth/password-reset/send-code',
-    { channel: params.channel, target: params.target },
+    { username: params.username, channel: params.channel, target: params.target },
     { silent: true },
   );
   return (unwrap(res) ?? {}) as SendCodeResult;
@@ -87,3 +98,4 @@ export const sendPasswordResetCode = async (params: {
 export const confirmPasswordReset = async (payload: PasswordResetConfirmPayload): Promise<void> => {
   await request.post('/auth/password-reset/confirm', payload, { silent: true });
 };
+

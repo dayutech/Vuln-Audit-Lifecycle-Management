@@ -21,12 +21,48 @@ export interface SsoProvider {
   code: string;
   name: string;
   icon?: string;
+  /**
+   * t116 起后端公开列表改为「**启用即返回**」，并用 `configured` 标记「5 项凭据是否齐全」。
+   *
+   * 因此登录页要**全部渲染**：`configured=false` 的按钮照常可点，
+   * 但点击时前端直接提示「该登录方式尚未完成配置，请联系管理员」并**不跳转**
+   * （后端 authorize-url 也会 503，这里提前拦是为了少一次 503 往返、提示更明确）。
+   *
+   * 缺省 `true`：老后端（t104 时期只返回已配置项）没有该字段时行为不变。
+   */
+  configured?: boolean;
 }
 
 export interface AdminSsoProvider extends SsoProvider {
   enabled: boolean;
   configured: boolean;
   usable: boolean;
+  scopes?: string;
+  /** t116：Web 配置回显（secret 只回掩码，永不回明文） */
+  clientId?: string;
+  clientSecretMasked?: string;
+  authorizeUrl?: string;
+  tokenUrl?: string;
+  userinfoUrl?: string;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}
+
+/**
+ * 管理员保存凭据的部分更新载荷（t116 `PUT /admin/sso/providers/{code}`）。
+ *
+ * - **未传字段保持不变**（所以这里全是可选）；
+ * - `clientSecret` 省略/空串 = **不修改**；要清空必须显式 `clearClientSecret: true`；
+ * - URL 必须 https（后端对 `http://localhost` / `http://127.0.0.1` 放宽，供本地联调）。
+ */
+export interface AdminSsoProviderUpdate {
+  enabled?: boolean;
+  clientId?: string;
+  clientSecret?: string;
+  clearClientSecret?: boolean;
+  authorizeUrl?: string;
+  tokenUrl?: string;
+  userinfoUrl?: string;
   scopes?: string;
 }
 
@@ -77,11 +113,17 @@ export const getSsoProviders = async (): Promise<SsoProvider[]> => {
         code: String(item.code),
         name: String(item.name ?? item.code),
         icon: item.icon ? String(item.icon) : undefined,
+        // 老后端没有 configured 字段 → 视为已配置（保持 t104 行为）
+        configured: item.configured === undefined ? true : Boolean(item.configured),
       }));
   } catch {
     return [];
   }
 };
+
+/** 该 provider 是否因「凭据未配置」而不能真正跳转（缺省视为已配置） */
+export const isProviderConfigured = (provider: SsoProvider | null | undefined): boolean =>
+  provider?.configured !== false;
 
 export const getSsoAuthorizeUrl = async (code: string): Promise<SsoAuthorize> => {
   const res = await request.get(`/auth/sso/${encodeURIComponent(code)}/authorize-url`, {
@@ -130,20 +172,44 @@ export const unbindSso = async (code: string, password: string): Promise<void> =
   });
 };
 
+/** 把后端返回的 provider 归一（列表与保存响应共用；secret 只有掩码字段） */
+export const normalizeAdminSsoProvider = (item: any, fallbackCode = ''): AdminSsoProvider => ({
+  code: String(item?.code ?? fallbackCode),
+  name: String(item?.name ?? item?.code ?? fallbackCode),
+  icon: item?.icon ? String(item.icon) : undefined,
+  enabled: Boolean(item?.enabled),
+  configured: Boolean(item?.configured),
+  usable: Boolean(item?.usable),
+  scopes: item?.scopes ? String(item.scopes) : undefined,
+  clientId: item?.clientId ? String(item.clientId) : undefined,
+  clientSecretMasked: item?.clientSecretMasked ? String(item.clientSecretMasked) : undefined,
+  authorizeUrl: item?.authorizeUrl ? String(item.authorizeUrl) : undefined,
+  tokenUrl: item?.tokenUrl ? String(item.tokenUrl) : undefined,
+  userinfoUrl: item?.userinfoUrl ? String(item.userinfoUrl) : undefined,
+  updatedAt: item?.updatedAt ?? null,
+  updatedBy: item?.updatedBy ?? null,
+});
+
 export const adminListSsoProviders = async (): Promise<AdminSsoProvider[]> => {
   const res = await request.get('/admin/sso/providers', { silent: true });
   const list = unwrap(res);
-  return Array.isArray(list)
-    ? (list as any[]).map((item) => ({
-        code: String(item.code),
-        name: String(item.name ?? item.code),
-        icon: item.icon ? String(item.icon) : undefined,
-        enabled: Boolean(item.enabled),
-        configured: Boolean(item.configured),
-        usable: Boolean(item.usable),
-        scopes: item.scopes ? String(item.scopes) : undefined,
-      }))
-    : [];
+  return Array.isArray(list) ? (list as any[]).map((item) => normalizeAdminSsoProvider(item)) : [];
+};
+
+/**
+ * 保存凭据（t116）：`PUT /admin/sso/providers/{code}` 部分更新。
+ *
+ * 关键约定（前端必须照做，否则会丢密钥）：
+ * - **不传 `clientSecret`**（留空）→ 后端保持原有 secret 不变；
+ * - 只有显式 `clearClientSecret: true` 才清空；
+ * - 前端不做「把掩码当值提交」这种蠢事 —— 输入框留空即"不修改"。
+ */
+export const adminUpdateSsoProviderConfig = async (
+  code: string,
+  payload: AdminSsoProviderUpdate,
+): Promise<AdminSsoProvider> => {
+  const res = await request.put(`/admin/sso/providers/${encodeURIComponent(code)}`, payload, { silent: true });
+  return normalizeAdminSsoProvider(unwrap(res) ?? {}, code);
 };
 
 export const adminToggleSsoProvider = async (code: string, enabled: boolean): Promise<AdminSsoProvider> => {
@@ -152,16 +218,7 @@ export const adminToggleSsoProvider = async (code: string, enabled: boolean): Pr
     { enabled },
     { silent: true },
   );
-  const payload = unwrap(res) ?? {};
-  return {
-    code: String(payload.code ?? code),
-    name: String(payload.name ?? code),
-    icon: payload.icon ? String(payload.icon) : undefined,
-    enabled: Boolean(payload.enabled),
-    configured: Boolean(payload.configured),
-    usable: Boolean(payload.usable),
-    scopes: payload.scopes ? String(payload.scopes) : undefined,
-  };
+  return normalizeAdminSsoProvider(unwrap(res) ?? {}, code);
 };
 
 /** 记住「这次跳转是登录还是绑定」以及 provider（回调页据此调对应接口与文案） */

@@ -138,14 +138,24 @@
   pointer-events: none;
 }
 
+/* 徽标尺寸（t118 放大）：桌面 36–40px、<768px 27px。
+   SVG 由 `.login-brand__mark svg { width/height: 100% }` 铺满容器，
+   因此这里改的是**盒子**尺寸，不用逐个主题传 prop。 */
 .login-brand__mark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: clamp(28px, 2.6vw, 40px);
+  height: clamp(28px, 2.6vw, 40px);
   grid-row: 1 / span 2;
   color: var(--stage-ink);
+  flex: 0 0 auto;
+}
+
+.login-brand__mark > svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .login-brand__text {
@@ -368,8 +378,8 @@
   }
 
   .login-brand__mark {
-    width: 26px;
-    height: 26px;
+    width: 27px;
+    height: 27px;
     grid-row: auto;
   }
 
