@@ -36,8 +36,19 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Transactional
-@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+// t121 性能：原先 AFTER_EACH_TEST_METHOD 让 773 条用例各重建一次 Spring 上下文（约 12–20s/次，
+// 全量 30+ 分钟的主因）。改为 AFTER_CLASS：类内共用一个上下文、类间仍然隔离（每个类跑完即关闭），
+// 上下文数量从「用例数」降到「测试类数」。用例之间的状态由 setUp() 显式复位：
+// clearDatabase() + 两个限流器（验证码/找回密码）的 resetThrottleState()。
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 public abstract class BaseTest {
+
+    @Autowired
+    private com.vulnaudit.service.VerificationCodeService verificationCodeServiceForReset;
+
+    @Autowired
+    private com.vulnaudit.service.PasswordResetService passwordResetServiceForReset;
+
 
     @Autowired
     protected MockMvc mockMvc;
@@ -77,6 +88,9 @@ public abstract class BaseTest {
     protected void setUp() {
         testCounter++;
         clearDatabase();
+        // t121：类内共享上下文时，进程内的限流/冷却状态必须逐条用例复位，否则会串扰下一条用例
+        verificationCodeServiceForReset.resetThrottleState();
+        passwordResetServiceForReset.resetThrottleState();
         Role adminRole = roleRepository.save(Objects.requireNonNull(Role.builder()
                 .name("管理员").code("admin").description("管理员").isSystem(true).build()));
         Role leaderRole = roleRepository.save(Objects.requireNonNull(Role.builder()

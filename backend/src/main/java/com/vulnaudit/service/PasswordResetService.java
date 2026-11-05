@@ -45,4 +45,9 @@ public interface PasswordResetService {
      */
     void confirm(@Nullable String username, @Nullable String target, @Nullable String code,
                  @Nullable String newPassword, @Nullable String clientIp);
+
+    /**
+     * 清空进程内的失败计数与冷却（t121：测试基类在每条用例前调用，避免用例间泄漏）。
+     */
+    void resetThrottleState();
 }

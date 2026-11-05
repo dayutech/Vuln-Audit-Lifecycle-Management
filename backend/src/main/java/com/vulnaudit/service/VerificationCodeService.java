@@ -57,4 +57,11 @@ public interface VerificationCodeService {
      */
     @Nonnull
     String normalize(@Nonnull VerificationChannel channel, @Nullable String targetRaw);
+
+    /**
+     * 清空进程内的限流状态（t121：测试基类在每条用例前调用，避免上一条用例的冷却/计数泄漏）。
+     *
+     * <p>只影响内存计数，不动库里的验证码记录。
+     */
+    void resetThrottleState();
 }

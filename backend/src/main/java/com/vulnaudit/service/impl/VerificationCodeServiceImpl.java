@@ -222,4 +222,9 @@ public class VerificationCodeServiceImpl implements VerificationCodeService {
         }
         return target.charAt(0) + "***" + target.substring(at);
     }
+
+    @Override
+    public void resetThrottleState() {
+        ipWindows.clear();
+    }
 }

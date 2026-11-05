@@ -3181,3 +3181,79 @@ curl -s -X POST http://127.0.0.1:8089/api/v1/auth/password-reset/send-code -H 'C
 
 `send-code` / `confirm` 的请求体**新增必填 `username`**：旧前端只传 `channel/target` 会得到 **400**（参数校验），
 这是刻意的破坏性收紧（安全优先）。前端「忘记密码」表单需要增加用户名输入框，并把 `confirm` 一起补上。
+
+## 56. 第三十九轮（测试隔离缺陷修复 + 全量回归提速到 15 分钟，t121）
+
+### 56.1 缺陷现象
+
+全量 `mvn -B clean test` 偶发 **1 个 Error**（773 例中固定只挂一条）：
+
+```
+AuditLogControllerTest#getUserAuditLogs_Success
+→ JdbcSQLSyntaxErrorException: Table "USER_ROLES" not found
+```
+
+单跑该类稳定 **9/9 PASS**，说明与业务逻辑无关，是**测试隔离**问题。
+
+### 56.2 根因（机制性，不是概率性）
+
+| 环节 | 旧行为 |
+|---|---|
+| 数据源 | 所有 Spring 上下文共用 **同一个** H2 内存库 `jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1` |
+| 建表方式 | `spring.jpa.hibernate.ddl-auto=create-drop` |
+| 上下文生命周期 | `BaseTest` 上有 `@DirtiesContext(AFTER_EACH_TEST_METHOD)` → **每条用例**关闭上下文 |
+| 触发链 | 上下文 A 关闭时 Hibernate 执行 `drop` **把共享库里的所有表删掉**；此时 Spring 上下文缓存里仍有上下文 B（配置不同的类会缓存多份），B 复用**同一个已空的库** → 查 `user_roles` 直接 `Table not found` |
+
+所以它是一个「共享可变状态 + 销毁副作用」的必然结果，出现与否只取决于**上下文关闭与复用的交错顺序**，因此表现为偶发。
+
+### 56.3 修复（两层，缺一不可）
+
+1. **库按上下文隔离**（`src/test/resources/application-test.yml`）
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:h2:mem:vulnaudit-${random.uuid};DB_CLOSE_ON_EXIT=FALSE   # 每个上下文一个独立库
+    hikari:
+      minimum-idle: 1        # 保活：上下文存活期间库不被回收
+      maximum-pool-size: 4
+```
+
+不再使用 `DB_CLOSE_DELAY=-1`：那会让每个库常驻到 JVM 退出，数百个库会吃光堆；改由 Hikari 最小空闲连接保活，
+上下文关闭 → 连接关闭 → 内存库自动回收。自此「A 关闭时 drop 表」只影响 A 自己的库，**共享可变状态这个必要前提被移除**。
+
+2. **上下文按类复用**（`BaseTest`）——顺带把全量时间从 **30+ 分钟压到 15 分钟**
+
+| 项 | 旧 | 新 |
+|---|---|---|
+| `@DirtiesContext` | `AFTER_EACH_TEST_METHOD`（773 个上下文） | `AFTER_CLASS`（≈ 测试类数量） |
+| 类内状态复位 | 靠重建上下文 | `setUp()` 显式复位：`clearDatabase()` + `verificationCodeService.resetThrottleState()` + `passwordResetService.resetThrottleState()` |
+| 类间隔离 | 天然 | 不变（每个类跑完即关闭上下文） |
+
+为此给两个**进程内限流器**补了测试复位口（`resetThrottleState()`，只清内存计数、不动库）：`VerificationCodeService`
+（IP 窗口）与 `PasswordResetService`（IP 失败窗口、username 不匹配计数与冷却）。这是把「靠重建上下文擦屁股」换成「显式清理」，
+并且**没有**放宽任何业务校验。
+
+### 56.4 验证（2 次全量 + 2 次定向混合，全部 0/0/0）
+
+| # | 命令 | 用例数 | Failures | Errors | Skipped | 耗时 |
+|---|---|---|---|---|---|---|
+| 全量 1 | `mvn -B clean test` | **798** | 0 | 0 | 0 | **15.0 min** |
+| 全量 2 | `mvn -B clean test` | **798** | 0 | 0 | 0 | **14.7 min** |
+| 混合 A | `mvn -B test -Dtest='AuditLogControllerTest,RbacPermissionTest,RoleGrantPolicyTest,RegistrationFlowTest,RegistrationReapplyTest'` | 76 | 0 | 0 | 0 | 1.9 min |
+| 混合 B | 同上 + `-Dsurefire.runOrder=reversealphabetical`（**顺序相反**） | 76 | 0 | 0 | 0 | 1.9 min |
+
+（修复前同环境的全量：773 例、Errors 1、约 30–35 分钟。）
+
+### 56.5 为什么 2 次全量 + 2 次定向混合就够（而不是 3 次全量）
+
+1. 根因是**结构性**的：修复移除了「多个上下文共享同一个可变库」这个必要前提，竞态在结构上无法再生；
+2. 复现该缺陷的充分条件是「**同一 JVM 内多个上下文交替访问同一个库**」——定向混合比「再跑一次全量」更精准地命中原始触发路径
+   （`AuditLogControllerTest` 与 `RbacPermissionTest`/`RoleGrantPolicyTest`/`RegistrationFlowTest`/`RegistrationReapplyTest` 属于不同上下文配置、
+   且都读写 `user_roles`），并且跑了正序/逆序两种顺序；
+3. 全量跑 2 次用于确认整体无回归（798 例含本仓库全部套件）。
+
+### 56.6 后续可优化（记为待办，不阻塞）
+
+`@DirtiesContext(AFTER_CLASS)` 仍然让「每个测试类」重建一次上下文（约 8–12s）。若要进一步提速，可评估：
+按需只在**真正修改了单例状态**的类上加 `@DirtiesContext`，其余类共享同一个上下文；或把 `spring.main.lazy-initialization=true` 开进测试 profile。

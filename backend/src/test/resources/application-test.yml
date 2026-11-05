@@ -1,10 +1,22 @@
 # 测试环境配置
+#
+# t121 测试隔离：每个 Spring 上下文使用**独立的**内存库（库名带 ${random.uuid}）。
+# 根因：BaseTest 用 @DirtiesContext(AFTER_EACH_TEST_METHOD) 让每个用例都关闭上下文，
+# 而 ddl-auto=create-drop 会在上下文关闭时 DROP 所有表；此前所有上下文共用同一个
+# jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1，于是「A 上下文关闭时把表删了」会连带打空
+# 仍被 Spring 上下文缓存复用的 B 上下文 → 偶发 Table "USER_ROLES" not found。
+# 现在库随上下文隔离：关闭时 drop 只影响自己的库。
+# 不再使用 DB_CLOSE_DELAY=-1（那会让每个库常驻到 JVM 退出，数百个上下文会吃光堆），
+# 改由 Hikari 的最小空闲连接保活：上下文关闭 → 连接关闭 → 内存库自动回收。
 spring:
   datasource:
-    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    url: jdbc:h2:mem:vulnaudit-${random.uuid};DB_CLOSE_ON_EXIT=FALSE
     driver-class-name: org.h2.Driver
     username: sa
     password:
+    hikari:
+      minimum-idle: 1
+      maximum-pool-size: 4
   
   jpa:
     hibernate:

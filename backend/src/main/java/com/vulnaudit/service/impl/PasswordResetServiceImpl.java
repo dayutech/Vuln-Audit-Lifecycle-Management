@@ -298,4 +298,11 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         }
         return target.charAt(0) + "***" + target.substring(at);
     }
+
+    @Override
+    public void resetThrottleState() {
+        failedWindows.clear();
+        usernameFailures.clear();
+        usernameCooldownUntil.clear();
+    }
 }

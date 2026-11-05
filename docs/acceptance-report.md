@@ -1713,3 +1713,32 @@ secret 空串不清空与 clearClientSecret 清空 / 响应不含明文且掩码
 审计字段名与 `***` / PATCH 兼容 / 管理端 4 家排序）。`SsoFlowTest` 同步改为 t116 语义后仍 **14/14**。
 接口细节、Web 配置截图步骤与 curl 见 README §51.8；`deploy/manual-ddl.sql` 新增 V25 段（`updated_by` 列 + 配置状态校验 SQL）。
 **风险**：`client_secret` 仍明文落库（见 §8 第 19 项）。
+
+### 8.2 测试隔离缺陷修复（t121，已解决）
+
+**现象**：全量 `mvn -B clean test` 偶发 1 个 Error —— `AuditLogControllerTest#getUserAuditLogs_Success → Table "USER_ROLES" not found`；单跑该类 9/9 PASS。
+
+**根因（机制性）**：旧配置下所有 Spring 上下文共用同一个 `jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1`，且 `ddl-auto=create-drop` + `BaseTest` 的
+`@DirtiesContext(AFTER_EACH_TEST_METHOD)` → 上下文 A 关闭时 Hibernate **drop 掉共享库里的所有表**，而上下文缓存里的 B 仍复用同一个空库 → 查 `user_roles` 报 Table not found。
+
+**修复**：
+1. 库按上下文隔离：`jdbc:h2:mem:vulnaudit-${random.uuid};DB_CLOSE_ON_EXIT=FALSE` + Hikari `minimum-idle=1` 保活（不再用 `DB_CLOSE_DELAY=-1`，避免数百个库常驻堆）；
+2. 上下文按类复用：`BaseTest` 由 `AFTER_EACH_TEST_METHOD` 改为 `AFTER_CLASS`，类内状态由 `setUp()` 显式复位
+（`clearDatabase()` + `VerificationCodeService.resetThrottleState()` + `PasswordResetService.resetThrottleState()` 两个新增测试复位口，只清内存计数、不放宽业务校验）。
+
+**验证（2 次全量 + 2 次定向混合，全 0/0/0）**：
+
+| # | 命令 | 用例数 | F | E | S | 耗时 |
+|---|---|---|---|---|---|---|
+| 1 | `mvn -B clean test` | 798 | 0 | 0 | 0 | 15.0 min |
+| 2 | `mvn -B clean test` | 798 | 0 | 0 | 0 | 14.7 min |
+| 3 | 定向混合（正序，5 个套件） | 76 | 0 | 0 | 0 | 1.9 min |
+| 4 | 定向混合（`reversealphabetical` 逆序） | 76 | 0 | 0 | 0 | 1.9 min |
+
+**收益**：全量耗时 **30–35 min → 约 15 min**；原偶发 Error 消失（798 例连续两次全绿）。
+**为什么 2+2 足够**：根因是共享可变库被结构性移除；触发充分条件「同 JVM 多上下文交替访问同库」由定向混合（含逆序）直接覆盖，全量两次确认无回归。
+
+### 8.3 待优化（性能，不阻塞）
+
+`BaseTest` 的 `@DirtiesContext` 仍让**每个测试类**重建一次上下文（约 8–12s，全量约 90 次）。后续可评估：仅在真正修改单例状态的类上加 `@DirtiesContext`、
+其余类共享上下文；或在测试 profile 打开 `spring.main.lazy-initialization=true`。详见 README §56.6。
