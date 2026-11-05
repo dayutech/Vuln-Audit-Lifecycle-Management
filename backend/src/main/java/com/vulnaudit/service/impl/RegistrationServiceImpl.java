@@ -77,6 +77,7 @@ public class RegistrationServiceImpl implements RegistrationService {
     private final PasswordEncoder passwordEncoder;
     private final AuditLogService auditLogService;
     private final SsoBindingRepository ssoBindingRepository;
+    private final com.vulnaudit.security.RoleGrantPolicy roleGrantPolicy;
     private final SsoPendingBindingRepository ssoPendingBindingRepository;
 
     /** 用于「占位用户是否有关联任务/资产」的轻量计数查询（t111） */
@@ -182,6 +183,10 @@ public class RegistrationServiceImpl implements RegistrationService {
     public ApproveRegistrationResponse approve(UUID requestId, UUID reviewerId, List<String> roleCodes) {
         RegistrationRequest request = requirePending(requestId);
 
+        // t115：角色解析与「可授予」边界校验必须在任何写操作之前完成 ——
+        // 非 ADMIN 授予管理类角色 → 403，且不建号/不改动（连申请状态都不变）
+        List<Role> resolvedRoles = resolveGrantableRoles(roleCodes);
+
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND,
                         "注册申请对应的占位用户不存在: " + request.getUsername()));
@@ -198,7 +203,7 @@ public class RegistrationServiceImpl implements RegistrationService {
         }
         userRepository.save(user);
         // t111：角色必须显式指定；空数组 = 建号但不授角色（不再隐式给 vulnerability_engineer）
-        assignRoles(user.getId(), roleCodes, reviewerId);
+        assignRoles(user.getId(), resolvedRoles, reviewerId);
 
         // t104：SSO 首次登录的「待审批绑定」在审批通过时转为正式绑定
         activateSsoBindings(request, user, reviewerId);
@@ -212,7 +217,9 @@ public class RegistrationServiceImpl implements RegistrationService {
                 "REGISTRATION_APPROVE", "registration-request", request.getId(),
                 "注册申请通过: username=" + request.getUsername()
                         + ", phone=" + maskPhone(request.getPhone())
-                        + ", userId=" + user.getId());
+                        + ", userId=" + user.getId()
+                        + ", roles=" + (resolvedRoles.isEmpty() ? "[]"
+                        : resolvedRoles.stream().map(Role::getCode).collect(java.util.stream.Collectors.joining(","))));
 
         log.info("注册申请已通过: username={}, userId={}", request.getUsername(), user.getId());
         return new ApproveRegistrationResponse(RegistrationRequestVO.from(request),
@@ -429,17 +436,15 @@ public class RegistrationServiceImpl implements RegistrationService {
      * @param roleCodes  角色码列表（可空 = 不授角色）
      * @param reviewerId 审批人（写入 user_roles.assigned_by）
      */
-    private void assignRoles(UUID userId, List<String> roleCodes, UUID reviewerId) {
-        if (roleCodes == null || roleCodes.isEmpty()) {
+    private void assignRoles(UUID userId, List<Role> roles, UUID reviewerId) {
+        if (roles == null || roles.isEmpty()) {
             log.info("审批通过但未指定角色，该账号登录后仅有默认 ROLE_USER: userId={}", userId);
             return;
         }
         if (!userRoleRepository.findByUserId(userId).isEmpty()) {
             return;
         }
-        for (String code : roleCodes.stream().filter(StringUtils::hasText).map(String::trim).distinct().toList()) {
-            Role role = roleRepository.findByCode(code)
-                    .orElseThrow(() -> new BusinessException(ErrorCode.BAD_REQUEST, "角色不存在: " + code));
+        for (Role role : roles) {
             userRoleRepository.save(Objects.requireNonNull(UserRole.builder()
                     .userId(userId)
                     .roleId(role.getId())
@@ -447,6 +452,34 @@ public class RegistrationServiceImpl implements RegistrationService {
                     .assignedAt(LocalDateTime.now())
                     .build()));
         }
+    }
+
+    /**
+     * 角色码 → 角色实体，并做「存在性（400）+ 可授予边界（403）」校验（t115）
+     *
+     * <p>必须在任何写操作之前调用：非法码或越权授予都不得留下副作用。
+     * 去重后按请求顺序返回；空/全空白 → 空列表（合法：不授角色）。
+     */
+    private List<Role> resolveGrantableRoles(List<String> roleCodes) {
+        if (roleCodes == null || roleCodes.isEmpty()) {
+            return List.of();
+        }
+        List<String> codes = roleCodes.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .toList();
+        if (codes.isEmpty()) {
+            return List.of();
+        }
+        List<Role> roles = new java.util.ArrayList<>(codes.size());
+        for (String code : codes) {
+            roles.add(roleRepository.findByCode(code)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.BAD_REQUEST, "角色不存在: " + code)));
+        }
+        // 单一来源的角色授予边界：非 ADMIN 授予 admin / project_leader / is_system 角色 → 403
+        roleGrantPolicy.assertCanGrant(roles);
+        return List.copyOf(roles);
     }
 
     private RegistrationStatus parseStatus(String raw) {

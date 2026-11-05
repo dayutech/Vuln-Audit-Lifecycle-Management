@@ -59,6 +59,7 @@ public class RoleServiceImpl implements RoleService {
     private final PermissionRepository permissionRepository;
     private final RolePermissionRepository rolePermissionRepository;
     private final UserRoleRepository userRoleRepository;
+    private final com.vulnaudit.security.RoleGrantPolicy roleGrantPolicy;
     private final UserRepository userRepository;
 
     /**
@@ -439,6 +440,11 @@ public class RoleServiceImpl implements RoleService {
             log.warn("角色不存在: roleId={}", roleId);
             throw new BusinessException(ErrorCode.ROLE_NOT_FOUND);
         }
+        // t115：角色授予边界（非 ADMIN 不得授予 admin / project_leader / is_system 角色）；
+        // 放在幂等短路之前，越权请求不会因为「已分配」而被静默放过
+        roleGrantPolicy.assertCanGrant(java.util.List.of(roleRepository.findById(roleId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.ROLE_NOT_FOUND))));
+
         // 幂等：已分配则不改动
         if (userRoleRepository.existsByUserIdAndRoleId(userId, roleId)) {
             log.info("用户已拥有该角色，跳过: userId={}, roleId={}", userId, roleId);

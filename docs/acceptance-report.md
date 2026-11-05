@@ -1530,3 +1530,19 @@ SSO 用户本地密码为 32 位随机串（不告知），需要本地密码走
 **证据**：`RegistrationReapplyTest` **15 例全绿**（见 README §52.6 列表）；`RegistrationFlowTest` 的 `rejectThenLogin` 同步为 401 + 通用文案；
 `SsoFlowTest` 14 例仍全绿（approve 无 body 时按空 roles 处理，不影响 SSO 绑定激活）。
 规则与策略细节见 README §52。
+
+### 8.1 角色授予权限边界修复（t115，已解决）
+
+**缺陷**：`assignRoles` 只校验角色码存在，没有「可授予」判断 —— PROJECT_LEADER 绕过前端直接传 `{"roles":["admin"]}` 即可自助提权（典型「前端隐藏 ≠ 后端强制」）。
+
+**修复**：新增单一事实来源 `security/RoleGrantPolicy`：
+- 受限角色 = `is_system=true` ∪ `{admin, project_leader}`，仅 **ADMIN** 可授予；
+- 非 ADMIN 授予受限角色 → **403「无权授予管理类角色: xxx」**，且在任何写操作之前失败（不建号、不改角色、不写成功审计）；
+- 业务角色（vulnerability_engineer / team_leader / auditor …）ADMIN 与 PL 均可授予；角色码不存在 → 400；空数组合法；重复去重。
+
+**覆盖入口（逐个核对，不只改审批一处）**：注册审批 `approve{roles}`、SSO 审批联动（同一 approve 路径）、`POST /users/{id}/roles`、`POST /roles/{id}/users/{userId}`、用户批量导入 `ImportServiceImpl` —— 后三者统一经 `RoleServiceImpl.assignRoleToUser` 强制（校验放在幂等短路**之前**）。移除角色不受影响。
+
+**审计**：`REGISTRATION_APPROVE` 的 details 追加 `roles=…`（无角色为 `roles=[]`）；被拒的越权请求**不产生**审批成功审计。
+
+**验证**：`RoleGrantPolicyTest` **13/13**（PL→admin 403 且账号仍待审批、PL→业务角色 200、ADMIN→admin 200、PL→project_leader 403、非法码 400、空数组 200、去重、审计含角色、PL 调用户角色接口 403、服务层策略强制、策略分类）。
+权限矩阵见 README §53.2。线上 curl 复核（PL 403 / ADMIN 200）随下一次部署执行。

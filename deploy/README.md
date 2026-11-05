@@ -2792,3 +2792,67 @@ curl -s "http://127.0.0.1:8089/api/v1/auth/sso/github/authorize-url?redirectUri=
 ```bash
 cd backend && mvn -B test -Dtest='RegistrationReapplyTest,RegistrationFlowTest'   # 15 + 17 全绿
 ```
+
+## 53. 第三十七轮（角色授予权限边界：非 ADMIN 不得授予管理类角色，t115）
+
+**修复的问题**：后端 `assignRoles` 只校验角色码存在、没有「可授予」判断 —— 前端隐藏 admin 角色只是 UI 收敛，
+PROJECT_LEADER 直接调 `POST /admin/registration-requests/{id}/approve {"roles":["admin"]}` 即可**自助提权**。
+
+### 53.1 单一事实来源：`security/RoleGrantPolicy`
+
+| 概念 | 判定 |
+|---|---|
+| **受限角色** | `roles.is_system = true` 的任意角色，**或**代码为 `admin` / `project_leader` 的角色（即便库里 `is_system=false` 也不下放） |
+| **可授予者** | `ROLE_ADMIN`（当前请求认证上下文判定） |
+| **业务角色** | `vulnerability_engineer` / `team_leader` / `auditor` 等非受限角色 → ADMIN 与 PROJECT_LEADER 均可授予 |
+| **越权结果** | **403「无权授予管理类角色: admin」**，且调用方**先行失败**：不建号、不改角色、不写成功审计 |
+| **内部调用** | 无认证上下文（启动初始化 / 批处理内部调用）按系统调用放行并打 WARN；Web 请求一律有上下文，不成为绕过口 |
+
+其它规则：角色码必须存在（**400「角色不存在: xxx」**，ADMIN 也一样）；空数组/省略 = 合法（不授角色）；重复码去重。
+
+### 53.2 角色授予权限矩阵（入口 × 授予者 × 可授予集合）
+
+| 入口 | 授予者 | 可授予集合 |
+|---|---|---|
+| `POST /api/v1/admin/registration-requests/{id}/approve`（body `{roles}`） | ADMIN | 全部角色（含 `admin` / `project_leader` / `is_system`） |
+| 同上 | PROJECT_LEADER | **仅业务角色**；含受限角色 → 403 且申请状态不变、账号仍 `pending_approval` |
+| SSO 首次登录审批联动（`RegistrationServiceImpl.activateSsoBindings` 同一 approve 路径） | ADMIN / PL | 同上（角色校验在审批开头统一执行） |
+| `POST /api/v1/users/{id}/roles?roleId=` | ADMIN | 全部角色（服务层同样过策略，PL 上下文 → 403） |
+| `POST /api/v1/roles/{id}/users/{userId}` | ADMIN | 全部角色（`RoleServiceImpl.assignRoleToUser` 统一强制） |
+| 用户批量导入（`ImportServiceImpl` → `assignRoleToUser`） | ADMIN | 全部角色（同样经过策略，导入端点本身仅 ADMIN） |
+| 移除角色（`DELETE .../roles/...`） | ADMIN | 不受授予策略限制（移除不构成提权） |
+
+### 53.3 实现要点
+
+- `RegistrationServiceImpl.approve`：**先** `resolveGrantableRoles(roleCodes)`（存在性 400 → 策略 403 → 去重），**再**改用户/申请状态；
+  审批审计 `REGISTRATION_APPROVE` 的 details 追加 `roles=xxx`（无角色时 `roles=[]`）。
+- `RoleServiceImpl.assignRoleToUser(...)`：在**幂等短路之前**执行策略校验，越权请求不会因「已分配」被静默放过。
+- 策略本身无状态（`@Component`），只依赖 `SecurityContextHolder`，便于单测直接构造认证上下文。
+
+### 53.4 验证
+
+`RoleGrantPolicyTest` **13 例全绿**：PL 审批传 `[admin]` → 403 且账号仍待审批·无角色·无审批成功审计 / PL 传业务角色 → 200 /
+ADMIN 传 `[admin]` → 200 / PL 传 `team_leader` → 200 / PL 传 `project_leader` → 403 / 非法角色码 → 400 且不建号 /
+空数组 → 200 无角色 / 重复码去重 / 审批审计含授予角色 / PL 调用户角色接口 → 403 /
+服务层：PL 上下文授予 team_leader 成功、授予 admin 抛 403 / ADMIN 上下文可授 admin、不存在角色 → ROLE_NOT_FOUND /
+策略分类断言（is_system、admin、project_leader 受限；业务角色不受限）。
+
+```bash
+cd backend && mvn -B test -Dtest=RoleGrantPolicyTest        # 期望 13/13
+
+# 线上等价 curl（部署本版本后）
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  -H "Authorization: Bearer $PL_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"roles":["admin"]}' \
+  http://127.0.0.1:8089/api/v1/admin/registration-requests/$REQUEST_ID/approve   # 期望 403
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  -H "Authorization: Bearer $ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"roles":["admin"]}' \
+  http://127.0.0.1:8089/api/v1/admin/registration-requests/$REQUEST_ID/approve   # 期望 200
+```
+
+### 53.5 已知边界
+
+1. 受限集合里 `admin` / `project_leader` 是**硬编码兜底**：即使有人把库里 `is_system` 改成 false，也不会被下放；新增管理类角色应同时置 `is_system=true`。
+2. 策略只看 `ROLE_ADMIN`：如果要引入「角色管理员」这类细分权限，需要扩展为权限点（`ROLE_ADMIN` 或 `role:grant:*` 权限）。
+3. 无认证上下文放行是给初始化/批处理留的口子，已在代码里 WARN 留痕；若未来有「无上下文的任务线程授予角色」，应改为显式传 actor。
