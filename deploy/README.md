@@ -3377,3 +3377,47 @@ cd backend && mvn -B test -Dtest='LoginLockoutTest,AuthControllerTest,Registrati
 2. **告警通道默认只写日志**：接真实短信/邮件网关需实现 `VerificationCodeSender` 并覆盖 `sendSecurityAlert`。
 3. **IP 归属**：`X-Forwarded-For` 首个地址（与找回密码一致）；若前面有不可信代理，需在网关层剥离伪造头。
 4. 账户锁定期间**不递增**失败计数、不重复告警（避免攻击者用正确密码探测锁定状态时反复打告警）。
+
+## 59. 第四十二轮（客户编码自动生成 + 国标行业枚举检索，t129）
+
+### 59.1 客户编码（CUST- + 7 位随机大写字母）
+
+| 规则 | 实现 |
+|---|---|
+| 格式 | `CUST-` + 7 位 `A-Z`（`SecureRandom`），总长 **12**，正则 `^CUST-[A-Z]{7}$` |
+| 何时生成 | **仅当请求未传 `code`**（`CustomerRequest.code` 由「必填」改为可选） |
+| 显式传入 | 原样保留（便于导入历史数据），但仍校验唯一性 |
+| 唯一性 | `existsByCode` 查库（含历史/停用行）→ 冲突重试，**最多 10 次**后抛错并记录 ERROR 日志 |
+| 并发 | 生成 + 插入在同一 `@Transactional` 内；唯一索引兜底，冲突按唯一键异常返回（不 500） |
+| 更新场景 | 未传 `code` → 保留原编码；传了且与他人重复 → 409 |
+
+### 59.2 行业枚举（GB/T 4754）
+
+表 `industry_types`：`code`(唯一)、`name`、`parent_code`(门类→大类)、`builtin`(内置不可改)、`sort_order`、`enabled`、时间戳。
+`customers` 保留 `industry` 显示名，新增 `industry_code VARCHAR(16)`；V27 迁移按名称精确匹配**回填**历史数据，匹配不到保持 `NULL`（不阻塞）。
+
+**内置清单（22 条，builtin=true）**：门类 A 农林牧渔 / B 采矿 / C 制造 / D 电力热力燃气及水 / E 建筑 / F 批发零售 / G 交通运输仓储邮政 /
+H 住宿餐饮 / I 信息传输软件和信息技术服务业 / J 金融 / K 房地产 / L 租赁商务服务 / M 科研技术服务 / N 水利环境公共设施 /
+O 居民服务修理 / P 教育 / Q 卫生和社会工作 / R 文化体育娱乐 / S 公共管理社会保障 / T 国际组织，以及大类 **I65 软件和信息技术服务业**、**I64 互联网和相关服务**。
+
+**检索** `GET /api/v1/industry-types?keyword=&limit=20`（登录即可）：code/name 模糊匹配、大小写不敏感、仅 `enabled=true`；
+**前缀命中优先**（`keyword=软件` 先返回 I65 而不是 I）；`limit` 上限 100。
+
+**客户写入**：传 `industryCode` → 校验存在且启用（否则 400），并同步 `industry` 显示名；
+只传 `industry`（旧前端）→ 按名称精确匹配回填 code，匹配不到仅存名称、不报错。
+
+### 59.3 验证
+
+`CustomerCodeIndustryTest` **14 例全绿**：自动编码格式/长度/两次不同、显式 code 保留、重复 409、生成编码避让历史行、
+关键字中文命中 I65、大小写不敏感、limit 生效与上限、禁用项不返回、内置 ≥20 条、带 industryCode 落库一致、
+非法/停用 code → 400、旧前端名称回填、匹配不到不报错、更新保留原编码并同步行业。
+
+```bash
+cd backend && mvn -B test -Dtest=CustomerCodeIndustryTest   # 14/14
+```
+
+### 59.4 已知边界
+
+1. `customers` 当前**没有软删除**（`delete` 为物理删除），因此「唯一性检查含软删记录」以「含全部现存行」实现；将来若引入 `deleted_at`，`existsByCode` 需一并覆盖。
+2. 极端并发下 10 次重试仍冲突会返回错误（概率 36^7 ≈ 7.8e10 号段，实际不可达）。
+3. 行业名称回填只在迁移时执行一次；后续改名不会自动同步历史客户。

@@ -60,10 +60,17 @@ public class CustomerServiceImpl implements CustomerService {
 
     private static final List<String> CUSTOMER_STATUSES = List.of("active", "inactive");
 
+    /** 客户编码生成的最大重试次数（t129） */
+    private static final int CODE_MAX_ATTEMPTS = 10;
+
+    /** 客户编码随机源（SecureRandom，A-Z 7 位） */
+    private static final java.security.SecureRandom CODE_RANDOM = new java.security.SecureRandom();
+
     /** 客户详情聚合里 recentAssets 的条数上限（t76） */
     private static final int RECENT_ASSET_LIMIT = 10;
 
     private final CustomerRepository customerRepository;
+    private final com.vulnaudit.service.IndustryTypeService industryTypeService;
     private final ProjectRepository projectRepository;
     private final AssetProjectLinkRepository assetProjectLinkRepository;
     private final ProjectPhaseRepository projectPhaseRepository;
@@ -248,14 +255,13 @@ public class CustomerServiceImpl implements CustomerService {
     @Override
     @Transactional
     public CustomerResponse create(CustomerRequest request, @Nullable UUID operatorId) {
-        String code = request.code().trim();
-        if (customerRepository.existsByCode(code)) {
-            throw new BusinessException(ErrorCode.CUSTOMER_CODE_EXISTS, "客户编码已存在: " + code);
-        }
+        String code = resolveCode(request.code());
+        IndustryResolution industry = resolveIndustry(request.industryCode(), request.industry());
         Customer customer = Customer.builder()
                 .code(code)
                 .name(request.name().trim())
-                .industry(request.industry())
+                .industry(industry.name())
+                .industryCode(industry.code())
                 .level(request.level())
                 .contactName(request.contactName())
                 .contactPhone(request.contactPhone())
@@ -274,17 +280,12 @@ public class CustomerServiceImpl implements CustomerService {
     @Transactional
     public CustomerResponse update(@Nullable UUID id, CustomerRequest request) {
         Customer customer = requireCustomer(id);
-        String code = request.code().trim();
-        if (!code.equals(customer.getCode())) {
-            customerRepository.findByCode(code).ifPresent(existing -> {
-                if (!existing.getId().equals(customer.getId())) {
-                    throw new BusinessException(ErrorCode.CUSTOMER_CODE_EXISTS, "客户编码已存在: " + code);
-                }
-            });
-        }
+        String code = resolveCodeForUpdate(request.code(), customer.getCode(), customer.getId());
+        IndustryResolution industry = resolveIndustry(request.industryCode(), request.industry());
         customer.setCode(code);
         customer.setName(request.name().trim());
-        customer.setIndustry(request.industry());
+        customer.setIndustry(industry.name());
+        customer.setIndustryCode(industry.code());
         customer.setLevel(request.level());
         customer.setContactName(request.contactName());
         customer.setContactPhone(request.contactPhone());
@@ -364,5 +365,81 @@ public class CustomerServiceImpl implements CustomerService {
                 customer.getCreatedBy(),
                 customer.getCreatedAt(),
                 customer.getUpdatedAt());
+    }
+
+    // ------------------------------------------------------------------ 客户编码（t129）
+
+    /** 自动生成客户编码：CUST- + 7 位随机大写字母（总长 12）；仅当请求未提供 code 时调用 */
+    private String generateCode() {
+        String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        StringBuilder sb = new StringBuilder("CUST-");
+        for (int i = 0; i < 7; i++) {
+            sb.append(alphabet.charAt(CODE_RANDOM.nextInt(alphabet.length())));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 解析客户编码：请求有值 → 校验格式与唯一性后原样保留；为空 → 生成并保证唯一（最多 10 次）
+     *
+     * <p>唯一性检查覆盖全部行（含历史/停用记录），避免复用编码；生成+插入在同一事务内，
+     * 极端并发下由唯一索引兜底（冲突会以 409 返回，不会 500）。
+     */
+    private String resolveCode(String raw) {
+        if (StringUtils.hasText(raw)) {
+            String candidate = raw.trim();
+            if (customerRepository.existsByCode(candidate)) {
+                throw new BusinessException(ErrorCode.CUSTOMER_CODE_EXISTS, "客户编码已存在: " + candidate);
+            }
+            return candidate;
+        }
+        for (int attempt = 0; attempt < CODE_MAX_ATTEMPTS; attempt++) {
+            String candidate = generateCode();
+            if (!customerRepository.existsByCode(candidate)) {
+                return candidate;
+            }
+            log.warn("客户编码冲突，重试: code={}, attempt={}", candidate, attempt + 1);
+        }
+        log.error("客户编码生成连续 {} 次冲突，放弃", CODE_MAX_ATTEMPTS);
+        throw new IllegalStateException("客户编码生成失败，请重试");
+    }
+
+    /** 更新场景：未传 code → 保留原编码 */
+    private String resolveCodeForUpdate(String raw, String currentCode, java.util.UUID selfId) {
+        if (!StringUtils.hasText(raw)) {
+            return currentCode;
+        }
+        String candidate = raw.trim();
+        if (candidate.equals(currentCode)) {
+            return currentCode;
+        }
+        customerRepository.findByCode(candidate).ifPresent(existing -> {
+            if (!existing.getId().equals(selfId)) {
+                throw new BusinessException(ErrorCode.CUSTOMER_CODE_EXISTS, "客户编码已存在: " + candidate);
+            }
+        });
+        return candidate;
+    }
+
+    // ------------------------------------------------------------------ 行业（t129）
+
+    /** 行业解析结果：code + 显示名 */
+    private record IndustryResolution(String code, String name) {
+    }
+
+    /**
+     * 行业解析：优先 industryCode（必须存在且启用）→ 回填显示名；
+     * 只给显示名时尝试按名称精确匹配回填 code，匹配不到则仅存名称（旧前端兼容，不阻塞）。
+     */
+    private IndustryResolution resolveIndustry(String industryCode, String industryName) {
+        if (StringUtils.hasText(industryCode)) {
+            var option = industryTypeService.requireEnabled(industryCode);
+            return new IndustryResolution(option.code(), option.name());
+        }
+        if (StringUtils.hasText(industryName)) {
+            var matched = industryTypeService.matchByName(industryName);
+            return new IndustryResolution(matched == null ? null : matched.code(), industryName.trim());
+        }
+        return new IndustryResolution(null, null);
     }
 }

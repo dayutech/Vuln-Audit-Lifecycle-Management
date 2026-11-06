@@ -816,7 +816,7 @@ public class ImportServiceImpl implements ImportService {
             checkLength(description, 1000, "客户备注");
         }
 
-        return new CustomerRequest(code, name, industry, level, contactName, contactPhone,
+        return new CustomerRequest(code, name, industry, null, level, contactName, contactPhone,
                 contactEmail, ownerId, "active", description);
     }
 

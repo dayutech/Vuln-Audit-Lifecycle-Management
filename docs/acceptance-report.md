@@ -1764,3 +1764,13 @@ distinct-ip-threshold/distinct-ip-window-minutes/account-lock-minutes/unlock-use
 
 **验证**：`LoginLockoutTest` **16/16**；关联回归 `LoginLockoutTest + AuthControllerTest + RegistrationFlowTest + PasswordResetFlowTest` **55/55**。
 规则、响应体与已知边界（进程内计数需 Redis、告警通道需接网关、XFF 信任边界）见 README §58。
+
+### 2.25 客户编码自动生成 + 国标行业枚举（t129）
+
+**编码**：未传 `code` 时生成 `CUST-`+7 位随机大写字母（总长 12，`SecureRandom`），查库唯一（含历史行）冲突重试最多 10 次；显式传入保留并校验唯一性；更新不传则保留原编码。生成与插入同事务，唯一索引兜底。
+
+**行业**：新增 `industry_types`（V27，22 条内置 GB/T 4754 门类/大类，`builtin=true`）；`customers` 新增 `industry_code` 并保留 `industry` 显示名，迁移按名称回填。
+`GET /api/v1/industry-types?keyword=&limit=` 支持 code/name 模糊、大小写不敏感、仅启用项、前缀命中优先、limit≤100。
+客户传 `industryCode` 校验存在且启用并同步显示名；只传名称时尽力匹配回填，匹配不到不报错。
+
+**验证**：`CustomerCodeIndustryTest` **14/14**。规则、内置清单与边界见 README §59。

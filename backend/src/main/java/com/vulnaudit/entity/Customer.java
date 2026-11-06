@@ -46,6 +46,10 @@ public class Customer {
     @Column(name = "industry", length = 100)
     private String industry;
 
+    /** 行业编码（引用 industry_types.code，t129） */
+    @Column(name = "industry_code", length = 16)
+    private String industryCode;
+
     /** 客户等级：A / B / C */
     @Column(name = "level", length = 8)
     private String level;
