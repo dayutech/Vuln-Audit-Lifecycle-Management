@@ -49,11 +49,24 @@ public class IndustryType {
     @Builder.Default
     private boolean enabled = true;
 
+    /**
+     * 软删时间（t130）：管理员删除**自定义**行业时只打标记，不物理删除。
+     *
+     * <p>原因：{@code customers.industry_code} 仍可能引用历史行业，物理删除会让客户详情
+     * 解析不出行业名；软删后「检索 / 下拉」不再返回，但历史引用仍可解释。
+     */
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
+
+    public boolean isDeleted() {
+        return deletedAt != null;
+    }
 
     @PrePersist
     void prePersist() {

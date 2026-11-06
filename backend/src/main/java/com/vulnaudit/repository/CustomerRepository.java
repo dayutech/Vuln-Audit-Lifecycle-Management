@@ -18,7 +18,11 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID>, org.s
 
     boolean existsByCode(String code);
 
+    /** 引用某行业编码的客户数（t130：删除行业前的占用检查） */
+    long countByIndustryCode(String industryCode);
+
     List<Customer> findByStatus(String status);
 
     List<Customer> findByOwnerId(UUID ownerId);
 }
+

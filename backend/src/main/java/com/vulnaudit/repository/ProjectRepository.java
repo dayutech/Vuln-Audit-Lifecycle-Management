@@ -18,6 +18,9 @@ public interface ProjectRepository extends JpaRepository<Project, UUID>, org.spr
 
     boolean existsByCode(String code);
 
+    /** 引用某项目类型的项目数（t130：删除项目类型前的占用检查） */
+    long countByTypeCode(String typeCode);
+
     /** 某客户下的全部项目 */
     List<Project> findByCustomerId(UUID customerId);
 
@@ -28,3 +31,4 @@ public interface ProjectRepository extends JpaRepository<Project, UUID>, org.spr
 
     List<Project> findByStatus(String status);
 }
+

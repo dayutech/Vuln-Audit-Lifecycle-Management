@@ -68,12 +68,41 @@ public class ProjectServiceImpl implements ProjectService {
 
     private static final List<String> PROJECT_TYPES = List.of("PENTEST", "REAUDIT", "CONSULTING", "TRAINING");
 
+    // ------------------------------------------------------------------ 项目编码（t131）
+
+    /** 项目编码前缀 */
+    private static final String PROJECT_CODE_PREFIX = "PRJ-";
+
+    /** 项目编码规范：{@code PRJ-} + {@code yyyy-MM-dd} + {@code -} + 6 位大写字母（总长 21） */
+    private static final java.util.regex.Pattern PROJECT_CODE_PATTERN =
+            java.util.regex.Pattern.compile("^PRJ-\\d{4}-\\d{2}-\\d{2}-[A-Z]{6}$");
+
+    /**
+     * 「日期形」编码：{@code PRJ-} 后紧跟 {@code yyyy-MM-dd-}（大小写不敏感）。
+     *
+     * <p>只有日期形编码纳入严格格式校验；{@code PRJ-HISTORY} / {@code PRJ-T85-A-1} 这类历史与
+     * 导入编码不含日期段，保持「原样保留 + 仅校验唯一性」的旧行为，避免破坏存量数据。
+     */
+    private static final java.util.regex.Pattern PROJECT_CODE_DATE_SHAPED =
+            java.util.regex.Pattern.compile("(?i)^PRJ-\\d{4}-\\d{2}-\\d{2}-.*");
+
+    /** 项目编码生成的最大重试次数 */
+    private static final int PROJECT_CODE_MAX_ATTEMPTS = 10;
+
+    /** 项目编码随机源（SecureRandom，A-Z 6 位） */
+    private static final java.security.SecureRandom PROJECT_CODE_RANDOM = new java.security.SecureRandom();
+
+    /** 随机尾巴长度 */
+    private static final int PROJECT_CODE_RANDOM_LEN = 6;
+
     private final ProjectRepository projectRepository;
     private final ProjectPhaseRepository projectPhaseRepository;
     private final CustomerRepository customerRepository;
     private final AssetProjectLinkRepository assetProjectLinkRepository;
     private final UserRepository userRepository;
     private final com.vulnaudit.repository.TaskRepository taskRepository;
+    /** t130：项目类型引用校验（typeCode） */
+    private final com.vulnaudit.service.ProjectTypeService projectTypeService;
 
     // ------------------------------------------------------------------ 项目查询
 
@@ -318,19 +347,21 @@ public class ProjectServiceImpl implements ProjectService {
     @Override
     @Transactional
     public ProjectResponse create(ProjectRequest request, @Nullable UUID operatorId) {
-        String code = request.code().trim();
-        if (projectRepository.existsByCode(code)) {
-            throw new BusinessException(ErrorCode.PROJECT_CODE_EXISTS, "项目编码已存在: " + code);
-        }
+        // t130：未传 code / projectCode → 自动生成（PRJ-yyyy-MM-dd-6 位大写字母）；显式传入 → 保留并校验
+        String code = resolveCodeForCreate(firstCode(request));
         requireCustomer(request.customerId());
         if (request.managerId() != null) {
             requireUser(request.managerId());
         }
+        // t130：类型引用 typeCode（存在且启用才允许），并同步写入 type 字符串
+        String type = resolveType(request.typeCode(), request.type(), "PENTEST");
+        String typeCode = resolveTypeCode(request.typeCode(), type);
         Project project = Project.builder()
                 .code(code)
                 .customerId(request.customerId())
                 .name(request.name().trim())
-                .type(normalizeType(request.type(), "PENTEST"))
+                .type(type)
+                .typeCode(typeCode)
                 .status("DRAFT")
                 .managerId(request.managerId())
                 .startDate(request.startDate())
@@ -340,7 +371,13 @@ public class ProjectServiceImpl implements ProjectService {
                 .description(request.description())
                 .createdBy(operatorId)
                 .build();
-        Project saved = projectRepository.save(Objects.requireNonNull(project));
+        Project saved;
+        try {
+            // saveAndFlush：把 INSERT 提前到本方法内，让唯一索引冲突在这里被捕获并映射为 409
+            saved = projectRepository.saveAndFlush(Objects.requireNonNull(project));
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            throw translateIntegrityViolation(e, code);
+        }
         log.info("创建项目: id={}, code={}, customerId={}", saved.getId(), saved.getCode(), saved.getCustomerId());
         return toResponse(saved);
     }
@@ -349,14 +386,8 @@ public class ProjectServiceImpl implements ProjectService {
     @Transactional
     public ProjectResponse update(@Nullable UUID id, ProjectRequest request) {
         Project project = requireProject(id);
-        String code = request.code().trim();
-        if (!code.equals(project.getCode())) {
-            projectRepository.findByCode(code).ifPresent(existing -> {
-                if (!existing.getId().equals(project.getId())) {
-                    throw new BusinessException(ErrorCode.PROJECT_CODE_EXISTS, "项目编码已存在: " + code);
-                }
-            });
-        }
+        // t130：更新未传 code / projectCode → 保留原编码（编码对外使用后不得变化）
+        String code = resolveCodeForUpdate(firstCode(request), project.getCode(), project.getId());
         requireCustomer(request.customerId());
         if (request.managerId() != null) {
             requireUser(request.managerId());
@@ -382,14 +413,25 @@ public class ProjectServiceImpl implements ProjectService {
         project.setCode(code);
         project.setCustomerId(request.customerId());
         project.setName(request.name().trim());
-        project.setType(normalizeType(request.type(), project.getType()));
+        // t130：类型引用。调用方**显式**改了 type/typeCode 时，typeCode 跟随重新解析
+        // （历史值 REAUDIT 这类匹配不到表就置空）；两者都没传则保留原值，避免误清。
+        boolean typeTouched = StringUtils.hasText(request.typeCode()) || StringUtils.hasText(request.type());
+        String nextType = resolveType(request.typeCode(), request.type(), project.getType());
+        project.setType(nextType);
+        if (typeTouched) {
+            project.setTypeCode(resolveTypeCode(request.typeCode(), nextType));
+        }
         project.setManagerId(request.managerId());
         project.setStartDate(request.startDate());
         project.setEndDate(request.endDate());
         project.setIsPhased(newPhased);
         project.setContractNo(request.contractNo());
         project.setDescription(request.description());
-        return toResponse(projectRepository.save(project));
+        try {
+            return toResponse(projectRepository.saveAndFlush(project));
+        } catch (org.springframework.dao.DataIntegrityViolationException e) {
+            throw translateIntegrityViolation(e, code);
+        }
     }
 
     @Override
@@ -562,11 +604,156 @@ public class ProjectServiceImpl implements ProjectService {
         return normalized;
     }
 
+    // ------------------------------------------------------------------ 项目类型引用（t130）
+
+    /**
+     * 解析 `projects.type` 字符串。
+     *
+     * <p>优先级：`typeCode`（存在且启用，否则 400）→ `type`（历史白名单 PENTEST/REAUDIT/CONSULTING/TRAINING，
+     * 或 `project_types` 里的自定义 code）→ fallback。
+     * 这样历史导入（REAUDIT / CONSULTING）与新的动态类型可以共存。
+     */
+    private String resolveType(@Nullable String typeCode, @Nullable String type, String fallback) {
+        if (StringUtils.hasText(typeCode)) {
+            return projectTypeService.requireEnabled(typeCode).code();
+        }
+        if (!StringUtils.hasText(type)) {
+            return fallback;
+        }
+        String normalized = type.trim().toUpperCase(Locale.ROOT);
+        if (PROJECT_TYPES.contains(normalized)) {
+            return normalized;
+        }
+        com.vulnaudit.dto.ProjectTypeOption matched = projectTypeService.matchByCode(normalized);
+        if (matched != null
+                && projectTypeService.options().stream().anyMatch(option -> option.code().equals(matched.code()))) {
+            return matched.code();
+        }
+        throw new BusinessException(ErrorCode.BAD_REQUEST,
+                "项目类型非法: " + type + "，可选值 " + String.join(" / ", PROJECT_TYPES));
+    }
+
+    /**
+     * 解析 `projects.type_code` 引用：显式 `typeCode` 校验后返回其 code；
+     * 只给了 `type` 时尽力按 code 匹配（匹配不到返回 null，不报错 —— 历史值可能是 REAUDIT 这类未入表的类型）。
+     */
+    private String resolveTypeCode(@Nullable String typeCode, String resolvedType) {
+        if (StringUtils.hasText(typeCode)) {
+            return projectTypeService.requireEnabled(typeCode).code();
+        }
+        if (!StringUtils.hasText(resolvedType)) {
+            return null;
+        }
+        com.vulnaudit.dto.ProjectTypeOption matched = projectTypeService.matchByCode(resolvedType);
+        return matched == null ? null : matched.code();
+    }
+
     private String normalizePhaseStatus(@Nullable String status, String fallback) {
         if (!StringUtils.hasText(status)) {
             return fallback;
         }
         return status.trim().toUpperCase(Locale.ROOT);
+    }
+
+    // ------------------------------------------------------------------ 项目编码（t131）
+
+    /**
+     * 请求里的项目编码：{@code code} 优先，其次 {@code projectCode} 别名（t130），都空 → {@code null}
+     * （交给 {@link #resolveCodeForCreate} 自动生成 / {@link #resolveCodeForUpdate} 保留原编码）
+     */
+    @Nullable
+    private String firstCode(ProjectRequest request) {
+        if (StringUtils.hasText(request.code())) {
+            return request.code();
+        }
+        return StringUtils.hasText(request.projectCode()) ? request.projectCode() : null;
+    }
+
+    /** 生成项目编码：{@code PRJ-} + {@code yyyy-MM-dd} + {@code -} + 6 位随机大写字母 */
+    private String generateCode() {
+        StringBuilder sb = new StringBuilder(PROJECT_CODE_PREFIX)
+                .append(java.time.LocalDate.now())
+                .append('-');
+        for (int i = 0; i < PROJECT_CODE_RANDOM_LEN; i++) {
+            sb.append((char) ('A' + PROJECT_CODE_RANDOM.nextInt(26)));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 创建场景的项目编码解析
+     *
+     * <p>未传（null / 空串 / 全空白）→ 生成并保证唯一（查库 {@code existsByCode}，最多 10 次重试）；
+     * 显式传入 → 校验格式（仅日期形编码强制规范）与唯一性后原样保留。
+     *
+     * <p><b>唯一性口径</b>：{@code projects} 目前是物理删除（无 {@code deleted_at}），
+     * 因此「含软删除记录」以「含全部现存行」实现。
+     */
+    private String resolveCodeForCreate(@Nullable String raw) {
+        if (StringUtils.hasText(raw)) {
+            String candidate = raw.trim();
+            validateCodeFormat(candidate);
+            if (projectRepository.existsByCode(candidate)) {
+                throw new BusinessException(ErrorCode.PROJECT_CODE_EXISTS, "项目编码已存在: " + candidate);
+            }
+            return candidate;
+        }
+        for (int attempt = 0; attempt < PROJECT_CODE_MAX_ATTEMPTS; attempt++) {
+            String candidate = generateCode();
+            if (!projectRepository.existsByCode(candidate)) {
+                return candidate;
+            }
+            log.warn("项目编码冲突，重试: code={}, attempt={}", candidate, attempt + 1);
+        }
+        log.error("项目编码生成连续 {} 次冲突，放弃", PROJECT_CODE_MAX_ATTEMPTS);
+        throw new BusinessException(ErrorCode.PROJECT_CODE_EXISTS,
+                "项目编码连续 " + PROJECT_CODE_MAX_ATTEMPTS + " 次生成冲突，请重试");
+    }
+
+    /** 更新场景：未传 code → 保留原编码（对外编码不得变化）；传了才校验格式与唯一性 */
+    private String resolveCodeForUpdate(@Nullable String raw, String currentCode, @Nullable UUID selfId) {
+        if (!StringUtils.hasText(raw)) {
+            return currentCode;
+        }
+        String candidate = raw.trim();
+        if (candidate.equals(currentCode)) {
+            return currentCode;
+        }
+        validateCodeFormat(candidate);
+        projectRepository.findByCode(candidate).ifPresent(existing -> {
+            if (!existing.getId().equals(selfId)) {
+                throw new BusinessException(ErrorCode.PROJECT_CODE_EXISTS, "项目编码已存在: " + candidate);
+            }
+        });
+        return candidate;
+    }
+
+    /**
+     * 显式编码格式校验
+     *
+     * <p>只有「日期形」（{@code PRJ-2026-11-06-...}，大小写不敏感）才强制匹配
+     * {@code ^PRJ-\d{4}-\d{2}-\d{2}-[A-Z]{6}$}；{@code PRJ-HISTORY}、{@code P-AGG-1} 等
+     * 历史/导入编码不含日期段，保持兼容（仅校验唯一性）。
+     */
+    private void validateCodeFormat(String candidate) {
+        if (PROJECT_CODE_DATE_SHAPED.matcher(candidate).matches()
+                && !PROJECT_CODE_PATTERN.matcher(candidate).matches()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "项目编码格式非法: " + candidate
+                            + "（应形如 PRJ-2026-11-06-KXQZAB：PRJ- + yyyy-MM-dd + - + 6 位大写字母）");
+        }
+    }
+
+    /** 唯一索引兜底：冲突 → 409（绝不 500），其他完整性错误 → 400 */
+    private BusinessException translateIntegrityViolation(
+            org.springframework.dao.DataIntegrityViolationException e, String code) {
+        if (com.vulnaudit.util.PersistenceErrors.isUniqueViolation(e)) {
+            log.error("项目编码唯一索引冲突（并发写入）: code={}", code, e);
+            return new BusinessException(ErrorCode.PROJECT_CODE_EXISTS, "项目编码已存在: " + code, e);
+        }
+        log.error("项目写入违反完整性约束: code={}", code, e);
+        return new BusinessException(ErrorCode.BAD_REQUEST,
+                "项目写入失败: " + com.vulnaudit.util.PersistenceErrors.detail(e), e);
     }
 
     private CustomerBrief customerBrief(@Nullable UUID customerId) {
@@ -594,6 +781,7 @@ public class ProjectServiceImpl implements ProjectService {
                 customerName,
                 project.getName(),
                 project.getType(),
+                project.getTypeCode(),
                 project.getStatus(),
                 project.getManagerId(),
                 managerName,

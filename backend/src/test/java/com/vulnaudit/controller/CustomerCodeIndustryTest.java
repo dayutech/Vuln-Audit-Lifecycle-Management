@@ -162,8 +162,9 @@ public class CustomerCodeIndustryTest extends BaseTest {
     @Test
     @DisplayName("内置行业至少 20 条且 builtin=true")
     void builtinSeeded() {
-        assertTrue(industryTypeRepository.countByBuiltinTrue() >= 20,
-                "内置行业数量不足: " + industryTypeRepository.countByBuiltinTrue());
+        // t130 给 industry_types 加软删后，仓储方法改为 countByBuiltinTrueAndDeletedAtIsNull
+        assertTrue(industryTypeRepository.countByBuiltinTrueAndDeletedAtIsNull() >= 20,
+                "内置行业数量不足: " + industryTypeRepository.countByBuiltinTrueAndDeletedAtIsNull());
         assertTrue(industryTypeRepository.findByCode("I65").isPresent());
     }
 

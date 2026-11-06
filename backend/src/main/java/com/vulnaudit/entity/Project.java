@@ -46,10 +46,20 @@ public class Project {
     @Column(name = "name", length = 200, nullable = false)
     private String name;
 
-    /** PENTEST / CODE_AUDIT / EMERGENCY / COMPLIANCE / TRAINING / OTHER */
+    /** PENTEST / CODE_AUDIT / EMERGENCY / COMPLIANCE / TRAINING / 自定义类型 code（历史字段，保留字符串） */
     @Column(name = "type", length = 32, nullable = false)
     @Builder.Default
     private String type = "PENTEST";
+
+    /**
+     * 项目类型引用（t130）：指向 {@code project_types.code}（可空）。
+     *
+     * <p>与 {@link #type} 的关系：{@code type} 保持原字符串（历史兼容、前端仍在读），
+     * {@code type_code} 是规范化引用 —— 新建/更新带 {@code typeCode} 时两者同步；
+     * 迁移会把历史 {@code type} 值按 code 回填，匹配不到则保持 null 且不报错。
+     */
+    @Column(name = "type_code", length = 32)
+    private String typeCode;
 
     /** DRAFT / ACTIVE / PAUSED / CLOSED */
     @Column(name = "status", length = 20, nullable = false)

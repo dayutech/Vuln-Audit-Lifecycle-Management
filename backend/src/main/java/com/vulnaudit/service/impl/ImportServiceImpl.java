@@ -719,9 +719,9 @@ public class ImportServiceImpl implements ImportService {
     /** 客户导入：表头 + 必填列 */
     private static final List<String> CUSTOMER_REQUIRED_COLUMNS = List.of(COL_CODE, COL_NAME);
 
-    /** 项目导入：表头 + 必填列 */
+    /** 项目导入：表头 + 必填列（t131：code 不再必填，缺列/空值由服务层自动生成） */
     private static final List<String> PROJECT_REQUIRED_COLUMNS =
-            List.of(COL_CODE, COL_NAME, COL_CUSTOMER_CODE_IMPORT, COL_MANAGER_NAME);
+            List.of(COL_NAME, COL_CUSTOMER_CODE_IMPORT, COL_MANAGER_NAME);
 
     /**
      * 导入客户（t85）
@@ -870,7 +870,8 @@ public class ImportServiceImpl implements ImportService {
         }
         Map<String, String> cells = toCells(record, headerIndex);
 
-        String code = requireCell(cells, COL_CODE, "项目编码");
+        // t131：code 列可选 —— 缺列/空值传 null，由 ProjectServiceImpl 自动生成
+        String code = optionalCell(cells, COL_CODE);
         checkLength(code, 64, "项目编码");
         String name = requireCell(cells, COL_NAME, "项目名称");
         checkLength(name, 200, "项目名称");
@@ -911,8 +912,9 @@ public class ImportServiceImpl implements ImportService {
             checkLength(description, 1000, "项目备注");
         }
 
+        // t130 的 typeCode / projectCode 别名：导入行不提供，交由服务层按 type / 自动生成处理
         return new ProjectRequest(code, customer.getId(), name, type, managerId,
-                startDate, endDate, isPhased, contractNo, description);
+                startDate, endDate, isPhased, contractNo, description, null, null);
     }
 
     /** username → userId（找不到直接失败，不猜测、不默认） */

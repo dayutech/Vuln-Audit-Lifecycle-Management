@@ -1,14 +1,20 @@
 package com.vulnaudit.service;
 
+import com.vulnaudit.dto.IndustryTypeAdminVO;
 import com.vulnaudit.dto.IndustryTypeOption;
+import com.vulnaudit.dto.IndustryTypeUpsertRequest;
+import com.vulnaudit.dto.PageResponse;
 import jakarta.annotation.Nullable;
 
 import java.util.List;
+import java.util.UUID;
 
 /**
- * 行业类型服务（t129）
+ * 行业类型服务（t129 建立，t130 增加管理员 CRUD）
  *
  * <p>内置数据按《国民经济行业分类》(GB/T 4754) 预置门类 + 常见大类（builtin=true）。
+ * 管理员只能改内置项的 {@code sortOrder}/{@code enabled}；code/name 与删除都禁止（403）。
+ * 删除为**软删**（{@code deleted_at}），避免破坏 {@code customers.industry_code} 的历史引用。
  */
 public interface IndustryTypeService {
 
@@ -41,7 +47,7 @@ public interface IndustryTypeService {
     /** 启动幂等补齐内置行业（表为空时插入） */
     boolean ensureBuiltin();
 
-    /** 关键字检索（code/name 模糊、大小写不敏感；仅 enabled） */
+    /** 关键字检索（code/name 模糊、大小写不敏感；仅 enabled 且未软删） */
     List<IndustryTypeOption> search(@Nullable String keyword, int limit);
 
     /** 按 code 取「存在且 enabled」的行业，不存在/禁用抛 400 */
@@ -50,4 +56,18 @@ public interface IndustryTypeService {
     /** 按名称精确匹配（旧前端兼容），未命中返回 null */
     @Nullable
     IndustryTypeOption matchByName(@Nullable String name);
+
+    // ------------------------------------------------------------------ 管理员（t130）
+
+    /** 管理员分页列表：含停用项、排除软删；keyword 匹配 code/name */
+    PageResponse<IndustryTypeAdminVO> adminList(@Nullable String keyword, boolean includeDisabled, int page, int size);
+
+    /** 新建自定义行业（builtin=false）；code 重复 409 */
+    IndustryTypeAdminVO create(IndustryTypeUpsertRequest request, @Nullable UUID operatorId);
+
+    /** 更新：内置项只允许 sortOrder/enabled；自定义项可改 name/parentCode/sortOrder/enabled */
+    IndustryTypeAdminVO update(UUID id, IndustryTypeUpsertRequest request, @Nullable UUID operatorId);
+
+    /** 删除（软删）：仅自定义项；被客户引用 → 409 */
+    void delete(UUID id, @Nullable UUID operatorId);
 }
