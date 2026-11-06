@@ -3,6 +3,9 @@
 -- =============================================================================
 -- 幂等：MariaDB 10.x 支持 ADD COLUMN IF NOT EXISTS / CREATE TABLE IF NOT EXISTS；
 -- 索引用「先查 information_schema 再建」以兼容老版本。H2 测试走 ddl-auto=create-drop，不需要本脚本。
+--
+-- ⚠ 排序规则（t134）：新表显式声明 utf8mb4_unicode_ci，不依赖库默认 —— 与其他业务表保持一致，
+-- 也避免将来与既有表（unicode_ci）做「列 = 列」比较时抛 1267 Illegal mix of collations。
 
 -- 1) users：2FA 三列
 ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE;
@@ -23,7 +26,7 @@ CREATE TABLE IF NOT EXISTS remember_me_tokens (
     revoked_at    DATETIME(6)  NULL,
     user_agent    VARCHAR(255) NULL,
     ip            VARCHAR(64)  NULL
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE INDEX IF NOT EXISTS idx_rm_user ON remember_me_tokens (user_id);
 CREATE INDEX IF NOT EXISTS idx_rm_series ON remember_me_tokens (series_id);
 CREATE INDEX IF NOT EXISTS idx_rm_hash ON remember_me_tokens (token_hash);
@@ -43,7 +46,7 @@ CREATE TABLE IF NOT EXISTS two_factor_recovery_codes (
     code_hash  VARCHAR(100) NOT NULL,
     created_at DATETIME(6)  NOT NULL,
     used_at    DATETIME(6)  NULL
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 CREATE INDEX IF NOT EXISTS idx_2fa_rc_user ON two_factor_recovery_codes (user_id);
 
 -- 校验

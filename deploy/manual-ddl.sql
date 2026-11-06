@@ -535,3 +535,194 @@ SELECT code, enabled,
        (client_secret IS NOT NULL AND client_secret <> '') AS has_secret,
        updated_by
 FROM sso_providers ORDER BY code;
+
+-- =============================================================================
+-- V26：双因子认证（TOTP + 恢复码）+ remember-me 长效令牌（t124/t125）
+-- =============================================================================
+-- 生产 Flyway 关闭，本段手工执行（等价于 backend/src/main/resources/db/migration/V26__two_factor_and_remember_me.sql）。
+-- 幂等：ADD COLUMN IF NOT EXISTS / CREATE TABLE IF NOT EXISTS；索引用 information_schema 先查后建。
+-- 列宽注意：TOTP 密文形如 v1:base64(iv[12] || ct || tag) = **83 字符**，
+--          原设计的 VARCHAR(64) 会触发 "Value too long for column totp_secret"（t125 实测），故取 128。
+
+-- 1) users：2FA 三列
+ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(128) NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_confirmed_at DATETIME NULL;
+-- 若历史库已按 64 建列 → 幂等加宽（只在长度 < 128 时执行 MODIFY）
+SET @totp_len := (SELECT CHARACTER_MAXIMUM_LENGTH FROM information_schema.columns
+                  WHERE table_schema = DATABASE() AND table_name = 'users'
+                    AND column_name = 'totp_secret');
+SET @ddl := IF(@totp_len IS NOT NULL AND @totp_len < 128,
+    'ALTER TABLE users MODIFY COLUMN totp_secret VARCHAR(128) NULL',
+    'DO 0');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 2) remember-me 长效令牌（Cookie 只放 seriesId.secret，库里只存 SHA-256(secret)）
+CREATE TABLE IF NOT EXISTS remember_me_tokens (
+    id            VARCHAR(36)  NOT NULL PRIMARY KEY,
+    user_id       VARCHAR(36)  NOT NULL,
+    series_id     VARCHAR(64)  NOT NULL,
+    token_hash    VARCHAR(64)  NOT NULL,
+    expires_at    DATETIME(6)  NOT NULL,
+    created_at    DATETIME(6)  NOT NULL,
+    last_used_at  DATETIME(6)  NULL,
+    revoked_at    DATETIME(6)  NULL,
+    user_agent    VARCHAR(255) NULL,
+    ip            VARCHAR(64)  NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE INDEX IF NOT EXISTS idx_rm_user ON remember_me_tokens (user_id);
+CREATE INDEX IF NOT EXISTS idx_rm_series ON remember_me_tokens (series_id);
+CREATE INDEX IF NOT EXISTS idx_rm_hash ON remember_me_tokens (token_hash);
+SET @idx_exists := (SELECT COUNT(*) FROM information_schema.statistics
+                    WHERE table_schema = DATABASE() AND table_name = 'remember_me_tokens'
+                      AND index_name = 'uk_rm_hash');
+SET @ddl := IF(@idx_exists = 0,
+    'ALTER TABLE remember_me_tokens ADD UNIQUE KEY uk_rm_hash (token_hash)',
+    'DO 0');
+PREPARE stmt FROM @ddl; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+-- 3) 双因子恢复码（一次性，BCrypt 哈希存储；明文只在 confirm 响应里出现一次）
+CREATE TABLE IF NOT EXISTS two_factor_recovery_codes (
+    id         VARCHAR(36)  NOT NULL PRIMARY KEY,
+    user_id    VARCHAR(36)  NOT NULL,
+    code_hash  VARCHAR(100) NOT NULL,
+    created_at DATETIME(6)  NOT NULL,
+    used_at    DATETIME(6)  NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE INDEX IF NOT EXISTS idx_2fa_rc_user ON two_factor_recovery_codes (user_id);
+
+-- 校验 1：三列存在，且 totp_secret 宽度 ≥ 83（期望 128）
+SELECT COLUMN_NAME, COLUMN_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+  AND COLUMN_NAME IN ('two_factor_enabled', 'totp_secret', 'two_factor_confirmed_at');
+
+-- 校验 2：两张表的索引齐备（用户维度 + 唯一 token_hash）
+SELECT TABLE_NAME, INDEX_NAME, COLUMN_NAME
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME IN ('remember_me_tokens', 'two_factor_recovery_codes')
+ORDER BY TABLE_NAME, INDEX_NAME;
+
+-- 校验 3：2FA 开启人数与剩余凭据（**不输出密文/明文**）
+SELECT COUNT(*) AS enabled_users FROM users WHERE two_factor_enabled = 1;
+SELECT COUNT(*) AS active_recovery_codes FROM two_factor_recovery_codes WHERE used_at IS NULL;
+SELECT COUNT(*) AS active_remember_me FROM remember_me_tokens
+ WHERE revoked_at IS NULL AND expires_at > NOW();
+
+
+-- =============================================================================
+-- V27：客户编码自动生成 + 国标行业枚举（t129）—— 与 backend/src/main/resources/db/migration/V27__industry_types_and_customer_code.sql 等价
+-- =============================================================================
+-- 幂等：CREATE TABLE IF NOT EXISTS / ADD COLUMN IF NOT EXISTS；回填按名称精确匹配且只填 NULL。
+-- ⚠ 排序规则（t134）：新表与新列显式 utf8mb4_unicode_ci，回填 JOIN 两侧显式 COLLATE。
+--   否则在「库默认 collation = utf8mb4_general_ci」的实例上会报
+--   ERROR 1267 (HY000): Illegal mix of collations (utf8mb4_general_ci) and (utf8mb4_unicode_ci) for operation '='
+
+CREATE TABLE IF NOT EXISTS industry_types (
+    id          VARCHAR(36)  NOT NULL PRIMARY KEY,
+    code        VARCHAR(16)  NOT NULL,
+    name        VARCHAR(100) NOT NULL,
+    parent_code VARCHAR(16)  NULL,
+    builtin     BOOLEAN      NOT NULL DEFAULT FALSE,
+    sort_order  INT          NOT NULL DEFAULT 0,
+    enabled     BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at  DATETIME(6)  NOT NULL,
+    updated_at  DATETIME(6)  NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_industry_types_code ON industry_types (code);
+CREATE INDEX IF NOT EXISTS idx_industry_types_name ON industry_types (name);
+
+-- 客户表：保留 industry 显示名，新增 industry_code（新列显式 collation）
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS industry_code VARCHAR(16)
+    COLLATE utf8mb4_unicode_ci NULL;
+
+-- 历史回填：按行业名称精确匹配（匹配不到保持 NULL，不阻塞）
+UPDATE customers c
+  JOIN industry_types t ON t.name COLLATE utf8mb4_unicode_ci = c.industry COLLATE utf8mb4_unicode_ci
+   SET c.industry_code = t.code
+ WHERE c.industry_code IS NULL
+   AND c.industry IS NOT NULL;
+
+-- 校验：表存在、内置条数、已回填客户数
+SHOW TABLES LIKE 'industry_types';
+SELECT COUNT(*) AS builtin_industries FROM industry_types WHERE builtin = 1;
+SELECT COUNT(*) AS customers_with_industry_code FROM customers WHERE industry_code IS NOT NULL;
+
+
+-- =============================================================================
+-- V28：项目类型管理 + 项目编码（t130）—— 与 backend/src/main/resources/db/migration/V28__project_types_and_project_code.sql 等价
+-- =============================================================================
+-- 幂等：MariaDB 10.x 支持 ADD COLUMN IF NOT EXISTS / CREATE TABLE IF NOT EXISTS /
+--       CREATE INDEX IF NOT EXISTS；内置项用 INSERT ... WHERE NOT EXISTS 保证只插一次。
+--
+-- 两套 DDL：
+--   ① industry_types：补 deleted_at（软删，避免破坏历史客户引用）
+--   ② project_types ：新表（内置 5 项 + 管理员自定义）
+--   同时给 projects 补 type_code（引用 project_types.code，type 保留原字符串）
+
+-- ---------------------------------------------------------------- ① 行业类型：软删列
+ALTER TABLE industry_types ADD COLUMN IF NOT EXISTS deleted_at DATETIME(6) NULL;
+CREATE INDEX IF NOT EXISTS idx_industry_types_deleted ON industry_types (deleted_at);
+
+-- ---------------------------------------------------------------- ② 项目类型表
+CREATE TABLE IF NOT EXISTS project_types (
+    id          VARCHAR(36) NOT NULL PRIMARY KEY,
+    code        VARCHAR(32) NOT NULL,
+    name        VARCHAR(50) NOT NULL,
+    builtin     BOOLEAN     NOT NULL DEFAULT FALSE,
+    enabled     BOOLEAN     NOT NULL DEFAULT TRUE,
+    sort_order  INT         NOT NULL DEFAULT 0,
+    deleted_at  DATETIME(6) NULL,
+    created_at  DATETIME(6) NOT NULL,
+    updated_at  DATETIME(6) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- code 全局唯一（含软删行）：软删后不可复用同一 code，避免历史项目引用歧义
+CREATE UNIQUE INDEX IF NOT EXISTS uk_project_types_code ON project_types (code);
+CREATE INDEX IF NOT EXISTS idx_project_types_name ON project_types (name);
+CREATE INDEX IF NOT EXISTS idx_project_types_deleted ON project_types (deleted_at);
+
+-- ---------------------------------------------------------------- 内置项目类型（5 项，幂等）
+INSERT INTO project_types (id, code, name, builtin, enabled, sort_order, created_at, updated_at)
+SELECT UUID(), 'PENTEST', '渗透测试', 1, 1, 10, NOW(6), NOW(6) FROM DUAL
+ WHERE NOT EXISTS (SELECT 1 FROM project_types WHERE code = 'PENTEST');
+
+INSERT INTO project_types (id, code, name, builtin, enabled, sort_order, created_at, updated_at)
+SELECT UUID(), 'CODE_AUDIT', '代码审计', 1, 1, 20, NOW(6), NOW(6) FROM DUAL
+ WHERE NOT EXISTS (SELECT 1 FROM project_types WHERE code = 'CODE_AUDIT');
+
+INSERT INTO project_types (id, code, name, builtin, enabled, sort_order, created_at, updated_at)
+SELECT UUID(), 'EMERGENCY', '应急响应', 1, 1, 30, NOW(6), NOW(6) FROM DUAL
+ WHERE NOT EXISTS (SELECT 1 FROM project_types WHERE code = 'EMERGENCY');
+
+INSERT INTO project_types (id, code, name, builtin, enabled, sort_order, created_at, updated_at)
+SELECT UUID(), 'COMPLIANCE', '合规测评', 1, 1, 40, NOW(6), NOW(6) FROM DUAL
+ WHERE NOT EXISTS (SELECT 1 FROM project_types WHERE code = 'COMPLIANCE');
+
+INSERT INTO project_types (id, code, name, builtin, enabled, sort_order, created_at, updated_at)
+SELECT UUID(), 'TRAINING', '安全培训', 1, 1, 50, NOW(6), NOW(6) FROM DUAL
+ WHERE NOT EXISTS (SELECT 1 FROM project_types WHERE code = 'TRAINING');
+
+-- ---------------------------------------------------------------- projects.type_code
+-- 新列显式 collation：否则在 general_ci 库上会继承默认值，与 projects.type（unicode_ci）不一致
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS type_code VARCHAR(32)
+    COLLATE utf8mb4_unicode_ci NULL;
+CREATE INDEX IF NOT EXISTS idx_projects_type_code ON projects (type_code);
+
+-- 历史数据回填：projects.type 存的就是编码（PENTEST/CODE_AUDIT/…），按 code 精确匹配
+-- 两侧显式 COLLATE：JOIN 是「列 = 列」比较，两侧 collation 不一致会抛 1267
+UPDATE projects p
+  JOIN project_types t ON t.code COLLATE utf8mb4_unicode_ci = p.type COLLATE utf8mb4_unicode_ci
+   SET p.type_code = t.code
+ WHERE p.type_code IS NULL;
+
+-- ---------------------------------------------------------------- 校验
+SHOW TABLES LIKE 'project_types';
+SELECT COUNT(*) AS builtin_project_types FROM project_types WHERE builtin = 1;
+SELECT COUNT(*) AS custom_project_types FROM project_types WHERE builtin = 0;
+SELECT COUNT(*) AS projects_with_type_code FROM projects WHERE type_code IS NOT NULL;
+SELECT COUNT(*) AS industry_with_deleted_at FROM industry_types WHERE deleted_at IS NOT NULL;
+
+-- 内置清单（应恰好 5 行）
+SELECT code, name, sort_order FROM project_types WHERE builtin = 1 ORDER BY sort_order;
+
