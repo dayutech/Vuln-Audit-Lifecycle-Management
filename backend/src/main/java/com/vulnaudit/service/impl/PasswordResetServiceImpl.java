@@ -57,6 +57,8 @@ public class PasswordResetServiceImpl implements PasswordResetService {
     private final VerificationProperties properties;
     private final PasswordEncoder passwordEncoder;
     private final AuditLogService auditLogService;
+    /** remember-me（t124）：重置成功后撤销该用户全部长效令牌 */
+    private final com.vulnaudit.service.RememberMeService rememberMeService;
 
     /** IP → 最近 confirm 失败时间戳（进程内滑动窗口） */
     private final Map<String, Deque<LocalDateTime>> failedWindows = new ConcurrentHashMap<>();
@@ -168,6 +170,8 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         // 失效该用户所有「签发时间早于此时间戳」的 token（JwtAuthenticationFilter 校验 iat）
         user.setTokenInvalidBefore(invalidBefore);
         userRepository.save(user);
+        // t124：忘记密码重置后同样撤销该用户全部 remember-me 长效令牌
+        rememberMeService.revokeAll(user.getId(), "PASSWORD_RESET");
 
         clearUsernameFailures(username);
         auditLogService.log(user.getId(), "RESET_PASSWORD", "user", user.getId(),

@@ -30,6 +30,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -54,6 +55,9 @@ public class AuthController {
     private final LoginAttemptService loginAttemptService;
     private final com.vulnaudit.service.SystemSettingService systemSettingService;
     private final com.vulnaudit.service.LoginLockoutService loginLockoutService;
+    private final com.vulnaudit.service.TwoFactorService twoFactorService;
+    /** remember-me 长效令牌（t124）：登录下发、刷新轮换、登出撤销 */
+    private final com.vulnaudit.service.RememberMeService rememberMeService;
 
     /**
      * 登录页主题公开配置（t109）
@@ -110,10 +114,11 @@ public class AuthController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "用户名或密码错误"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "403", description = "用户账号已被禁用")
     })
-    public ApiResponse<LoginResponse> login(
+    public org.springframework.http.ResponseEntity<?> login(
             @Parameter(description = "登录请求", required = true)
             @Valid @RequestBody LoginRequest request,
-            jakarta.servlet.http.HttpServletRequest httpRequest) {
+            jakarta.servlet.http.HttpServletRequest httpRequest,
+            jakarta.servlet.http.HttpServletResponse httpResponse) {
         log.info("用户登录请求: username={}", request.getUsername());
 
         String clientIp = resolveClientIp(httpRequest);
@@ -173,16 +178,31 @@ public class AuthController {
         } else {
             loginAttemptService.onSuccess(LoginAttemptService.key(request.getUsername(), clientIp));
         }
+        // t125：已开启双因子的用户不直接签发 JWT —— 先返回 202 + 一次性挑战 token
+        if (twoFactorService.isAvailable() && user.isTwoFactorEnabled()) {
+            String challengeToken = twoFactorService.registerChallenge(user.getId());
+            log.info("登录需要二次验证: userId={}", user.getId());
+            java.util.Map<String, Object> payload = new java.util.LinkedHashMap<>();
+            payload.put("twoFactorRequired", true);
+            payload.put("challengeToken", challengeToken);
+            return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.ACCEPTED)
+                    .body(ApiResponse.success(payload, "请输入身份验证器动态码"));
+        }
         userService.updateLastLogin(user.getId());
+        // t124：rememberMe=true 时额外下发独立长效 cookie（JWT 本身不延长）
+        attachRememberMeCookie(httpResponse, user, Boolean.TRUE.equals(request.getRememberMe()),
+                httpRequest.getHeader("User-Agent"), clientIp);
+        return org.springframework.http.ResponseEntity.ok(ApiResponse.success(buildLoginResponse(user)));
+    }
 
+    /** 统一构建登录响应（t125：带上「是否必须立即设置 2FA」标记） */
+    private LoginResponse buildLoginResponse(User user) {
         List<String> roles = userService.getUserRoleCodes(user.getId());
-
         String token = jwtUtils.generateToken(user.getUsername(),
                 roles.stream()
                         .map(r -> new SimpleGrantedAuthority(RoleAuthority.of(r)))
                         .collect(Collectors.toList()));
-
-        LoginResponse response = LoginResponse.builder()
+        return LoginResponse.builder()
                 .token(token)
                 .tokenType(jwtProperties.getPrefix().trim())
                 .expiresIn(jwtProperties.getExpiration())
@@ -192,12 +212,49 @@ public class AuthController {
                 .email(user.getEmail())
                 .loginTheme(loginThemeOf(user))
                 .followDefault(followDefaultOf(user))
+                .mustSetupTwoFactor(twoFactorService.mustSetupTwoFactor(user))
                 .build();
-
-        log.info("用户登录成功: username={}", user.getUsername());
-        return ApiResponse.success(response);
     }
 
+    /**
+     * 登录第二步：校验动态码/恢复码并签发 JWT（t125）
+     *
+     * <p>第一步（密码正确但已开启 2FA）返回 202 + {@code challengeToken}；本端点消费该 token（一次性、5 分钟）。
+     * 失败计数达到上限时挑战作废（需重新登录）。
+     */
+    @PostMapping("/login/2fa")
+    @Operation(summary = "登录二次验证", description = "携带挑战 token 与动态码（或恢复码）换取正式 JWT")
+    public ApiResponse<LoginResponse> loginWithTwoFactor(
+            @Valid @RequestBody TwoFactorLoginRequest request,
+            jakarta.servlet.http.HttpServletRequest httpRequest,
+            jakarta.servlet.http.HttpServletResponse httpResponse) {
+        UUID userId = twoFactorService.consumeChallenge(request.challengeToken());
+        if (!twoFactorService.verifyLoginCode(userId, request.code())) {
+            twoFactorService.recordChallengeFailure(request.challengeToken());
+            throw new com.vulnaudit.exception.BusinessException(
+                    com.vulnaudit.exception.ErrorCode.BAD_REQUEST, "动态码或恢复码不正确");
+        }
+        twoFactorService.invalidateChallenge(request.challengeToken());
+        User user = userService.findById(userId)
+                .orElseThrow(() -> new com.vulnaudit.exception.BusinessException(
+                        com.vulnaudit.exception.ErrorCode.USER_NOT_FOUND));
+        userService.updateLastLogin(user.getId());
+        // t124：第二步也可勾选 rememberMe（第一步的勾选对 2FA 用户不生效，需在第二步确认）
+        attachRememberMeCookie(httpResponse, user, Boolean.TRUE.equals(request.rememberMe()),
+                httpRequest.getHeader("User-Agent"), resolveClientIp(httpRequest));
+        log.info("二次验证通过并签发 token: userId={}", user.getId());
+        return ApiResponse.success(buildLoginResponse(user));
+    }
+
+    /** 登录二次验证请求体 */
+    public record TwoFactorLoginRequest(
+            @jakarta.validation.constraints.NotBlank(message = "validation.twoFactor.challenge.required")
+            String challengeToken,
+            @jakarta.validation.constraints.NotBlank(message = "validation.twoFactor.code.required")
+            String code,
+            /** 是否记住登录（t124）：true 时第二步成功后下发 remember-me cookie */
+            Boolean rememberMe) {
+    }
     /**
      * 用户登出
      */
@@ -208,11 +265,18 @@ public class AuthController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "登出成功"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "未授权")
     })
-    public ApiResponse<Void> logout() {
+    public ApiResponse<Void> logout(jakarta.servlet.http.HttpServletRequest httpRequest,
+                                    jakarta.servlet.http.HttpServletResponse httpResponse) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication != null) {
             log.info("用户登出: username={}", authentication.getName());
         }
+        // t124：撤销当前 remember-me 令牌并清 cookie（JWT 无状态，客户端丢弃即可）
+        String raw = readRememberMeCookie(httpRequest);
+        if (raw != null) {
+            rememberMeService.revoke(raw);
+        }
+        clearRememberMeCookie(httpResponse);
         return ApiResponse.success(null);
     }
 
@@ -300,13 +364,40 @@ public class AuthController {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "刷新成功"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "未授权")
     })
-    public ResponseEntity<ApiResponse<LoginResponse>> refreshToken() {
+    public ResponseEntity<ApiResponse<LoginResponse>> refreshToken(
+            jakarta.servlet.http.HttpServletRequest httpRequest,
+            jakarta.servlet.http.HttpServletResponse httpResponse) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        if (authentication == null || !authentication.isAuthenticated() ||
-                "anonymousUser".equals(authentication.getPrincipal())) {
-            log.warn("未找到认证信息");
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(ApiResponse.error(401, "未授权"));
+        boolean authenticated = authentication != null && authentication.isAuthenticated()
+                && !"anonymousUser".equals(authentication.getPrincipal());
+        if (!authenticated) {
+            // t124：JWT 过期但 remember-me cookie 有效 → 轮换并重签 JWT（旧令牌立即失效）
+            String raw = readRememberMeCookie(httpRequest);
+            if (raw == null || !rememberMeService.isEnabled()) {
+                log.warn("刷新令牌失败：无有效认证信息且无 remember-me cookie");
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.error(401, "未授权"));
+            }
+            String rotated;
+            try {
+                rotated = rememberMeService.rotate(raw, httpRequest.getHeader("User-Agent"),
+                        resolveClientIp(httpRequest));
+            } catch (com.vulnaudit.exception.BusinessException e) {
+                clearRememberMeCookie(httpResponse);
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.error(401, e.getMessage()));
+            }
+            java.util.UUID rotatedUser = rememberMeService.userIdOf(rotated);
+            User cookieUser = rotatedUser == null ? null : userService.findById(rotatedUser).orElse(null);
+            if (cookieUser == null || !cookieUser.isActive()) {
+                rememberMeService.revoke(rotated);
+                clearRememberMeCookie(httpResponse);
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(ApiResponse.error(401, "账号不可用，请重新登录"));
+            }
+            writeRememberMeCookie(httpResponse, rotated);
+            log.info("remember-me 刷新成功: username={}", cookieUser.getUsername());
+            return ResponseEntity.ok(ApiResponse.success(buildLoginResponse(cookieUser)));
         }
 
         String username = authentication.getName();
@@ -318,27 +409,62 @@ public class AuthController {
                     .body(ApiResponse.error(404, "用户不存在"));
         }
 
-        List<String> roles = userService.getUserRoleCodes(user.getId());
-
-        String token = jwtUtils.generateToken(username,
-                roles.stream()
-                        .map(r -> new SimpleGrantedAuthority(RoleAuthority.of(r)))
-                        .collect(Collectors.toList()));
-
-        LoginResponse response = LoginResponse.builder()
-                .token(token)
-                .tokenType(jwtProperties.getPrefix().trim())
-                .expiresIn(jwtProperties.getExpiration())
-                .userId(user.getId().toString())
-                .username(user.getUsername())
-                .fullName(user.getFullName())
-                .email(user.getEmail())
-                .loginTheme(loginThemeOf(user))
-                .followDefault(followDefaultOf(user))
-                .build();
-
         log.info("令牌刷新成功: username={}", username);
-        return ResponseEntity.ok(ApiResponse.success(response));
+        return ResponseEntity.ok(ApiResponse.success(buildLoginResponse(user)));
+    }
+
+    // ------------------------------------------------------------------ remember-me（t124）
+
+    /** 登录成功后按需下发 remember-me cookie（enabled=false 时不下发） */
+    private void attachRememberMeCookie(jakarta.servlet.http.HttpServletResponse response,
+                                        User user,
+                                        boolean rememberMe,
+                                        String userAgent,
+                                        String ip) {
+        if (!rememberMe || !rememberMeService.isEnabled()) {
+            return;
+        }
+        String raw = rememberMeService.issue(user.getId(), userAgent, ip);
+        writeRememberMeCookie(response, raw);
+        log.info("已下发 remember-me 令牌: userId={}", user.getId());
+    }
+
+    private void writeRememberMeCookie(jakarta.servlet.http.HttpServletResponse response, String rawToken) {
+        var cookie = org.springframework.http.ResponseCookie
+                .from(rememberMeService.cookieName(), rawToken)
+                .httpOnly(true)
+                .secure(rememberMeService.cookieSecure())
+                .sameSite("Lax")
+                .path("/")
+                .maxAge(java.time.Duration.ofSeconds(rememberMeService.cookieMaxAgeSeconds()))
+                .build();
+        response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, cookie.toString());
+    }
+
+    private void clearRememberMeCookie(jakarta.servlet.http.HttpServletResponse response) {
+        var cookie = org.springframework.http.ResponseCookie
+                .from(rememberMeService.cookieName(), "")
+                .httpOnly(true)
+                .secure(rememberMeService.cookieSecure())
+                .sameSite("Lax")
+                .path("/")
+                .maxAge(java.time.Duration.ZERO)
+                .build();
+        response.addHeader(org.springframework.http.HttpHeaders.SET_COOKIE, cookie.toString());
+    }
+
+    private String readRememberMeCookie(jakarta.servlet.http.HttpServletRequest request) {
+        jakarta.servlet.http.Cookie[] cookies = request.getCookies();
+        if (cookies == null) {
+            return null;
+        }
+        for (jakarta.servlet.http.Cookie cookie : cookies) {
+            if (rememberMeService.cookieName().equals(cookie.getName())) {
+                String value = cookie.getValue();
+                return value == null || value.isBlank() ? null : value;
+            }
+        }
+        return null;
     }
 
 }

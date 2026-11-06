@@ -45,6 +45,8 @@ public class UserServiceImpl implements UserService {
     private final PermissionService permissionService;
     private final PasswordEncoder passwordEncoder;
     private final RegistrationRequestRepository registrationRequestRepository;
+    /** remember-me（t124）：改密 / 重置 / 停用时撤销该用户全部长效令牌 */
+    private final com.vulnaudit.service.RememberMeService rememberMeService;
 
     /**
      * 创建用户
@@ -234,6 +236,10 @@ public class UserServiceImpl implements UserService {
         
         user.setStatus(status);
         User updatedUser = userRepository.save(user);
+        // t124：被停用/挂起时撤销该用户全部 remember-me 令牌（避免停用后还能凭长效 cookie 续期）
+        if (!"active".equals(status)) {
+            rememberMeService.revokeAll(id, "STATUS_" + status.toUpperCase(java.util.Locale.ROOT));
+        }
         log.info("用户状态更新成功: id={}, status={}", updatedUser.getId(), status);
         
         return updatedUser;
@@ -331,7 +337,9 @@ public class UserServiceImpl implements UserService {
         // 更新密码
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         userRepository.save(user);
-        
+        // t124：改密后该用户全部 remember-me 令牌失效（等价于全端下线）
+        rememberMeService.revokeAll(id, "PASSWORD_CHANGED");
+
         log.info("密码修改成功: userId={}", id);
         return true;
     }
@@ -355,7 +363,9 @@ public class UserServiceImpl implements UserService {
         
         user.setPasswordHash(passwordEncoder.encode(newPassword));
         userRepository.save(user);
-        
+        // t124：管理员重置密码后同样撤销全部 remember-me 令牌
+        rememberMeService.revokeAll(id, "ADMIN_RESET_PASSWORD");
+
         log.info("密码重置成功: userId={}", id);
     }
 

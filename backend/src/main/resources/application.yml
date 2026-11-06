@@ -97,6 +97,18 @@ app:
     impersonation:
       enabled: ${APP_IMPERSONATION_ENABLED:true}
       ttl-seconds: ${APP_IMPERSONATION_TTL_SECONDS:7200}
+    # 双因子认证（t125）：主密钥缺失时功能整体禁用（绝不落库明文）
+    two-factor:
+      totp-secret-key: ${APP_TOTP_SECRET_KEY:}
+      issuer: ${APP_TOTP_ISSUER:OwlAudit}
+      challenge-ttl-seconds: ${APP_TOTP_CHALLENGE_TTL_SECONDS:300}
+      challenge-max-attempts: ${APP_TOTP_CHALLENGE_MAX_ATTEMPTS:5}
+    # remember-me（t126 接入 HTTP 层）
+    remember-me:
+      enabled: ${APP_REMEMBER_ME_ENABLED:true}
+      ttl-days: ${APP_REMEMBER_ME_TTL_DAYS:30}
+      cookie-name: ${APP_REMEMBER_ME_COOKIE_NAME:owl_rm}
+      secure: ${APP_REMEMBER_ME_SECURE:true}
     # 登录暴力破解防护（t123）：先锁 IP（不影响账户）→ 跨 IP 升级锁账户 + 告警 + OTP 解锁
     login-lockout:
       enabled: ${APP_LOGIN_LOCKOUT_ENABLED:true}

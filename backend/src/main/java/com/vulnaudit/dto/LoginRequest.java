@@ -29,4 +29,14 @@ public class LoginRequest {
     @NotBlank(message = "validation.auth.password.required")
     private String password;
 
+    /**
+     * 是否记住登录状态（t124）
+     *
+     * <p>true 时登录成功额外下发独立的 remember-me 长效 cookie（{@code owl_rm}，默认 30 天）；
+     * **JWT 本身不延长**。JWT 过期后可用 {@code GET /auth/refresh} 凭该 cookie 轮换刷新。
+     * 省略/null = 不记住。
+     */
+    @Schema(description = "记住登录（下发 remember-me cookie，JWT 不延长）", example = "false")
+    private Boolean rememberMe;
+
 }

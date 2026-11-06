@@ -79,6 +79,17 @@ app:
   # 自助注册验证码（t102）：测试环境打开 dev-mode，便于用例直接从响应取 devCode；
   # 「dev-mode 关闭时不回传 devCode」的用例用反射临时改该值验证。
   security:
+    # t125：测试用固定主密钥（生产必须来自环境变量）
+    two-factor:
+      totp-secret-key: test-totp-master-key-for-unit-tests
+      issuer: OwlAudit
+      challenge-ttl-seconds: 300
+      challenge-max-attempts: 5
+    remember-me:
+      enabled: true
+      ttl-days: 30
+      cookie-name: owl_rm
+      secure: false
     login-lockout:
       enabled: true
       ip-max-failures: 5

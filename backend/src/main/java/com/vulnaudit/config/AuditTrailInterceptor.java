@@ -79,16 +79,29 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
      * <p>t116 追加：凭据 Web 配置的正式入口是 {@code PUT /api/v1/admin/sso/providers/{code}}
      * （同样由 {@code SsoServiceImpl.updateProvider} 写 {@code UPDATE_SSO_PROVIDER}，details 只记变更字段名、
      * secret 记 {@code ***}）；PATCH 保留为兼容入口，两者都必须跳过，否则一次保存会出现两条审计。
+     *
+     * <p>t125 追加：双因子强制开关由 {@code TwoFactorServiceImpl.setForceTwoFactor} 写
+     * {@code UPDATE_FORCE_TWO_FACTOR}（details 形如 from=true -&gt; to=false），
+     * 因此 {@code PUT /api/v1/admin/settings/force-two-factor} 必须跳过，否则一次设置出现两条审计。
      */
     private static final String[] SKIP_ENDPOINTS = {
             "PUT /api/v1/users/me/preferences",
             "PUT /api/v1/admin/settings/login-theme",
+            "PUT /api/v1/admin/settings/force-two-factor",
             "PUT /api/v1/admin/sso/providers/{code}",
             "PATCH /api/v1/admin/sso/providers/{code}",
             "DELETE /api/v1/admin/registration-requests/{id}",
             "POST /api/v1/admin/users/{id}/unlock",
             "POST /api/v1/admin/registration-requests/{id}/approve",
-            "POST /api/v1/admin/registration-requests/{id}/reject"
+            "POST /api/v1/admin/registration-requests/{id}/reject",
+            // t130：行业/项目类型的写操作由服务层各写 1 条 UPDATE_INDUSTRY_TYPE / UPDATE_PROJECT_TYPE，
+            // 拦截器不再重复记录（否则一次新增/修改会出现两条审计）
+            "POST /api/v1/admin/industry-types",
+            "PUT /api/v1/admin/industry-types/{id}",
+            "DELETE /api/v1/admin/industry-types/{id}",
+            "POST /api/v1/admin/project-types",
+            "PUT /api/v1/admin/project-types/{id}",
+            "DELETE /api/v1/admin/project-types/{id}"
     };
 
     private final AuditLogService auditLogService;
@@ -263,3 +276,4 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
         return value.length() <= max ? value : value.substring(0, max);
     }
 }
+

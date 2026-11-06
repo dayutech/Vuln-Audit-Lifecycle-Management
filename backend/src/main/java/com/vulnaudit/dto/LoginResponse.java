@@ -57,4 +57,7 @@ public class LoginResponse {
     @Schema(description = "是否跟随系统默认（loginTheme 为 null 时 true）", example = "false")
     private Boolean followDefault;
 
+    /** 管理员已强制 2FA 且该用户尚未开启时置 true（t125）：前端应引导去设置，业务接口会 403 */
+    private Boolean mustSetupTwoFactor;
+
 }

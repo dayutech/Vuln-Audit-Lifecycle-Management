@@ -198,6 +198,26 @@ public class User {
     @Column(name = "last_login")
     private LocalDateTime lastLogin;
 
+    /** 是否已开启双因子认证（t124；只有 confirm 通过后才为 true） */
+    @Column(name = "two_factor_enabled", nullable = false)
+    @Builder.Default
+    private boolean twoFactorEnabled = false;
+
+    /**
+     * TOTP 密钥（t124）：Base32 经 AES-GCM 加密后的密文（{@code v1:base64(iv[12] || ct || tag)}）。
+     * <b>绝不落库明文</b>；未配置主密钥时该列保持 null 且 2FA 功能整体禁用。
+     *
+     * <p>长度说明（t125 修正）：32 字符 Base32 明文 + 12 字节 IV + 16 字节 tag = 60 字节，
+     * Base64 后 80 字符，加 {@code v1:} 前缀实为 <b>83 字符</b>；原设计写死 64 会触发
+     * {@code Value too long for column "totp_secret"}（H2/MariaDB 同），因此列宽取 128 留余量。
+     */
+    @Column(name = "totp_secret", length = 128)
+    private String totpSecret;
+
+    /** 双因子确认时间（t124） */
+    @Column(name = "two_factor_confirmed_at")
+    private LocalDateTime twoFactorConfirmedAt;
+
     /**
      * 实体持久化前的回调方法
      * 自动设置创建时间和更新时间
