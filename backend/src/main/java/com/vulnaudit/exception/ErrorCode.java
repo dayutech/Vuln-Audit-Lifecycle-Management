@@ -335,7 +335,24 @@ public enum ErrorCode {
     ASSET_PROJECT_REQUIRED(400, "创建资产必须指定所属项目"),
 
     /** 传入的期次不属于指定项目 */
-    PHASE_NOT_IN_PROJECT(400, "期次不属于该项目");
+    PHASE_NOT_IN_PROJECT(400, "期次不属于该项目"),
+
+    // ---------------- 数据库完整性兜底（t133） ----------------
+
+    /**
+     * 唯一键冲突（数据库唯一索引兜底）
+     *
+     * <p>当业务层的前置查重没有覆盖到（并发写入、Hibernate 生成约束名无法识别等），
+     * {@code GlobalExceptionHandler} 用本码统一返回 <b>409</b>，不再落成 500。
+     */
+    DATA_DUPLICATE(409, "数据冲突，请检查唯一字段"),
+
+    /**
+     * 非唯一键的数据完整性失败（NOT NULL / 外键 / CHECK 等）
+     *
+     * <p>属于请求数据问题，统一返回 <b>400</b>（绝不误报 409）。
+     */
+    DATA_INTEGRITY_VIOLATION(400, "数据完整性校验失败，请检查必填项与关联数据");
 
     /**
      * HTTP状态码
@@ -361,6 +378,8 @@ public enum ErrorCode {
             case CONFLICT -> "error.conflict";
             case INTERNAL_ERROR -> "error.internal";
             case VALIDATION_ERROR -> "error.validation";
+            case DATA_DUPLICATE -> "error.data.duplicate";
+            case DATA_INTEGRITY_VIOLATION -> "error.data.integrity";
             case INVALID_STATUS -> "error.status.invalid";
             case UNAUTHORIZED -> "error.auth.unauthorized";
             case INVALID_CREDENTIALS -> "error.auth.invalid_credentials";

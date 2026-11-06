@@ -6,6 +6,7 @@ import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -93,6 +94,53 @@ public class GlobalExceptionHandler {
         return ResponseEntity
                 .status(status)
                 .body(ApiResponse.error(messageResolver.resolveForErrorCode(e.getErrorCode(), e.getMessage())));
+    }
+
+    /**
+     * 处理数据库完整性异常（t133）
+     *
+     * <p><b>为什么需要这个分支</b>：此前唯一键冲突（例如两个请求提交同一个客户编码）没有任何分支接住，
+     * 会落到 {@link #handleException(Exception)} 变成 <b>500</b>，前端只能拿到「服务器内部错误」。
+     *
+     * <p><b>分类（绝不误报）</b>：
+     * <ul>
+     *   <li>唯一键 / 主键冲突（SQLState 23505，或消息含 duplicate/unique/{@code uk_}）→ <b>409</b>；</li>
+     *   <li>NOT NULL / 外键 / CHECK 等其余完整性失败 → <b>400</b>（请求数据问题，不是冲突）；</li>
+     *   <li>识别到已知约束 → 专用文案（如「客户编码已存在」）；识别不到 → 通用「数据冲突，请检查唯一字段」。</li>
+     * </ul>
+     *
+     * <p><b>不外泄</b>：SQL 原文、表名、列名、约束名只进日志，响应体只有语言包里的可读文案。
+     *
+     * @param e 数据库完整性异常
+     * @return 409（唯一键冲突）或 400（其余完整性失败）
+     */
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrityViolation(DataIntegrityViolationException e) {
+        String detail = DataConflictMessages.detailOf(e);
+
+        if (!DataConflictMessages.isUniqueViolation(e)) {
+            // 非唯一键：NOT NULL / 外键 / CHECK —— 请求数据问题，保持 400 语义
+            ErrorCode code = ErrorCode.DATA_INTEGRITY_VIOLATION;
+            String message = messageResolver.resolve(code.messageKey(), code.getMessage());
+            log.warn("数据完整性约束失败（非唯一键，按 400 处理）: notNull={}, sqlState={}, detail={}",
+                    DataConflictMessages.isNotNullViolation(e), DataConflictMessages.sqlStateOf(e), detail);
+            return ResponseEntity
+                    .status(HttpStatus.BAD_REQUEST)
+                    .body(ApiResponse.error(message));
+        }
+
+        String messageKey = DataConflictMessages.messageKeyFor(e);
+        ErrorCode fallback = ErrorCode.DATA_DUPLICATE;
+        String message = messageKey == null
+                ? messageResolver.resolve(fallback.messageKey(), fallback.getMessage())
+                : messageResolver.resolve(messageKey, fallback.getMessage());
+
+        log.warn("唯一键冲突，已映射 409: messageKey={}, sqlState={}, detail={}",
+                messageKey == null ? "error.data.duplicate" : messageKey,
+                DataConflictMessages.sqlStateOf(e), detail);
+        return ResponseEntity
+                .status(HttpStatus.CONFLICT)
+                .body(ApiResponse.error(message));
     }
 
     /**
