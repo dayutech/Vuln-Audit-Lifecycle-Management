@@ -14,6 +14,9 @@ export const appZh = {
   'app.brand.name': '猫头鹰漏洞审计生命周期管理系统',
   'app.brand.nameShort': '猫头鹰审计',
   'app.brand.nameFull': '猫头鹰漏洞审计生命周期管理系统',
+  /** t122：侧边栏品牌两行（第一行产品名 / 第二行系统定位） */
+  'app.brand.line1': '猫头鹰漏洞审计',
+  'app.brand.line2': '生命周期管理系统',
   'app.brand.slogan': '洞察入微 · 审计可溯',
 } as const;
 
@@ -21,5 +24,7 @@ export const appEn: Record<keyof typeof appZh, string> = {
   'app.brand.name': 'Owl Vulnerability Audit Lifecycle Management System',
   'app.brand.nameShort': 'Owl Audit',
   'app.brand.nameFull': 'Owl Vulnerability Audit Lifecycle Management System',
+  'app.brand.line1': 'Owl Vulnerability Audit',
+  'app.brand.line2': 'Lifecycle Management System',
   'app.brand.slogan': 'See deeper. Audit further.',
 };

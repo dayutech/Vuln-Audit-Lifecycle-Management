@@ -391,6 +391,146 @@
   background: color-mix(in srgb, var(--skin-ink) 16%, transparent);
 }
 
+/* ==================== 渠道分段控件（t122） ====================
+ * 「手机号 / 邮箱」这类二选一开关：颜色全部从主题 formSkin 派生，
+ * 选中 = 按钮底色（--skin-btn-bg）+ 按钮前景（--skin-btn-color），
+ * 未选中 = 透明底 + 输入框描边（--skin-input-border），
+ * 因此不会出现写死的灰底/蓝底，8 套主题自动协调。
+ */
+
+.auth-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-radius: calc(var(--skin-card-radius) * 0.32);
+  border: 1px solid color-mix(in srgb, var(--skin-input-border) 70%, transparent);
+  background: color-mix(in srgb, var(--skin-ink) 4%, transparent);
+}
+
+.auth-segment__item {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--skin-ink-soft);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 9px 16px;
+  border-radius: calc(var(--skin-card-radius) * 0.24);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.auth-segment__item:not(.is-active):hover {
+  color: var(--skin-ink);
+  border-color: var(--skin-input-focus);
+}
+
+.auth-segment__item.is-active {
+  background: var(--skin-btn-bg);
+  color: var(--skin-btn-color);
+  border-color: var(--skin-btn-bg);
+  box-shadow: none;
+}
+
+.auth-segment__item:focus-visible {
+  outline: 2px solid var(--skin-input-focus);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-segment__item {
+    transition: none;
+  }
+}
+
+/* ==================== 注册页分组 + 并排布局（t122） ====================
+ * 目标：把 8 个纵向字段压成「两组 + 两列」，显著降低页面高度；
+ * 375px 下自动回单列。所有间距/圆角取皮肤变量，保持 8 套主题一致。
+ */
+
+.auth-group {
+  margin-bottom: 4px;
+}
+
+.auth-group + .auth-group {
+  margin-top: 14px;
+}
+
+.auth-group__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--skin-ink-soft);
+}
+
+.auth-group__title::after {
+  content: '';
+  flex: 1 1 auto;
+  height: 1px;
+  background: color-mix(in srgb, var(--skin-ink) 14%, transparent);
+}
+
+/* 两列（>=481px）：子项等宽，间距 10px */
+.auth-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 10px;
+}
+
+.auth-grid > .auth-grid__full {
+  grid-column: 1 / -1;
+}
+
+/* 注册页字段间距比登录页更紧（降低总高度） */
+.auth-dense .ant-form-item {
+  margin-bottom: 12px;
+}
+
+/* 输入框 + 按钮同行（手机号/邮箱 + 获取验证码） */
+.auth-inline {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  width: 100%;
+}
+
+.auth-inline > .ant-input-affix-wrapper,
+.auth-inline > .ant-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.auth-inline > .ant-btn {
+  flex: 0 0 auto;
+  height: 40px;
+  padding-inline: 12px;
+  border-radius: calc(var(--skin-card-radius) * 0.34);
+  border: 1px solid var(--skin-input-border);
+  background: transparent;
+  color: var(--skin-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  box-shadow: none;
+  white-space: nowrap;
+}
+
+.auth-inline > .ant-btn:not(:disabled):hover {
+  border-color: var(--skin-input-focus);
+  color: var(--skin-input-focus);
+}
+
+.auth-inline > .ant-btn:disabled {
+  color: var(--skin-ink-soft);
+  opacity: 0.7;
+}
+
 /* ==================== 窄屏 ==================== */
 
 @media (max-width: 480px) {
@@ -398,6 +538,18 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
+  }
+
+  .auth-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .auth-inline {
+    flex-wrap: wrap;
+  }
+
+  .auth-inline > .ant-btn {
+    width: 100%;
   }
 
   .auth-code-row {

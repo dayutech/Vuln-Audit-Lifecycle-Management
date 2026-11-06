@@ -27,6 +27,7 @@ import Settings from '@/pages/settings/index';
 import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
 import SsoCallback from '@/pages/SsoCallback';
+import Unlock from '@/pages/Unlock';
 import SsoBindings from '@/pages/account/SsoBindings';
 import RegistrationRequests from '@/pages/registration-requests/index';
 
@@ -53,6 +54,11 @@ const router = createBrowserRouter([
   {
     path: '/auth/sso/callback',
     element: <SsoCallback />,
+  },
+  // t127：账户锁定后的 OTP 解锁（公开，未登录也能访问）
+  {
+    path: '/unlock',
+    element: <Unlock />,
   },
   {
     path: '/',
@@ -191,3 +197,4 @@ const router = createBrowserRouter([
 ]);
 
 export default router;
+

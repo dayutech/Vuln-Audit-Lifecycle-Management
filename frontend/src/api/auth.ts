@@ -3,8 +3,33 @@ import { LOGIN_THEMES } from '@/components/login/themes';
 import { normalizeLoginTheme } from '@/utils/loginTheme';
 import type { LoginThemeId } from '@/components/login/types';
 
+/**
+ * 登录（t127：改为 `silent`）。
+ *
+ * 登录页要把失败**全部走行内提示**，并且要区分三种「不是密码错」的情况：
+ * - 401 密码错误（行内「用户名或密码错误」）；
+ * - 429 IP 层限流（行内倒计时，读 `Retry-After`）—— 不能弹全局 toast；
+ * - 423 账户锁定（行内锁定说明 + 「去解锁」）—— 不能弹全局 toast。
+ *
+ * 因此这里关掉拦截器的全局提示，由页面按状态码自行分级。
+ */
 export const login = (data: any): Promise<any> => {
-  return request.post('/auth/login', data);
+  return request.post('/auth/login', data, { silent: true });
+};
+
+/**
+ * 登录第二步（t137，后端 t125）：带挑战 token + 动态码/恢复码换正式 JWT。
+ *
+ * - `challengeToken` 由第一步 202 响应给出，**只存内存**（不写 localStorage）；
+ * - `rememberMe` 必须在第二步再传一次：第一步的勾选对 2FA 用户不生效（后端如此设计）；
+ * - 成功后后端会下发 remember-me 的 httpOnly cookie，前端不保存任何长效凭证。
+ */
+export const loginWithTwoFactor = (payload: {
+  challengeToken: string;
+  code: string;
+  rememberMe?: boolean;
+}): Promise<any> => {
+  return request.post('/auth/login/2fa', payload, { silent: true });
 };
 
 export const logout = (): Promise<any> => {

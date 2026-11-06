@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Button, Form, Input, message } from 'antd';
-import { LockOutlined, UserOutlined } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import { LockOutlined, SafetyOutlined, UserOutlined } from '@ant-design/icons';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { login } from '@/api/auth';
+import { parseLockInfo, parseRetryAfter, type LockInfo } from '@/api/authUnlock';
+import { getApiErrorStatus } from '@/utils/errorMessage';
 import SsoButtons from '@/components/sso/SsoButtons';
 import { useUserStore } from '@/store/userStore';
 import { useT } from '@/i18n';
@@ -37,6 +39,13 @@ const Login: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [hasError, setHasError] = useState(false);
+  /** t127：429（IP 层限流）与 423（账户锁定）各走各的行内提示 */
+  const [rateLimit, setRateLimit] = useState<{ seconds: number } | null>(null);
+  const [lockInfo, setLockInfo] = useState<LockInfo | null>(null);
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  /** 解锁成功回跳时会带 `?username=xxx`：预填用户名，省得用户再敲一遍 */
+  const presetUsername = (searchParams.get('username') ?? '').trim();
   /** t118：读登录框里已填的用户名，点「忘记密码」时带进 query（自动带入） */
   const [form] = Form.useForm<{ username?: string; password?: string }>();
 
@@ -45,7 +54,6 @@ const Login: React.FC = () => {
     const username = String(form.getFieldValue('username') ?? '').trim();
     navigate(username ? `/forgot-password?username=${encodeURIComponent(username)}` : '/forgot-password');
   };
-  const navigate = useNavigate();
   const { setToken, setUser } = useUserStore();
   const { t } = useT();
   /**
@@ -71,6 +79,8 @@ const Login: React.FC = () => {
   const onFinish = async (values: any) => {
     setLoading(true);
     setHasError(false);
+    setRateLimit(null);
+    setLockInfo(null);
     try {
       const res = await login(values);
       // The backend returns { success: true, data: { token, ... } }
@@ -93,12 +103,49 @@ const Login: React.FC = () => {
         navigate('/dashboard');
       }
     } catch (error) {
-      // 错误提示仍由 request 拦截器统一弹出（后端 message 优先）
-      setHasError(true);
+      /**
+       * t127：登录失败分三路（都不弹全局 toast，全部行内）——
+       * - **429** IP 层限流：读 `Retry-After` → 「登录尝试过于频繁，请 X 分钟后重试」+ 倒计时禁用提交；
+       * - **423** 账户锁定：展示锁定说明 + 「去解锁」按钮（**不显示「密码错误」**）；
+       * - 其它（401/400/5xx）：沿用原有行内 Alert「用户名或密码错误」。
+       */
+      const status = getApiErrorStatus(error);
+      if (status === 429) {
+        const retryAfter = parseRetryAfter(
+          (error as any)?.response?.headers?.['retry-after'] ?? (error as any)?.response?.headers?.['Retry-After'],
+        );
+        setRateLimit({ seconds: retryAfter ?? 60 });
+      } else if (status === 423) {
+        setLockInfo(parseLockInfo((error as any)?.response?.data));
+      } else {
+        setHasError(true);
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  /** 去解锁页：把用户名 / 脱敏 targets / 可用渠道一起带过去，避免解锁页再猜 */
+  const goUnlock = () => {
+    const username = String(form.getFieldValue('username') ?? '').trim();
+    const params = new URLSearchParams();
+    if (username) params.set('username', username);
+    if (lockInfo) {
+      if (lockInfo.targets.length > 0) params.set('targets', lockInfo.targets.join(','));
+      params.set('methods', lockInfo.unlockMethods.join(','));
+      if (lockInfo.noVerifiedContact) params.set('noContact', '1');
+    }
+    navigate(`/unlock${params.toString() ? `?${params.toString()}` : ''}`);
+  };
+
+  /** 429 倒计时：只用来渲染「X 分钟后重试」并在倒计时期间禁提交 */
+  useEffect(() => {
+    if (!rateLimit || rateLimit.seconds <= 0) return undefined;
+    const timer = window.setInterval(() => {
+      setRateLimit((prev) => (prev && prev.seconds > 1 ? { seconds: prev.seconds - 1 } : prev));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [rateLimit]);
 
   return (
     <div className="login-page" data-theme={theme} data-group={themeEntry.group} data-testid="login-page">
@@ -131,11 +178,40 @@ const Login: React.FC = () => {
             />
           ) : null}
 
+          {/* t127：IP 层限流（429）—— 行内倒计时，不弹全局 toast */}
+          {rateLimit ? (
+            <Alert
+              type="warning"
+              showIcon
+              message={t('login.rateLimited', { minutes: Math.max(1, Math.ceil(rateLimit.seconds / 60)) })}
+              description={t('login.rateLimitedDesc', { seconds: rateLimit.seconds })}
+              data-testid="login-rate-limited"
+              data-retry-after={rateLimit.seconds}
+            />
+          ) : null}
+
+          {/* t127：账户锁定（423）—— 不显示「密码错误」，直接给出解锁入口 */}
+          {lockInfo ? (
+            <Alert
+              type="error"
+              showIcon
+              icon={<SafetyOutlined />}
+              message={t('login.accountLocked')}
+              description={t('login.accountLockedDesc')}
+              data-testid="login-account-locked"
+              action={
+                <Button size="small" type="primary" onClick={goUnlock} data-testid="login-go-unlock">
+                  {t('login.goUnlock')}
+                </Button>
+              }
+            />
+          ) : null}
+
           <Form
             form={form}
             name="login"
             layout="vertical"
-            initialValues={{ remember: true }}
+            initialValues={{ remember: true, username: presetUsername }}
             onFinish={onFinish}
             size="large"
           >
@@ -162,7 +238,14 @@ const Login: React.FC = () => {
             </Form.Item>
 
             <Form.Item style={{ marginBottom: 0 }}>
-              <Button type="primary" htmlType="submit" style={{ width: '100%' }} loading={loading}>
+              <Button
+                type="primary"
+                htmlType="submit"
+                style={{ width: '100%' }}
+                loading={loading}
+                disabled={Boolean(rateLimit && rateLimit.seconds > 0)}
+                data-testid="login-submit"
+              >
                 {t('login.submit')}
               </Button>
             </Form.Item>

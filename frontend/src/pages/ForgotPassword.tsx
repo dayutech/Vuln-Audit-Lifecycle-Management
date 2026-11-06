@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Form, Input, Radio, message } from 'antd';
+import { Alert, Button, Form, Input, message } from 'antd';
 import { LockOutlined, MailOutlined, MobileOutlined, UserOutlined } from '@ant-design/icons';
 import type { InputRef } from 'antd';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -293,24 +293,30 @@ const ForgotPassword: React.FC = () => {
 
           <div className="auth-field">
             <div className="auth-field__label">{t('forgotPassword.channel')}</div>
-            <div data-testid="forgot-channel">
-              <Radio.Group
-                value={channel}
-                onChange={(event) => {
-                  setChannel(event.target.value as VerificationChannel);
-                  setTargetError(null);
-                  cooldown.reset();
-                }}
-                optionType="button"
-                buttonStyle="solid"
-              >
-                <Radio.Button value="sms" data-testid="forgot-channel-sms">
-                  {t('forgotPassword.channelSms')}
-                </Radio.Button>
-                <Radio.Button value="email" data-testid="forgot-channel-email">
-                  {t('forgotPassword.channelEmail')}
-                </Radio.Button>
-              </Radio.Group>
+            {/* t122：自绘分段控件，颜色全部取自主题 formSkin（--skin-*），
+                不再用 antd Radio.Button 的写死灰/蓝底，8 套主题自动协调 */}
+            <div className="auth-segment" role="radiogroup" aria-label={t('forgotPassword.channel')} data-testid="forgot-channel">
+              {(['sms', 'email'] as VerificationChannel[]).map((item) => {
+                const active = channel === item;
+                return (
+                  <button
+                    key={item}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    className={['auth-segment__item', active ? 'is-active' : ''].join(' ')}
+                    data-testid={`forgot-channel-${item}`}
+                    data-active={active ? 'true' : 'false'}
+                    onClick={() => {
+                      setChannel(item);
+                      setTargetError(null);
+                      cooldown.reset();
+                    }}
+                  >
+                    {item === 'sms' ? t('forgotPassword.channelSms') : t('forgotPassword.channelEmail')}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

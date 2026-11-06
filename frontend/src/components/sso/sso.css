@@ -25,26 +25,114 @@
   margin-inline-end: 4px;
 }
 
-/* t118：启用但「凭据未配置」的提供商 —— 仍然是可点按钮（不用禁用态，
- * 禁用的按钮会被误读成权限问题），只在右下角点一个小圆点 + tooltip 说明。 */
-.login-sso__row > .ant-btn.sso-btn--unconfigured,
-.sso-bindings__actions .ant-btn.sso-btn--unconfigured {
-  position: relative;
+/* ==================== 登录页：纯 logo 图标按钮（t122） ====================
+ *
+ * 去掉文字与按钮底：只剩圆形徽标 + hover 轻微放大 + tooltip 显示平台名。
+ * 颜色取皮肤变量，8 套主题自动协调；`prefers-reduced-motion` 下不加过渡与缩放。
+ */
+
+.login-sso__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 
-.sso-btn__dot {
+.sso-logo-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sso-logo {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--skin-ink, #1f2328);
+  cursor: pointer;
+  transition: transform 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sso-logo:not(:disabled):hover,
+.sso-logo:not(:disabled):focus-visible {
+  transform: scale(1.09);
+  background: color-mix(in srgb, var(--skin-ink, #1f2328) 8%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--skin-ink, #1f2328) 14%, transparent);
+  outline: none;
+}
+
+.sso-logo:not(:disabled):active {
+  transform: scale(1.02);
+}
+
+.sso-logo:disabled {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+.sso-logo__icon {
+  color: currentColor;
+  opacity: 0.92;
+}
+
+/* 发送中的小转圈（不引 antd 的 loading 图标，保持纯 logo 观感） */
+.sso-logo__loading {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--skin-ink, #1f2328) 24%, transparent);
+  border-top-color: var(--skin-ink, #1f2328);
+  animation: sso-logo-spin 720ms linear infinite;
+}
+
+@keyframes sso-logo-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 未配置：右下角小黄点（tooltip 里追加「未配置」），仍可点击 */
+.sso-logo__dot {
   position: absolute;
-  top: -2px;
-  right: -2px;
-  width: 7px;
-  height: 7px;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: #faad14;
   box-shadow: 0 0 0 2px var(--skin-card-bg, #fff);
   pointer-events: none;
 }
 
-/* 绑定页里「未配置」行的按钮同样可点，标记走 Tag，不再重复画点 */
+@media (prefers-reduced-motion: reduce) {
+  .sso-logo {
+    transition: none;
+  }
+
+  .sso-logo:not(:disabled):hover,
+  .sso-logo:not(:disabled):focus-visible,
+  .sso-logo:not(:disabled):active {
+    transform: none;
+  }
+
+  .sso-logo__loading {
+    animation: none;
+  }
+}
+
+/* t118：绑定页里「未配置」行的按钮仍可点，标记走 Tag，不再画点 */
+.sso-bindings__actions .ant-btn.sso-btn--unconfigured {
+  position: relative;
+}
 
 /* ==================== 账号设置：社交账号绑定列表 ==================== */
 

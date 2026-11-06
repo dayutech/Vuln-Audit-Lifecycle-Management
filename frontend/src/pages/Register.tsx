@@ -10,7 +10,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useT } from '@/i18n';
 import AuthShell from '@/components/auth/AuthShell';
-import CodeField from '@/components/auth/CodeField';
+import SendCodeRow from '@/components/auth/SendCodeRow';
 import PasswordStrength from '@/components/auth/PasswordStrength';
 import { useCooldown } from '@/components/auth/useCooldown';
 import { useLoginPageTheme } from '@/components/login/useLoginPageTheme';
@@ -248,141 +248,168 @@ const Register: React.FC = () => {
             requiredMark={false}
             onFinish={onFinish}
             autoComplete="off"
+            className="auth-dense"
           >
-            <Form.Item
-              name="username"
-              label={t('register.username')}
-              rules={[
-                { required: true, message: t('register.usernameRequired') },
-                { pattern: USERNAME_PATTERN, message: t('register.usernameRule') },
-              ]}
-            >
-              <Input
-                prefix={<UserOutlined />}
-                placeholder={t('register.usernamePlaceholder')}
-                autoComplete="username"
-                data-testid="register-username"
-              />
-            </Form.Item>
+            {/* ---------- 组 1：账号信息（用户名独占一行；密码 / 确认密码并排） ---------- */}
+            <div className="auth-group" data-testid="register-group-account">
+              <div className="auth-group__title">{t('register.groupAccount')}</div>
 
-            <Form.Item
-              name="password"
-              label={t('register.password')}
-              rules={[{ required: true, message: t('register.passwordRequired') }]}
-            >
-              <Input.Password
-                prefix={<LockOutlined />}
-                placeholder={t('register.password')}
-                autoComplete="new-password"
-                data-testid="register-password"
-                onFocus={() => setPasswordFocused(true)}
-                onBlur={() => setPasswordFocused(false)}
-              />
-            </Form.Item>
-
-            <PasswordStrength value={password} />
-
-            <Form.Item
-              name="confirmPassword"
-              label={t('register.confirmPassword')}
-              dependencies={['password']}
-              rules={[
-                { required: true, message: t('register.confirmRequired') },
-                ({ getFieldValue }) => ({
-                  validator: (_, value) =>
-                    !value || value === getFieldValue('password')
-                      ? Promise.resolve()
-                      : Promise.reject(new Error(t('register.passwordMismatch'))),
-                }),
-              ]}
-            >
-              <Input.Password
-                prefix={<LockOutlined />}
-                placeholder={t('register.confirmPassword')}
-                autoComplete="new-password"
-                data-testid="register-confirm-password"
-                onFocus={() => setPasswordFocused(true)}
-                onBlur={() => setPasswordFocused(false)}
-              />
-            </Form.Item>
-
-            <Form.Item
-              name="phone"
-              label={t('register.phone')}
-              rules={[
-                { required: true, message: t('register.phoneRequired') },
-                { pattern: PHONE_PATTERN, message: t('register.phoneInvalid') },
-              ]}
-            >
-              <Input
-                prefix={<MobileOutlined />}
-                placeholder={t('register.phonePlaceholder')}
-                autoComplete="tel"
-                maxLength={11}
-                data-testid="register-phone"
-              />
-            </Form.Item>
-
-            <Form.Item
-              name="code"
-              label={t('register.smsCode')}
-              rules={[
-                { required: true, message: t('register.codeRequired') },
-                { pattern: CODE_PATTERN, message: t('register.codeRule') },
-              ]}
-            >
-              <CodeField
-                onSend={sendSms}
-                cooldown={smsCooldown.remaining}
-                sending={sending === 'sms'}
-                placeholder={t('register.smsCode')}
-                testId="register-code"
-                sendTestId="register-send-sms"
-              />
-            </Form.Item>
-
-            {devCodes.sms ? (
-              <div className="auth-devcode" data-testid="register-devcode">
-                <span>{t('auth.devCodeLabel')}</span>
-                <span className="auth-devcode__code">{devCodes.sms}</span>
-              </div>
-            ) : null}
-
-            <Form.Item name="email" label={t('register.email')} rules={[{ type: 'email', message: t('register.emailInvalid') }]}>
-              <Input
-                prefix={<MailOutlined />}
-                placeholder={t('register.emailPlaceholder')}
-                autoComplete="email"
-                data-testid="register-email"
-              />
-            </Form.Item>
-
-            {email ? (
               <Form.Item
-                name="emailCode"
-                label={t('register.emailCode')}
+                name="username"
+                label={t('register.username')}
+                rules={[
+                  { required: true, message: t('register.usernameRequired') },
+                  { pattern: USERNAME_PATTERN, message: t('register.usernameRule') },
+                ]}
+              >
+                <Input
+                  prefix={<UserOutlined />}
+                  placeholder={t('register.usernamePlaceholder')}
+                  autoComplete="username"
+                  data-testid="register-username"
+                />
+              </Form.Item>
+
+              <div className="auth-grid">
+                <Form.Item
+                  name="password"
+                  label={t('register.password')}
+                  rules={[{ required: true, message: t('register.passwordRequired') }]}
+                >
+                  <Input.Password
+                    prefix={<LockOutlined />}
+                    placeholder={t('register.password')}
+                    autoComplete="new-password"
+                    data-testid="register-password"
+                    onFocus={() => setPasswordFocused(true)}
+                    onBlur={() => setPasswordFocused(false)}
+                  />
+                </Form.Item>
+
+                <Form.Item
+                  name="confirmPassword"
+                  label={t('register.confirmPassword')}
+                  dependencies={['password']}
+                  rules={[
+                    { required: true, message: t('register.confirmRequired') },
+                    ({ getFieldValue }) => ({
+                      validator: (_, value) =>
+                        !value || value === getFieldValue('password')
+                          ? Promise.resolve()
+                          : Promise.reject(new Error(t('register.passwordMismatch'))),
+                    }),
+                  ]}
+                >
+                  <Input.Password
+                    prefix={<LockOutlined />}
+                    placeholder={t('register.confirmPassword')}
+                    autoComplete="new-password"
+                    data-testid="register-confirm-password"
+                    onFocus={() => setPasswordFocused(true)}
+                    onBlur={() => setPasswordFocused(false)}
+                  />
+                </Form.Item>
+              </div>
+
+              <PasswordStrength value={password} />
+            </div>
+
+            {/* ---------- 组 2：联系方式（接收方 + 发码按钮同行；验证码单独一行） ---------- */}
+            <div className="auth-group" data-testid="register-group-contact">
+              <div className="auth-group__title">{t('register.groupContact')}</div>
+
+              <Form.Item
+                name="phone"
+                label={t('register.phone')}
+                rules={[
+                  { required: true, message: t('register.phoneRequired') },
+                  { pattern: PHONE_PATTERN, message: t('register.phoneInvalid') },
+                ]}
+              >
+                <SendCodeRow
+                  onSend={() => void sendSms()}
+                  cooldown={smsCooldown.remaining}
+                  sending={sending === 'sms'}
+                  placeholder={t('register.phonePlaceholder')}
+                  prefix={<MobileOutlined />}
+                  autoComplete="tel"
+                  inputMode="tel"
+                  maxLength={11}
+                  testId="register-phone"
+                  sendTestId="register-send-sms"
+                />
+              </Form.Item>
+
+              <Form.Item
+                name="code"
+                label={t('register.smsCode')}
                 rules={[
                   { required: true, message: t('register.codeRequired') },
                   { pattern: CODE_PATTERN, message: t('register.codeRule') },
                 ]}
               >
-                <CodeField
-                  onSend={sendEmail}
+                <Input
+                  placeholder={t('register.smsCode')}
+                  maxLength={6}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  data-testid="register-code"
+                />
+              </Form.Item>
+
+              {devCodes.sms ? (
+                <div className="auth-devcode" data-testid="register-devcode">
+                  <span>{t('auth.devCodeLabel')}</span>
+                  <span className="auth-devcode__code">{devCodes.sms}</span>
+                </div>
+              ) : null}
+
+              <Form.Item
+                name="email"
+                label={t('register.email')}
+                rules={[{ type: 'email', message: t('register.emailInvalid') }]}
+              >
+                <SendCodeRow
+                  onSend={() => void sendEmail()}
                   cooldown={emailCooldown.remaining}
                   sending={sending === 'email'}
-                  placeholder={t('register.emailCode')}
-                  testId="register-email-code"
+                  // 邮箱为空时不显示发码按钮（填了才出现）
+                  showSend={Boolean(email)}
+                  placeholder={t('register.emailPlaceholder')}
+                  prefix={<MailOutlined />}
+                  autoComplete="email"
+                  inputMode="email"
+                  testId="register-email"
                   sendTestId="register-send-email"
                 />
               </Form.Item>
-            ) : null}
 
-            {devCodes.email ? (
-              <div className="auth-devcode" data-testid="register-email-devcode">
-                <span>{t('auth.devCodeLabel')}</span>
-                <span className="auth-devcode__code">{devCodes.email}</span>
-              </div>
-            ) : null}
+              {email ? (
+                <Form.Item
+                  name="emailCode"
+                  label={t('register.emailCode')}
+                  rules={[
+                    { required: true, message: t('register.codeRequired') },
+                    { pattern: CODE_PATTERN, message: t('register.codeRule') },
+                  ]}
+                >
+                  <Input
+                    placeholder={t('register.emailCode')}
+                    maxLength={6}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    data-testid="register-email-code"
+                  />
+                </Form.Item>
+              ) : null}
+
+              {devCodes.email ? (
+                <div className="auth-devcode" data-testid="register-email-devcode">
+                  <span>{t('auth.devCodeLabel')}</span>
+                  <span className="auth-devcode__code">{devCodes.email}</span>
+                </div>
+              ) : null}
+            </div>
 
             <Form.Item style={{ marginBottom: 8 }}>
               <Button
@@ -408,3 +435,4 @@ const Register: React.FC = () => {
 };
 
 export default Register;
+

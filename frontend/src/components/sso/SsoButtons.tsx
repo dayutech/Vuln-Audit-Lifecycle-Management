@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Button, Tooltip, message } from 'antd';
+import { Tooltip, message } from 'antd';
 import { useT } from '@/i18n';
 import SsoIcon from './SsoIcon';
 import { beginSsoRedirect, getSsoAuthorizeUrl, getSsoProviders, isProviderConfigured } from '@/api/sso';
@@ -85,27 +85,38 @@ const SsoButtons: React.FC<SsoButtonsProps> = ({ testIdPrefix = 'login-sso', bef
       <div className="login-sso__row">
         {providers.map((provider) => {
           const configured = isProviderConfigured(provider);
+          const label = labelOf(provider);
+          // t122：只显示 logo（无文字、无按钮底），tooltip 显示平台名；未配置的建议追加后缀
+          const tip = configured ? label : `${label} · ${t('sso.notConfiguredBadge')}`;
           return (
-            <Tooltip
+            <span
               key={provider.code}
-              title={configured ? undefined : t('sso.notConfiguredHint')}
-              placement="top"
+              className="sso-logo-wrap"
+              data-testid={`sso-provider-${provider.code}`}
+              data-sso-configured={configured ? 'true' : 'false'}
             >
-              <Button
-                onClick={() => void start(provider)}
-                loading={starting === provider.code}
-                className={configured ? undefined : 'sso-btn--unconfigured'}
-                data-testid={`${testIdPrefix}-${provider.code}`}
-                data-sso-provider={provider.code}
-                data-sso-configured={configured ? 'true' : 'false'}
-              >
-                <SsoIcon code={provider.icon || provider.code} size={16} className="sso-btn__icon" />
-                <span className="sso-btn__label">{labelOf(provider)}</span>
-                {configured ? null : (
-                  <span className="sso-btn__dot" data-testid={`${testIdPrefix}-${provider.code}-dot`} aria-hidden="true" />
-                )}
-              </Button>
-            </Tooltip>
+              <Tooltip title={tip} placement="top">
+                <button
+                  type="button"
+                  className="sso-logo"
+                  onClick={() => void start(provider)}
+                  aria-label={tip}
+                  disabled={starting === provider.code}
+                  data-testid={`${testIdPrefix}-${provider.code}`}
+                  data-sso-provider={provider.code}
+                  data-sso-configured={configured ? 'true' : 'false'}
+                >
+                  {starting === provider.code ? (
+                    <span className="sso-logo__loading" aria-hidden="true" />
+                  ) : (
+                    <SsoIcon code={provider.icon || provider.code} size={22} className="sso-logo__icon" />
+                  )}
+                  {configured ? null : (
+                    <span className="sso-logo__dot" data-testid={`${testIdPrefix}-${provider.code}-dot`} aria-hidden="true" />
+                  )}
+                </button>
+              </Tooltip>
+            </span>
           );
         })}
       </div>

@@ -4,6 +4,7 @@ import { message } from 'antd';
 import { translate } from '@/i18n';
 import { attachAcceptLanguageHeader } from './langHeader';
 import { endImpersonation, readImpersonationTarget } from '@/utils/impersonation';
+import { isLoggingOut, isOnLoginPage } from '@/utils/session';
 
 declare module 'axios' {
   interface AxiosRequestConfig {
@@ -71,7 +72,16 @@ request.interceptors.response.use(
       const { status, data } = error.response as any;
       const errorMsg = data?.message || data?.error?.message;
       if (status === 401) {
-        message.error(errorMsg || translate('error.unauthorized'));
+        /**
+         * t122（对应意见 18「登出后误报未认证」）：401 一律**不弹提示**，只做
+         * 「清 token + 必要时回登录页」。原因：
+         * 1) 主动登出时在飞请求会 401 —— 用户刚点退出，不该再看到「未认证」；
+         * 2) 会话过期被动登出 / 后台标签页 token 失效 —— 直接回登录页即可；
+         * 3) 登录页本身输错密码也是 401 —— 页面已有行内错误，再弹一条是重复。
+         */
+        if (isLoggingOut()) {
+          return Promise.reject(error);
+        }
         // t91：模拟态 token 过期/失效 → 自动回退到原始 admin token，而不是踢去登录页
         const target = readImpersonationTarget();
         if (target) {
@@ -88,9 +98,8 @@ request.interceptors.response.use(
          * 已经在登录页时**不要再整页跳转**（t95）：
          * 登录失败本身就是 401，跳转会打断页面把「错误态」呈现给用户
          * （角色抖动 + 行内错误提示），并让用户重填一遍表单。
-         * 其它页面仍按原逻辑回登录页。
          */
-        if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        if (!isOnLoginPage()) {
           window.location.href = '/login';
         }
         return Promise.reject(error);

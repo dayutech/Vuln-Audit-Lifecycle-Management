@@ -7,6 +7,7 @@ import { getCurrentUser, logout } from '@/api/auth';
 import { getUnreadNotificationCount } from '@/api/notification';
 import { getMyAccessProfile, isManagementProfile } from '@/api/permission';
 import { getPendingRegistrationCount, REGISTRATION_REVIEW_CHANGED_EVENT } from '@/api/registrationReview';
+import { endLoggingOut, markLoggingOut } from '@/utils/session';
 import { useT } from '@/i18n';
 import ImpersonationBanner from './ImpersonationBanner';
 import ImpersonationPicker from './ImpersonationPicker';
@@ -128,12 +129,24 @@ const BasicLayout: React.FC = () => {
     }
   }, [user, setUser, clearAuth, navigate]);
 
+  /**
+   * 退出登录（t122，对应意见 18）。
+   *
+   * 顺序很重要：**先**标记「正在登出」（401 拦截器据此静默），再请求 /auth/logout，
+   * 最后清 token + 跳 /login。这样登出瞬间的在飞请求（通知未读数、仪表盘轮询等）
+   * 即使拿到 401 也不会弹「未认证，请先登录」，也不会重复跳转。
+   */
   const handleLogout = async () => {
+    markLoggingOut();
     try {
       await logout();
+    } catch {
+      /* 登出接口失败不影响本地登出：token 照清、照跳登录页 */
     } finally {
       clearAuth();
-      navigate('/login');
+      navigate('/login', { replace: true });
+      // 跳转完成即收尾；残留的在飞请求在 401 分支里已被静默
+      window.setTimeout(endLoggingOut, 600);
     }
   };
 
