@@ -17,6 +17,7 @@ import { preferencesZh } from './domains/preferencesMessages';
 import { settingsZh } from './domains/settingsMessages';
 import { authZh } from './domains/authMessages';
 import { ssoZh } from './domains/ssoMessages';
+import { twoFactorZh } from './domains/twoFactorMessages';
 import { registrationReviewZh } from './domains/registrationReviewMessages';
 
 export const zhCN = {
@@ -29,6 +30,7 @@ export const zhCN = {
   ...settingsZh,
   ...authZh,
   ...ssoZh,
+  ...twoFactorZh,
   ...registrationReviewZh,
   /* ==================== 通用 ==================== */
   'common.appName': '漏洞审计生命周期管理系统',
@@ -1050,5 +1052,6 @@ export const zhCN = {
 
 export type MessageKey = keyof typeof zhCN;
 export type MessageCatalog = Record<MessageKey, string>;
+
 
 

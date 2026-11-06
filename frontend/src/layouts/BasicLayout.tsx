@@ -13,6 +13,7 @@ import ImpersonationBanner from './ImpersonationBanner';
 import ImpersonationPicker from './ImpersonationPicker';
 import { isImpersonating } from '@/utils/impersonation';
 import LoginThemePreferenceModal from '@/components/preferences/LoginThemePreferenceModal';
+import TwoFactorRequiredBanner from '@/components/twoFactor/TwoFactorRequiredBanner';
 import LangSwitcher from '@/i18n/LangSwitcher';
 import AppBrand from './AppBrand';
 import { collectMenuKeys, collectOpenKeys, selectMenuKey } from './menuSelection';
@@ -243,6 +244,13 @@ const BasicLayout: React.FC = () => {
         label: t('preferences.menu'),
         onClick: () => setPrefsOpen(true),
       },
+      // t137：账号安全（两步验证）——所有登录用户自助；强制 2FA 引导也指向这里
+      {
+        key: 'account-security',
+        icon: <SafetyCertificateOutlined />,
+        label: t('twoFactor.menu'),
+        onClick: () => navigate('/account/security'),
+      },
       // t106：社交账号绑定（SSO），登录用户都可管理自己的绑定
       {
         key: 'sso-bindings',
@@ -295,6 +303,8 @@ const BasicLayout: React.FC = () => {
           </Dropdown>
         </Header>
         <Content style={{ margin: '24px 16px', padding: 24, background: '#fff', minHeight: 280, borderRadius: 8 }}>
+          {/* t137：强制 2FA 时不可关闭的引导横幅（监听 403 TWO_FACTOR_SETUP_REQUIRED 事件） */}
+          <TwoFactorRequiredBanner />
           <ImpersonationBanner />
           <Outlet />
         </Content>
@@ -307,3 +317,4 @@ const BasicLayout: React.FC = () => {
 };
 
 export default BasicLayout;
+

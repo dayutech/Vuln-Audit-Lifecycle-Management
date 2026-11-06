@@ -107,6 +107,18 @@ request.interceptors.response.use(
       if (!silent) {
         switch (status) {
           case 403:
+            /**
+             * t137：强制两步验证拦截（后端 `TwoFactorEnforcementInterceptor`）。
+             *
+             * 这类 403 不是"没权限"，而是"还没开通 2FA"——
+             * 派发全局事件让 `TwoFactorRequiredBanner` 展示引导，并且**不弹**通用的「无权限」toast，
+             * 否则用户会看到一条误导性的报错。后端已把 `/auth/**`、`/users/me/2fa`、`/users/me/preferences`
+             * 加入白名单，因此设置页与登出不会被这条引导循环拦截。
+             */
+            if ((data as any)?.code === 'TWO_FACTOR_SETUP_REQUIRED') {
+              window.dispatchEvent(new CustomEvent('twoFactor:setup-required'));
+              break;
+            }
             message.error(errorMsg || translate('error.forbidden'));
             break;
           case 400:

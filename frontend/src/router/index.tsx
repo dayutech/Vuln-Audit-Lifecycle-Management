@@ -30,6 +30,7 @@ import SsoCallback from '@/pages/SsoCallback';
 import Unlock from '@/pages/Unlock';
 import SsoBindings from '@/pages/account/SsoBindings';
 import RegistrationRequests from '@/pages/registration-requests/index';
+import AccountSecurity from '@/pages/account/Security';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const token = localStorage.getItem('access_token');
@@ -170,6 +171,11 @@ const router = createBrowserRouter([
         element: <Settings />,
       },
       {
+        // t137：账号安全（两步验证）——所有登录用户可用；强制 2FA 引导也指向这里
+        path: '/account/security',
+        element: <AccountSecurity />,
+      },
+      {
         // t114：注册审批（仅 ADMIN / PROJECT_LEADER；页面内再判一次，非授权角色显示 403）
         path: '/admin/registration-requests',
         element: <RegistrationRequests />,
@@ -197,4 +203,5 @@ const router = createBrowserRouter([
 ]);
 
 export default router;
+
 

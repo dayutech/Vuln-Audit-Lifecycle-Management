@@ -8,6 +8,7 @@ import { preferencesEn } from './domains/preferencesMessages';
 import { settingsEn } from './domains/settingsMessages';
 import { authEn } from './domains/authMessages';
 import { ssoEn } from './domains/ssoMessages';
+import { twoFactorEn } from './domains/twoFactorMessages';
 import { registrationReviewEn } from './domains/registrationReviewMessages';
 
 /**
@@ -28,6 +29,7 @@ export const enUS: MessageCatalog = {
   ...settingsEn,
   ...authEn,
   ...ssoEn,
+  ...twoFactorEn,
   ...registrationReviewEn,
   /* ==================== common ==================== */
   'common.appName': 'Vulnerability Audit Lifecycle Management',
@@ -1041,5 +1043,6 @@ export const enUS: MessageCatalog = {
   'impersonation.expired': 'Impersonation ended (expired); your admin account was restored',
   'impersonation.needRelogin': 'The original admin credentials are gone — please sign in again',
 };
+
 
 

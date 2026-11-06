@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Button, Form, Input, message } from 'antd';
+import { Alert, Button, Checkbox, Form, Input, message } from 'antd';
 import { LockOutlined, SafetyOutlined, UserOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { login } from '@/api/auth';
+import { login, loginWithTwoFactor } from '@/api/auth';
 import { parseLockInfo, parseRetryAfter, type LockInfo } from '@/api/authUnlock';
 import { getApiErrorStatus } from '@/utils/errorMessage';
 import SsoButtons from '@/components/sso/SsoButtons';
@@ -42,6 +42,17 @@ const Login: React.FC = () => {
   /** t127：429（IP 层限流）与 423（账户锁定）各走各的行内提示 */
   const [rateLimit, setRateLimit] = useState<{ seconds: number } | null>(null);
   const [lockInfo, setLockInfo] = useState<LockInfo | null>(null);
+  /** t137：两步验证第二阶段 */
+  const [challenge, setChallenge] = useState<string | null>(null);
+  const [twoFaCode, setTwoFaCode] = useState('');
+  const [useRecoveryCode, setUseRecoveryCode] = useState(false);
+  const [twoFaError, setTwoFaError] = useState<string | null>(null);
+  /** 回到第一步时的原因（挑战过期 / 尝试次数用尽）——必须渲染在两步之外才看得见 */
+  const [twoFaNotice, setTwoFaNotice] = useState<string | null>(null);
+  const [twoFaAttempts, setTwoFaAttempts] = useState(0);
+  const [twoFaLoading, setTwoFaLoading] = useState(false);
+  /** t137：记住我（30 天）——只作为请求体字段，前端不保存任何长效凭证 */
+  const [rememberMe, setRememberMe] = useState(false);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   /** 解锁成功回跳时会带 `?username=xxx`：预填用户名，省得用户再敲一遍 */
@@ -76,31 +87,50 @@ const Login: React.FC = () => {
   /** 皮肤 → CSS 变量（t101 抽出为 `toSkinStyle`，注册 / 忘记密码页共用） */
   const skinVars = toSkinStyle(skin);
 
+  /** 登录成功（两阶段共用）：写 token/用户 → 跳仪表盘 */
+  const finishLogin = (payload: any) => {
+    message.success(t('login.success'));
+    setToken(payload.token);
+    /**
+     * t110：登录成功**不再**回写本机标记（t97 的 `syncLoginThemeFromServer` 已删除）。
+     * 主题只由「用户主动选择 / 从账号同步 / 跟随默认」驱动；
+     * 跨设备想要一致就进偏好设置点一次「从账号同步到本机」。
+     */
+    // Transform the flat response to user object format expected by store
+    setUser({
+      id: payload.userId,
+      username: payload.username,
+      full_name: payload.fullName,
+      email: payload.email,
+      role: 'admin', // Or whatever default role until fetched
+    } as any);
+    navigate('/dashboard');
+  };
+
   const onFinish = async (values: any) => {
     setLoading(true);
     setHasError(false);
     setRateLimit(null);
     setLockInfo(null);
     try {
-      const res = await login(values);
-      // The backend returns { success: true, data: { token, ... } }
-      if (res && res.data && res.data.token) {
-        message.success(t('login.success'));
-        setToken(res.data.token);
-        /**
-         * t110：登录成功**不再**回写本机标记（t97 的 `syncLoginThemeFromServer` 已删除）。
-         * 主题只由「用户主动选择 / 从账号同步 / 跟随默认」驱动；
-         * 跨设备想要一致就进偏好设置点一次「从账号同步到本机」。
-         */
-        // Transform the flat response to user object format expected by store
-        setUser({
-          id: res.data.userId,
-          username: res.data.username,
-          full_name: res.data.fullName,
-          email: res.data.email,
-          role: 'admin', // Or whatever default role until fetched
-        } as any);
-        navigate('/dashboard');
+      const res = await login({ ...values, rememberMe });
+      const payload = res?.data ?? res;
+      /**
+       * t137：已开启两步验证的账号，第一步登录返回 **202** `{twoFactorRequired, challengeToken}`。
+       * 这里切到第二阶段；`challengeToken` 只放在 state 里（**不写 localStorage**），
+       * 页面刷新/关闭即失效（后端本身就是一次性 + 5 分钟）。
+       */
+      if (payload?.twoFactorRequired && payload?.challengeToken) {
+        setChallenge(String(payload.challengeToken));
+        setTwoFaCode('');
+        setTwoFaAttempts(0);
+        setTwoFaError(null);
+        setTwoFaNotice(null);
+        setUseRecoveryCode(false);
+        return;
+      }
+      if (payload && payload.token) {
+        finishLogin(payload);
       }
     } catch (error) {
       /**
@@ -122,6 +152,49 @@ const Login: React.FC = () => {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  /** 回到第一步（挑战过期 / 尝试次数用尽 / 用户主动返回） */
+  const resetToPasswordStep = (reason?: 'expired') => {
+    setChallenge(null);
+    setTwoFaCode('');
+    setTwoFaAttempts(0);
+    setTwoFaError(null);
+    setTwoFaNotice(reason === 'expired' ? t('login.twoFactor.expired') : null);
+  };
+
+  /** 第二阶段提交（动态码或恢复码都走同一端点，后端两种都认） */
+  const submitTwoFactor = async () => {
+    const code = twoFaCode.trim();
+    if (!challenge) return;
+    if (!code) {
+      setTwoFaError(t('login.twoFactor.codeRequired'));
+      return;
+    }
+    setTwoFaLoading(true);
+    setTwoFaError(null);
+    try {
+      const res = await loginWithTwoFactor({
+        challengeToken: challenge,
+        code,
+        rememberMe,
+      });
+      const payload = res?.data ?? res;
+      if (payload?.token) finishLogin(payload);
+      else setTwoFaError(t('login.twoFactor.wrongCode'));
+    } catch (error) {
+      const status = getApiErrorStatus(error);
+      const nextAttempts = twoFaAttempts + 1;
+      setTwoFaAttempts(nextAttempts);
+      // 挑战是一次性的：过期/被作废（401/403）或失败达到 5 次 → 一律回第一步重新登录
+      if (status === 401 || status === 403 || nextAttempts >= 5) {
+        resetToPasswordStep('expired');
+      } else {
+        setTwoFaError(t('login.twoFactor.wrongCode'));
+      }
+    } finally {
+      setTwoFaLoading(false);
     }
   };
 
@@ -207,6 +280,89 @@ const Login: React.FC = () => {
             />
           ) : null}
 
+          {/* t137：挑战过期 / 尝试用尽后回到第一步时的原因提示（放在两步之外，回到第一步也看得见） */}
+          {twoFaNotice && !challenge ? (
+            <Alert type="warning" showIcon message={twoFaNotice} data-testid="login-2fa-notice" style={{ marginBottom: 12 }} />
+          ) : null}
+
+          {/* t137：第二阶段 —— 已开启两步验证的账号（第一步返回 202） */}
+          {challenge ? (
+            <div data-testid="login-two-factor">
+              <h2 className="login-card__title" style={{ fontSize: 16, marginBottom: 4 }}>
+                {t('login.twoFactor.title')}
+              </h2>
+              <p className="login-card__subtitle">{t('login.twoFactor.desc')}</p>
+
+              {twoFaError ? (
+                <Alert type="error" showIcon message={twoFaError} data-testid="login-2fa-error" style={{ marginBottom: 12 }} />
+              ) : null}
+
+              <div style={{ marginBottom: 8, fontSize: 12, color: '#6b7280' }}>
+                {useRecoveryCode ? t('login.twoFactor.recoveryLabel') : t('login.twoFactor.codeLabel')}
+              </div>
+              <Input
+                value={twoFaCode}
+                onChange={(event) => {
+                  const value = useRecoveryCode ? event.target.value : event.target.value.replace(/\D/g, '').slice(0, 6);
+                  setTwoFaCode(value);
+                  if (twoFaError) setTwoFaError(null);
+                }}
+                onPressEnter={() => void submitTwoFactor()}
+                placeholder={useRecoveryCode ? t('login.twoFactor.recoveryPlaceholder') : t('login.twoFactor.codePlaceholder')}
+                size="large"
+                autoFocus
+                style={{
+                  letterSpacing: useRecoveryCode ? 0 : 4,
+                  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+                }}
+                data-testid="login-2fa-code"
+                data-mode={useRecoveryCode ? 'recovery' : 'totp'}
+              />
+
+              {twoFaAttempts > 0 && twoFaAttempts < 5 ? (
+                <div style={{ fontSize: 12, color: '#d97706', marginTop: 6 }} data-testid="login-2fa-attempts">
+                  {t('login.twoFactor.attemptsLeft', { count: 5 - twoFaAttempts })}
+                </div>
+              ) : null}
+
+              <Button
+                type="primary"
+                size="large"
+                block
+                style={{ marginTop: 12 }}
+                loading={twoFaLoading}
+                onClick={() => void submitTwoFactor()}
+                data-testid="login-2fa-submit"
+              >
+                {t('login.twoFactor.submit')}
+              </Button>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, gap: 8, flexWrap: 'wrap' }}>
+                <Button
+                  type="link"
+                  size="small"
+                  style={{ padding: 0 }}
+                  onClick={() => {
+                    setUseRecoveryCode((prev) => !prev);
+                    setTwoFaCode('');
+                    setTwoFaError(null);
+                  }}
+                  data-testid="login-2fa-recovery-toggle"
+                >
+                  {useRecoveryCode ? t('login.twoFactor.useTotp') : t('login.twoFactor.useRecovery')}
+                </Button>
+                <Button
+                  type="link"
+                  size="small"
+                  style={{ padding: 0 }}
+                  onClick={() => resetToPasswordStep()}
+                  data-testid="login-2fa-back"
+                >
+                  {t('login.twoFactor.back')}
+                </Button>
+              </div>
+            </div>
+          ) : (
           <Form
             form={form}
             name="login"
@@ -237,6 +393,18 @@ const Login: React.FC = () => {
               />
             </Form.Item>
 
+            {/* t137：记住我（30 天）——勾选后请求体带 rememberMe:true，长效凭证由后端 httpOnly cookie 承担 */}
+            <Form.Item style={{ marginBottom: 12 }}>
+              <Checkbox
+                checked={rememberMe}
+                onChange={(event) => setRememberMe(event.target.checked)}
+                data-testid="login-remember-me"
+              >
+                {t('rememberMe.label')}
+              </Checkbox>
+              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{t('rememberMe.hint')}</div>
+            </Form.Item>
+
             <Form.Item style={{ marginBottom: 0 }}>
               <Button
                 type="primary"
@@ -250,6 +418,7 @@ const Login: React.FC = () => {
               </Button>
             </Form.Item>
           </Form>
+          )}
 
           {/* t105：登录框下方的自助入口（注册 / 忘记密码）+ 第三方登录（有无 provider 由后端决定） */}
           <div className="login-entries" data-testid="login-entries">
@@ -285,3 +454,5 @@ const Login: React.FC = () => {
 };
 
 export default Login;
+
+
