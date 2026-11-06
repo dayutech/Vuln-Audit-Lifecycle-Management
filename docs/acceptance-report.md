@@ -1745,3 +1745,22 @@ secret 空串不清空与 clearClientSecret 清空 / 响应不含明文且掩码
 
 `BaseTest` 的 `@DirtiesContext` 仍让**每个测试类**重建一次上下文（约 8–12s，全量约 90 次）。后续可评估：仅在真正修改单例状态的类上加 `@DirtiesContext`、
 其余类共享上下文；或在测试 profile 打开 `spring.main.lazy-initialization=true`。详见 README §56.6。
+
+### 2.24 登录暴力破解防护（IP 优先 → 升级锁账户 → 告警 → OTP 解锁，t123）
+
+**模型**：IP 层先锁（同 IP 窗口内失败 5 次 → 429 + Retry-After，账户不受影响，换网络可登录）；
+账户层升级（被锁 IP 期间该账户又从别 IP 错密码，或 30 分钟内 ≥3 个不同 IP 均失败 → **423 Locked**，任何 IP 的正确密码也拒绝，默认 30 分钟）。
+
+**副作用**：`ACCOUNT_LOCKED` 审计（含原因/IP 列表，一次仅 1 条）+ 向已验证手机/邮箱发安全告警
+（`sendSecurityAlert`，含时间/IP/解锁方式，不含密码与验证码；发送失败不影响锁定）。
+
+**解锁**：`/auth/unlock/send-code`（purpose=UNLOCK，5 分钟、一次性、5 次失败作废；username 冷却 300s + IP 每小时 10 次）
+→ `/auth/unlock/confirm`（成功后清计数与锁定，写 `ACCOUNT_UNLOCKED`，不签发 token）；
+无绑定联系方式时 `hint=NO_VERIFIED_CONTACT` 提示联系管理员，管理员走 `POST /admin/users/{id}/unlock`（ADMIN，审计 1 条）。
+
+**配置**：`app.security.login-lockout.*`（enabled/ip-max-failures/ip-window-minutes/ip-lock-minutes/account-max-failures/
+distinct-ip-threshold/distinct-ip-window-minutes/account-lock-minutes/unlock-username-cooldown-seconds/unlock-max-per-ip-per-hour）；
+`enabled=false` 时整套关闭并回归旧「用户名+IP」限流。
+
+**验证**：`LoginLockoutTest` **16/16**；关联回归 `LoginLockoutTest + AuthControllerTest + RegistrationFlowTest + PasswordResetFlowTest` **55/55**。
+规则、响应体与已知边界（进程内计数需 Redis、告警通道需接网关、XFF 信任边界）见 README §58。

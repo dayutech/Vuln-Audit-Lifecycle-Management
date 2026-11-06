@@ -86,6 +86,7 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
             "PUT /api/v1/admin/sso/providers/{code}",
             "PATCH /api/v1/admin/sso/providers/{code}",
             "DELETE /api/v1/admin/registration-requests/{id}",
+            "POST /api/v1/admin/users/{id}/unlock",
             "POST /api/v1/admin/registration-requests/{id}/approve",
             "POST /api/v1/admin/registration-requests/{id}/reject"
     };

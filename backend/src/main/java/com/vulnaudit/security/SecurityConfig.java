@@ -96,6 +96,8 @@ public class SecurityConfig {
                             "/api/v1/auth/sso/providers",
                             "/api/v1/auth/sso/*/authorize-url",
                             "/api/v1/auth/sso/*/callback",
+                            "/api/v1/auth/unlock/send-code",
+                            "/api/v1/auth/unlock/confirm",
                             "/actuator/health"
                     ).permitAll();
 

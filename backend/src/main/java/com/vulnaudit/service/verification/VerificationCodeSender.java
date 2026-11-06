@@ -23,4 +23,17 @@ public interface VerificationCodeSender {
      * @param code   明文验证码
      */
     void sendEmail(String target, String code);
+    /**
+     * 发送账户安全告警（t123：账户因暴力破解被锁定）
+     *
+     * <p>默认实现只写日志（不落明文敏感信息）；接入真实短信/邮件网关的实现可覆盖本方法。
+     * 内容里<b>不得</b>包含密码或验证码，只用时间、来源 IP、解锁方式等非敏感信息。
+     *
+     * @param target  手机号或邮箱
+     * @param channel 渠道 sms / email
+     * @param message 告警正文（已由调用方做好脱敏）
+     */
+    default void sendSecurityAlert(String target, String channel, String message) {
+        // 默认：仅日志（生产用真实网关实现覆盖）
+    }
 }

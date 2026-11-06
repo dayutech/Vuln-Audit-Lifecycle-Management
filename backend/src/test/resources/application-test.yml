@@ -79,6 +79,17 @@ app:
   # 自助注册验证码（t102）：测试环境打开 dev-mode，便于用例直接从响应取 devCode；
   # 「dev-mode 关闭时不回传 devCode」的用例用反射临时改该值验证。
   security:
+    login-lockout:
+      enabled: true
+      ip-max-failures: 5
+      ip-window-minutes: 15
+      ip-lock-minutes: 15
+      account-max-failures: 5
+      distinct-ip-threshold: 3
+      distinct-ip-window-minutes: 30
+      account-lock-minutes: 30
+      unlock-username-cooldown-seconds: 300
+      unlock-max-per-ip-per-hour: 10
     verification:
       dev-mode: true
       code-length: 6

@@ -97,6 +97,18 @@ app:
     impersonation:
       enabled: ${APP_IMPERSONATION_ENABLED:true}
       ttl-seconds: ${APP_IMPERSONATION_TTL_SECONDS:7200}
+    # 登录暴力破解防护（t123）：先锁 IP（不影响账户）→ 跨 IP 升级锁账户 + 告警 + OTP 解锁
+    login-lockout:
+      enabled: ${APP_LOGIN_LOCKOUT_ENABLED:true}
+      ip-max-failures: ${APP_LOGIN_LOCKOUT_IP_MAX_FAILURES:5}
+      ip-window-minutes: ${APP_LOGIN_LOCKOUT_IP_WINDOW_MINUTES:15}
+      ip-lock-minutes: ${APP_LOGIN_LOCKOUT_IP_LOCK_MINUTES:15}
+      account-max-failures: ${APP_LOGIN_LOCKOUT_ACCOUNT_MAX_FAILURES:5}
+      distinct-ip-threshold: ${APP_LOGIN_LOCKOUT_DISTINCT_IP_THRESHOLD:3}
+      distinct-ip-window-minutes: ${APP_LOGIN_LOCKOUT_DISTINCT_IP_WINDOW_MINUTES:30}
+      account-lock-minutes: ${APP_LOGIN_LOCKOUT_ACCOUNT_LOCK_MINUTES:30}
+      unlock-username-cooldown-seconds: ${APP_LOGIN_LOCKOUT_UNLOCK_COOLDOWN_SECONDS:300}
+      unlock-max-per-ip-per-hour: ${APP_LOGIN_LOCKOUT_UNLOCK_MAX_PER_IP_PER_HOUR:10}
     # 验证码基础设施（t102 自助注册 / t103 忘记密码）：dev-mode 生产必须为 false，否则验证码会随响应回传
     verification:
       dev-mode: ${APP_VERIFICATION_DEV_MODE:false}

@@ -49,6 +49,12 @@ public abstract class BaseTest {
     @Autowired
     private com.vulnaudit.service.PasswordResetService passwordResetServiceForReset;
 
+    @Autowired
+    private com.vulnaudit.service.LoginLockoutService loginLockoutServiceForReset;
+
+    @Autowired
+    private com.vulnaudit.service.AccountUnlockService accountUnlockServiceForReset;
+
 
     @Autowired
     protected MockMvc mockMvc;
@@ -91,6 +97,8 @@ public abstract class BaseTest {
         // t121：类内共享上下文时，进程内的限流/冷却状态必须逐条用例复位，否则会串扰下一条用例
         verificationCodeServiceForReset.resetThrottleState();
         passwordResetServiceForReset.resetThrottleState();
+        loginLockoutServiceForReset.reset();
+        accountUnlockServiceForReset.resetThrottleState();
         Role adminRole = roleRepository.save(Objects.requireNonNull(Role.builder()
                 .name("管理员").code("admin").description("管理员").isSystem(true).build()));
         Role leaderRole = roleRepository.save(Objects.requireNonNull(Role.builder()

@@ -17,7 +17,10 @@ public enum VerificationPurpose {
     RESET_PASSWORD,
 
     /** 绑定手机/邮箱（预留） */
-    BIND;
+    BIND,
+
+    /** 账户锁定后的 OTP 解锁（t123） */
+    UNLOCK;
 
     /**
      * 解析用途代码（大写不敏感）；未知返回 {@code null}
@@ -42,6 +45,6 @@ public enum VerificationPurpose {
      * BIND 仍未启用 —— 服务层对未启用用途返回 400，避免「能发码但不能用」的隐性漏洞。
      */
     public boolean isEnabled() {
-        return this == REGISTER || this == RESET_PASSWORD;
+        return this == REGISTER || this == RESET_PASSWORD || this == UNLOCK;
     }
 }

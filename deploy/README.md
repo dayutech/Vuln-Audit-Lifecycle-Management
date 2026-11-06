@@ -3319,3 +3319,61 @@ spring:
 2. **`systemctl --user` 不能在 `sudo -s` 里跑**：`sudo bash` 丢失 `XDG_RUNTIME_DIR` → `Failed to connect to bus`，服务没重启。以 leo 身份直接执行即可。
 3. **t107 清理误删冒烟账号角色**：清理 SQL 命中了 `smoke_engineer/smoke_leader/smoke_pl` 的 `user_roles`，导致后续冒烟 `claim/管理层强制放弃` 403。已恢复三个角色（`user_roles` 需 `id` + `assigned_by`，不能用裸 INSERT）。
 4. **数据清理误删基线项目**：`tmp_projects` 把 `PRJ-HISTORY` 一并删了（`projects=0`）。已重建基线项目并把 3 个示例资产重新挂载（`asset_project_links` 需 `phase_key`/`customer_id`/`link_type`），恢复到 `projects=1 / links=3`。
+
+## 58. 第四十一轮（登录暴力破解防护：IP 优先锁定 → 跨 IP 升级锁账户 → 告警 → OTP 解锁，t123）
+
+### 58.1 两级锁定模型
+
+| 层 | 触发 | 表现 | 账户影响 |
+|---|---|---|---|
+| **IP 层（优先）** | 同一 IP 在窗口期（默认 15 分钟）失败 ≥5 次 | 该 IP 登录一律 **429 + Retry-After**，锁定 15 分钟 | **无影响**：换网络 + 正确密码仍可登录 |
+| **账户层（升级）** | a) 某 IP 被锁期间，该账户又从**不同 IP** 用错密码尝试；b) 窗口期（默认 30 分钟）内来自 **≥3 个不同 IP** 且均失败 | **423 Locked**，任何 IP 的正确密码也拒绝；锁定默认 30 分钟 | 必须 OTP 解锁或管理员解锁 |
+
+**423 响应体**：`{success:false, message, data:{unlockMethods:["sms","email"], targets:["138****0001","u***@x.com"], retryAfterSeconds, reason}}`
+—— 只给脱敏联系方式与解锁方式，**不含**密码、验证码、完整手机号/邮箱。
+
+**副作用（锁定瞬间）**：
+- 审计 `ACCOUNT_LOCKED`（`resource_type=user`，details 含 username、触发原因、近期 IP 列表、failures、lockMinutes），**一次锁定只 1 条**；
+- 向**已验证**的手机/邮箱各发一条安全告警（`VerificationCodeSender.sendSecurityAlert`，内容含时间/来源 IP/解锁方式，**不含密码与验证码**）；
+  发送异常被吞掉并 WARN，**不影响锁定生效**。
+
+### 58.2 OTP 解锁
+
+| 端点 | 权限 | 说明 |
+|---|---|---|
+| `POST /api/v1/auth/unlock/send-code {username}` | 公开 | 向已验证手机/邮箱发 6 位码（`purpose=UNLOCK`，5 分钟有效、一次性、5 次失败作废）；限流：username 冷却 300s、IP 每小时 10 次 |
+| `POST /api/v1/auth/unlock/confirm {username, target, code}` | 公开 | target 必须与该用户已验证联系方式一致；通过后清空失败计数与锁定，写 `ACCOUNT_UNLOCKED` 审计；**不签发 token**（需重新登录） |
+| `POST /api/v1/admin/users/{id}/unlock` | **ADMIN** | 无绑定联系方式时的兜底；写 `ACCOUNT_UNLOCKED`（端点已入 `SKIP_ENDPOINTS` → 一次解锁 1 条审计） |
+
+**防枚举**：用户名不存在 / 无已验证联系方式 → 仍返回成功结构但不发码；无联系方式时 `hint=NO_VERIFIED_CONTACT` 提示联系管理员。
+`confirm` 的用户名不存在、target 不匹配、验证码错误统一返回 400「验证码无效或已过期，请重新获取」。
+
+### 58.3 实现要点
+
+- 计数器在 **`security/LoginLockoutTracker`（进程内 + 滑动窗口 + TTL 清理）**：`ip:<ip>`、`acct:<userId>`、`ipSet:<userId>`；
+  每条访问都做过期清理，避免长期运行内存泄漏。**多实例部署需换 Redis**（每个实例各自计数会削弱防护）。
+- 登录流程顺序：**锁定检查（IP → 账户）→ 密码校验 → 失败计数与升级判定 → 成功则清零**。
+- `app.security.login-lockout.enabled=false` 时整套新行为关闭，**回归旧「用户名+IP」限流**（`LoginAttemptService`）。
+- 配置项（`app.security.login-lockout.*`，均可用 `APP_LOGIN_LOCKOUT_*` 环境变量覆盖）：
+  `enabled / ip-max-failures / ip-window-minutes / ip-lock-minutes / account-max-failures / distinct-ip-threshold /
+  distinct-ip-window-minutes / account-lock-minutes / unlock-username-cooldown-seconds / unlock-max-per-ip-per-hour`。
+
+### 58.4 验证
+
+`LoginLockoutTest` **16 例全绿**：IP 5 次失败 → 第 6 次 429 且换 IP 正确密码 200 / 锁 IP 期间他 IP 错密码 → 423（正确密码也 423）/
+3 个不同 IP 失败 → 锁定 / 告警手机+邮箱各 1 条含 IP 不含密码 / 423 响应含 unlockMethods 与脱敏 target /
+OTP 全链路（错码 400 → 正确码 200 → 解锁后登录 200）/ 验证码不可复用 / target 不匹配 400 /
+无已验证联系方式 → `NO_VERIFIED_CONTACT` / 发码冷却 429 / 管理员解锁 200 + 审计 1 条 / 非 ADMIN 403 /
+成功登录清零计数 / 不泄露账号是否存在（两种失败同形）/ 锁定审计 1 条含 IP / 重复尝试不重复写审计。
+
+```bash
+cd backend && mvn -B test -Dtest=LoginLockoutTest          # 16/16
+cd backend && mvn -B test -Dtest='LoginLockoutTest,AuthControllerTest,RegistrationFlowTest,PasswordResetFlowTest'  # 55/55
+```
+
+### 58.5 已知边界
+
+1. **计数在进程内**：单实例正确；多副本需 Redis（否则每个副本各算各的）。
+2. **告警通道默认只写日志**：接真实短信/邮件网关需实现 `VerificationCodeSender` 并覆盖 `sendSecurityAlert`。
+3. **IP 归属**：`X-Forwarded-For` 首个地址（与找回密码一致）；若前面有不可信代理，需在网关层剥离伪造头。
+4. 账户锁定期间**不递增**失败计数、不重复告警（避免攻击者用正确密码探测锁定状态时反复打告警）。

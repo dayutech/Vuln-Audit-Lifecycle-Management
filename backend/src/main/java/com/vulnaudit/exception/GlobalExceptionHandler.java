@@ -267,6 +267,28 @@ public class GlobalExceptionHandler {
     /**
      * 处理限流异常（登录失败次数超限等），返回 429 并附 Retry-After 头。
      */
+    /**
+     * 账户锁定（t123）→ 423 Locked
+     *
+     * <p>响应体带上解锁方式与脱敏联系方式，前端据此直接引导走 OTP 解锁；不含密码/验证码/完整联系方式。
+     */
+    @ExceptionHandler(AccountLockedException.class)
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> handleAccountLocked(AccountLockedException e) {
+        log.warn("账户已锁定: {}", e.getMessage());
+        java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+        data.put("unlockMethods", e.getUnlockMethods());
+        data.put("targets", e.getMaskedTargets());
+        data.put("retryAfterSeconds", e.getRetryAfterSeconds());
+        data.put("reason", e.getReason());
+        ApiResponse<java.util.Map<String, Object>> body = ApiResponse.<java.util.Map<String, Object>>builder()
+                .success(false)
+                .message(e.getMessage())
+                .data(data)
+                .build();
+        return ResponseEntity.status(423)
+                .header("Retry-After", String.valueOf(e.getRetryAfterSeconds()))
+                .body(body);
+    }
     @ExceptionHandler(TooManyRequestsException.class)
     public ResponseEntity<ApiResponse<Void>> handleTooManyRequests(TooManyRequestsException e) {
         log.warn("请求被限流: {}", e.getMessage());

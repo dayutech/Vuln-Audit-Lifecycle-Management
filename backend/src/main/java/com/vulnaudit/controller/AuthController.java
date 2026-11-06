@@ -53,6 +53,7 @@ public class AuthController {
     private final JwtProperties jwtProperties;
     private final LoginAttemptService loginAttemptService;
     private final com.vulnaudit.service.SystemSettingService systemSettingService;
+    private final com.vulnaudit.service.LoginLockoutService loginLockoutService;
 
     /**
      * 登录页主题公开配置（t109）
@@ -115,22 +116,63 @@ public class AuthController {
             jakarta.servlet.http.HttpServletRequest httpRequest) {
         log.info("用户登录请求: username={}", request.getUsername());
 
-        // 登录失败限流：同一 用户名+客户端IP 连续失败达到阈值后临时锁定
-        String attemptKey = LoginAttemptService.key(request.getUsername(), resolveClientIp(httpRequest));
-        if (loginAttemptService.isLocked(attemptKey)) {
-            long retryAfter = loginAttemptService.retryAfterSeconds(attemptKey);
-            log.warn("登录被限流: username={}, retryAfter={}s", request.getUsername(), retryAfter);
-            throw new TooManyRequestsException("登录失败次数过多，请 " + retryAfter + " 秒后重试", retryAfter);
+        String clientIp = resolveClientIp(httpRequest);
+
+        // t123 两级锁定：先 IP（429，不影响账户）→ 再账户（423，任何 IP 的正确密码也拒绝）
+        if (loginLockoutService.isEnabled()) {
+            long ipLock = loginLockoutService.ipLockRemainingSeconds(clientIp);
+            if (ipLock > 0) {
+                log.warn("登录被 IP 级锁定: ip={}, retryAfter={}s", clientIp, ipLock);
+                throw new TooManyRequestsException("该 IP 登录失败次数过多，请 " + ipLock + " 秒后重试", ipLock);
+            }
+            User candidate = userService.findByUsername(request.getUsername()).orElse(null);
+            if (candidate != null) {
+                long accountLock = loginLockoutService.accountLockRemainingSeconds(candidate.getId());
+                if (accountLock > 0) {
+                    throw new com.vulnaudit.exception.AccountLockedException(
+                            "账户因多次登录失败已被临时锁定，请通过验证码解锁或联系管理员",
+                            accountLock,
+                            loginLockoutService.unlockMethodsOf(candidate),
+                            loginLockoutService.maskedTargetsOf(candidate),
+                            "BRUTE_FORCE");
+                }
+            }
+        } else {
+            // 关闭新模型时回归旧的「用户名+IP」限流
+            String attemptKey = LoginAttemptService.key(request.getUsername(), clientIp);
+            if (loginAttemptService.isLocked(attemptKey)) {
+                long retryAfter = loginAttemptService.retryAfterSeconds(attemptKey);
+                log.warn("登录被限流: username={}, retryAfter={}s", request.getUsername(), retryAfter);
+                throw new TooManyRequestsException("登录失败次数过多，请 " + retryAfter + " 秒后重试", retryAfter);
+            }
         }
 
         User user;
         try {
             user = userService.authenticate(request.getUsername(), request.getPassword());
         } catch (RuntimeException ex) {
-            loginAttemptService.onFailure(attemptKey);
+            if (loginLockoutService.isEnabled()) {
+                User failedUser = userService.findByUsername(request.getUsername()).orElse(null);
+                boolean justLocked = loginLockoutService.onLoginFailure(failedUser, request.getUsername(), clientIp);
+                if (justLocked && failedUser != null) {
+                    long accountLock = loginLockoutService.accountLockRemainingSeconds(failedUser.getId());
+                    throw new com.vulnaudit.exception.AccountLockedException(
+                            "账户因多次登录失败已被临时锁定，请通过验证码解锁或联系管理员",
+                            Math.max(accountLock, 1),
+                            loginLockoutService.unlockMethodsOf(failedUser),
+                            loginLockoutService.maskedTargetsOf(failedUser),
+                            "BRUTE_FORCE");
+                }
+            } else {
+                loginAttemptService.onFailure(LoginAttemptService.key(request.getUsername(), clientIp));
+            }
             throw ex;
         }
-        loginAttemptService.onSuccess(attemptKey);
+        if (loginLockoutService.isEnabled()) {
+            loginLockoutService.onLoginSuccess(user);
+        } else {
+            loginAttemptService.onSuccess(LoginAttemptService.key(request.getUsername(), clientIp));
+        }
         userService.updateLastLogin(user.getId());
 
         List<String> roles = userService.getUserRoleCodes(user.getId());
