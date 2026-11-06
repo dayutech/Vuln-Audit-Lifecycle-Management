@@ -356,3 +356,12 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 质量门禁：eslint 0 error（4 历史 warning）；TODO(i18n) 0；旧品牌名 0。
 - 数据：终态 customers=1 projects=1 phases=0 assets=3 links=3、orphan=0、users=12、codes=0、requests=0、sso enabled=0 / with_secret=0；dev-mode 与临时 IP 上限均移除并重启复核（发码响应无 devCode）。
 - 已知限制（报告 §8 #19–#21）：secret 明文列、state 进程内 Map、外部短信/邮件网关未联调。
+########## 十八、t136 backend 收口（全量回归 ×2 + 迁移双场景 + 部署 + 真机复验，2026-11-06 15:1x） ##########
+- 全量回归：mvn -B clean test 连续 2 次 → 929 例 / Failures 0 / Errors 0 / Skipped 0（BUILD SUCCESS）。
+- 迁移双场景：V26/V27/V28 × 空库/生产克隆 × general_ci/unicode_ci × 各 2 遍 → 46 项断言全绿；生产库执行 exit=0（totp_secret 64→128、四新表、project_types=5、industry_types=22）。
+- 部署：jar 73,390,452 B，重启 17–18s login=200；前端 index-Dx_nu3MV.js 2,713.52 kB 已 sync-dist。
+- 冒烟：TOTAL=279 PASS=279 FAIL=0 SKIP=0（验证期临时开 dev-mode + 放宽 IP/锁定阈值，结束后移除并重启复核）。
+- 真机复验 6/6：客户重复 code 409、项目重复 code 409、2FA init/错码400/正确码200/两步202→200/disable 200、remember-me owl_rm + refresh 轮换、编码格式 CUST-[A-Z]{7}/PRJ-日期-6字母、默认锁定 5×401→429 且 Retry-After=900。
+- 修复缺陷：LoginLockoutTracker 单位错误（15 分钟被算成 900000 秒）；LoginLockoutTest 17/17，线上复测 Retry-After=900。
+- 新增配置：APP_TOTP_SECRET_KEY（2FA 主密钥），未配置时 2FA 接口 503。
+- 数据终态：customers=1 projects=1 phases=0 assets=3 links=3、orphan=0、users=12、requests=0、codes=0、rm_tokens=0、2fa_enabled=0、industry_types=22、project_types=5；临时库与 vulnapp 临时授权已回收。

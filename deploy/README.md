@@ -1191,6 +1191,7 @@ cd backend && mvn -B test -Dtest=KnowledgeControllerTest,DocumentControllerTest,
 | 任务 | `error.task.not_found`（+ 通用 `error.status.invalid`） |
 | 通用 | `error.bad_request`、`error.forbidden`、`error.not_found`、`error.conflict`、`error.internal`、`error.validation`、`error.method_not_allowed` |
 | 参数校验 | `validation.auth.*`（LoginRequest）、`validation.asset.*`（AssetCreateRequest） |
+| 数据完整性（t133） | `error.data.duplicate`、`error.data.integrity` + 约束专用码（客户/项目/用户名/邮箱/手机/行业/项目类型/资产/角色/权限/remember-me/文档版本，见 §61.3） |
 
 **未覆盖（保留中文）**：用户/角色/权限/文档/环境/工具/知识库/通知/团队等错误码；各服务方法内自定义中文文案（如「请先填写审计结论」）；
 登录限流提示；上传/请求体解析类兜底文案。列入后续排期。
@@ -3030,6 +3031,11 @@ done
 
 > `sso_providers` 默认 4 条由**应用启动**补种（`SsoProviderBootstrapRunner`），DDL 只建表；本轮重启后表内 4 行 `enabled=false`。
 
+> **硬规则（t134）**：**所有新表/新列必须显式声明** `DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`；
+> 凡涉及「列 = 列」比较的回填 `UPDATE ... JOIN`，**两侧都要写 `COLLATE utf8mb4_unicode_ci`**。
+> 否则在「库默认 collation = `utf8mb4_general_ci`」的实例上，新表列（general_ci）与既有列（unicode_ci）
+> 比较会直接抛 `ERROR 1267 (HY000): Illegal mix of collations ... for operation '='`。背景、复现与实测矩阵见 §62。
+
 ### 54.2 冒烟新增 26 条
 
 注册 8：手机号非法 400 / 发码 200 / 重复发码 429 / 未发码直接注册 400 / 邮箱未验 400 / 错误码 400 / 注册成功 201 / 重复用户名 409；
@@ -3319,7 +3325,6 @@ spring:
 2. **`systemctl --user` 不能在 `sudo -s` 里跑**：`sudo bash` 丢失 `XDG_RUNTIME_DIR` → `Failed to connect to bus`，服务没重启。以 leo 身份直接执行即可。
 3. **t107 清理误删冒烟账号角色**：清理 SQL 命中了 `smoke_engineer/smoke_leader/smoke_pl` 的 `user_roles`，导致后续冒烟 `claim/管理层强制放弃` 403。已恢复三个角色（`user_roles` 需 `id` + `assigned_by`，不能用裸 INSERT）。
 4. **数据清理误删基线项目**：`tmp_projects` 把 `PRJ-HISTORY` 一并删了（`projects=0`）。已重建基线项目并把 3 个示例资产重新挂载（`asset_project_links` 需 `phase_key`/`customer_id`/`link_type`），恢复到 `projects=1 / links=3`。
-
 ## 58. 第四十一轮（登录暴力破解防护：IP 优先锁定 → 跨 IP 升级锁账户 → 告警 → OTP 解锁，t123）
 
 ### 58.1 两级锁定模型
@@ -3421,3 +3426,501 @@ cd backend && mvn -B test -Dtest=CustomerCodeIndustryTest   # 14/14
 1. `customers` 当前**没有软删除**（`delete` 为物理删除），因此「唯一性检查含软删记录」以「含全部现存行」实现；将来若引入 `deleted_at`，`existsByCode` 需一并覆盖。
 2. 极端并发下 10 次重试仍冲突会返回错误（概率 36^7 ≈ 7.8e10 号段，实际不可达）。
 3. 行业名称回填只在迁移时执行一次；后续改名不会自动同步历史客户。
+
+### 59.5 项目编码（PRJ- + 日期 + 6 位随机大写字母，t131）
+
+与客户编码并列的第二套自动编号规则（实现同构：`SecureRandom` + `existsByCode` + ≤10 次重试 + 同事务 + 唯一索引兜底 409）。
+
+| 规则 | 客户编码 | 项目编码 |
+|---|---|---|
+| 格式 | `CUST-` + 7 位 `A-Z`，总长 **12**，`^CUST-[A-Z]{7}$` | `PRJ-` + `yyyy-MM-dd` + `-` + 6 位 `A-Z`，总长 **21**，`^PRJ-\d{4}-\d{2}-\d{2}-[A-Z]{6}$`（例 `PRJ-2026-11-06-KXQZAB`） |
+| 何时生成 | 请求未传 `code` | 请求未传 `code`（含别名 `projectCode`；二者都空才生成） |
+| 显式传入 | 原样保留，仅校验唯一性 | 原样保留；**日期形编码**（`PRJ-yyyy-MM-dd-…`，大小写不敏感）额外校验规范格式，不符 → **400** |
+| 唯一性 | `existsByCode`（含全部现存行），冲突重试 **≤10 次** | 同上；仍冲突 → 记 ERROR 并抛业务异常（409） |
+| 并发 | 同事务 + 唯一索引兜底 | 同事务；`saveAndFlush` 把唯一索引冲突在方法内捕获并映射 **409**（不 500） |
+| 更新场景 | 未传 `code` → 保留原编码 | 未传 `code`/`projectCode` → **保留原编码**（对外编码不得变化）；撞他人编码 → 409 |
+
+**为什么只对「日期形」编码强制格式**：`PRJ-HISTORY`、`PRJ-T85-A-1`、`P-AGG-1` 这类历史/导入编码不含日期段，
+若一律按新规范校验会让存量数据与导入模板直接 400；因此日期形（`(?i)^PRJ-\d{4}-\d{2}-\d{2}-`）强制规范，
+其余前缀保持「原样保留 + 仅校验唯一性」的兼容行为。
+
+**导入**：项目导入 CSV 的 `code` 列由必填改为可选（列缺失/空值 → 传 `null`，由服务层自动生成）。
+
+**验证**：`ProjectCodeTest` **12 例全绿**（见 §59.6）。
+
+### 59.6 验证（项目编码）
+
+`ProjectCodeTest` **12 例**：自动生成格式/总长 21/两次不同、生成避让历史行且不改动历史行、显式规范编码保留、
+历史非日期形编码兼容、重复编码 409、小写日期形 400、随机尾 5/7 位 400、更新不传保留原编码、
+更新成他人编码 409（原编码不变）、生成冲突重试第 3 次成功、10 次冲突抛 409、唯一索引冲突映射 409（Mockito 打桩）。
+
+```bash
+cd backend && mvn -B test -Dtest=ProjectCodeTest   # 12/12
+```
+
+**口径备注**：题面写的「总长 23」与同一题面给出的正则 `^PRJ-\d{4}-\d{2}-\d{2}-[A-Z]{6}$` 及示例
+`PRJ-2026-11-06-KXQZAB` 不一致（`4 + 10 + 1 + 6 = 21`）；实现与用例按**正则和示例**取 21。
+
+### 59.7 行业 / 项目类型管理员可管理（t130）
+
+两套元数据走**同一套管理规则**：内置项只允许调 `sortOrder`/`enabled`，`code`/`name` 改不动也删不掉（403），
+自定义项可增改删；删除一律**软删**（`deleted_at`），被引用时先 409；`code` 全局唯一且**含软删行**（软删后不可复用编码）；
+每次写操作恰好 1 条审计（端点已进 `AuditTrailInterceptor.SKIP_ENDPOINTS`，避免拦截器重复记录）。
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | `/api/v1/industry-types` | 登录 | 检索（code/name 模糊、仅启用、前缀优先、limit≤100） |
+| GET | `/api/v1/admin/industry-types?keyword=&includeDisabled=&page=&size=` | ADMIN | 分页；含 `builtin`/`enabled`/`sortOrder` |
+| POST | `/api/v1/admin/industry-types` | ADMIN | `{code,name,parentCode?,sortOrder?}` → 201，**builtin 恒 false**，code 重复 409 |
+| PUT | `/api/v1/admin/industry-types/{id}` | ADMIN | 可改 name/sortOrder/enabled/parentCode；**内置改 code/name → 403「内置行业不可修改」** |
+| DELETE | `/api/v1/admin/industry-types/{id}` | ADMIN | 仅自定义项；被 `customers.industry_code` 引用 → 409「已有 N 个客户使用该行业，请先调整客户行业」；软删 |
+| GET | `/api/v1/project-types` | 登录 | 建项目下拉：仅 `enabled=true` 且未软删，内置优先 + sort_order |
+| GET | `/api/v1/admin/project-types?keyword=&includeDisabled=&page=&size=` | ADMIN | 同行业 |
+| POST | `/api/v1/admin/project-types` | ADMIN | `{code,name,sortOrder?}` → 201；`code` 自动转大写；重复 409 |
+| PUT | `/api/v1/admin/project-types/{id}` | ADMIN | 内置改 code/name → 403；可改 sortOrder/enabled |
+| DELETE | `/api/v1/admin/project-types/{id}` | ADMIN | 内置 403；被 `projects.type_code` 引用 → 409「已有 N 个项目使用该类型」；软删 |
+
+**审计动作**：`UPDATE_INDUSTRY_TYPE` / `UPDATE_PROJECT_TYPE`，`resourceType=industry_type|project_type`，
+`details` 含动作与 code（新建/更新/软删各 1 条）。
+
+**项目类型的引用口径**：`projects.type` 仍是字符串（历史值 `REAUDIT`/`CONSULTING` 之类照旧可用），新增可空列
+`projects.type_code` 指向 `project_types.code`。`ProjectRequest` 新增可选 `typeCode` 与 `projectCode`：
+- 传 `typeCode` → 校验存在且启用（400），`type` 同步写该 code；
+- 只传 `type` → 命中静态白名单（`PENTEST`/`REAUDIT`/`CONSULTING`/`TRAINING`）或 `project_types` → 回填 `type_code`，匹配不到则 `type_code=NULL` 且不报错（历史兼容）；
+- `projectCode` 与 `code` 等价，都为空时自动生成（见 §59.5）。
+
+### 59.8 迁移（V28）与内置清单
+
+脚本：`backend/src/main/resources/db/migration/V28__project_types_and_project_code.sql`；
+生产（Flyway 关闭）等价段见 `deploy/manual-ddl.sql` 的「V28」段。两套 DDL：
+
+```sql
+-- ① 行业类型：补软删列（幂等）
+ALTER TABLE industry_types ADD COLUMN IF NOT EXISTS deleted_at DATETIME(6) NULL;
+CREATE INDEX IF NOT EXISTS idx_industry_types_deleted ON industry_types (deleted_at);
+
+-- ② 项目类型新表（幂等）
+CREATE TABLE IF NOT EXISTS project_types (
+    id VARCHAR(36) NOT NULL PRIMARY KEY, code VARCHAR(32) NOT NULL, name VARCHAR(50) NOT NULL,
+    builtin BOOLEAN NOT NULL DEFAULT FALSE, enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    sort_order INT NOT NULL DEFAULT 0, deleted_at DATETIME(6) NULL,
+    created_at DATETIME(6) NOT NULL, updated_at DATETIME(6) NOT NULL);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_project_types_code ON project_types (code);
+CREATE INDEX IF NOT EXISTS idx_project_types_name ON project_types (name);
+CREATE INDEX IF NOT EXISTS idx_project_types_deleted ON project_types (deleted_at);
+
+-- ③ projects.type_code + 历史回填（按 type 值精确匹配 code，匹配不到保持 NULL）
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS type_code VARCHAR(32) NULL;
+CREATE INDEX IF NOT EXISTS idx_projects_type_code ON projects (type_code);
+UPDATE projects p JOIN project_types t ON t.code = p.type SET p.type_code = t.code WHERE p.type_code IS NULL;
+```
+
+**内置项目类型（5 项，`builtin=true`）**：`PENTEST` 渗透测试（10）、`CODE_AUDIT` 代码审计（20）、
+`EMERGENCY` 应急响应（30）、`COMPLIANCE` 合规测评（40）、`TRAINING` 安全培训（50）。
+插入用 `INSERT ... SELECT ... WHERE NOT EXISTS (code=?)`，重跑只补缺不重复；表非空时启动器也跳过（`ensureBuiltin()` 返回 false）。
+
+**内置行业（22 条）**：GB/T 4754 门类 A–T（农林牧渔…国际组织）+ 大类 `I64` 互联网和相关服务、`I65` 软件和信息技术服务业（清单见 §59.2）。
+
+### 59.9 验证（t130）
+
+```bash
+cd backend && mvn -B test -Dtest=MetaAndProjectCodeTest   # 27/27
+```
+
+覆盖：行业新建 201 且 builtin=false、重复 code 409、内置改名 403、内置调 sortOrder/enabled 允许、内置删除 403、
+被客户引用删除 409（消息含引用数）、软删后检索不再返回且二次删除 404、非 ADMIN 写/读列表 403、写操作各 1 条 `UPDATE_INDUSTRY_TYPE`；
+项目类型内置 ≥5 且初始化幂等、自定义增改删、下拉仅 enabled、禁用后消失、被项目引用删除 409、`code` 归一为大写、
+`includeDisabled` 过滤、软删 code 不可复用；项目创建带 `typeCode` 落库一致 + 非法 400、无 `typeCode` 时按 `type` 回填、
+`REAUDIT` 等历史值 `type_code` 为 NULL、项目编码格式/两次不同/`projectCode` 别名/显式保留/重复 409/更新保留原编码。
+
+### 59.10 t132 复核（专属用例 + 两条口径落定）
+
+**专属验收用例**：`MetaTypeAdminTest` **20 例**（与 t130 的 `MetaAndProjectCodeTest` 并行存在，互不替代）：
+
+```bash
+cd backend && mvn -B test -Dtest=MetaTypeAdminTest   # 20/20
+```
+
+覆盖：行业新建 201/builtin=false/重复 409/管理列表字段；内置改名 403（消息「内置行业不可修改」）+ 名称不变；
+内置改 sortOrder/enabled 200；内置删除 403 且 `deleted_at` 仍为空；被 **2** 个客户引用删除 409（消息带 N）且未软删；
+自定义删除后检索不返回 + `deleted_at` 非空 + 二次删除 404；非 ADMIN 的 POST/PUT/DELETE/列表 403、未登录 401；
+写操作恰好 1 条 `UPDATE_INDUSTRY_TYPE`（details 含 code）；项目类型内置恰好 5 条且 `ensureBuiltin` 不重复插入；
+自定义增改删、内置改名/删除 403、被 **2** 个项目引用删除 409；公开下拉仅 enabled 且未软删（禁用/软删后消失）；
+`typeCode` 落库与 `type` 同步、非法/停用 `typeCode` 400；内置 code 重复创建 409（PENTEST / A）；
+软删 code 不可复用（行业 + 项目类型）；V28 两套 DDL 与幂等守卫静态断言、内置 5 条与 seed 一致。
+
+**口径 1：`typeCode` 同步写 `type` 时取 code，不取 name。** `projects.type` 历史上存的就是编码
+（`PENTEST` / `CODE_AUDIT` / `REAUDIT`…），列表筛选、状态机、导入模板、前端下拉全部按 code 比较；
+改成 name 会让这些调用集体失效。故 `type = typeCode` 的 code，`type_code` 同值。
+
+**口径 2：t67 的 `OTHER` 与历史 `REAUDIT` 回填后 `type_code = NULL`。** 回填 SQL 按
+`JOIN project_types t ON t.code = p.type` 精确匹配，表里只有 5 条内置 + 管理员自定义项；
+`OTHER` 不在内置清单（需求只要求 5 条内置），因此**命中不到就保持 NULL**，`type` 原值不动、行照常可读 ——
+这与需求「匹配不到保持 NULL」一致。若将来要把 `OTHER` 也纳入引用，加一条自定义类型再重跑回填段即可
+（`WHERE type_code IS NULL` 只补不改）。
+
+**迁移幂等的验证边界**：本轮无 mysql/mariadb 客户端、部署机 3306 不可达，未在 MariaDB 上「空库/已有数据各跑两遍」。
+已做的证据：① `MetaTypeAdminTest#migrationScriptGuards` 直接读 V28 与 `manual-ddl.sql`，断言
+`ADD COLUMN IF NOT EXISTS` / `CREATE TABLE IF NOT EXISTS` / 3 条 `CREATE INDEX IF NOT EXISTS` / 5 条
+`WHERE NOT EXISTS` / 回填 `WHERE type_code IS NULL` 全部在位且两处等价；② `ensureBuiltin()` 幂等（表非空不插）；
+③ `uk_project_types_code` 唯一索引兜住重复 code（重复创建 → 409）。实库双跑仍需在部署机执行。
+
+## 60. 第四十三轮（双因子认证：TOTP + 恢复码 + 管理员强制 + 登录两阶段，t125）
+
+### 60.1 数据（V26，生产需手工执行）
+
+`backend/src/main/resources/db/migration/V26__two_factor_and_remember_me.sql`；生产 Flyway 关闭，
+等价段与校验 SQL 已补进 `deploy/manual-ddl.sql` 的「V26」段。
+
+```sql
+-- users：2FA 三列（totp_secret 的列宽坑见 60.5）
+ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(128) NULL;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_confirmed_at DATETIME NULL;
+-- 历史库若已按 64 建列 → 幂等加宽（information_schema 判断后 MODIFY，只在长度 < 128 时执行）
+
+-- remember_me_tokens（t126 使用）：Cookie 只放 seriesId.secret，库里只存 SHA-256(secret)
+CREATE TABLE IF NOT EXISTS remember_me_tokens (
+    id VARCHAR(36) PRIMARY KEY, user_id VARCHAR(36) NOT NULL, series_id VARCHAR(64) NOT NULL,
+    token_hash VARCHAR(64) NOT NULL, expires_at DATETIME(6) NOT NULL, created_at DATETIME(6) NOT NULL,
+    last_used_at DATETIME(6) NULL, revoked_at DATETIME(6) NULL,
+    user_agent VARCHAR(255) NULL, ip VARCHAR(64) NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rm_user   ON remember_me_tokens (user_id);
+CREATE INDEX IF NOT EXISTS idx_rm_series ON remember_me_tokens (series_id);
+CREATE INDEX IF NOT EXISTS idx_rm_hash   ON remember_me_tokens (token_hash);
+-- uk_rm_hash(token_hash) 由 information_schema 先查后建
+
+-- two_factor_recovery_codes：一次性，BCrypt 哈希
+CREATE TABLE IF NOT EXISTS two_factor_recovery_codes (
+    id VARCHAR(36) PRIMARY KEY, user_id VARCHAR(36) NOT NULL,
+    code_hash VARCHAR(100) NOT NULL, created_at DATETIME(6) NOT NULL, used_at DATETIME(6) NULL
+);
+CREATE INDEX IF NOT EXISTS idx_2fa_rc_user ON two_factor_recovery_codes (user_id);
+```
+
+### 60.2 接口
+
+| 方法 | 路径 | 权限 | 说明 |
+|---|---|---|---|
+| GET | `/api/v1/users/me/2fa` | 登录 | `{enabled, confirmedAt, recoveryCodesLeft, forced, available}`，**不含 secret** |
+| POST | `/api/v1/users/me/2fa/init` | 登录 | 生成 32 字符 Base32 密钥（AES-GCM 加密落库）+ `otpauthUri`；**不开启** |
+| POST | `/api/v1/users/me/2fa/confirm` | 登录 | `{code}` → 开启并返回 **10 个恢复码（仅此一次）** |
+| POST | `/api/v1/users/me/2fa/disable` | 登录 | `{password, code}` 双确认；管理员强制时 **403** |
+| POST | `/api/v1/auth/login/2fa` | 匿名 | `{challengeToken, code}` → 正式 JWT（恢复码可用） |
+| PUT | `/api/v1/admin/settings/force-two-factor` | ADMIN | `{enabled}` → 审计 `UPDATE_FORCE_TWO_FACTOR`（1 条） |
+
+### 60.3 登录两阶段
+
+```
+POST /auth/login {username,password}
+  ├─ 密码错 / 锁定 / 限流 → 原有 401 / 423 / 429 语义不变
+  ├─ 未开启 2FA → 200 + {token,...}（与旧版完全一致）
+  └─ 已开启 2FA → 202 {twoFactorRequired:true, challengeToken}
+POST /auth/login/2fa {challengeToken, code}
+  ├─ challenge 不存在/过期/已用 → 400「二次验证会话…」
+  ├─ 码错 → 400（该 challenge 记 1 次失败，累计 5 次作废）
+  └─ 码对 → 200 + {token,...}（challenge 立即失效 → 一次性）
+```
+
+`challengeToken` = 32 字节随机数的 base64url，进程内 `ConcurrentHashMap` 保存
+（`challenge-ttl-seconds` 默认 300s，`challenge-max-attempts` 默认 5）。
+
+### 60.4 安全设计
+
+1. **密钥加密存储**：`SecretCipher` = AES-256-GCM（主密钥 `SHA-256(APP_TOTP_SECRET_KEY)`），
+   落库格式 `v1:base64(iv[12] || ciphertext || tag)`；主密钥缺失时 `TwoFactorService.isAvailable()=false`
+   → init/confirm/disable 直接 **503**，**绝不落明文**。
+2. **开启才生效**：init 只写「待确认」密文；confirm 校验 TOTP（±1 时间窗）通过后才 `two_factor_enabled=true`。
+3. **恢复码**：10 个 `XXXX-XXXX`，BCrypt 哈希入库、明文只回一次、用后 `used_at` 置位（一次性）。
+4. **关闭双确认**：必须「当前密码 + TOTP/恢复码」；关闭时顺带 `revokeAll(remember-me)`，让该用户所有长效令牌失效。
+5. **管理员强制**：开关存 `system_settings.security.forceTwoFactor`；`TwoFactorEnforcementInterceptor`
+   在 Spring Security 之后统一拦截，未开启 2FA 的用户除白名单（`/auth/**`、`/users/me/2fa/**`、
+   `/users/me/preferences`、`/admin/settings/**`、`/actuator/**`）外一律
+   **403 `{code:"TWO_FACTOR_SETUP_REQUIRED"}`**；登录响应同时带 `mustSetupTwoFactor` 供前端引导。
+6. **单一拦截点**：不在每个控制器上加注解，白名单集中在 `WebMvcConfig`（`excludePathPatterns`）
+   + `TwoFactorEnforcementInterceptor.ALLOW_PREFIXES` 两处，便于审计。
+
+### 60.5 三个踩坑（重要）
+
+1. **`totp_secret` 列宽 64 不够 → 表现为「401 假象」**（本轮最耗时）
+   - 密文实长 `v1:` + base64(12B IV + 32B 密文 + 16B tag) = **83 字符**；列宽 64 时 `init` 的 UPDATE 会在
+     **下一次请求触发 Hibernate auto-flush** 时抛 `DataException: Value too long for column "TOTP_SECRET"`；
+   - 该 flush 恰好发生在 `JwtAuthenticationFilter#isInvalidatedByPasswordReset()` 的查询里，异常被过滤器
+     `catch` 吞掉 → **该请求没有设置 SecurityContext** → 表现为「第二次 init / confirm 一律 401」，
+     看着像鉴权问题，实际是列宽问题（日志特征：`ERROR ... JwtAuthenticationFilter : 无法设置用户认证: ... Value too long`）；
+   - 修复：列宽 128（`User.totpSecret` `length = 128`），V26 与 manual-ddl 同步，并对历史 64 列幂等 MODIFY。
+2. **强制开关一次设置写两条审计**：`setForceTwoFactor` 自己写 `UPDATE_FORCE_TWO_FACTOR`，
+   `AuditTrailInterceptor` 又会写一条「PUT AdminSecuritySettingController.forceTwoFactor」→
+   已把 `PUT /api/v1/admin/settings/force-two-factor` 加入 `SKIP_ENDPOINTS`（沿用 t93/t116 约定：手工审计的端点必须跳过）。
+3. **用例内复位不能写审计**：`TwoFactorAuthTest.@BeforeEach` 原用 `setForceTwoFactor(false, actorId)` 复位，
+   会多写一条 `UPDATE_FORCE_TWO_FACTOR`，使「开关只写 1 条审计」的断言变成 2 → 改为直接删 `system_settings` 行。
+
+### 60.6 验证
+
+```bash
+cd backend && mvn -B test -Dtest=TwoFactorAuthTest     # 15/15
+cd backend && mvn -B -DskipTests compile               # BUILD SUCCESS
+```
+
+用例：init 密钥 32 字符 Base32 且两次不同、confirm 错码 400/正确 200、未 init 就 confirm 400、
+登录 202→200、challenge 一次性、未知 challenge 400、挑战期 5 次错码作废、恢复码一次性、
+disable 密码错 403/正确 200 且之后登录不再要二次验证、强制时 disable 403、非 ADMIN 改开关 403、
+ADMIN 开启写 1 条审计且登录带 `mustSetupTwoFactor`、强制后业务接口 403 而 2FA 设置接口放行、
+已开启用户不受拦截、关闭强制后解除、匿名访问状态 401、状态接口不回 secret。
+
+### 60.7 已知边界
+
+1. `challengeToken` 与失败计数在**进程内**，多副本需共享存储（Redis）；重启后未完成的二次验证需重新登录。
+2. 恢复码在校验通过时逐个 BCrypt 比对（最多 10 次 hash 比较，可接受）；不支持回看剩余明文。
+3. 强制开关是「全局」而非「按角色」，且关闭强制不会清掉用户已开启的 2FA（只影响拦截判定）。
+4. `APP_TOTP_SECRET_KEY` 轮换会使已存密文全部不可解密 → 用户需重新 init（关闭再开启）。
+
+## 61. 第四十四轮（唯一键冲突统一映射 409：补 `DataIntegrityViolationException` 分支，t133）
+
+### 61.1 缺陷与修复
+
+`GlobalExceptionHandler` 此前**没有** `DataIntegrityViolationException` 分支：唯一键冲突（例如两次提交同一个客户编码）
+会落到兜底 `Exception` 分支变成 **500**，前端只能显示「服务器内部错误」。t129 文档里声称的「客户编码唯一索引兜底 → 409」
+实际并未落地（项目侧 t131 是在方法内 `saveAndFlush` + catch 兜住的，客户侧一直缺）。
+
+修复：新增 `@ExceptionHandler(DataIntegrityViolationException.class)` + 判定工具 `exception/DataConflictMessages`，
+按 **SQLState → 消息关键词 → 约束名** 三级分类，**分类决定状态码、约束决定文案**。
+
+### 61.2 分类（绝不把请求数据问题误报成 409）
+
+| 判据 | 命中条件 | 状态码 | 文案（消息码） |
+|---|---|---|---|
+| 唯一键 / 主键冲突 | SQLState `23505`，或消息含 `duplicate entry` / `duplicate key` / `unique index` / `unique constraint` / `uk_` | **409** | 约束专用码，识别不到 → `error.data.duplicate` |
+| NOT NULL | SQLState `23502`，或消息含 `null not allowed` / `not null` | **400** | `error.data.integrity` |
+| 外键 / CHECK 等其余完整性失败 | 其余 | **400** | `error.data.integrity` |
+
+> 注意 MariaDB 的唯一键与外键冲突**同为 SQLState 23000**，因此不能只看 SQLState，必须叠加消息关键词 —— 这是本分支最容易踩错的地方。
+
+### 61.3 约束名 → 消息码（覆盖三种命名形态）
+
+同时匹配：MariaDB 显式索引名（`for key 'uk_customers_code'`）、「表.索引/表.列」形态（`for key 'users.username'`，
+覆盖 Hibernate 的 `unique = true` 列）、H2 列形态（`… ON PUBLIC.CUSTOMERS(CODE NULLS FIRST)`）。
+
+| 约束 / 列 | 消息码 | 中文 |
+|---|---|---|
+| `uk_users_username` / `users.username` / `users.uk_users_username` | `error.user.username.exists` | 用户名已存在，请更换 |
+| `uk_users_email` / `users.email` | `error.user.email.exists` | 邮箱已被使用，请更换 |
+| `uk_users_phone` / `users.phone` | `error.user.phone.exists` | 手机号已被使用，请更换 |
+| `uk_customers_code` / `customers.code` | `error.customer.code.exists` | 客户编码已存在，请更换编码 |
+| `uk_projects_code` / `projects.code` | `error.project.code.exists` | 项目编码已存在，请更换编码 |
+| `uk_industry_types_code` / `uk_project_types_code` | `error.industry_type.code.exists` / `error.project_type.code.exists` | 行业/项目类型编码已存在 |
+| `uk_project_phases_project_no` | `error.project.phase_no.exists` | 该项目下期次号已存在 |
+| `uk_assets_code` / `roles.code` / `permissions.code` | `error.asset.code.exists` / `error.role.code.exists` / `error.permission.code.exists` | 编号/代码已存在 |
+| `uk_rm_hash` / `remember_me_tokens.token_hash` | `error.auth.remember_me.conflict` | 登录状态冲突，请重新登录 |
+| `uk_document_versions_document_version` / `document_versions(document_id` | `error.document.version.conflict` | 文档版本号冲突，请刷新后重试 |
+| 识别不到 | `error.data.duplicate` | 数据冲突，请检查唯一字段 |
+
+**不外泄**：SQL 原文、表名、列名、约束名、异常类名只进日志（`log.warn`），响应体只有语言包文案 ——
+测试对 `Duplicate entry` / `uk_` / `PUBLIC.` / `customers(` / `SQLIntegrityConstraintViolationException` 等逐项断言不出现。
+
+### 61.4 409 的触发场景（错误码表补充）
+
+| 场景 | 谁返回 409 |
+|---|---|
+| 业务层前置查重：客户/项目/行业/项目类型编码重复，用户名/邮箱/手机号重复，SSO 绑定重复，期次号重复 | `BusinessException`（`*_CODE_EXISTS` 等，`handleBusinessException`） |
+| 工具版本号 / 漏洞编号 / 资产编号 / 文档版本号并发生成冲突（服务内 `saveAndFlush` + 重试后仍冲突） | 服务层自行映射 409（见 §15） |
+| **兜底**：任何未前置查重或前置查重被并发穿过的唯一索引冲突（客户编码、项目编码、用户名…） | **本分支**（`error.data.duplicate` 或约束专用码） |
+| 非唯一键完整性失败（NOT NULL / 外键） | **400**（`error.data.integrity`），不是 409 |
+
+### 61.5 验证（`DataIntegrityConflictTest` 13 例）
+
+```bash
+cd backend && mvn -B test -Dtest=DataIntegrityConflictTest   # 13/13
+```
+
+- 端到端（`standaloneSetup` + 真实 advice + 真实语言包）：客户 code → 409「客户编码已存在，请更换编码」；同冲突 `Accept-Language: en` → 409 英文；
+  项目 code → 409；重复用户名 → 409；NOT NULL → 400；外键 → 400；未知唯一约束 → 409 通用文案；每例都断言响应体不含 SQL 细节。
+- 命名形态：H2 列形态识别为客户编码、`for key 'users.username'`（Hibernate 生成名）识别为用户名、`uk_rm_hash` / 文档版本复合键映射正确。
+- 分类单测：`23505` / `duplicate` → 唯一键；`23502` / `23506` → 非唯一键；未知约束 `messageKeyFor` 返回 `null`。
+- 真实接口回归：`POST /customers` 重复 code → **409**（此前 500）、`POST /projects` 重复 code → 409（行为不变）。
+- 关联回归：`NewDomainValidationTest,CustomerProjectApiTest,ImportCustomerProjectTest,MetaTypeAdminTest,ProjectCodeTest,CustomerCodeIndustryTest,RegistrationFlowTest,UserControllerTest` → **113/113**。
+
+### 61.6 已知边界
+
+1. **Hibernate 生成的约束名不可读**：`unique = true` 的列在 MariaDB 上是 `UK_<hash>`，消息里既没有列也没有可读名 ——
+   此时只能落通用文案 `error.data.duplicate`。要精确到字段，需给这些列显式命名约束（`@UniqueConstraint(name = ...)` + 手工 DDL），
+   或在该服务里前置查重（用户/邮箱/手机已有前置查重，因此日常路径仍是精确文案）。
+2. 文案不区分「哪个值」冲突（**有意为之**：回显用户输入会放大枚举/注入面），只在日志里保留。
+3. 该分支是**兜底**，不替代业务层前置查重 —— 前置查重能给出更精确的字段与提示。
+
+## 62. 第四十五轮（迁移排序规则加固：V26–V28 显式 COLLATE，消除回填 JOIN 的 collation 冲突，t134）
+
+### 62.1 缺陷
+
+把 V27/V28 应用到**默认排序规则为 `utf8mb4_general_ci`** 的库时，回填 UPDATE 直接失败：
+
+```
+ERROR 1267 (HY000): Illegal mix of collations
+  (utf8mb4_general_ci, IMPLICIT) and (utf8mb4_unicode_ci, IMPLICIT) for operation '='
+```
+
+原因：`CREATE TABLE industry_types / project_types` 没写 collation → 继承**库默认**（general_ci），
+而既有 `customers.industry` / `projects.type` 由 Hibernate 建表，是 **unicode_ci**；
+回填的 `UPDATE ... JOIN ... ON t.name = c.industry` 是「列 = 列」比较，两种 IMPLICIT collation 相遇即报错。
+
+生产库默认恰好是 unicode_ci，所以历史上没炸 —— 但这是**环境依赖隐患**：换实例、换 MariaDB 版本默认值、
+或在新环境重建就会失败。同理，新列 `customers.industry_code` / `projects.type_code` 若不写 collation 也会继承库默认。
+
+### 62.2 修复清单
+
+| 文件 | 改动 |
+|---|---|
+| `V26__two_factor_and_remember_me.sql` | `remember_me_tokens`、`two_factor_recovery_codes` 建表加 `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci` + 头部说明 |
+| `V27__industry_types_and_customer_code.sql` | `industry_types` 建表同上；`industry_code` 列 `COLLATE utf8mb4_unicode_ci`；回填 JOIN 两侧 `COLLATE utf8mb4_unicode_ci` |
+| `V28__project_types_and_project_code.sql` | `project_types` 建表同上；`type_code` 列 `COLLATE utf8mb4_unicode_ci`；回填 JOIN 两侧 `COLLATE utf8mb4_unicode_ci` |
+| `deploy/manual-ddl.sql` | V26/V28 段同步；**补上原先缺失的 V27 段**（与迁移脚本等价，含校验 SELECT） |
+
+原则：**表/列显式声明 collation（不依赖库默认）+ 所有「列 = 列」比较显式 COLLATE**。
+「列 = 参数」比较（`findByCode`、`LIKE ?`、`code = 'PENTEST'` 这类字面量）不需要：参数是 COERCIBLE 的，列胜出，不会 1267。
+
+### 62.3 启动器侧（要求 3）
+
+`IndustryTypeBootstrapRunner`（22 条）/ `ProjectTypeBootstrapRunner`（5 条）走 JPA `save`，只插入字面量、不做列间比较，
+因此**不依赖库默认排序规则**；且建表语句已显式 unicode_ci，插入的数据落在确定排序规则的列里。
+仓库层唯一的匹配查询是「列 = 参数」（`findByCode` / `findFirstByName` / `search` 的 `LIKE`），属于 COERCIBLE 场景，安全。
+
+### 62.4 实测（本机便携 MariaDB 10.11.19，端口 13306）
+
+> 本机无法直连部署机（`ssh` 无可用密钥、`3306` 未对外开放），因此用 **MariaDB 官方 winx64 zip** 起了一个临时实例：
+> `bin/mysql_install_db.exe --datadir=...\data --password=*** --port=13306 -D`，
+> `bin/mariadbd.exe --datadir=... --port=13306 --console`。服务端默认 `latin1/latin1_swedish_ci`，
+> 两个库的**库级默认**由下面语句显式指定 —— 这正是要验证的自变量。
+
+```sql
+CREATE DATABASE t134_general CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;  -- 部署机报错的条件
+CREATE DATABASE t134_unicode CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;  -- 生产现状
+```
+
+每个库先灌「既有库形态」基线（三张表 + `UNIQUE KEY uk_*_code`，且 `customers.industry` / `projects.type` 显式 unicode_ci）：
+
+```text
+TABLE_NAME  COLUMN_NAME  COLLATION_NAME
+customers   industry     utf8mb4_unicode_ci
+projects    type         utf8mb4_unicode_ci
+```
+
+**① 修复前（复现缺陷）** —— 用去掉 ENGINE/COLLATE 的 V27/V28 在 general_ci 库上执行，两个脚本都失败：
+
+```text
+A05_PREFIX_V27_expect_1267  exit=1
+  ERROR 1267 (HY000) at line 35: Illegal mix of collations (utf8mb4_general_ci,IMPLICIT) and (utf8mb4_unicode_ci,IMPLICIT) for operation '='
+A06_PREFIX_V28_expect_1267  exit=1
+  ERROR 1267 (HY000) at line 68: Illegal mix of collations (utf8mb4_general_ci,IMPLICIT) and (utf8mb4_unicode_ci,IMPLICIT) for operation '='
+# 且该库里新表确实是库默认排序规则
+industry_types  utf8mb4_general_ci
+project_types   utf8mb4_general_ci
+```
+
+**② 修复后 · 库默认 `utf8mb4_general_ci`（V26/V27/V28 各跑两遍）**
+
+```text
+A10_V26_run1  exit=0  stderr=<empty>      A11_V26_run2  exit=0  stderr=<empty>
+A12_V27_run1  exit=0  stderr=<empty>      A14_V27_run2  exit=0  stderr=<empty>
+A15_V28_run1  exit=0  stderr=<empty>      A16_V28_run2  exit=0  stderr=<empty>
+```
+
+**③ 修复后 · 库默认 `utf8mb4_unicode_ci`（V26/V27/V28 各跑两遍）**
+
+```text
+B21_V26_run1  exit=0  stderr=<empty>      B22_V26_run2  exit=0  stderr=<empty>
+B31_V27_run1  exit=0  stderr=<empty>      B32_V27_run2  exit=0  stderr=<empty>
+B41_V28_run1  exit=0  stderr=<empty>      B42_V28_run2  exit=0  stderr=<empty>
+```
+
+**④ 两个库的终态一致**（内置项不重复、回填正确、新表全部 unicode_ci）
+
+```text
+builtin_project_types  projects_backfilled  customers_backfilled
+5                      2                    1                    -- t134_general 与 t134_unicode 相同
+
+TABLE_NAME                  TABLE_COLLATION
+industry_types              utf8mb4_unicode_ci
+project_types               utf8mb4_unicode_ci
+remember_me_tokens          utf8mb4_unicode_ci
+two_factor_recovery_codes   utf8mb4_unicode_ci
+
+code           type         type_code
+PRJ-HISTORY    PENTEST      PENTEST
+PRJ-T134-2     CODE_AUDIT   CODE_AUDIT
+PRJ-T134-3     OTHER        NULL        -- 匹配不到保持 NULL
+```
+
+```text
+mysql> SHOW CREATE TABLE project_types;
+... ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+```
+
+### 62.5 验证脚本与日志
+
+- 驱动脚本：`.tmp-t134/run-verify.ps1`（建库 → 灌基线 → 修复前复现 → 修复后两轮 → 终态断言）
+- 基线：`.tmp-t134/baseline.sql`；逐条日志：`.tmp-t134/logs/*.out|*.err`（stderr 为空即零错误）
+- 后端契约：`mvn -B -DskipTests compile` BUILD SUCCESS；`mvn -B test -Dtest=MetaAndProjectCodeTest` **27/27**
+  （H2 的 `ddl-auto=create-drop` 不跑这些脚本，因此迁移改动对单测无副作用）
+
+### 62.6 已知边界
+
+1. 显式 COLLATE 只解决**已知**的列间比较；将来新增「列 = 列」比较（JOIN、`CASE`、子查询相等）仍要显式 COLLATE 或统一列排序规则。
+2. 历史上已按库默认（general_ci）建出来的表不会被这些迁移改写 —— 需要的话用
+   `ALTER TABLE ... CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci` 单独处理（本轮未做，生产库本就是 unicode_ci）。
+3. `utf8mb4_unicode_ci` 是 MariaDB 10.x 的通用选择；若将来迁到 MySQL 8，建议统一评估 `utf8mb4_0900_ai_ci`
+   （两者排序等价性不同，属独立改造）。
+---
+
+## 61. 第四十一轮（t136 backend 收口：全量回归 ×2 + 迁移双场景 + 统一提交 + 部署 + 真机复验 + 推送）
+
+时间：2026-11-06 13:40–15:1x。**新增迁移 V26/V27/V28 已在生产库执行**（幂等）。
+
+| 项 | 结果 |
+|---|---|
+| 全量回归 | `mvn -B clean test` **连续 2 次全绿：929 例 / Failures 0 / Errors 0 / Skipped 0**（宿主 JDK21，pom `java.version=17`；单轮 ~10 分钟） |
+| 迁移双场景 | V26/V27/V28 在**空库**与**生产克隆**上、`utf8mb4_general_ci` 与 `utf8mb4_unicode_ci` 两种默认 collation 下各跑 **2 遍** → **46 项断言全绿**（含新表显式 `unicode_ci`、`totp_secret` 128、`customers.industry_code`/`projects.type_code`、历史行业回填、第三遍仍幂等）；临时库与授权已回收 |
+| 生产库执行 | V26/V27/V28 全部 `exit=0`；`totp_secret` 64→**128**、四张新表就绪、`project_types=5(builtin)`、启动后 `industry_types=22`、`projects.type_code` 回填 1 条；`SHOW CREATE TABLE project_types` 尾部 `COLLATE=utf8mb4_unicode_ci` |
+| 部署 | jar **73,390,452 B**；重启 17–18s 内 login=200；前端 `index-Dx_nu3MV.js` 2,713.52 kB / `index-BFYpbbDU.css` 26.97 kB 已 sync-dist |
+| 冒烟 | **279 / 279 PASS，0 FAIL，0 SKIP**（dev-mode 临时开启以覆盖注册/找回/RBAC 链路，验证后已移除） |
+| 真机复验 | **6 项全通过**，见 §61.2 |
+| 收口提交 | `6029031`(t133 409 映射) → `7e32e78`(t129–t132 元数据与编码) → `ee1f110`(t134 collation+manual-ddl) → `d83319c`(前端 2FA/解锁) → `2b19a50`(锁定时长修复)；每个提交后 `mvn -DskipTests compile` 均 BUILD SUCCESS（542→555 类） |
+
+### 61.1 本轮修复的真实缺陷（线上实测发现）
+
+**登录锁定时长单位错误（t123 引入）**：私有方法 `minutes(int)` 返回**毫秒**，却被传给 `Instant.plusSeconds(...)` →
+IP 锁「15 分钟」实际是 **900000 秒（≈10.4 天）**、账户锁「30 分钟」是 **1800000 秒（≈20.8 天）**；
+用户看到的是「请 899999 秒后重试」。修复：改名 `minutesAsMillis` + 全部改 `Instant.plusMillis`，
+并新增回归 `LoginLockoutTest#ipLockRetryAfterUsesSecondsNotMillis`（断言 `Retry-After ∈ (0,905]`）。
+线上复测：**5×401 → 第 6 次 429 + `Retry-After: 900`**。
+
+### 61.2 真机复验（6 项）
+
+| # | 断言 | 结果 |
+|---|---|---|
+| 1 | `POST /customers` 重复 code → **409**（`{"message":"客户编码已存在: T136C…"}`） | ✅ |
+| 2 | `POST /projects` 重复 code → **409** | ✅ |
+| 3 | 2FA：`POST /users/me/2fa/init` → `secretBase32` **32 位 Base32** + `otpauth://totp/...`；`confirm` 错码 **400**、正确码 **200 + 10 个恢复码**；登录第一步 **202 + challengeToken** → `POST /auth/login/2fa` **200 + token**；`disable`（需 password）**200** 后恢复单步 200 | ✅ |
+| 4 | remember-me：登录带 `rememberMe=true` → 下发 `owl_rm` cookie（66 字节）；`POST /auth/refresh` **200 且 cookie 轮换** | ✅ |
+| 5 | 客户编码 `^CUST-[A-Z]{7}$`（实测 `CUST-XHGKKSR`）、项目编码 `^PRJ-\d{4}-\d{2}-\d{2}-[A-Z]{6}$`（实测 `PRJ-2026-11-06-DATOHA`） | ✅ |
+| 6 | 默认锁定：5 次错密码后第 6 次 429 + `Retry-After: 900`（单位修复实证） | ✅ |
+
+### 61.3 部署新增配置（此前缺失）
+
+2FA 依赖主密钥，`APP_TOTP_SECRET_KEY` 之前**未配置**，导致 `init/confirm` 一律 **503「双因子功能未启用（服务端未配置主密钥）」**。
+本轮生成 32 字节随机密钥并写入 `backend.env`（`head -c 32 /dev/urandom | base64`），重启后 2FA 全链路可用。
+**生产/其他环境部署必须设置该变量**，否则 2FA 功能不可用（其余功能不受影响）。
+
+### 61.4 清理与收尾
+
+- 临时开关：`APP_VERIFICATION_DEV_MODE`、放宽的 `APP_VERIFICATION_MAX_PER_IP_PER_HOUR`、`APP_LOGIN_LOCKOUT_*` 阈值**全部移除**并重启复核（发码响应无 `devCode`）。
+- 数据终态：`customers=1 projects=1 phases=0 assets=3 links=3`、`orphan_assets=0`、`orphan_user_roles=0`、`users=12`、`requests=0`、`codes=0`、`2fa_enabled=0`、`remember_me_tokens=0`、`industry_types=22`、`project_types=5`。
+- 临时库 `vuln_audit_verify*` / `vuln_audit_clone*` 全部 `DROP`，`vulnapp` 的临时授权已 `REVOKE`。
+
+### 61.5 踩坑（本轮新增，务必复用）
+
+1. **测试读仓库布局**：`MetaTypeAdminTest#migrationScriptGuards` 读 `../deploy/manual-ddl.sql`；部署机上若只同步 `backend/`，会 `NoSuchFileException` → 全量回归假红。同步时务必带上 `deploy/manual-ddl.sql`。
+2. **`backend.env` 里密码带引号**：systemd `EnvironmentFile` 会去掉引号，但 shell 直接 `cut -d= -f2-` 会带引号 → `mariadb` 报 1045。取值后要 `P=${P#\'}; P=${P%\'}`。
+3. **`sudo -S` 抢 stdin**：给 `mariadb` 喂 SQL 走 heredoc 会失败（表现为 `sql_exit=1` 且无任何错误输出）。做法：SQL 写文件 → `sudo bash -c 'mariadb db < file'`。
+4. **root 写 `/tmp` 被 `fs.protected_regular` 拦**：`curl -o /tmp/x` 在 sudo 下写成 `status=000`。临时文件写 `$HOME` 或 `/root`。
+5. **`systemctl --user` 不能在 sudo 里跑**（丢 `XDG_RUNTIME_DIR`）：重启必须以登录用户身份执行。
