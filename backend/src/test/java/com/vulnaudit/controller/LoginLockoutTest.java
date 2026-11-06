@@ -24,6 +24,7 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -147,6 +148,23 @@ public class LoginLockoutTest extends BaseTest {
                         .header().exists("Retry-After"));
 
         assertEquals(200, loginStatus("lock1", PASSWORD, IP_B), "换 IP 后正确密码必须可登录（账户未锁）");
+    }
+
+    @Test
+    @DisplayName("t136 回归：IP 锁的 Retry-After 必须是「分钟级秒数」，不能把 15 分钟算成 900000 秒")
+    void ipLockRetryAfterUsesSecondsNotMillis() throws Exception {
+        createUser("lock1b", "13800000011", "lock1b@test.com", true, false);
+        failTimes("lock1b", IP_A, 5);
+
+        String header = mockMvc.perform(login("lock1b", PASSWORD, IP_A))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status()
+                        .isTooManyRequests())
+                .andReturn().getResponse().getHeader("Retry-After");
+        assertNotNull(header, "Retry-After 必须存在");
+        long seconds = Long.parseLong(header.trim());
+        // 默认 ip-lock-minutes=15 → 期望 ~900s；单位错误的实现会给到 900000（≈10.4 天）
+        assertTrue(seconds > 0 && seconds <= 15 * 60 + 5,
+                "Retry-After 应为分钟级秒数（≤905），实际=" + seconds);
     }
 
     @Test

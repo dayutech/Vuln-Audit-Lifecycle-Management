@@ -62,13 +62,13 @@ public class LoginLockoutTracker {
             return false;
         }
         long now = System.currentTimeMillis();
-        long windowMillis = minutes(properties.getIpWindowMinutes());
+        long windowMillis = minutesAsMillis(properties.getIpWindowMinutes());
         Deque<Long> queue = ipFailures.computeIfAbsent(ip, k -> new java.util.ArrayDeque<>());
         synchronized (queue) {
             prune(queue, now, windowMillis);
             queue.addLast(now);
             if (queue.size() >= properties.getIpMaxFailures()) {
-                ipLockedUntil.put(ip, Instant.now().plusSeconds(minutes(properties.getIpLockMinutes())));
+                ipLockedUntil.put(ip, Instant.now().plusMillis(minutesAsMillis(properties.getIpLockMinutes())));
                 queue.clear();
                 return true;
             }
@@ -112,7 +112,7 @@ public class LoginLockoutTracker {
             return null;
         }
         long now = System.currentTimeMillis();
-        long windowMillis = minutes(properties.getDistinctIpWindowMinutes());
+        long windowMillis = minutesAsMillis(properties.getDistinctIpWindowMinutes());
 
         Deque<Long> queue = accountFailures.computeIfAbsent(userId, k -> new java.util.ArrayDeque<>());
         int failures;
@@ -158,7 +158,7 @@ public class LoginLockoutTracker {
         if (userId == null) {
             return;
         }
-        accountLockedUntil.put(userId, Instant.now().plusSeconds(minutes(properties.getAccountLockMinutes())));
+        accountLockedUntil.put(userId, Instant.now().plusMillis(minutesAsMillis(properties.getAccountLockMinutes())));
         accountLockReason.put(userId, reason);
         log.warn("账户已锁定: userId={}, reason={}", userId, reason);
     }
@@ -203,7 +203,7 @@ public class LoginLockoutTracker {
     /** 定期清理过期条目（每次访问时按需清理，这里是显式的全量清理入口） */
     public void cleanup() {
         long now = System.currentTimeMillis();
-        long ipWindow = minutes(properties.getIpWindowMinutes());
+        long ipWindow = minutesAsMillis(properties.getIpWindowMinutes());
         ipFailures.entrySet().removeIf(e -> {
             Deque<Long> q = e.getValue();
             synchronized (q) {
@@ -211,7 +211,7 @@ public class LoginLockoutTracker {
                 return q.isEmpty();
             }
         });
-        long distinctWindow = minutes(properties.getDistinctIpWindowMinutes());
+        long distinctWindow = minutesAsMillis(properties.getDistinctIpWindowMinutes());
         accountIps.entrySet().removeIf(e -> {
             Map<String, Long> ips = e.getValue();
             synchronized (ips) {
@@ -250,7 +250,14 @@ public class LoginLockoutTracker {
         }
     }
 
-    private long minutes(int value) {
+    /**
+     * 分钟 → 毫秒。
+     *
+     * <p>命名带 {@code AsMillis} 是必须的：本方法返回<b>毫秒</b>，直接喂 {@code Instant.plusSeconds}
+     * 会把「15 分钟」变成「900000 秒（≈10.4 天）」—— t136 收口时在生产环境实测到
+     * {@code Retry-After=899999} 才暴露该单位错误。
+     */
+    private long minutesAsMillis(int value) {
         return Math.max(value, 0) * 60_000L;
     }
 }
