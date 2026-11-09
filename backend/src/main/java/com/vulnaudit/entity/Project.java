@@ -28,14 +28,28 @@ import java.util.UUID;
         indexes = {
                 @Index(name = "idx_projects_customer", columnList = "customer_id"),
                 @Index(name = "idx_projects_manager", columnList = "manager_id"),
-                @Index(name = "idx_projects_status", columnList = "status")
+                @Index(name = "idx_projects_status", columnList = "status"),
+                @Index(name = "idx_projects_deleted", columnList = "deleted_at")
         })
+@org.hibernate.annotations.SQLRestriction("deleted_at IS NULL")
 public class Project {
 
     @Id
     @GeneratedValue(generator = "UUID")
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
+
+    /**
+     * 软删时间（t140）：非空 = 已删除；默认查询/详情/下拉一律不返回，唯一键（code）仍占用。
+     *
+     * <p>过滤方式见 {@code Customer#deletedAt} 的说明（统一 SQLRestriction + 原生 SQL 处理「含已删」）。
+     */
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
+    /** 删除人（操作者 user id） */
+    @Column(name = "deleted_by", length = 36)
+    private UUID deletedBy;
 
     @Column(name = "code", length = 64, nullable = false, unique = true)
     private String code;

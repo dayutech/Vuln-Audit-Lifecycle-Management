@@ -163,7 +163,8 @@ public class ProjectController {
     @Operation(summary = "删除项目", description = "该项目下仍有资产挂靠时 409")
     public ResponseEntity<ApiResponse<Void>> deleteProject(@PathVariable UUID id) {
         projectService.delete(id);
-        return ResponseEntity.ok(ApiResponse.success(null));
+        // t140：软删，统一 204（期次与挂靠行保留，历史可追溯）
+        return ResponseEntity.noContent().build();
     }
 
     // ------------------------------------------------------------------ 期次

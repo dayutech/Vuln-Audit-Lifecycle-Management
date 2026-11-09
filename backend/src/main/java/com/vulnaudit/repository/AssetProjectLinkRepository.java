@@ -81,7 +81,9 @@ public interface AssetProjectLinkRepository extends JpaRepository<AssetProjectLi
      * @return 每行 {@code [projectId(UUID), count(Long)]}；无挂靠的项目不出现
      */
     @Query("select l.projectId, count(distinct l.assetId) from AssetProjectLink l "
-            + "where l.projectId in :projectIds group by l.projectId")
+            + "where l.projectId in :projectIds "
+            + "and l.assetId in (select a.id from Asset a) "
+            + "group by l.projectId")
     List<Object[]> countAssetsGroupedByProjectIds(@Param("projectIds") Collection<UUID> projectIds);
 
     /** 客户下的全部挂靠（客户详情聚合用；按挂靠时间倒序，便于取「最近资产」） */
@@ -101,8 +103,21 @@ public interface AssetProjectLinkRepository extends JpaRepository<AssetProjectLi
     @Query("select l.projectId, count(distinct l.assetId) from AssetProjectLink l "
             + "where l.projectId in :projectIds "
             + "and (:visibleAssetIds is null or l.assetId in :visibleAssetIds) "
+            + "and l.assetId in (select a.id from Asset a) "
             + "group by l.projectId")
     List<Object[]> countVisibleAssetsGroupedByProjectIds(
             @Param("projectIds") Collection<UUID> projectIds,
             @Param("visibleAssetIds") Collection<UUID> visibleAssetIds);
+
+    /**
+     * 项目下「未被软删的资产」挂靠数（t140）—— 删除项目的阻塞检查
+     *
+     * <p>口径：**只有明确软删（assets.deleted_at 非空）的资产不算阻塞**；资产行不存在（历史脏数据/夹具）
+     * 一律按「存在」处理，宁可拦住删除也不放过脏数据。用原生 SQL，因为需要绕开实体上的
+     * {@code @SQLRestriction("deleted_at IS NULL")}（它会隐藏已删资产，导致脏数据看起来「不阻塞」）。
+     */
+    @Query(value = "select count(*) from asset_project_links l where l.project_id = :projectId "
+            + "and not exists (select 1 from assets a where a.id = l.asset_id and a.deleted_at is not null)",
+            nativeQuery = true)
+    long countByProjectIdAndAssetNotDeleted(@Param("projectId") UUID projectId);
 }

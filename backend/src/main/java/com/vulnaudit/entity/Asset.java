@@ -26,7 +26,11 @@ import java.util.UUID;
 @AllArgsConstructor
 @Builder
 @Entity
-@Table(name = "assets")
+@Table(name = "assets",
+        indexes = {
+                @Index(name = "idx_assets_deleted", columnList = "deleted_at")
+        })
+@org.hibernate.annotations.SQLRestriction("deleted_at IS NULL")
 public class Asset {
 
     /**
@@ -37,6 +41,19 @@ public class Asset {
     @GeneratedValue(generator = "UUID")
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
+
+    /**
+     * 软删时间（t140）：非空 = 已删除；默认查询（列表/详情/summary/stats/分布/项目资产）都不返回，
+     * 资产编号（code）唯一键仍占用。
+     *
+     * <p>过滤方式见 {@code Customer#deletedAt} 的说明；挂靠行（asset_project_links）**保留**，历史可追溯。
+     */
+    @Column(name = "deleted_at")
+    private java.time.LocalDateTime deletedAt;
+
+    /** 删除人（操作者 user id） */
+    @Column(name = "deleted_by", length = 36)
+    private java.util.UUID deletedBy;
 
     /**
      * 资产名称

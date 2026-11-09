@@ -101,7 +101,16 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
             "DELETE /api/v1/admin/industry-types/{id}",
             "POST /api/v1/admin/project-types",
             "PUT /api/v1/admin/project-types/{id}",
-            "DELETE /api/v1/admin/project-types/{id}"
+            "DELETE /api/v1/admin/project-types/{id}",
+            // t140：软删恢复由 SoftDeleteAdminServiceImpl 写 RESTORE_CUSTOMER / RESTORE_PROJECT / RESTORE_ASSET，
+            // 拦截器不再重复记录（一次恢复只应有 1 条审计）
+            "POST /api/v1/admin/customers/{id}/restore",
+            "POST /api/v1/admin/projects/{id}/restore",
+            "POST /api/v1/admin/assets/{id}/restore",
+            // t141：标签定义写操作由服务层写 1 条 UPDATE_TAG_DEFINITION
+            "POST /api/v1/admin/tag-definitions",
+            "PUT /api/v1/admin/tag-definitions/{id}",
+            "DELETE /api/v1/admin/tag-definitions/{id}"
     };
 
     private final AuditLogService auditLogService;

@@ -351,12 +351,10 @@ public class CustomerProjectStatsTest extends BaseTest {
                         .header("Authorization", adminToken))
                 .andExpect(status().isOk());
 
+        // t140：软删（204），挂靠行保留（历史可追溯）
         mockMvc.perform(delete("/api/v1/projects/" + flatProject.getId()).header("Authorization", adminToken))
-                .andExpect(status().isOk());
+                .andExpect(status().isNoContent());
 
-        org.junit.jupiter.api.Assertions.assertTrue(
-                linkRepository.findByProjectId(flatProject.getId()).isEmpty(),
-                "删除项目后不应有挂靠残留");
     }
 
     @Test

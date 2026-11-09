@@ -103,6 +103,9 @@ public class ProjectServiceImpl implements ProjectService {
     private final com.vulnaudit.repository.TaskRepository taskRepository;
     /** t130：项目类型引用校验（typeCode） */
     private final com.vulnaudit.service.ProjectTypeService projectTypeService;
+    /** t140：软删记录操作者 + 原生 UPDATE 后清一级缓存 */
+    private final com.vulnaudit.security.CurrentUserProvider currentUserProvider;
+    private final jakarta.persistence.EntityManager entityManager;
 
     // ------------------------------------------------------------------ 项目查询
 
@@ -454,21 +457,24 @@ public class ProjectServiceImpl implements ProjectService {
         return toResponse(projectRepository.save(project));
     }
 
+    /**
+     * 删除项目 → **软删**（t140：只写 deleted_at，不再物理删除；期次与挂靠行全部保留，历史可追溯）
+     *
+     * <p>阻塞条件：仍有**未删资产**挂靠 → 409（指向已软删资产的挂靠行不算阻塞）。
+     */
     @Override
     @Transactional
     public void delete(@Nullable UUID id) {
         Project project = requireProject(id);
-        long linkCount = assetProjectLinkRepository.countByProjectId(project.getId());
+        long linkCount = assetProjectLinkRepository.countByProjectIdAndAssetNotDeleted(project.getId());
         if (linkCount > 0) {
             throw new BusinessException(ErrorCode.PROJECT_HAS_ASSET_LINKS,
                     "该项目下仍有 " + linkCount + " 个资产挂靠，请先解绑");
         }
-        List<ProjectPhase> phases = projectPhaseRepository.findByProjectIdOrderByPhaseNo(project.getId());
-        if (!phases.isEmpty()) {
-            projectPhaseRepository.deleteAll(phases);
-        }
-        projectRepository.delete(project);
-        log.info("删除项目: id={}, code={}, 同时清理期次 {} 个", project.getId(), project.getCode(), phases.size());
+        UUID operatorId = currentUserProvider.currentUserId().orElse(null);
+        projectRepository.softDeleteById(project.getId(), java.time.LocalDateTime.now(), operatorId);
+        entityManager.clear();
+        log.info("软删项目: id={}, code={}, operatorId={}", project.getId(), project.getCode(), operatorId);
     }
 
     // ------------------------------------------------------------------ 期次
@@ -693,14 +699,15 @@ public class ProjectServiceImpl implements ProjectService {
         if (StringUtils.hasText(raw)) {
             String candidate = raw.trim();
             validateCodeFormat(candidate);
-            if (projectRepository.existsByCode(candidate)) {
+            // t140：查重包含已软删行（软删记录仍占用唯一键）
+            if (projectRepository.countByCodeIncludingDeleted(candidate) > 0) {
                 throw new BusinessException(ErrorCode.PROJECT_CODE_EXISTS, "项目编码已存在: " + candidate);
             }
             return candidate;
         }
         for (int attempt = 0; attempt < PROJECT_CODE_MAX_ATTEMPTS; attempt++) {
             String candidate = generateCode();
-            if (!projectRepository.existsByCode(candidate)) {
+            if (projectRepository.countByCodeIncludingDeleted(candidate) == 0) {
                 return candidate;
             }
             log.warn("项目编码冲突，重试: code={}, attempt={}", candidate, attempt + 1);
@@ -725,6 +732,10 @@ public class ProjectServiceImpl implements ProjectService {
                 throw new BusinessException(ErrorCode.PROJECT_CODE_EXISTS, "项目编码已存在: " + candidate);
             }
         });
+        // t140：findByCode 看不到软删行，这里补一次「含已删」的占用检查
+        if (projectRepository.countByCodeIncludingDeleted(candidate) > 0) {
+            throw new BusinessException(ErrorCode.PROJECT_CODE_EXISTS, "项目编码已存在: " + candidate);
+        }
         return candidate;
     }
 

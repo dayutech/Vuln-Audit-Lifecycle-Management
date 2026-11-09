@@ -138,6 +138,7 @@ public class CustomerController {
     @Operation(summary = "删除客户", description = "该客户下仍有项目时返回 409")
     public ResponseEntity<ApiResponse<Void>> deleteCustomer(@PathVariable UUID id) {
         customerService.delete(id);
-        return ResponseEntity.ok(ApiResponse.success(null));
+        // t140：软删，统一 204（对象仍在库中，只是默认查询不可见）
+        return ResponseEntity.noContent().build();
     }
 }

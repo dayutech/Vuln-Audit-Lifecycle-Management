@@ -243,7 +243,10 @@ public class ProjectCodeTest extends BaseTest {
                                              AssetProjectLinkRepository links) {
         return new ProjectServiceImpl(projects, mock(ProjectPhaseRepository.class), customers,
                 links, users, mock(TaskRepository.class),
-                mock(com.vulnaudit.service.ProjectTypeService.class));
+                mock(com.vulnaudit.service.ProjectTypeService.class),
+                // t140 软删依赖：单测里不需要真操作者与一级缓存
+                mock(com.vulnaudit.security.CurrentUserProvider.class),
+                mock(jakarta.persistence.EntityManager.class));
     }
 
     private ProjectRequest requestWithoutCode() {
@@ -270,7 +273,8 @@ public class ProjectCodeTest extends BaseTest {
     @DisplayName("生成码冲突后重试成功（第 3 次命中可用编码），仍为规范格式")
     void retryAfterConflictSucceeds() {
         ProjectRepository projects = mock(ProjectRepository.class);
-        when(projects.existsByCode(anyString())).thenReturn(true, true, false);
+        // t140：查重改为「含已删」（countByCodeIncludingDeleted），前两次冲突、第三次可用
+        when(projects.countByCodeIncludingDeleted(anyString())).thenReturn(1L, 1L, 0L);
         when(projects.saveAndFlush(any(Project.class))).thenAnswer(inv -> inv.getArgument(0));
 
         ProjectServiceImpl service = mockedService(projects, mockCustomers(), mockUsers(),
@@ -280,14 +284,14 @@ public class ProjectCodeTest extends BaseTest {
 
         assertNotNull(response.code());
         assertTrue(response.code().matches(CODE_REGEX), "重试后编码仍须规范: " + response.code());
-        verify(projects, times(3)).existsByCode(anyString());
+        verify(projects, times(3)).countByCodeIncludingDeleted(anyString());
     }
 
     @Test
     @DisplayName("连续 10 次生成均冲突 → 业务异常（409），不是 500")
     void retryExhaustedThrows409() {
         ProjectRepository projects = mock(ProjectRepository.class);
-        when(projects.existsByCode(anyString())).thenReturn(true);
+        when(projects.countByCodeIncludingDeleted(anyString())).thenReturn(1L);
 
         ProjectServiceImpl service = mockedService(projects, mockCustomers(), mockUsers(),
                 mock(AssetProjectLinkRepository.class));
@@ -296,14 +300,14 @@ public class ProjectCodeTest extends BaseTest {
                 () -> service.create(requestWithoutCode(), adminUserId));
         assertEquals(ErrorCode.PROJECT_CODE_EXISTS, ex.getErrorCode());
         assertEquals(409, ex.getCode());
-        verify(projects, times(10)).existsByCode(anyString());
+        verify(projects, times(10)).countByCodeIncludingDeleted(anyString());
     }
 
     @Test
     @DisplayName("唯一索引冲突（并发写）→ 映射为 409 业务异常，不是 500")
     void uniqueIndexViolationMappedTo409() {
         ProjectRepository projects = mock(ProjectRepository.class);
-        when(projects.existsByCode(anyString())).thenReturn(false);
+        when(projects.countByCodeIncludingDeleted(anyString())).thenReturn(0L);
         when(projects.saveAndFlush(any(Project.class))).thenThrow(new DataIntegrityViolationException(
                 "could not execute statement; Duplicate entry 'PRJ-2026-11-06-ABCDEF' for key 'uk_projects_code'"));
 

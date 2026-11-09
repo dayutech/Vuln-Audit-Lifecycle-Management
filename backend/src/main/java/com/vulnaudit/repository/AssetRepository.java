@@ -101,4 +101,37 @@ public interface AssetRepository extends JpaRepository<Asset, UUID>, JpaSpecific
     @Query("SELECT DISTINCT a.targetSource FROM Asset a WHERE a.targetSource IS NOT NULL AND a.targetSource <> '' ORDER BY a.targetSource ASC")
     List<String> findDistinctTargetSources();
 
+    // ------------------------------------------------------------------ 软删（t140）
+    // 实体上有 @SQLRestriction("deleted_at IS NULL")，上面查询只看未删行；以下原生 SQL 有意绕过。
+
+    @Query(value = "select * from assets where id = :id", nativeQuery = true)
+    Optional<Asset> findByIdIncludingDeleted(@org.springframework.data.repository.query.Param("id") UUID id);
+
+    /** 含已删：资产编号是否被占用（软删记录仍占唯一键） */
+    @Query(value = "select count(*) from assets where code = :code", nativeQuery = true)
+    long countByCodeIncludingDeleted(@org.springframework.data.repository.query.Param("code") String code);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query(value = "update assets set deleted_at = :deletedAt, deleted_by = :deletedBy "
+            + "where id = :id and deleted_at is null", nativeQuery = true)
+    int softDeleteById(@org.springframework.data.repository.query.Param("id") UUID id,
+                       @org.springframework.data.repository.query.Param("deletedAt") java.time.LocalDateTime deletedAt,
+                       @org.springframework.data.repository.query.Param("deletedBy") UUID deletedBy);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query(value = "update assets set deleted_at = null, deleted_by = null where id = :id and deleted_at is not null", nativeQuery = true)
+    int restoreById(@org.springframework.data.repository.query.Param("id") UUID id);
+
+    @Query(value = "select * from assets where (:includeDeleted = true or deleted_at is null) "
+            + "and (:keyword = '' or lower(code) like lower(concat('%', :keyword, '%')) "
+            + "or lower(name) like lower(concat('%', :keyword, '%')))",
+            countQuery = "select count(*) from assets where (:includeDeleted = true or deleted_at is null) "
+                    + "and (:keyword = '' or lower(code) like lower(concat('%', :keyword, '%')) "
+                    + "or lower(name) like lower(concat('%', :keyword, '%')))",
+            nativeQuery = true)
+    org.springframework.data.domain.Page<Asset> searchAdmin(
+            @org.springframework.data.repository.query.Param("keyword") String keyword,
+            @org.springframework.data.repository.query.Param("includeDeleted") boolean includeDeleted,
+            org.springframework.data.domain.Pageable pageable);
+
 }

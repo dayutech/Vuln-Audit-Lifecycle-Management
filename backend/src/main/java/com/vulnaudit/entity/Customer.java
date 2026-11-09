@@ -26,14 +26,31 @@ import java.util.UUID;
         uniqueConstraints = @UniqueConstraint(name = "uk_customers_code", columnNames = "code"),
         indexes = {
                 @Index(name = "idx_customers_status", columnList = "status"),
-                @Index(name = "idx_customers_owner", columnList = "owner_id")
+                @Index(name = "idx_customers_owner", columnList = "owner_id"),
+                @Index(name = "idx_customers_deleted", columnList = "deleted_at")
         })
+@org.hibernate.annotations.SQLRestriction("deleted_at IS NULL")
 public class Customer {
 
     @Id
     @GeneratedValue(generator = "UUID")
     @Column(name = "id", updatable = false, nullable = false)
     private UUID id;
+
+    /**
+     * 软删时间（t140）：非空 = 已删除，所有默认查询都不返回；唯一键仍占用（code 不可复用）
+     *
+     * <p>用 {@link org.hibernate.annotations.SQLRestriction} 统一过滤，而不是逐个仓储方法加
+     * {@code AndDeletedAtIsNull} —— 后者极易漏（列表/详情/summary/stats/下拉/导入查重都要加），
+     * 而 SQLRestriction 对 JPQL、派生查询、懒加载一律生效；需要「含已删」的管理端列表与恢复入口
+     * 走原生 SQL（原生查询不受 restriction 影响），见 {@code CustomerRepository}。
+     */
+    @Column(name = "deleted_at")
+    private java.time.LocalDateTime deletedAt;
+
+    /** 删除人（操作者 user id），仅作审计线索 */
+    @Column(name = "deleted_by", length = 36)
+    private java.util.UUID deletedBy;
 
     /** 客户编号（业务唯一，如 CUST-DEFAULT） */
     @Column(name = "code", length = 64, nullable = false, unique = true)

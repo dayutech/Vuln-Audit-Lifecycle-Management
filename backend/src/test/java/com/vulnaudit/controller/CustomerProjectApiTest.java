@@ -177,8 +177,9 @@ public class CustomerProjectApiTest extends BaseTest {
                 .createdBy(adminUserId)
                 .build()));
 
+        // t140：删除改为软删，统一返回 204
         mockMvc.perform(delete("/api/v1/customers/" + empty.getId()).header("Authorization", adminToken))
-                .andExpect(status().isOk());
+                .andExpect(status().isNoContent());
     }
 
     // ------------------------------------------------------------------ 项目 CRUD + 状态机
@@ -282,11 +283,12 @@ public class CustomerProjectApiTest extends BaseTest {
         Project clean = createProject("P-CLEAN-" + System.currentTimeMillis(), adminUserId, true);
         createPhase(clean, 1);
 
+        // t140：软删（204），期次保留以便历史追溯
         mockMvc.perform(delete("/api/v1/projects/" + clean.getId()).header("Authorization", adminToken))
-                .andExpect(status().isOk());
-        org.junit.jupiter.api.Assertions.assertTrue(
+                .andExpect(status().isNoContent());
+        org.junit.jupiter.api.Assertions.assertFalse(
                 projectPhaseRepository.findByProjectIdOrderByPhaseNo(clean.getId()).isEmpty(),
-                "删除项目应同时清理期次");
+                "软删项目时不应删除期次（历史可追溯）");
     }
 
     // ------------------------------------------------------------------ 期次
