@@ -726,3 +726,140 @@ SELECT COUNT(*) AS industry_with_deleted_at FROM industry_types WHERE deleted_at
 -- 内置清单（应恰好 5 行）
 SELECT code, name, sort_order FROM project_types WHERE builtin = 1 ORDER BY sort_order;
 
+
+-- =============================================================================
+-- V29：客户 / 项目 / 资产软删除（deleted_at + deleted_by + 索引，t140）
+-- 与 backend/src/main/resources/db/migration/V29__soft_delete_customers_projects_assets.sql 等价
+-- =============================================================================
+-- 幂等：ADD COLUMN IF NOT EXISTS / CREATE INDEX IF NOT EXISTS。
+-- ⚠ 排序规则（t134 硬规则）：新增的 deleted_by 显式 COLLATE utf8mb4_unicode_ci。
+-- 唯一键语义：软删行仍占用 customers.code / projects.code / assets.code，唯一索引不变；
+--            服务层查重改为「含已删」（countByCodeIncludingDeleted）。
+
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS deleted_at DATETIME(6) NULL;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(36)
+    COLLATE utf8mb4_unicode_ci NULL;
+CREATE INDEX IF NOT EXISTS idx_customers_deleted ON customers (deleted_at);
+
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS deleted_at DATETIME(6) NULL;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(36)
+    COLLATE utf8mb4_unicode_ci NULL;
+CREATE INDEX IF NOT EXISTS idx_projects_deleted ON projects (deleted_at);
+
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS deleted_at DATETIME(6) NULL;
+ALTER TABLE assets ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(36)
+    COLLATE utf8mb4_unicode_ci NULL;
+CREATE INDEX IF NOT EXISTS idx_assets_deleted ON assets (deleted_at);
+
+-- 校验：三表各两列（6 行）、三个索引（3 行）、唯一索引仍在、软删水位（部署后应为 0/0/0）
+SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND TABLE_NAME IN ('customers', 'projects', 'assets')
+  AND COLUMN_NAME IN ('deleted_at', 'deleted_by')
+ORDER BY TABLE_NAME, COLUMN_NAME;
+
+SELECT TABLE_NAME, INDEX_NAME, COLUMN_NAME
+FROM information_schema.STATISTICS
+WHERE TABLE_SCHEMA = DATABASE()
+  AND INDEX_NAME IN ('idx_customers_deleted', 'idx_projects_deleted', 'idx_assets_deleted')
+ORDER BY TABLE_NAME;
+
+SELECT
+  (SELECT COUNT(*) FROM customers WHERE deleted_at IS NOT NULL) AS deleted_customers,
+  (SELECT COUNT(*) FROM projects  WHERE deleted_at IS NOT NULL) AS deleted_projects,
+  (SELECT COUNT(*) FROM assets    WHERE deleted_at IS NOT NULL) AS deleted_assets;
+
+
+-- =============================================================================
+-- V30：资产分组 → 标签体系（t141）
+-- 与 backend/src/main/resources/db/migration/V30__asset_groups_to_tags.sql 等价
+-- =============================================================================
+-- 幂等：CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS / 迁移语句全部 NOT EXISTS 守卫。
+-- ⚠ 排序规则（t134 硬规则）：新表显式 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci。
+-- 旧数据保留：asset_groups / asset_group_relations 不删，只给 asset_groups 补 migrated_at（迁移水位）。
+
+CREATE TABLE IF NOT EXISTS tag_definitions (
+    id          VARCHAR(36) NOT NULL PRIMARY KEY,
+    name        VARCHAR(50) NOT NULL,
+    color       VARCHAR(20) NULL,
+    builtin     BOOLEAN     NOT NULL DEFAULT FALSE,
+    deleted_at  DATETIME(6) NULL,
+    sort_order  INT         NOT NULL DEFAULT 0,
+    created_at  DATETIME(6) NOT NULL,
+    updated_at  DATETIME(6) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_tag_definitions_name ON tag_definitions (name);
+CREATE INDEX IF NOT EXISTS idx_tag_definitions_deleted ON tag_definitions (deleted_at);
+
+INSERT INTO tag_definitions (id, name, color, builtin, deleted_at, sort_order, created_at, updated_at)
+SELECT UUID(), '核心系统', '#f5222d', 1, NULL, 10, NOW(6), NOW(6) FROM DUAL
+ WHERE NOT EXISTS (SELECT 1 FROM tag_definitions WHERE name = '核心系统');
+INSERT INTO tag_definitions (id, name, color, builtin, deleted_at, sort_order, created_at, updated_at)
+SELECT UUID(), '对外服务', '#1677ff', 1, NULL, 20, NOW(6), NOW(6) FROM DUAL
+ WHERE NOT EXISTS (SELECT 1 FROM tag_definitions WHERE name = '对外服务');
+INSERT INTO tag_definitions (id, name, color, builtin, deleted_at, sort_order, created_at, updated_at)
+SELECT UUID(), '测试环境', '#52c41a', 1, NULL, 30, NOW(6), NOW(6) FROM DUAL
+ WHERE NOT EXISTS (SELECT 1 FROM tag_definitions WHERE name = '测试环境');
+
+ALTER TABLE asset_groups ADD COLUMN IF NOT EXISTS migrated_at DATETIME(6) NULL;
+ALTER TABLE asset_groups ADD COLUMN IF NOT EXISTS deleted_at DATETIME(6) NULL;
+CREATE INDEX IF NOT EXISTS idx_asset_groups_deleted ON asset_groups (deleted_at);
+
+-- 未软删分组 → 标签定义（name = 分组名，builtin = 0）
+INSERT INTO tag_definitions (id, name, color, builtin, deleted_at, sort_order, created_at, updated_at)
+SELECT UUID(), g.name, NULL, 0, NULL, 100, NOW(6), NOW(6)
+  FROM asset_groups g
+ WHERE g.deleted_at IS NULL
+   AND NOT EXISTS (SELECT 1 FROM tag_definitions t
+   WHERE t.name COLLATE utf8mb4_unicode_ci = g.name COLLATE utf8mb4_unicode_ci);
+
+-- 分组关系 → 资产标签（asset_tags 沿用既有表；同资产同标签只保留一行）
+INSERT INTO asset_tags (id, asset_id, tag, created_by, created_at)
+SELECT UUID(), r.asset_id, g.name, '00000000-0000-0000-0000-000000000000', NOW(6)
+  FROM asset_group_relations r
+  JOIN asset_groups g ON g.id = r.group_id
+ WHERE g.deleted_at IS NULL
+   AND NOT EXISTS (SELECT 1 FROM asset_tags t
+                    WHERE t.asset_id = r.asset_id
+     AND t.tag COLLATE utf8mb4_unicode_ci = g.name COLLATE utf8mb4_unicode_ci);
+
+UPDATE asset_groups SET migrated_at = NOW(6)
+ WHERE deleted_at IS NULL AND migrated_at IS NULL;
+
+-- 校验：标签总数 / 内置数 / 已迁移分组 / 待迁移 / 标签资产数分布
+SELECT COUNT(*) AS tag_definitions_total FROM tag_definitions;
+SELECT COUNT(*) AS builtin_tags FROM tag_definitions WHERE builtin = 1;
+SELECT COUNT(*) AS migrated_groups FROM asset_groups WHERE migrated_at IS NOT NULL;
+SELECT COUNT(*) AS groups_pending_migration FROM asset_groups WHERE migrated_at IS NULL AND deleted_at IS NULL;
+SELECT t.name, COUNT(at.id) AS asset_count
+  FROM tag_definitions t LEFT JOIN asset_tags at ON at.tag = t.name
+ GROUP BY t.name ORDER BY asset_count DESC, t.name;
+
+
+
+
+
+-- =============================================================================
+-- V31：资产文件 / 交付物补齐元数据（t148）
+-- 与 backend/src/main/resources/db/migration/V31__asset_file_metadata.sql 等价
+-- =============================================================================
+-- 幂等：ADD COLUMN IF NOT EXISTS / CREATE INDEX IF NOT EXISTS。
+-- 说明：uploaded_by 两表本来就有（NOT NULL，上传时写当前用户），本轮不新增也不回填；
+--       本轮只加 remark（上传备注，与 description 分离）+ 列表排序索引。
+
+ALTER TABLE asset_files ADD COLUMN IF NOT EXISTS remark VARCHAR(500) NULL;
+ALTER TABLE asset_deliverables ADD COLUMN IF NOT EXISTS remark VARCHAR(500) NULL;
+
+CREATE INDEX IF NOT EXISTS idx_asset_files_asset_created ON asset_files (asset_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_asset_deliverables_asset_created ON asset_deliverables (asset_id, created_at);
+
+-- 校验：remark 覆盖率 + uploaded_by 覆盖情况（历史数据是否都带上上传人）
+SELECT COUNT(*) AS files_total,
+       SUM(CASE WHEN uploaded_by IS NULL THEN 1 ELSE 0 END) AS files_without_uploader,
+       SUM(CASE WHEN remark IS NULL THEN 1 ELSE 0 END) AS files_without_remark
+  FROM asset_files;
+SELECT COUNT(*) AS deliverables_total,
+       SUM(CASE WHEN uploaded_by IS NULL THEN 1 ELSE 0 END) AS deliverables_without_uploader,
+       SUM(CASE WHEN remark IS NULL THEN 1 ELSE 0 END) AS deliverables_without_remark
+  FROM asset_deliverables;
