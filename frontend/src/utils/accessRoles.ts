@@ -127,9 +127,6 @@ export const isOperationsProfile = (profile: MyAccessProfile | null): boolean =>
 /** POST /assets：admin / project_leader / team_leader */
 export const canCreateAsset = (profile: MyAccessProfile | null): boolean => isOperationsProfile(profile);
 
-/** 资产分组写（新建/编辑/删除/加移资产）：admin / project_leader / team_leader */
-export const canManageAssetGroups = (profile: MyAccessProfile | null): boolean =>
-  isOperationsProfile(profile);
 
 /**
  * 资产写权（前端近似判定，与后端 canWriteAsset 同向）：管理层 / 小组长，或「我就是该资产负责人」。

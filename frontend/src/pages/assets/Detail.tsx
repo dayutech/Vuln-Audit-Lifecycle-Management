@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Tabs, Card, Button, Descriptions, Tag, Spin, Result, Form, Input, Select, Row, Col, Space, Upload, Table, message, Modal, Tooltip, Steps, Alert, Typography } from 'antd';
+import { Tabs, Card, Button, Descriptions, Tag, Spin, Result, Form, Input, Select, Row, Col, Space, Table, message, Modal, Tooltip, Steps, Alert, Typography } from 'antd';
 import { AppstoreOutlined, BuildOutlined, FileZipOutlined, BugOutlined, SafetyCertificateOutlined, UploadOutlined, PlusOutlined, MinusCircleOutlined, UserOutlined, LockOutlined, TagOutlined, PlusCircleOutlined, CodeOutlined, SettingOutlined, NodeIndexOutlined, LinkOutlined, InfoCircleOutlined, PlayCircleOutlined, StopOutlined, CloudUploadOutlined, ReloadOutlined, ProjectOutlined } from '@ant-design/icons';
 import { 
   getAssetDetail, 
@@ -38,6 +38,18 @@ import { isAssetSubscribed, subscribeAsset, unsubscribeAsset } from '@/api/notif
 import { describeVulnCreateFailure, describeVulnUpdateFailure, isFormValidationError } from '@/pages/vulnerabilities/createError';
 import { toVulnerabilityCreatePayload, toVulnerabilityUpdatePayload } from '@/pages/vulnerabilities/createPayload';
 import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
+import FileFilterBar from '@/components/files/FileFilterBar';
+import type { AttachmentQueryParams } from '@/api/asset';
+import { inlineTagNames } from '@/api/tag';
+import FileUploadModal, { type FileUploadKind, type FileUploadValues } from '@/components/files/FileUploadModal';
+import { useTableSort } from '@/hooks/useTableSort';
+import {
+  applyFileFilters,
+  distinctValues,
+  EMPTY_FILE_FILTERS,
+  formatBytes,
+  type FileFilters,
+} from '@/utils/fileFilters';
 import {
   canWriteEnvironment,
   getMyAccessProfile,
@@ -58,9 +70,45 @@ import { canWriteAsset, resolveCurrentUserId, ASSET_WRITE_FORBIDDEN_TIP } from '
 import { useT } from '@/i18n';
 import type { MessageKey } from '@/i18n/messages/zh-CN';
 
+/** UI 排序键 → 后端 sort 白名单（t148）：version/uploader 后端不支持 → 只在本地页内排序 */
+const SERVER_SORT_FIELD: Record<string, string> = {
+  name: 'name',
+  category: 'category',
+  fileSize: 'size',
+  createdAt: 'uploadedAt',
+};
+
+/** 生成 `sort=field,asc|desc`；不支持的列返回 undefined（后端会 400） */
+const currentSortParam = (key: string | null, order: string | null): string | undefined => {
+  if (!key || !order) return undefined;
+  const field = SERVER_SORT_FIELD[key];
+  if (!field) return undefined;
+  return `${field},${order === 'ascend' ? 'asc' : 'desc'}`;
+};
+
 const { TabPane } = Tabs;
 const { Option } = Select;
 const { TextArea } = Input;
+
+/** 资产文件分类（后端分类是自由文本，这里作为下拉默认枚举项） */
+const ASSET_FILE_CATEGORY_VALUES = [
+  'asset.detail.categorySystemImage',
+  'asset.detail.categoryDiskFile',
+  'asset.detail.categoryInstaller',
+  'asset.detail.categoryExtractor',
+  'asset.detail.categoryConfig',
+  'asset.detail.categoryOther',
+] as const;
+
+/** 交付物类型（与交付物上传枚举一致） */
+const DELIVERABLE_TYPE_VALUES = [
+  'asset.detail.deliverableExploitCode',
+  'asset.detail.deliverablePoc',
+  'asset.detail.deliverableExp',
+  'asset.detail.deliverableReproDoc',
+  'asset.detail.deliverableUsageDoc',
+  'asset.detail.deliverableOther',
+] as const;
 
 const renderListFormItem = (
   t: (key: MessageKey, vars?: Record<string, string | number>) => string,
@@ -179,7 +227,6 @@ const AssetDetail: React.FC = () => {
   const [assetVersions, setAssetVersions] = useState<AssetVersionVO[]>([]);
   const [selectedVersionId, setSelectedVersionId] = useState<string>();
   const [overviewVersionId, setOverviewVersionId] = useState<string>();
-  const [fileVersionScope, setFileVersionScope] = useState<string>();
   const [deliverableVersionScope, setDeliverableVersionScope] = useState<string>();
   const [versionLoading, setVersionLoading] = useState(false);
   const [createVersionVisible, setCreateVersionVisible] = useState(false);
@@ -209,17 +256,34 @@ const AssetDetail: React.FC = () => {
   const [metadataSubmitting, setMetadataSubmitting] = useState(false);
   const [baseOverviewInheritedFromVersionId, setBaseOverviewInheritedFromVersionId] = useState<string>();
 
-  // File states
-  const [assetFileUploadForm] = Form.useForm();
-  const [deliverableUploadForm] = Form.useForm();
+  // File states（t146：上传字段收进弹框，页面上不再有内联表单）
   const [files, setFiles] = useState<AssetFileVO[]>([]);
   const [deliverables, setDeliverables] = useState<AssetDeliverableVO[]>([]);
   const [fileLoading, setFileLoading] = useState(false);
   const [deliverableLoading, setDeliverableLoading] = useState(false);
-  const [fileUploading, setFileUploading] = useState(false);
-  const [deliverableUploading, setDeliverableUploading] = useState(false);
-  const [assetFileUploadList, setAssetFileUploadList] = useState<any[]>([]);
-  const [deliverableUploadList, setDeliverableUploadList] = useState<any[]>([]);
+  /** t146：上传弹框（资产文件与交付物共用一个组件，按 kind 区分） */
+  const [uploadKind, setUploadKind] = useState<FileUploadKind | null>(null);
+  const [uploadSubmitting, setUploadSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | undefined>(undefined);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  /** t146：筛选状态（t149 起改为**服务端参数**，本地纯函数仅作降级路径） */
+  const [fileFilters, setFileFilters] = useState<FileFilters>(EMPTY_FILE_FILTERS);
+  const [deliverableFilters, setDeliverableFilters] = useState<FileFilters>(EMPTY_FILE_FILTERS);
+  const fileSort = useTableSort();
+  const deliverableSort = useTableSort();
+  /** t149：分页（1 基页码给 UI，请求时换 0 基） */
+  const [filePage, setFilePage] = useState(1);
+  const [filePageSize, setFilePageSize] = useState(20);
+  const [fileTotal, setFileTotal] = useState(0);
+  const [deliverablePage, setDeliverablePage] = useState(1);
+  const [deliverablePageSize, setDeliverablePageSize] = useState(20);
+  const [deliverableTotal, setDeliverableTotal] = useState(0);
+  /**
+   * t149 降级路径标记：后端未返回 `totalPages`（老版本 / 代理改写）时置 true，
+   * 此时把整页结果当全量数据、用 `utils/fileFilters.ts` 本地过滤排序（见报告说明）。
+   */
+  const [fileLocalMode, setFileLocalMode] = useState(false);
+  const [deliverableLocalMode, setDeliverableLocalMode] = useState(false);
 
   // 卡片切换状态
   const [overviewStep, setOverviewStep] = useState(0);
@@ -471,27 +535,80 @@ const AssetDetail: React.FC = () => {
     }
   };
 
-  const loadFiles = async (assetId: string, assetVersionId?: string, allVersions?: boolean) => {
+  /**
+   * 加载资产文件（t149：服务端分页 + 筛选 + 排序）。
+   *
+   * 兼容两种响应：
+   * - **分页信封**（t148 起）：`{content,totalElements,totalPages,...}` → 目录式分页，筛选/排序全交后端；
+   * - **裸数组**（老后端）：包成 `totalPages` 缺失的降级模式 → 前端本地过滤排序（`utils/fileFilters.ts`）。
+   */
+  const loadFiles = async (assetId: string, overrides: Partial<AttachmentQueryParams> = {}) => {
     try {
       setFileLoading(true);
-      const res: any = await getAssetFiles(assetId, assetVersionId, allVersions);
-      const data = res?.data ? res.data : res;
-      setFiles(Array.isArray(data) ? data : []);
+      const params: AttachmentQueryParams = {
+        page: filePage - 1,
+        size: filePageSize,
+        sort: currentSortParam(fileSort.sortKey, fileSort.sortOrder),
+        keyword: fileFilters.keyword || undefined,
+        category: fileFilters.category || undefined,
+        uploaderId: fileFilters.uploaderId || undefined,
+        dateFrom: fileFilters.dateFrom || undefined,
+        dateTo: fileFilters.dateTo || undefined,
+        allVersions: true,
+        ...overrides,
+      };
+      const res: any = await getAssetFiles(assetId, params);
+      const payload = res?.data ? res.data : res;
+      if (Array.isArray(payload)) {
+        setFiles(payload);
+        setFileTotal(payload.length);
+        setFileLocalMode(true);
+      } else {
+        setFiles(Array.isArray(payload?.content) ? payload.content : []);
+        setFileTotal(Number(payload?.totalElements ?? 0) || 0);
+        setFileLocalMode(payload?.totalPages === undefined || payload?.totalPages === null);
+      }
     } catch (error) {
       console.error(error);
+      setFiles([]);
+      setFileTotal(0);
     } finally {
       setFileLoading(false);
     }
   };
 
-  const loadDeliverables = async (assetId: string, assetVersionId?: string, allVersions?: boolean) => {
+  /** 加载交付物（t149：与文件同构的服务端分页/筛选/排序 + 裸数组降级） */
+  const loadDeliverables = async (assetId: string, overrides: Partial<AttachmentQueryParams> = {}) => {
     try {
       setDeliverableLoading(true);
-      const res: any = await getAssetDeliverables(assetId, assetVersionId, allVersions);
-      const data = res?.data ? res.data : res;
-      setDeliverables(Array.isArray(data) ? data : []);
+      const params: AttachmentQueryParams = {
+        page: deliverablePage - 1,
+        size: deliverablePageSize,
+        sort: currentSortParam(deliverableSort.sortKey, deliverableSort.sortOrder),
+        keyword: deliverableFilters.keyword || undefined,
+        category: deliverableFilters.category || undefined,
+        uploaderId: deliverableFilters.uploaderId || undefined,
+        dateFrom: deliverableFilters.dateFrom || undefined,
+        dateTo: deliverableFilters.dateTo || undefined,
+        assetVersionId: deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope,
+        allVersions: deliverableVersionScope === '__all__',
+        ...overrides,
+      };
+      const res: any = await getAssetDeliverables(assetId, params);
+      const payload = res?.data ? res.data : res;
+      if (Array.isArray(payload)) {
+        setDeliverables(payload);
+        setDeliverableTotal(payload.length);
+        setDeliverableLocalMode(true);
+      } else {
+        setDeliverables(Array.isArray(payload?.content) ? payload.content : []);
+        setDeliverableTotal(Number(payload?.totalElements ?? 0) || 0);
+        setDeliverableLocalMode(payload?.totalPages === undefined || payload?.totalPages === null);
+      }
     } catch (error) {
       console.error(error);
+      setDeliverables([]);
+      setDeliverableTotal(0);
     } finally {
       setDeliverableLoading(false);
     }
@@ -990,19 +1107,19 @@ const AssetDetail: React.FC = () => {
 
   useEffect(() => {
     setOverviewVersionId(selectedVersionId);
-    setFileVersionScope(selectedVersionId);
     setDeliverableVersionScope(selectedVersionId);
   }, [selectedVersionId]);
 
   useEffect(() => {
     if (!asset?.id) return;
-    loadFiles(asset.id, fileVersionScope === '__all__' ? undefined : fileVersionScope, fileVersionScope === '__all__');
-  }, [asset?.id, fileVersionScope]);
+    // t143：文件列表固定全版本；t149：筛选/排序/分页交给后端
+    loadFiles(asset.id);
+  }, [asset?.id, filePage, filePageSize, fileFilters, fileSort.sortKey, fileSort.sortOrder]);
 
   useEffect(() => {
     if (!asset?.id) return;
-    loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope, deliverableVersionScope === '__all__');
-  }, [asset?.id, deliverableVersionScope]);
+    loadDeliverables(asset.id);
+  }, [asset?.id, deliverableVersionScope, deliverablePage, deliverablePageSize, deliverableFilters, deliverableSort.sortKey, deliverableSort.sortOrder]);
 
   useEffect(() => {
     if (!asset?.id) return;
@@ -1186,55 +1303,53 @@ const AssetDetail: React.FC = () => {
     }
   };
 
-  const handleUploadAssetFile = async (target: 'asset_file' | 'deliverable') => {
-    if (!asset) return;
+  /** t146：打开上传弹框（资产文件 / 交付物共用一个组件） */
+  const openUploadModal = (kind: FileUploadKind) => {
+    setUploadKind(kind);
+    setUploadError(null);
+    setUploadProgress(undefined);
+  };
+
+  /**
+   * 提交上传（弹框回调）。
+   *
+   * - 失败**不清表单、不关弹框**：只把分级文案写进弹框（400 参数 / 413 过大 / 5xx / 网络）；
+   * - 进度由 axios `onUploadProgress` 上报（浏览器未给 total 时保持"上传中"态）；
+   * - 备注（可选）后端没有独立字段 → 追加到 description 末尾一起提交。
+   */
+  const submitUpload = async (values: FileUploadValues, file: File) => {
+    if (!asset || !uploadKind) return;
+    setUploadSubmitting(true);
+    setUploadError(null);
+    setUploadProgress(undefined);
     try {
-      const uploadForm = target === 'asset_file' ? assetFileUploadForm : deliverableUploadForm;
-      const uploadList = target === 'asset_file' ? assetFileUploadList : deliverableUploadList;
-      const setUploadList = target === 'asset_file' ? setAssetFileUploadList : setDeliverableUploadList;
-      const values = await uploadForm.validateFields();
-      if (uploadList.length === 0) {
-        message.error(t('asset.detail.noFileSelected'));
-        return;
-      }
-      const selectedFile = uploadList[0]?.originFileObj ?? uploadList[0];
-      if (!(selectedFile instanceof Blob)) {
-        message.error(t('asset.detail.invalidFile'));
-        return;
-      }
-      if (target === 'asset_file') {
-        setFileUploading(true);
-      } else {
-        setDeliverableUploading(true);
-      }
       const formData = new FormData();
-      formData.append('file', selectedFile, uploadList[0]?.name || 'upload.bin');
-      if (target === 'asset_file') {
-        formData.append('category', values.category);
-      } else {
-        formData.append('deliverableType', values.category);
-      }
+      formData.append('file', file, file.name);
+      formData.append(uploadKind === 'asset-file' ? 'category' : 'deliverableType', values.category);
       if (values.description) formData.append('description', values.description);
-      const bindVersionId = target === 'asset_file'
-        ? (fileVersionScope === '__all__' ? selectedVersionId : fileVersionScope)
-        : (deliverableVersionScope === '__all__' ? selectedVersionId : deliverableVersionScope);
-      if (target === 'asset_file') {
-        await uploadAssetFile(asset.id, formData, bindVersionId);
-        await loadFiles(asset.id, fileVersionScope === '__all__' ? undefined : fileVersionScope, fileVersionScope === '__all__');
-        message.success(t('asset.detail.uploadSuccess'));
+      // t149：备注用**独立字段**提交（t148 已加 remark 列；不再拼进 description）
+      if (values.remark) formData.append('remark', values.remark);
+
+      const onProgress = (percent: number) => setUploadProgress(percent);
+      if (uploadKind === 'asset-file') {
+        await uploadAssetFile(asset.id, formData, values.versionId, onProgress);
+        await loadFiles(asset.id);
+        message.success(t('assetFile.upload.success'));
       } else {
-        await uploadAssetDeliverable(asset.id, formData, bindVersionId);
-        await loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope, deliverableVersionScope === '__all__');
-        message.success(t('asset.detail.deliverableUploadSuccess'));
+        await uploadAssetDeliverable(asset.id, formData, values.versionId, onProgress);
+        await loadDeliverables(asset.id);
+        message.success(t('deliverable.upload.success'));
       }
-      uploadForm.resetFields();
-      setUploadList([]);
+      setUploadKind(null);
+    } catch (error) {
+      const status = getApiErrorStatus(error);
+      const backend = getApiErrorMessage(error);
+      if (status === 413) setUploadError(t('assetFile.upload.err413'));
+      else if (status === 400) setUploadError(t('assetFile.upload.err400', { message: backend }));
+      else if (typeof status === 'number' && status >= 500) setUploadError(t('assetFile.upload.err5xx', { status }));
+      else setUploadError(t('assetFile.upload.errGeneric', { message: backend }));
     } finally {
-      if (target === 'asset_file') {
-        setFileUploading(false);
-      } else {
-        setDeliverableUploading(false);
-      }
+      setUploadSubmitting(false);
     }
   };
 
@@ -1391,7 +1506,7 @@ const AssetDetail: React.FC = () => {
         try {
           await deleteAssetDeliverable(deliverableId);
           message.success(t('asset.detail.deliverableDeleteSuccess'));
-          await loadDeliverables(asset.id, deliverableVersionScope === '__all__' ? undefined : deliverableVersionScope, deliverableVersionScope === '__all__');
+          await loadDeliverables(asset.id);
         } catch (error) {
           console.error(error);
           message.error(t('asset.detail.deliverableDeleteFailed'));
@@ -1409,7 +1524,7 @@ const AssetDetail: React.FC = () => {
         try {
           await deleteAssetFile(fileId);
           message.success(t('asset.detail.fileDeleteSuccess'));
-          await loadFiles(asset.id, fileVersionScope === '__all__' ? undefined : fileVersionScope, fileVersionScope === '__all__');
+          await loadFiles(asset.id);
         } catch (error) {
           console.error(error);
           message.error(t('asset.detail.fileDeleteFailed'));
@@ -1452,23 +1567,99 @@ const AssetDetail: React.FC = () => {
     }
   };
 
+  /** t146：筛选下拉数据源 —— 分类取「页面枚举 ∪ 已加载数据的 distinct 值」，版本取资产版本表 */
+  const fileCategoryOptions = distinctValues([
+    ...ASSET_FILE_CATEGORY_VALUES.map((key) => t(key)),
+    ...files.map((item) => item.category),
+  ]);
+  const deliverableTypeOptions = distinctValues([
+    ...DELIVERABLE_TYPE_VALUES.map((key) => t(key)),
+    ...deliverables.map((item) => item.deliverableType),
+  ]);
+  const filterVersionOptions = assetVersions.map((item) => ({
+    id: item.id,
+    label: `${item.name || `v${item.versionNo}`}${item.isDefault ? t('asset.detail.versionDefaultSuffix') : ''}${item.isLatest ? t('asset.detail.versionLatestSuffix') : ''}`,
+  }));
+  /** 上传人下拉（t149）：来自已加载行的 uploadedBy + uploaderName 去重 */
+  const toUploaderOptions = (rows: Array<{ uploadedBy?: string | null; uploaderName?: string | null }>) => {
+    const map = new Map<string, string>();
+    rows.forEach((row) => {
+      if (row.uploadedBy) map.set(row.uploadedBy, row.uploaderName || row.uploadedBy.slice(0, 8));
+    });
+    return Array.from(map.entries()).map(([value, label]) => ({ value, label }));
+  };
+  const fileUploaderOptions = toUploaderOptions(files as any);
+  const deliverableUploaderOptions = toUploaderOptions(deliverables as any);
+
+  /**
+   * 展示用行：服务端已分页/排序/筛选；**仅** 当响应里没有 `totalPages`（老后端）时，
+   * 才用本地纯函数兜底过滤+排序 —— 这就是 `fileFilters.ts` 保留的降级路径。
+   */
+  const filteredFiles = fileLocalMode ? (applyFileFilters(files as any, fileFilters) as AssetFileVO[]) : files;
+  const filteredDeliverables = deliverableLocalMode
+    ? (applyFileFilters(deliverables as any, deliverableFilters) as AssetDeliverableVO[])
+    : deliverables;
+
+  /** 筛选变化：一律回到第 1 页（避免"翻到第 3 页再筛选出现空页"） */
+  const handleFileFilterChange = (next: FileFilters) => {
+    setFileFilters(next);
+    setFilePage(1);
+  };
+  const handleDeliverableFilterChange = (next: FileFilters) => {
+    setDeliverableFilters(next);
+    setDeliverablePage(1);
+  };
   const fileColumns = [
-    { title: t('asset.detail.fileName'), dataIndex: 'name', key: 'name' },
-    { title: t('asset.detail.fileCategoryCol'), dataIndex: 'category', key: 'category' },
-    { title: t('asset.detail.colVersion'), key: 'assetVersionId', render: (_: any, record: AssetFileVO & { asset_version_id?: string }) => versionLabelById(record.assetVersionId || record.asset_version_id) },
     {
-      title: t('asset.detail.colSize'),
+      title: <span data-testid="file-sort-name">{t('asset.detail.fileName')}</span>,
+      dataIndex: 'name',
+      key: 'name',
+      ...fileSort.sorterFor('name'),
+    },
+    {
+      title: <span data-testid="file-sort-category">{t('asset.detail.fileCategoryCol')}</span>,
+      dataIndex: 'category',
+      key: 'category',
+      ...fileSort.sorterFor('category'),
+    },
+    {
+      title: <span data-testid="file-sort-version">{t('asset.detail.colVersion')}</span>,
+      key: 'assetVersionId',
+      render: (_: any, record: AssetFileVO & { asset_version_id?: string }) => versionLabelById(record.assetVersionId || record.asset_version_id),
+      ...fileSort.sorterFor('version', versionLabelById),
+    },
+    {
+      title: <span data-testid="file-sort-fileSize">{t('asset.detail.colSize')}</span>,
       dataIndex: 'fileSize',
       key: 'fileSize',
-      render: (size?: number) => {
-        if (!size) return '-';
-        if (size >= 1024 * 1024 * 1024) return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-        if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(2)} MB`;
-        if (size >= 1024) return `${(size / 1024).toFixed(2)} KB`;
-        return `${size} B`;
-      },
+      render: (size?: number) => formatBytes(size),
+      ...fileSort.sorterFor('fileSize'),
     },
-    { title: t('asset.detail.colUploadedAt'), dataIndex: 'createdAt', key: 'createdAt', render: (val: string) => val ? new Date(val).toLocaleString() : '-' },
+    {
+      title: <span data-testid="file-sort-createdAt">{t('asset.detail.colUploadedAt')}</span>,
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      render: (val: string) => (val ? new Date(val).toLocaleString() : '-'),
+      ...fileSort.sorterFor('createdAt'),
+    },
+    {
+      // t148/t149：上传人（uploadedBy + uploaderName，列表一次批量解析，无 N+1）
+      title: <span data-testid="file-sort-uploader">{t('assetFile.col.uploader')}</span>,
+      key: 'uploader',
+      width: 140,
+      render: (_: any, record: AssetFileVO) => (
+        <span data-testid={`file-uploader-${record.id}`}>{record.uploaderName || '-'}</span>
+      ),
+      ...fileSort.sorterFor('uploader'),
+    },
+    {
+      title: t('assetFile.col.remark'),
+      dataIndex: 'remark',
+      key: 'remark',
+      width: 180,
+      ellipsis: true,
+      render: (value?: string | null) => value || '-',
+    },
     {
       title: t('asset.detail.colAction'),
       key: 'action',
@@ -1482,22 +1673,55 @@ const AssetDetail: React.FC = () => {
   ];
 
   const deliverableColumns = [
-    { title: t('asset.detail.fileName'), dataIndex: 'name', key: 'name' },
-    { title: t('asset.detail.deliverableTypeCol'), dataIndex: 'deliverableType', key: 'deliverableType' },
-    { title: t('asset.detail.colVersion'), key: 'assetVersionId', render: (_: any, record: AssetDeliverableVO & { asset_version_id?: string }) => versionLabelById(record.assetVersionId || record.asset_version_id) },
     {
-      title: t('asset.detail.colSize'),
+      title: <span data-testid="deliverable-sort-name">{t('asset.detail.fileName')}</span>,
+      dataIndex: 'name',
+      key: 'name',
+      ...deliverableSort.sorterFor('name'),
+    },
+    {
+      title: <span data-testid="deliverable-sort-category">{t('asset.detail.deliverableTypeCol')}</span>,
+      dataIndex: 'deliverableType',
+      key: 'category',
+      ...deliverableSort.sorterFor('category'),
+    },
+    {
+      title: <span data-testid="deliverable-sort-version">{t('asset.detail.colVersion')}</span>,
+      key: 'assetVersionId',
+      render: (_: any, record: AssetDeliverableVO & { asset_version_id?: string }) => versionLabelById(record.assetVersionId || record.asset_version_id),
+      ...deliverableSort.sorterFor('version', versionLabelById),
+    },
+    {
+      title: <span data-testid="deliverable-sort-fileSize">{t('asset.detail.colSize')}</span>,
       dataIndex: 'fileSize',
       key: 'fileSize',
-      render: (size?: number) => {
-        if (!size) return '-';
-        if (size >= 1024 * 1024 * 1024) return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-        if (size >= 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(2)} MB`;
-        if (size >= 1024) return `${(size / 1024).toFixed(2)} KB`;
-        return `${size} B`;
-      },
+      render: (size?: number) => formatBytes(size),
+      ...deliverableSort.sorterFor('fileSize'),
     },
-    { title: t('asset.detail.colUploadedAt'), dataIndex: 'createdAt', key: 'createdAt', render: (val: string) => val ? new Date(val).toLocaleString() : '-' },
+    {
+      title: <span data-testid="deliverable-sort-createdAt">{t('asset.detail.colUploadedAt')}</span>,
+      dataIndex: 'createdAt',
+      key: 'createdAt',
+      render: (val: string) => (val ? new Date(val).toLocaleString() : '-'),
+      ...deliverableSort.sorterFor('createdAt'),
+    },
+    {
+      title: <span data-testid="deliverable-sort-uploader">{t('assetFile.col.uploader')}</span>,
+      key: 'uploader',
+      width: 140,
+      render: (_: any, record: AssetDeliverableVO) => (
+        <span data-testid={`deliverable-uploader-${record.id}`}>{record.uploaderName || '-'}</span>
+      ),
+      ...deliverableSort.sorterFor('uploader'),
+    },
+    {
+      title: t('assetFile.col.remark'),
+      dataIndex: 'remark',
+      key: 'remark',
+      width: 180,
+      ellipsis: true,
+      render: (value?: string | null) => value || '-',
+    },
     {
       title: t('asset.detail.colAction'),
       key: 'action',
@@ -1837,81 +2061,62 @@ const AssetDetail: React.FC = () => {
       <Card style={{ borderRadius: 8 }} bodyStyle={{ padding: '0 24px 24px' }}>
         <Tabs defaultActiveKey="overview" size="large">
           <TabPane tab={<span><FileZipOutlined />{t('asset.detail.filesTitle')}</span>} key="asset-files">
-            <div style={{ padding: '24px 0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <div>
-                  <h3 style={{ marginBottom: 0 }}>{t('asset.detail.filesTitle')}</h3>
-                </div>
-                <Select
-                  style={{ width: 260 }}
-                  value={fileVersionScope}
-                  placeholder={t('asset.detail.fileVersionScope')}
-                  onChange={(value) => setFileVersionScope(value)}
-                  options={[
-                    { label: t('asset.detail.showAllVersions'), value: '__all__' },
-                    ...assetVersions.map((item) => ({
-                      label: `${item.name || `v${item.versionNo}`}${item.isDefault ? t('asset.detail.versionDefaultSuffix') : ''}${item.isLatest ? t('asset.detail.versionLatestSuffix') : ''}`,
-                      value: item.id,
-                    })),
-                  ]}
+            <div style={{ padding: '24px 0' }} data-testid="asset-tab-asset-files">
+              {/* t146：上传改为弹框（页面无内联上传表单）；筛选 + 列头排序见下 */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
+                <Button type="primary" icon={<UploadOutlined />} onClick={() => openUploadModal('asset-file')} data-testid="asset-file-upload-open">
+                  {t('assetFile.upload.open')}
+                </Button>
+                <span style={{ fontSize: 12, color: '#8c8c8c' }} data-testid="asset-file-sort-hint">
+                  {t('assetFile.sort.hint')}
+                </span>
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                <FileFilterBar
+                  filters={fileFilters}
+                  onChange={handleFileFilterChange}
+                  categories={fileCategoryOptions}
+                  versions={filterVersionOptions}
+                  uploaderOptions={fileUploaderOptions}
+                  uploaderUnavailable={fileUploaderOptions.length === 0}
+                  testIdPrefix="file-filter"
                 />
               </div>
-              <div style={{ marginBottom: 24, padding: 16, background: '#fafafa', borderRadius: 8 }}>
-                <Form form={assetFileUploadForm} layout="vertical">
-                  <Row gutter={16}>
-                    <Col span={6}>
-                      <Form.Item name="category" label={t('asset.detail.fileCategory')} rules={[{ required: true, message: t('asset.detail.fileCategoryRequired') }]}>
-                        <Select placeholder={t('asset.detail.fileCategoryPlaceholder')}>
-                          <Option value={t('asset.detail.categorySystemImage')}>{t('asset.detail.categorySystemImage')}</Option>
-                          <Option value={t('asset.detail.categoryDiskFile')}>{t('asset.detail.categoryDiskFile')}</Option>
-                          <Option value={t('asset.detail.categoryInstaller')}>{t('asset.detail.categoryInstaller')}</Option>
-                          <Option value={t('asset.detail.categoryExtractor')}>{t('asset.detail.categoryExtractor')}</Option>
-                          <Option value={t('asset.detail.categoryConfig')}>{t('asset.detail.categoryConfig')}</Option>
-                          <Option value={t('asset.detail.categoryOther')}>{t('asset.detail.categoryOther')}</Option>
-                        </Select>
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item name="description" label={t('asset.detail.metaDescription')}>
-                        <Input placeholder={t('asset.detail.fileDescPlaceholder')} />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                  <Row gutter={16}>
-                    <Col span={24}>
-                      <Form.Item label={t('asset.detail.fileUpload')}>
-                        <Space>
-                          <Upload
-                            beforeUpload={(file) => {
-                              setAssetFileUploadList([file]);
-                              return false;
-                            }}
-                            onRemove={() => setAssetFileUploadList([])}
-                            fileList={assetFileUploadList}
-                            maxCount={1}
-                          >
-                            <Button icon={<UploadOutlined />}>{t('asset.detail.chooseFile')}</Button>
-                          </Upload>
-                          <Button type="primary" loading={fileUploading} onClick={() => handleUploadAssetFile('asset_file')} disabled={assetFileUploadList.length === 0}>{t('asset.detail.startUpload')}</Button>
-                        </Space>
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                </Form>
+              <div style={{ fontSize: 12, color: '#8c8c8c', marginBottom: 8 }} data-testid="file-filter-count">
+                {t('assetFile.filter.resultCount', { count: fileLocalMode ? filteredFiles.length : fileTotal })}
+                {fileLocalMode ? ` · ${t('assetFile.filter.localFallback')}` : ''}
               </div>
               <Table
                 columns={fileColumns}
-                dataSource={files}
+                dataSource={filteredFiles}
                 rowKey="id"
                 loading={fileLoading}
-                pagination={false}
+                onChange={(_pagination, _filters, sorter) => {
+                  // 只有**列头排序**才回到第 1 页；翻页/分页大小变化不能重置页码（否则永远停在第 1 页）
+                  fileSort.onTableChange(sorter as any);
+                  if ((sorter as any)?.columnKey) setFilePage(1);
+                }}
+                pagination={{
+                  current: filePage,
+                  pageSize: filePageSize,
+                  total: fileLocalMode ? filteredFiles.length : fileTotal,
+                  showSizeChanger: true,
+                  pageSizeOptions: [10, 20, 50, 100],
+                  showTotal: (count) => t('assetFile.pagination.total', { count }),
+                  onChange: (nextPage, nextSize) => {
+                    setFilePage(nextPage);
+                    setFilePageSize(nextSize);
+                  },
+                }}
+                locale={{ emptyText: t('assetFile.filter.empty') }}
+                data-testid="asset-file-table"
               />
             </div>
           </TabPane>
           <TabPane tab={<span><AppstoreOutlined />{t('asset.detail.overviewTitle')}</span>} key="overview">
-            <div style={{ padding: '24px 0', maxWidth: 1000 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <h3 style={{ margin: 0 }}>{t('asset.detail.overviewTitle')}</h3>
+            <div style={{ padding: '24px 0', maxWidth: 1000 }} data-testid="asset-tab-overview">
+              {/* t143：去掉与 tab 同名的「产品概览」标题行，只保留右侧版本选择 */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
                 <Select
                   style={{ width: 260 }}
                   value={overviewVersionId}
@@ -2171,16 +2376,16 @@ const AssetDetail: React.FC = () => {
             </div>
           </TabPane>
           <TabPane tab={<span><TagOutlined />{t('asset.detail.tabTagsPlaceholder')}</span>} key="asset-tags">
-            {asset?.id ? <AssetTagsPanel assetId={asset.id} canWrite={canWriteCurrentAsset} /> : null}
+            {asset?.id ? <AssetTagsPanel assetId={asset.id} canWrite={canWriteCurrentAsset} initialTagNames={inlineTagNames((asset as any).tags)} /> : null}
           </TabPane>
           <TabPane tab={<span><ProjectOutlined />{t('asset.projectLink.title')}</span>} key="project-links">
             {asset?.id ? <AssetProjectLinksPanel assetId={asset.id} canWrite={canWriteCurrentAsset} /> : null}
           </TabPane>
           <TabPane tab={<span><BuildOutlined />{t('asset.detail.tabEnvironments')}</span>} key="environments">
-            <div style={{ padding: '24px 0' }}>
+            <div style={{ padding: '24px 0' }} data-testid="asset-tab-environments">
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
                 <div>
-                  <h3 style={{ margin: 0 }}>{t('asset.detail.envTitle')}</h3>
+                  {/* t143：去掉重复的「环境管理」标题，仅保留说明 */}
                   <p style={{ marginTop: 8, marginBottom: 0, color: '#8c8c8c' }}>{t('asset.detail.envDesc')}</p>
                 </div>
                 <Space>
@@ -2233,10 +2438,10 @@ const AssetDetail: React.FC = () => {
             </div>
           </TabPane>
           <TabPane tab={<span><SafetyCertificateOutlined />{t('asset.detail.tabTasks')}</span>} key="tasks">
-            <div style={{ padding: '24px 0' }}>
+            <div style={{ padding: '24px 0' }} data-testid="asset-tab-tasks">
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
                 <div>
-                  <h3 style={{ margin: 0 }}>{t('asset.detail.tasksTitle')}</h3>
+                  {/* t143：去掉重复的「审计记录」标题，仅保留说明 */}
                   <p style={{ marginTop: 8, marginBottom: 0, color: '#8c8c8c' }}>{t('asset.detail.tasksDesc')}</p>
                 </div>
                 <Space>
@@ -2254,10 +2459,10 @@ const AssetDetail: React.FC = () => {
             </div>
           </TabPane>
           <TabPane tab={<span><BugOutlined />{t('asset.detail.tabVulnerabilities')}</span>} key="vulnerabilities">
-            <div style={{ padding: '24px 0' }}>
+            <div style={{ padding: '24px 0' }} data-testid="asset-tab-vulnerabilities">
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
                 <div>
-                  <h3>{t('asset.detail.vulnTitle')}</h3>
+                  {/* t143：去掉重复的「关联漏洞」标题，仅保留说明 */}
                   <p style={{ color: '#8c8c8c' }}>{t('asset.detail.vulnDesc')}</p>
                 </div>
                 <Space>
@@ -2275,11 +2480,14 @@ const AssetDetail: React.FC = () => {
             </div>
           </TabPane>
           <TabPane tab={<span><FileZipOutlined />{t('asset.detail.tabDeliverables')}</span>} key="deliverables">
-            <div style={{ padding: '24px 0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <div>
-                  <h3 style={{ marginBottom: 0 }}>{t('asset.detail.deliverablesTitle')}</h3>
-                </div>
+            <div style={{ padding: '24px 0' }} data-testid="asset-tab-deliverables">
+              {/* t143：去掉与 tab 同名的「交付物」标题行；t146：上传弹框 + 同构筛选/排序 */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 12, flexWrap: 'wrap' }}>
+                <Button type="primary" icon={<UploadOutlined />} onClick={() => openUploadModal('deliverable')} data-testid="deliverable-upload-open">
+                  {t('deliverable.upload.open')}
+                </Button>
+                {/* 交付物的「版本作用域」是列表接口参数（与文件 tab 的行内版本筛选不是一回事） */}
+                <div data-testid="deliverable-version-scope">
                 <Select
                   style={{ width: 260 }}
                   value={deliverableVersionScope}
@@ -2293,61 +2501,69 @@ const AssetDetail: React.FC = () => {
                     })),
                   ]}
                 />
+                </div>
               </div>
-              <div style={{ marginBottom: 24, padding: 16, background: '#fafafa', borderRadius: 8 }}>
-                <Form form={deliverableUploadForm} layout="vertical">
-                  <Row gutter={16}>
-                    <Col span={6}>
-                      <Form.Item name="category" label={t('asset.detail.deliverableTypeCol')} rules={[{ required: true, message: t('asset.detail.deliverableTypeRequired') }]}>
-                        <Select placeholder={t('asset.detail.deliverableTypePlaceholder')}>
-                          <Option value={t('asset.detail.deliverableExploitCode')}>{t('asset.detail.deliverableExploitCode')}</Option>
-                          <Option value={t('asset.detail.deliverablePoc')}>{t('asset.detail.deliverablePoc')}</Option>
-                          <Option value={t('asset.detail.deliverableExp')}>{t('asset.detail.deliverableExp')}</Option>
-                          <Option value={t('asset.detail.deliverableReproDoc')}>{t('asset.detail.deliverableReproDoc')}</Option>
-                          <Option value={t('asset.detail.deliverableUsageDoc')}>{t('asset.detail.deliverableUsageDoc')}</Option>
-                          <Option value={t('asset.detail.deliverableOther')}>{t('asset.detail.deliverableOther')}</Option>
-                        </Select>
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item name="description" label={t('asset.detail.deliverableDesc')}>
-                        <Input placeholder={t('asset.detail.deliverableDescPlaceholder')} />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                  <Row gutter={16}>
-                    <Col span={24}>
-                      <Form.Item label={t('asset.detail.deliverableUpload')}>
-                        <Space>
-                          <Upload
-                            beforeUpload={(file) => {
-                              setDeliverableUploadList([file]);
-                              return false;
-                            }}
-                            onRemove={() => setDeliverableUploadList([])}
-                            fileList={deliverableUploadList}
-                            maxCount={1}
-                          >
-                            <Button icon={<UploadOutlined />}>{t('asset.detail.chooseFile')}</Button>
-                          </Upload>
-                          <Button type="primary" loading={deliverableUploading} onClick={() => handleUploadAssetFile('deliverable')} disabled={deliverableUploadList.length === 0}>{t('asset.detail.deliverableSubmit')}</Button>
-                        </Space>
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                </Form>
+              <div style={{ marginBottom: 12 }}>
+                <FileFilterBar
+                  filters={deliverableFilters}
+                  onChange={handleDeliverableFilterChange}
+                  categories={deliverableTypeOptions}
+                  versions={filterVersionOptions}
+                  uploaderOptions={deliverableUploaderOptions}
+                  uploaderUnavailable={deliverableUploaderOptions.length === 0}
+                  testIdPrefix="deliverable-filter"
+                />
               </div>
               <Table
                 columns={deliverableColumns}
-                dataSource={deliverables}
+                dataSource={filteredDeliverables}
                 rowKey="id"
                 loading={deliverableLoading}
-                pagination={false}
+                onChange={(_pagination, _filters, sorter) => {
+                  deliverableSort.onTableChange(sorter as any);
+                  if ((sorter as any)?.columnKey) setDeliverablePage(1);
+                }}
+                pagination={{
+                  current: deliverablePage,
+                  pageSize: deliverablePageSize,
+                  total: deliverableLocalMode ? filteredDeliverables.length : deliverableTotal,
+                  showSizeChanger: true,
+                  pageSizeOptions: [10, 20, 50, 100],
+                  showTotal: (count) => t('assetFile.pagination.total', { count }),
+                  onChange: (nextPage, nextSize) => {
+                    setDeliverablePage(nextPage);
+                    setDeliverablePageSize(nextSize);
+                  },
+                }}
+                locale={{ emptyText: t('assetFile.filter.empty') }}
+                data-testid="deliverable-table"
               />
             </div>
           </TabPane>
         </Tabs>
       </Card>
+
+      {/* t146：上传弹框（资产文件 / 交付物共用；页面内已无内联上传表单）
+          按需挂载 + key：每次打开都是新实例 → 干净状态，无需在 effect 里 reset */}
+      {uploadKind ? (
+      <FileUploadModal
+        key={uploadKind}
+        open
+        kind={uploadKind}
+        categories={
+          uploadKind === 'deliverable'
+            ? deliverableTypeOptions.map((value) => ({ value, label: value }))
+            : fileCategoryOptions.map((value) => ({ value, label: value }))
+        }
+        versions={filterVersionOptions}
+        defaultVersionId={selectedVersionId}
+        submitting={uploadSubmitting}
+        progress={uploadProgress}
+        errorText={uploadError}
+        onCancel={() => setUploadKind(null)}
+        onSubmit={(values, file) => void submitUpload(values, file)}
+      />
+      ) : null}
 
       <Modal
         title={t('asset.detail.envCreateTitle')}
@@ -2568,3 +2784,17 @@ const AssetDetail: React.FC = () => {
 };
 
 export default AssetDetail;
+
+
+
+
+
+
+
+
+
+
+
+
+
+

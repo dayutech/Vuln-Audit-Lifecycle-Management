@@ -15,6 +15,11 @@ const userName = (user?: UserDirectoryEntry | null) =>
 
 interface AssetTagsPanelProps {
   assetId: string;
+  /**
+   * t149：详情接口已内联 tags（后端 t145），首屏直接用，省掉一次 GET /assets/{id}/tags。
+   * 后续新增/删除标签仍走单资产接口刷新（任务允许"按需刷新单/少量资产"）。
+   */
+  initialTagNames?: string[];
   /** 资产写权（负责人或管理层）；false 时隐藏新增/删除标签入口（t49 起 DELETE 标签需 canWriteAsset） */
   canWrite?: boolean;
 }
@@ -23,9 +28,13 @@ interface AssetTagsPanelProps {
  * 资产详情页「标签」区块：GET/POST/DELETE /assets/{id}/tags。
  * 独立组件以便资产详情页保持小改动面。
  */
-const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId, canWrite = false }) => {
+const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId, canWrite = false, initialTagNames }) => {
   const { t } = useT();
-  const [tags, setTags] = useState<AssetTagVO[]>([]);
+  const [tags, setTags] = useState<AssetTagVO[]>(
+    (initialTagNames ?? []).map(
+      (name, index) => ({ id: `inline-${index}`, assetId, tag: name }) as unknown as AssetTagVO,
+    ),
+  );
   const [loading, setLoading] = useState(false);
   const [tagInput, setTagInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -49,9 +58,12 @@ const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId, canWrite = fal
     }
   }, [assetId]);
 
+  // t149：有内联标签时不发首屏请求（详情页不必为标签再打一次单资产接口）
+  const hasInlineTags = Boolean(initialTagNames && initialTagNames.length > 0);
   useEffect(() => {
+    if (hasInlineTags) return;
     loadTags();
-  }, [loadTags]);
+  }, [loadTags, hasInlineTags]);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -107,7 +119,7 @@ const AssetTagsPanel: React.FC<AssetTagsPanelProps> = ({ assetId, canWrite = fal
     <div style={{ padding: '24px 0' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div>
-          <h3 style={{ margin: 0 }}>{t('asset.tags.title')}</h3>
+          {/* t143：去掉与 tab 同名的「资产标签」重复标题，仅保留说明 */}
           <p style={{ marginTop: 8, marginBottom: 0, color: '#8c8c8c' }}>{t('asset.tags.desc')}</p>
         </div>
         <Button icon={<ReloadOutlined />} onClick={loadTags} loading={loading}>{t('common.refresh')}</Button>

@@ -276,7 +276,7 @@ const AssetProjectLinksPanel: React.FC<AssetProjectLinksPanelProps> = ({ assetId
     <div style={{ padding: '24px 0' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <div>
-          <h3 style={{ margin: 0 }}>{t('asset.projectLink.title')}</h3>
+          {/* t143：去掉与 tab 同名的「所属项目」重复标题，仅保留说明 */}
           <p style={{ marginTop: 8, marginBottom: 0, color: '#8c8c8c' }}>{t('asset.projectLink.desc')}</p>
         </div>
         <Space>

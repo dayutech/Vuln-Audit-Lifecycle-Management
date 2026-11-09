@@ -609,9 +609,15 @@ const Tasks: React.FC = () => {
   };
 
   const fetchAssetDeliverables = async (assetId: string, assetVersionId?: string) => {
-    const deliverablesRes = await getAssetDeliverables(assetId, assetVersionId);
+    // t149：交付物列表改为分页信封（content/totalElements/...），这里取 content
+    const deliverablesRes = await getAssetDeliverables(assetId, { assetVersionId, allVersions: !assetVersionId });
     const deliverablesPayload = getPayload(deliverablesRes);
-    setAssetDeliverables(Array.isArray(deliverablesPayload) ? deliverablesPayload : []);
+    const rows = Array.isArray(deliverablesPayload)
+      ? deliverablesPayload
+      : Array.isArray((deliverablesPayload as any)?.content)
+        ? (deliverablesPayload as any).content
+        : [];
+    setAssetDeliverables(rows);
   };
 
   const fetchTaskAssetContext = async (assetId?: string, assetVersionId?: string) => {

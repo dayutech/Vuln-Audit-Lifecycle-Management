@@ -1,0 +1,94 @@
+/* ==================== 主框架布局（t144：响应式） ====================
+ * 目标：375px 下不再被 200px 侧栏挤压（内容区从 ~128px → 接近满宽），
+ *       同时保证 1440/1920 宽屏行为与改动前完全一致。
+ *
+ * 断点与 antd Sider 的 `breakpoint="lg"` 对齐（< 992px 视为窄屏）。
+ */
+
+.basic-layout {
+  min-height: 100vh;
+}
+
+/* 最外层才允许裁剪：避免某个页面元素撑出横向滚动条。
+ * 注意**不能**加在表格容器上，否则表格自己的横向滚动（scroll={{ x }}）会失效。 */
+.basic-layout {
+  overflow-x: hidden;
+}
+
+/* ---------- 顶栏 ---------- */
+.basic-layout__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px;
+  background: #fff;
+}
+
+.basic-layout__header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.basic-layout__header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-inline-start: auto;
+  min-width: 0;
+}
+
+/* 汉堡按钮：仅窄屏渲染（组件里按 isMobile 条件挂载），这里只做样式兜底 */
+.basic-layout__hamburger {
+  display: none;
+}
+
+.basic-layout--mobile .basic-layout__hamburger {
+  display: inline-flex;
+}
+
+/* ---------- 内容区 ---------- */
+.basic-layout__content {
+  margin: 24px 16px;
+  padding: 24px;
+  background: #fff;
+  min-height: 280px;
+  border-radius: 8px;
+  /* 内容区自身不裁剪：让内部表格的横向滚动可用 */
+  min-width: 0;
+}
+
+@media (max-width: 991px) {
+  .basic-layout__header {
+    padding: 0 12px;
+    gap: 8px;
+  }
+
+  /* 窄屏：边距与内边距收敛，把空间还给内容 */
+  .basic-layout__content {
+    margin: 12px 8px;
+    padding: 12px;
+    min-height: 200px;
+  }
+}
+
+/* ---------- 窄屏抽屉导航 ---------- */
+.basic-layout__nav-drawer .ant-drawer-body {
+  padding: 0;
+  background: #001529;
+  overflow-x: hidden;
+}
+
+.basic-layout__nav-drawer .ant-drawer-header {
+  display: none;
+}
+
+.basic-layout__nav-drawer .ant-menu-inline {
+  border-inline-end: none;
+}
+
+/* 抽屉里的品牌区留一点右侧余白，避免贴边 */
+.basic-layout__nav-brand {
+  padding-inline-end: 8px;
+}

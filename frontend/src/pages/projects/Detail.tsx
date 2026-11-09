@@ -21,9 +21,10 @@ import {
   message,
 } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { ArrowLeftOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
+import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
+import PageHeader from '@/components/layout/PageHeader';
 import { useT } from '@/i18n';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
 import { useUserStore } from '@/store/userStore';
@@ -62,7 +63,6 @@ import {
   type ProjectVO,
 } from '@/types/project';
 import { AppEmpty, AppLoading } from '@/components/Feedback';
-import ProjectFormModal from './ProjectFormModal';
 import { describeProjectFailure } from './projectFailure';
 
 const { RangePicker } = DatePicker;
@@ -95,7 +95,6 @@ const ProjectDetail: React.FC = () => {
   const [assetsUnavailable, setAssetsUnavailable] = useState(false);
   const [phaseFilter, setPhaseFilter] = useState<string>('ALL');
   const [statusChanging, setStatusChanging] = useState(false);
-  const [formOpen, setFormOpen] = useState(false);
 
   const [phaseModalOpen, setPhaseModalOpen] = useState(false);
   const [editingPhase, setEditingPhase] = useState<PhaseVO | null>(null);
@@ -496,27 +495,32 @@ const ProjectDetail: React.FC = () => {
 
   return (
     <Spin spinning={loading}>
-      <Space direction="vertical" size={16} style={{ width: '100%' }}>
-        <Card
+      <div className="page" data-testid="project-detail-page">
+        {/* t142：与客户详情/表单页统一页头（← 返回 + 标题 + 状态标签 + 右侧操作） */}
+        <PageHeader
           title={
-            <Space wrap>
-              <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/projects')} />
-              <Typography.Text strong style={{ fontSize: 16 }}>
-                {project.name}
-              </Typography.Text>
+            <Space wrap size={8}>
+              <span data-testid="project-detail-title">{project.name}</span>
               <Tag color={PROJECT_STATUS_COLORS[String(project.status ?? 'DRAFT').toUpperCase()] ?? 'default'}>
                 {t(projectStatusKey(project.status))}
               </Tag>
               {project.isPhased ? <Tag color="blue">{t('project.multiphaseYes')}</Tag> : null}
             </Space>
           }
+          subtitle={t('projectPage.subtitleTemplate', { code: project.code })}
+          fallbackTo="/projects"
+          testId="project-page-header"
           extra={
-            <Space wrap>
+            <>
               <Button icon={<ReloadOutlined />} onClick={() => { loadDetail(); loadAssets(); }}>
                 {t('common.refresh')}
               </Button>
               {writable ? (
-                <Button onClick={() => setFormOpen(true)} disabled={closed}>
+                <Button
+                  onClick={() => navigate(`/projects/${project.id}/edit`)}
+                  disabled={closed}
+                  data-testid="project-detail-edit"
+                >
                   {t('project.detail.edit')}
                 </Button>
               ) : null}
@@ -535,9 +539,11 @@ const ProjectDetail: React.FC = () => {
                   {t('project.delete')}
                 </Button>
               ) : null}
-            </Space>
+            </>
           }
-        >
+        />
+
+        <Card className="page-group" size="small" title={t('projectPage.sectionBasic')}>
           {!writable ? (
             <Alert type="info" showIcon style={{ marginBottom: 16 }} message={t('project.readonlyHint')} />
           ) : null}
@@ -661,16 +667,6 @@ const ProjectDetail: React.FC = () => {
           )}
         </Card>
 
-        <ProjectFormModal
-          open={formOpen}
-          project={project}
-          onCancel={() => setFormOpen(false)}
-          onSaved={async () => {
-            setFormOpen(false);
-            await loadDetail();
-          }}
-        />
-
         <Modal
           title={editingPhase ? t('phase.editTitle') : t('phase.createTitle')}
           open={phaseModalOpen}
@@ -706,7 +702,7 @@ const ProjectDetail: React.FC = () => {
             </Form.Item>
           </Form>
         </Modal>
-      </Space>
+      </div>
     </Spin>
   );
 };
@@ -715,3 +711,6 @@ const ProjectDetail: React.FC = () => {
 const phasePhaseStatus = (phase: PhaseVO): string => phaseStatusFallback(phase.status);
 
 export default ProjectDetail;
+
+
+

@@ -1,0 +1,126 @@
+/* ==================== 详情 / 表单页面统一样式（t142） ====================
+ * 目标：客户、项目（后续资产/漏洞/任务/知识库/文档）的详情页与表单页共用同一套
+ * 间距、标题层级、按钮位置，不再出现「抽屉/弹框/整页」四种混用。
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  /* 关键：布局内容区是 flex 容器，若不显式占满会被压成 min-content（窄屏尤其明显） */
+  width: 100%;
+  min-width: 0;
+  padding-bottom: 8px;
+}
+
+/* ---------- 页头 ---------- */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.page-header__left {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.page-header__back {
+  flex: none;
+}
+
+.page-header__titles {
+  min-width: 0;
+}
+
+.page-header__title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 28px;
+  font-weight: 600;
+  color: var(--skin-ink, rgba(0, 0, 0, 0.88));
+  word-break: break-word;
+}
+
+.page-header__subtitle {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  line-height: 20px;
+  color: var(--skin-ink-soft, rgba(0, 0, 0, 0.45));
+  word-break: break-all;
+}
+
+.page-header__extra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---------- 分组卡片 ---------- */
+.page-group {
+  border-radius: 12px;
+}
+
+.page-group .ant-card-head {
+  min-height: 46px;
+}
+
+.page-group .ant-card-head-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* ---------- 表单页：吸底操作条 ---------- */
+.page-form__actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 12px 16px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 0 0 12px 12px;
+  background: var(--skin-card-bg, #fff);
+  /* 吸底时给一点阴影，滚动内容不会与按钮粘连 */
+  box-shadow: 0 -6px 16px rgba(15, 18, 24, 0.06);
+}
+
+.page-form__hint {
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--skin-ink-soft, rgba(0, 0, 0, 0.45));
+}
+
+/* ---------- 窄屏：字段单列、操作条吸底且按钮撑满 ---------- */
+@media (max-width: 575px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .page-header__extra {
+    justify-content: flex-start;
+  }
+
+  .page-form__actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .page-form__actions .ant-btn {
+    width: 100%;
+  }
+
+  .page-form__hint {
+    margin-right: 0;
+    text-align: center;
+  }
+}

@@ -37,6 +37,16 @@ export const getCustomerDetail = (id: string): Promise<CustomerDetailVO> => {
   return request.get(`/customers/${id}`);
 };
 
+/**
+ * `GET /customers/{id}` 解包（t142）：后端 `CustomerDetailResponse = { customer, projectCount,
+ * activeProjectCount, assetCount }`；老后端/导入场景也可能直接返回客户本体，这里两种都兼容。
+ */
+export const extractCustomerDetail = (res: any): CustomerVO | null => {
+  const payload = res?.data ?? res;
+  const customer = payload?.customer ?? payload;
+  return customer && typeof customer === 'object' && customer.id ? (customer as CustomerVO) : null;
+};
+
 export const createCustomer = (data: CustomerCreateRequest): Promise<CustomerVO> => {
   return request.post('/customers', data);
 };

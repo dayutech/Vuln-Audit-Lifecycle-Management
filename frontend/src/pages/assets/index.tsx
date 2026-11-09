@@ -11,6 +11,7 @@ import {
   Form,
   Select,
   Tooltip,
+  Switch,
   message,
 } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
@@ -23,6 +24,8 @@ import {
   getAssetOptions,
   createAssetAccessRequest,
 } from '@/api/asset';
+import { getTagOptions, inlineTagNames, joinTagNames } from '@/api/tag';
+import SoftDeletedTable from '@/components/softDelete/SoftDeletedTable';
 import type {
   AssetVO,
   CreateAssetRequest,
@@ -69,7 +72,17 @@ const Assets: React.FC = () => {
     customer_id?: string;
     project_id?: string;
     phase_id?: string;
+    /** t141/t143 标签筛选：名称列表（AND / OR 由 tag_mode 决定） */
+    tags?: string[];
+    tag_mode?: 'and' | 'or';
   }>({ page: 1, page_size: 10, search: '' });
+  /** t143：标签下拉（带 assetCount，后端按可见范围收敛） */
+  const [tagOptions, setTagOptions] = useState<{ label: string; value: string }[]>([]);
+  /** t143：每行标签（后端列表 VO 无 tags 字段，按行批量取；见 api/tag.ts 注释） */
+  const [tagsByAsset, setTagsByAsset] = useState<Record<string, string[]>>({});
+  /** t143：含已删面板（仅 ADMIN 可见） */
+  const [showDeleted, setShowDeleted] = useState(false);
+  const isAdmin = profileLoaded && Boolean(profile?.roles?.includes('admin'));
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [currentAsset, setCurrentAsset] = useState<AssetVO | null>(null);
@@ -111,7 +124,18 @@ const Assets: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const res = await getAssetList(params);
+      // t143：标签筛选按模式选 tags(AND)/tagsAny(OR)，与客户/项目/期次一起交给后端取交集
+      const tagNames = joinTagNames(params.tags);
+      const res = await getAssetList({
+        page: params.page,
+        page_size: params.page_size,
+        search: params.search,
+        customer_id: params.customer_id,
+        project_id: params.project_id,
+        phase_id: params.phase_id,
+        tags: params.tag_mode === 'or' ? undefined : tagNames,
+        tags_any: params.tag_mode === 'or' ? tagNames : undefined,
+      });
       const payload = unwrapPayload(res);
       const items = payload.content || payload.items || [];
       const totalCount = payload.totalElements || payload.total || 0;
@@ -229,7 +253,30 @@ const Assets: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, [params.page, params.page_size, params.search, params.customer_id, params.project_id, params.phase_id]);
+  }, [params.page, params.page_size, params.search, params.customer_id, params.project_id, params.phase_id, params.tags, params.tag_mode]);
+
+  /** t143：标签下拉 + 加载一次（失败静默 → 空列表，不影响资产列表本身） */
+  useEffect(() => {
+    getTagOptions().then((options) => {
+      setTagOptions(
+        options
+          .filter((option) => option.name)
+          .map((option) => ({ label: `${option.name}（${option.assetCount}）`, value: option.name })),
+      );
+    });
+  }, []);
+
+  /**
+   * t149：标签直接取列表内联字段（后端 t145 `AssetVO.tags`），**零额外请求**。
+   * 旧实现按行 `GET /assets/{id}/tags`（一页 20 行 = 20 请求）已删除。
+   */
+  useEffect(() => {
+    const map: Record<string, string[]> = {};
+    (data ?? []).forEach((item) => {
+      map[item.id] = inlineTagNames((item as any).tags);
+    });
+    setTagsByAsset(map);
+  }, [data]);
 
   useEffect(() => {
     fetchTeams();
@@ -538,6 +585,29 @@ const Assets: React.FC = () => {
       }
     },
     {
+      title: t('asset.list.colTags'),
+      key: 'tags',
+      width: 220,
+      render: (_: unknown, record: AssetVO) => {
+        const tags = tagsByAsset[record.id] ?? [];
+        if (tags.length === 0) {
+          return <span style={{ color: '#bfbfbf' }} data-testid={`asset-tags-empty-${record.id}`}>{t('asset.list.tagsEmpty')}</span>;
+        }
+        const visible = tags.slice(0, 3);
+        const rest = tags.length - visible.length;
+        return (
+          <Space size={4} wrap data-testid={`asset-tags-${record.id}`} data-tag-count={tags.length}>
+            {visible.map((tag) => (
+              <Tag key={tag} color="blue">
+                {tag}
+              </Tag>
+            ))}
+            {rest > 0 ? <Tag data-testid={`asset-tags-more-${record.id}`}>{t('asset.list.tagsMore', { count: rest })}</Tag> : null}
+          </Space>
+        );
+      },
+    },
+    {
       title: t('asset.list.colAction'),
       key: 'action',
       render: (_: any, record: AssetVO) => (
@@ -626,12 +696,62 @@ const Assets: React.FC = () => {
             {t('asset.list.clearLinkFilter')}
           </Button>
         ) : null}
+        {/* t143：标签筛选（多选，AND/OR 可切换）；外层 div 承载 testid（antd Select 不转发 data-testid）*/}
+        <div data-testid="asset-filter-tags-select">
+          <Select
+            mode="multiple"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            style={{ minWidth: 220, maxWidth: 360 }}
+            placeholder={t('asset.list.filterTagsPlaceholder')}
+            value={params.tags ?? []}
+            options={tagOptions}
+            onChange={(value: string[]) => setParams((prev) => ({ ...prev, tags: value, page: 1 }))}
+          />
+        </div>
+        <Space size={6} data-testid="asset-filter-tags-mode" data-mode={params.tag_mode ?? 'and'}>
+          <Switch
+            size="small"
+            checked={params.tag_mode === 'or'}
+            onChange={(checked) => setParams((prev) => ({ ...prev, tag_mode: checked ? 'or' : 'and', page: 1 }))}
+            data-testid="asset-filter-tags-mode-switch"
+          />
+          <span style={{ fontSize: 12, color: '#6b7280' }}>
+            {params.tag_mode === 'or' ? t('asset.list.tagModeOr') : t('asset.list.tagModeAnd')}
+          </span>
+        </Space>
+        {/* t143：含已删（仅 ADMIN；后端 /admin/assets?includeDeleted=true）*/}
+        {isAdmin ? (
+          <Space size={6}>
+            <Switch
+              size="small"
+              checked={showDeleted}
+              onChange={(checked) => setShowDeleted(checked)}
+              data-testid="asset-show-deleted-switch"
+            />
+            <span style={{ fontSize: 12, color: '#6b7280' }}>{t('asset.list.showDeleted')}</span>
+          </Space>
+        ) : null}
       </Space>
+      {/* t143：分组已并入标签 */}
+      <Alert
+        type="info"
+        showIcon
+        closable
+        style={{ marginBottom: 12 }}
+        message={t('asset.list.groupMergedNotice')}
+        data-testid="asset-groups-merged-notice"
+      />
+      {showDeleted && isAdmin ? (
+        <SoftDeletedTable kind="assets" keyword={params.search} onRestored={() => void fetchData()} />
+      ) : (
       <Table 
         columns={columns} 
         dataSource={data} 
         rowKey="id"
         loading={loading}
+        data-testid="asset-table"
         pagination={{
           current: params.page,
           pageSize: params.page_size,
@@ -639,6 +759,7 @@ const Assets: React.FC = () => {
           onChange: (page, pageSize) => setParams({ ...params, page, page_size: pageSize })
         }}
       />
+      )}
 
       <Modal
         title={modalMode === 'create' ? t('asset.form.createTitle') : t('asset.form.editTitle')}
@@ -770,6 +891,8 @@ const Assets: React.FC = () => {
 };
 
 export default Assets;
+
+
 
 
 

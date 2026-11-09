@@ -9,7 +9,11 @@ import { settingsEn } from './domains/settingsMessages';
 import { authEn } from './domains/authMessages';
 import { ssoEn } from './domains/ssoMessages';
 import { twoFactorEn } from './domains/twoFactorMessages';
+import { tagEn } from './domains/tagMessages';
+import { assetFileEn } from './domains/assetFileMessages';
 import { registrationReviewEn } from './domains/registrationReviewMessages';
+import { customerPageEn } from './domains/customerPageMessages';
+import { layoutEn } from './domains/layoutMessages';
 
 /**
  * English copy.
@@ -30,7 +34,11 @@ export const enUS: MessageCatalog = {
   ...authEn,
   ...ssoEn,
   ...twoFactorEn,
+  ...tagEn,
+  ...assetFileEn,
   ...registrationReviewEn,
+  ...customerPageEn,
+  ...layoutEn,
   /* ==================== common ==================== */
   'common.appName': 'Vulnerability Audit Lifecycle Management',
   'common.loading': 'Loading…',
@@ -45,6 +53,7 @@ export const enUS: MessageCatalog = {
   'common.save': 'Save',
   'common.close': 'Close',
   'common.back': 'Back',
+  'common.retry': 'Retry',
   'common.total': '{count} items in total',
   'common.deleteConfirmTitle': 'Confirm deletion',
   'common.deleteConfirmContent': 'This action cannot be undone. Continue?',
@@ -75,7 +84,6 @@ export const enUS: MessageCatalog = {
   'menu.groupSystem': 'System & Admin',
   'menu.dashboard': 'Security Dashboard',
   'menu.assets': 'Products & Assets',
-  'menu.assetGroups': 'Asset Groups',
   'menu.vulnerabilities': 'Vulnerability Overview',
   'menu.tasks': 'Audit Tasks',
   'menu.approvals': 'Approvals',
@@ -1043,6 +1051,11 @@ export const enUS: MessageCatalog = {
   'impersonation.expired': 'Impersonation ended (expired); your admin account was restored',
   'impersonation.needRelogin': 'The original admin credentials are gone — please sign in again',
 };
+
+
+
+
+
 
 
 

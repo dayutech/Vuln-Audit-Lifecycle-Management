@@ -1,0 +1,96 @@
+/**
+ * 标签体系 + 软删管理文案（t143）。
+ *
+ * - `tag.*`：管理员标签定义页（新建/改名/改色/排序/软删、内置限制、409 引用中）；
+ * - `softDelete.*`：客户/项目/资产的「显示已删除」面板与恢复；
+ * - `asset.list.*` 增量键（标签列/标签筛选/分组并入标签提示）留在 `assetMessages`，避免一处文案两处定义。
+ */
+export const tagZh = {
+  'menu.tags': '标签管理',
+
+  'tag.title': '标签管理',
+  'tag.new': '新建标签',
+  'tag.modalCreate': '新建标签',
+  'tag.modalEdit': '编辑标签',
+  'tag.searchPlaceholder': '按名称搜索',
+  'tag.includeDeleted': '包含已删除',
+  'tag.empty': '暂无标签',
+  'tag.colName': '标签名',
+  'tag.colColor': '颜色',
+  'tag.colSort': '排序',
+  'tag.colAction': '操作',
+  'tag.builtin': '内置',
+  'tag.hint':
+    '内置标签只能改颜色与排序（改名/删除会返回 403）；被资产引用的标签不能删除（409，消息里带引用数）；删除为软删，同名不可复用。',
+  'tag.nameRequired': '请输入标签名',
+  'tag.builtinNameLocked': '内置标签名称不可修改',
+  'tag.builtinLocked': '内置标签只能改颜色与排序',
+  'tag.createSuccess': '标签已创建',
+  'tag.updateSuccess': '标签已更新',
+  'tag.deleteTitle': '删除标签',
+  'tag.deleteContent': '确定删除标签「{name}」吗？被资产引用的标签无法删除。',
+  'tag.deleteSuccess': '标签已删除',
+  'tag.duplicate': '标签名已存在：{message}',
+  'tag.inUse': '标签正在被资产使用，无法删除：{message}',
+  'tag.forbidden': '标签管理仅管理员可用',
+
+  'softDelete.showDeleted': '显示已删除',
+  'softDelete.panelHint': '下面是已删除记录（软删除，可恢复）。普通列表不显示这些行。',
+  'softDelete.searchPlaceholder': '按编号/名称搜索',
+  'softDelete.empty': '没有已删除记录',
+  'softDelete.colCode': '编号',
+  'softDelete.colName': '名称',
+  'softDelete.colDeletedAt': '删除时间',
+  'softDelete.colStatus': '状态',
+  'softDelete.colAction': '操作',
+  'softDelete.deletedTag': '已删除',
+  'softDelete.restore': '恢复',
+  'softDelete.restoreSuccess': '已恢复「{name}」',
+  'softDelete.notFound': '记录不存在或已被彻底清理',
+  'softDelete.forbidden': '仅管理员可查看已删除记录',
+} as const;
+
+export const tagEn: Record<keyof typeof tagZh, string> = {
+  'menu.tags': 'Tags',
+
+  'tag.title': 'Tag management',
+  'tag.new': 'New tag',
+  'tag.modalCreate': 'New tag',
+  'tag.modalEdit': 'Edit tag',
+  'tag.searchPlaceholder': 'Search by name',
+  'tag.includeDeleted': 'Include deleted',
+  'tag.empty': 'No tags yet',
+  'tag.colName': 'Tag',
+  'tag.colColor': 'Color',
+  'tag.colSort': 'Order',
+  'tag.colAction': 'Actions',
+  'tag.builtin': 'Built-in',
+  'tag.hint':
+    'Built-in tags can only change color and order (renaming or deleting returns 403). Tags referenced by assets cannot be deleted (409 with the reference count). Deletion is a soft delete, so the name stays reserved.',
+  'tag.nameRequired': 'Enter a tag name',
+  'tag.builtinNameLocked': 'Built-in tag names cannot be changed',
+  'tag.builtinLocked': 'Built-in tags only allow color/order changes',
+  'tag.createSuccess': 'Tag created',
+  'tag.updateSuccess': 'Tag updated',
+  'tag.deleteTitle': 'Delete tag',
+  'tag.deleteContent': 'Delete the tag "{name}"? Tags referenced by assets cannot be deleted.',
+  'tag.deleteSuccess': 'Tag deleted',
+  'tag.duplicate': 'That tag name already exists: {message}',
+  'tag.inUse': 'The tag is in use by assets and cannot be deleted: {message}',
+  'tag.forbidden': 'Tag management is available to administrators only',
+
+  'softDelete.showDeleted': 'Show deleted',
+  'softDelete.panelHint': 'These records were soft-deleted and can be restored. Regular lists never show them.',
+  'softDelete.searchPlaceholder': 'Search by code / name',
+  'softDelete.empty': 'No deleted records',
+  'softDelete.colCode': 'Code',
+  'softDelete.colName': 'Name',
+  'softDelete.colDeletedAt': 'Deleted at',
+  'softDelete.colStatus': 'Status',
+  'softDelete.colAction': 'Actions',
+  'softDelete.deletedTag': 'Deleted',
+  'softDelete.restore': 'Restore',
+  'softDelete.restoreSuccess': 'Restored "{name}"',
+  'softDelete.notFound': 'Record not found or already purged',
+  'softDelete.forbidden': 'Only administrators can view deleted records',
+};

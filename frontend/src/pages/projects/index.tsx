@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Input, Modal, Select, Space, Table, Tag, Tooltip, message } from 'antd';
+import { Alert, Button, Card, Input, Modal, Select, Space, Switch, Table, Tag, Tooltip, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { PlusOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useT } from '@/i18n';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
+import SoftDeletedTable from '@/components/softDelete/SoftDeletedTable';
 import { useUserStore } from '@/store/userStore';
 import { canCreateProject, canManageProject, resolveCurrentUserId } from '@/utils/accessRoles';
 import CustomerSelectEmpty from '@/components/customer/CustomerSelectEmpty';
@@ -30,7 +31,6 @@ import {
   type ProjectSummaryVO,
 } from '@/types/project';
 import { AppEmpty } from '@/components/Feedback';
-import ProjectFormModal from './ProjectFormModal';
 import { describeProjectFailure } from './projectFailure';
 
 /**
@@ -51,6 +51,9 @@ const Projects: React.FC = () => {
   const currentUserId = resolveCurrentUserId(profile, storeUser?.id);
 
   const canCreate = profileLoaded && canCreateProject(profile);
+  /** t143：含已删列表与恢复仅 ADMIN（后端 /admin/projects 只放行 ADMIN） */
+  const isAdmin = profileLoaded && Boolean(profile?.roles?.includes('admin'));
+  const [showDeleted, setShowDeleted] = useState(false);
 
   const [data, setData] = useState<ProjectSummaryVO[]>([]);
   const [loading, setLoading] = useState(false);
@@ -74,8 +77,6 @@ const Projects: React.FC = () => {
   });
   const [keyword, setKeyword] = useState('');
 
-  const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<ProjectSummaryVO | null>(null);
 
   useEffect(() => {
     // 只在 URL 里的 customerId 真的变化时同步，避免挂载时多打一次列表请求
@@ -286,12 +287,7 @@ const Projects: React.FC = () => {
           <Space size="small" wrap>
             <a onClick={() => navigate(`/projects/${record.id}`)}>{t('project.detail')}</a>
             {writable ? (
-              <a
-                onClick={() => {
-                  setEditing(record);
-                  setFormOpen(true);
-                }}
-              >
+              <a onClick={() => navigate(`/projects/${record.id}/edit`)}>
                 {t('common.edit')}
               </a>
             ) : null}
@@ -340,10 +336,7 @@ const Projects: React.FC = () => {
             <Button
               type="primary"
               icon={<PlusOutlined />}
-              onClick={() => {
-                setEditing(null);
-                setFormOpen(true);
-              }}
+              onClick={() => navigate('/projects/new')}
             >
               {t('project.new')}
             </Button>
@@ -467,8 +460,23 @@ const Projects: React.FC = () => {
         >
           {t('project.reset')}
         </Button>
+        {/* t143：含已删（仅 ADMIN）*/}
+        {isAdmin ? (
+          <Space size={6}>
+            <Switch
+              size="small"
+              checked={showDeleted}
+              onChange={(checked) => setShowDeleted(checked)}
+              data-testid="project-show-deleted-switch"
+            />
+            <span style={{ fontSize: 12, color: '#6b7280' }}>{t('softDelete.showDeleted')}</span>
+          </Space>
+        ) : null}
       </Space>
 
+      {showDeleted && isAdmin ? (
+        <SoftDeletedTable kind="projects" keyword={params.keyword} onRestored={() => void fetchProjects()} />
+      ) : (
       <Table<ProjectSummaryVO>
         rowKey="id"
         columns={columns}
@@ -485,24 +493,14 @@ const Projects: React.FC = () => {
           onChange: (page, pageSize) => setParams((prev) => ({ ...prev, page, page_size: pageSize })),
         }}
       />
-
-      <ProjectFormModal
-        open={formOpen}
-        project={editing}
-        defaultCustomerId={customerId}
-        onCancel={() => setFormOpen(false)}
-        onSaved={async (saved, mode) => {
-          setFormOpen(false);
-          setEditing(null);
-          await fetchProjects();
-          if (mode === 'create' && saved?.id) {
-            navigate(`/projects/${saved.id}`);
-          }
-        }}
-      />
+      )}
     </Card>
   );
 };
 
 export default Projects;
+
+
+
+
 

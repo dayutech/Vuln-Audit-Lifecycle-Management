@@ -1,27 +1,6 @@
 import type { PaginatedResponse } from './common';
 import type { UserVO } from './user';
 
-export interface AssetGroup {
-  id: string;
-  name: string;
-}
-
-/** 资产分组（后端 /asset-groups，type 用于区分客户/项目等归类维度） */
-export interface AssetGroupVO {
-  id: string;
-  name: string;
-  type: string;
-  description?: string;
-  createdAt?: string;
-  created_at?: string;
-}
-
-export interface CreateAssetGroupRequest {
-  name: string;
-  type: string;
-  description?: string;
-}
-
 /** 资产标签（后端 /assets/{id}/tags） */
 export interface AssetTagVO {
   id: string;
@@ -86,7 +65,6 @@ export interface AssetVO {
   ownerId?: string;
   owner_name?: string;
   ownerName?: string;
-  groups?: AssetGroup[];
   owner?: UserVO;
   team?: any;
   vulnerability_count?: number;
@@ -99,6 +77,25 @@ export interface AssetVO {
   createdAt?: string;
   updated_at?: string;
   updatedAt?: string;
+  /** t145/t149：标签内联（后端批量查询，禁止按行拉 /assets/{id}/tags） */
+  tags?: AssetTagBrief[];
+}
+
+/** 标签摘要（后端 t145 AssetTagBrief） */
+export interface AssetTagBrief {
+  id?: string | null;
+  name: string;
+  color?: string | null;
+  builtin?: boolean;
+}
+
+/** 分页信封（后端 PageResponse，t148 起文件/交付物列表用它） */
+export interface PageEnvelope<T> {
+  content: T[];
+  totalElements: number;
+  totalPages: number;
+  currentPage: number;
+  pageSize: number;
 }
 
 export interface AssetMetadataVO {
@@ -161,6 +158,11 @@ export interface AssetFileVO {
   checksum?: string;
   status?: string;
   createdAt?: string;
+  /** t148：上传人 id 与展示名（列表一次批量解析） */
+  uploadedBy?: string | null;
+  uploaderName?: string | null;
+  /** t148：独立备注字段（不再拼进 description） */
+  remark?: string | null;
 }
 
 export interface AssetDeliverableVO {
@@ -174,6 +176,9 @@ export interface AssetDeliverableVO {
   checksum?: string;
   status?: string;
   createdAt?: string;
+  uploadedBy?: string | null;
+  uploaderName?: string | null;
+  remark?: string | null;
 }
 
 export interface EnvironmentVO {
@@ -310,3 +315,4 @@ export interface UpdateAssetRequest {
   team_id?: string;
   owner_id?: string;
 }
+

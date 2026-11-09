@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Layout, Menu, Dropdown, Avatar, Badge } from 'antd';
+import { Layout, Menu, Dropdown, Avatar, Badge, Button, Drawer } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { EyeOutlined, BankOutlined, ProjectOutlined, UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, SettingOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined, AuditOutlined, FileSearchOutlined, CloudUploadOutlined, BgColorsOutlined, ControlOutlined, LinkOutlined } from '@ant-design/icons';
+import { MenuOutlined, TagsOutlined, EyeOutlined, BankOutlined, ProjectOutlined, UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, SettingOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined, AuditOutlined, FileSearchOutlined, CloudUploadOutlined, BgColorsOutlined, ControlOutlined, LinkOutlined } from '@ant-design/icons';
 import { useUserStore } from '@/store/userStore';
 import { getCurrentUser, logout } from '@/api/auth';
 import { getUnreadNotificationCount } from '@/api/notification';
@@ -17,6 +17,7 @@ import TwoFactorRequiredBanner from '@/components/twoFactor/TwoFactorRequiredBan
 import LangSwitcher from '@/i18n/LangSwitcher';
 import AppBrand from './AppBrand';
 import { collectMenuKeys, collectOpenKeys, selectMenuKey } from './menuSelection';
+import './layout.css';
 
 const { Header, Sider, Content } = Layout;
 
@@ -25,6 +26,10 @@ const BasicLayout: React.FC = () => {
   const location = useLocation();
   const { user, setUser, clearAuth } = useUserStore();
   const [collapsed, setCollapsed] = useState(false);
+  /** t144：窄屏（antd Sider breakpoint=lg）标记，决定是否渲染汉堡按钮 / 抽屉导航 */
+  const [isMobile, setIsMobile] = useState(false);
+  /** t144：窄屏抽屉导航开关 */
+  const [navOpen, setNavOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   /**
    * 是否管理层（admin / project_leader）。
@@ -161,7 +166,6 @@ const BasicLayout: React.FC = () => {
                 { key: '/customers', icon: <BankOutlined />, label: t('menu.customers') },
                 { key: '/projects', icon: <ProjectOutlined />, label: t('menu.projects') },
                 { key: '/assets', icon: <AppstoreOutlined />, label: t('menu.assets') },
-                { key: '/asset-groups', icon: <AppstoreOutlined />, label: t('menu.assetGroups') },
                 { key: '/vulnerabilities', icon: <SafetyCertificateOutlined />, label: t('menu.vulnerabilities') },
                 { key: '/tasks', icon: <CheckSquareOutlined />, label: t('menu.tasks') },
                 { key: '/approvals', icon: <AuditOutlined />, label: t('menu.approvals') },
@@ -197,6 +201,8 @@ const BasicLayout: React.FC = () => {
                 { key: '/import', icon: <CloudUploadOutlined />, label: t('menu.import') },
         // 系统设置（t110）：仅管理员（后端 /admin/settings/** 也只放行 ADMIN，页面内再兜一次 403）
         ...(isAdmin ? [{ key: '/settings', icon: <ControlOutlined />, label: t('menu.settings') }] : []),
+        // 标签定义管理（t143）：仅管理员（后端 /admin/tag-definitions 只放行 ADMIN）
+        ...(isAdmin ? [{ key: '/admin/tags', icon: <TagsOutlined />, label: t('menu.tags') }] : []),
         // 注册审批（t114）：仅管理层（admin / project_leader，与后端 hasAnyRole 一致）+ 待审批角标
         ...(managerEligible === false
           ? []
@@ -280,9 +286,29 @@ const BasicLayout: React.FC = () => {
   const openKeys = useMemo(() => collectOpenKeys(menuItems as any, selectedMenuKey), [menuItems, selectedMenuKey]);
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider collapsible collapsed={collapsed} onCollapse={(value) => setCollapsed(value)}>
-        <AppBrand collapsed={collapsed} />
+    <Layout className={`basic-layout${isMobile ? ' basic-layout--mobile' : ''}`}>
+      {/* t144：窄屏（<lg）自动收起为 0 宽（内容区不再被 200px 侧栏挤压），导航改由顶栏汉堡 + 抽屉承载 */}
+      <Sider
+        collapsible
+        breakpoint="lg"
+        collapsedWidth={0}
+        collapsed={isMobile ? true : collapsed}
+        onBreakpoint={(broken) => {
+          setIsMobile(broken);
+          if (!broken) setNavOpen(false);
+        }}
+        onCollapse={(value, type) => {
+          // responsive 触发的收起/展开由 onBreakpoint 统一管理，避免与宽屏折叠记忆互相覆盖
+          if (type === 'responsive') {
+            setIsMobile(value);
+            return;
+          }
+          setCollapsed(value);
+        }}
+        trigger={null}
+        width={200}
+      >
+        <AppBrand collapsed={isMobile ? false : collapsed} />
         <Menu
           theme="dark"
           selectedKeys={[selectedMenuKey]}
@@ -293,22 +319,66 @@ const BasicLayout: React.FC = () => {
         />
       </Sider>
       <Layout>
-        <Header style={{ padding: '0 24px', background: '#fff', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
-          <LangSwitcher />
-          <Dropdown menu={userMenu} placement="bottomRight">
-            <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Avatar icon={<UserOutlined />} src={user?.avatar} />
-              <span>{user?.username || '-'}</span>
-            </div>
-          </Dropdown>
+        <Header className="basic-layout__header">
+          <div className="basic-layout__header-left">
+            {isMobile ? (
+              <Button
+                type="text"
+                className="basic-layout__hamburger"
+                icon={<MenuOutlined />}
+                aria-label={t('layout.openMenu')}
+                onClick={() => setNavOpen(true)}
+                data-testid="nav-hamburger"
+              />
+            ) : null}
+          </div>
+          <div className="basic-layout__header-right">
+            <LangSwitcher />
+            <Dropdown menu={userMenu} placement="bottomRight">
+              <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Avatar icon={<UserOutlined />} src={user?.avatar} />
+                <span>{user?.username || '-'}</span>
+              </div>
+            </Dropdown>
+          </div>
         </Header>
-        <Content style={{ margin: '24px 16px', padding: 24, background: '#fff', minHeight: 280, borderRadius: 8 }}>
+        <Content className="basic-layout__content">
           {/* t137：强制 2FA 时不可关闭的引导横幅（监听 403 TWO_FACTOR_SETUP_REQUIRED 事件） */}
           <TwoFactorRequiredBanner />
           <ImpersonationBanner />
           <Outlet />
         </Content>
       </Layout>
+
+      {/* t144：窄屏抽屉导航 —— 复用同一份 menuItems 与 t89 的 selectedMenuKey，不另起匹配逻辑 */}
+      <Drawer
+        placement="left"
+        width={248}
+        open={navOpen}
+        onClose={() => setNavOpen(false)}
+        closable={false}
+        title={null}
+        rootClassName="basic-layout__nav-drawer"
+        styles={{ body: { padding: 0, background: '#001529' } }}
+        data-testid="nav-drawer"
+      >
+        <div className="basic-layout__nav-brand">
+          <AppBrand collapsed={false} />
+        </div>
+        <Menu
+          theme="dark"
+          mode="inline"
+          selectedKeys={[selectedMenuKey]}
+          {...(openKeys.length > 0 ? { openKeys } : {})}
+          items={menuItems}
+          onClick={({ key }) => {
+            navigate(key);
+            setNavOpen(false);
+          }}
+          data-testid="nav-drawer-menu"
+        />
+      </Drawer>
+
       <ImpersonationPicker open={pickerOpen} onClose={() => setPickerOpen(false)} />
       {/* t97：偏好设置弹窗按需挂载（每次打开都重新读服务端偏好，避免复用旧状态） */}
       {prefsOpen ? <LoginThemePreferenceModal onClose={() => setPrefsOpen(false)} /> : null}
@@ -317,4 +387,6 @@ const BasicLayout: React.FC = () => {
 };
 
 export default BasicLayout;
+
+
 

@@ -50,7 +50,7 @@ const normalizePath = (pathname: string): string => {
  * 规则（按优先级）：
  * 1. `/` 或空 → `/dashboard`；
  * 2. 精确命中 → 该 key；
- * 3. 前缀命中（`pathname === `${key}/...`` 才算，避免 `/assets` 误匹配 `/asset-groups`）→ **最长 key 优先**；
+ * 3. 前缀命中（`pathname === `${key}/...`` 才算，避免 `/assets` 误匹配 `/assets-history` 之类的兄弟路径）→ **最长 key 优先**；
  * 4. 都没命中 → `/dashboard`。
  */
 export const selectMenuKey = (pathname: string, menuKeys: readonly string[]): string => {

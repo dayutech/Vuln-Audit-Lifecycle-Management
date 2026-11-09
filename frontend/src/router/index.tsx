@@ -4,6 +4,8 @@ import BasicLayout from '@/layouts/BasicLayout';
 import Login from '@/pages/Login';
 import Dashboard from '@/pages/Dashboard';
 import Customers from '@/pages/customers/index';
+import CustomerDetail from '@/pages/customers/Detail';
+import CustomerForm from '@/pages/customers/CustomerForm';
 import Assets from '@/pages/assets/index';
 import AssetDetail from '@/pages/assets/Detail';
 import Vulnerabilities from '@/pages/vulnerabilities/index';
@@ -16,12 +18,13 @@ import Notifications from '@/pages/notifications/index';
 import Knowledge from '@/pages/knowledge/index';
 import Tasks from '@/pages/tasks/index';
 import Approvals from '@/pages/approvals/index';
-import AssetGroups from '@/pages/asset-groups/index';
 import ApprovalScopes from '@/pages/approval-scopes/index';
 import AuditLogs from '@/pages/audit-logs/index';
 import { ErrorPage } from '@/components/Feedback';
 import ImportPage from '@/pages/import/index';
 import Projects from '@/pages/projects/index';
+// 别名：页面组件与路由路径同名，避免与 /projects 列表页的 import 冲突
+import ProjectFormPage from '@/pages/projects/ProjectForm';
 import ProjectDetail from '@/pages/projects/Detail';
 import Settings from '@/pages/settings/index';
 import Register from '@/pages/Register';
@@ -30,6 +33,7 @@ import SsoCallback from '@/pages/SsoCallback';
 import Unlock from '@/pages/Unlock';
 import SsoBindings from '@/pages/account/SsoBindings';
 import RegistrationRequests from '@/pages/registration-requests/index';
+import TagsAdmin from '@/pages/tags/index';
 import AccountSecurity from '@/pages/account/Security';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -81,13 +85,35 @@ const router = createBrowserRouter([
         path: '/customers',
         element: <Customers />,
       },
+      // t142：客户新建/详情/编辑统一为独立页面（原 Drawer 全部下线）
+      {
+        path: '/customers/new',
+        element: <CustomerForm />,
+      },
+      {
+        path: '/customers/:id',
+        element: <CustomerDetail />,
+      },
+      {
+        path: '/customers/:id/edit',
+        element: <CustomerForm />,
+      },
       {
         path: '/projects',
         element: <Projects />,
       },
+      // t142：项目新建/编辑改为独立页面（原 ProjectFormModal 下线），详情页保留
+      {
+        path: '/projects/new',
+        element: <ProjectFormPage />,
+      },
       {
         path: '/projects/:id',
         element: <ProjectDetail />,
+      },
+      {
+        path: '/projects/:id/edit',
+        element: <ProjectFormPage />,
       },
       {
         path: '/assets',
@@ -98,8 +124,9 @@ const router = createBrowserRouter([
         element: <AssetDetail />,
       },
       {
+        // t143：资产分组已并入标签体系（V30 迁移）；旧书签重定向到资产中心
         path: '/asset-groups',
-        element: <AssetGroups />,
+        element: <Navigate to="/assets" replace />,
       },
       {
         path: '/vulnerabilities',
@@ -181,6 +208,11 @@ const router = createBrowserRouter([
         element: <RegistrationRequests />,
       },
       {
+        // t143：标签定义管理（仅 ADMIN；页面内再判一次）
+        path: '/admin/tags',
+        element: <TagsAdmin />,
+      },
+      {
         // t106：账号设置 - 社交账号绑定（登录用户都可访问，只操作自己）
         path: '/account/sso-bindings',
         element: <SsoBindings />,
@@ -203,5 +235,6 @@ const router = createBrowserRouter([
 ]);
 
 export default router;
+
 
 

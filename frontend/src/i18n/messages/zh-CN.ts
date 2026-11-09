@@ -18,7 +18,11 @@ import { settingsZh } from './domains/settingsMessages';
 import { authZh } from './domains/authMessages';
 import { ssoZh } from './domains/ssoMessages';
 import { twoFactorZh } from './domains/twoFactorMessages';
+import { tagZh } from './domains/tagMessages';
+import { assetFileZh } from './domains/assetFileMessages';
 import { registrationReviewZh } from './domains/registrationReviewMessages';
+import { customerPageZh } from './domains/customerPageMessages';
+import { layoutZh } from './domains/layoutMessages';
 
 export const zhCN = {
   ...assetZh,
@@ -31,7 +35,11 @@ export const zhCN = {
   ...authZh,
   ...ssoZh,
   ...twoFactorZh,
+  ...tagZh,
+  ...assetFileZh,
   ...registrationReviewZh,
+  ...customerPageZh,
+  ...layoutZh,
   /* ==================== 通用 ==================== */
   'common.appName': '漏洞审计生命周期管理系统',
   'common.loading': '加载中…',
@@ -46,6 +54,7 @@ export const zhCN = {
   'common.save': '保存',
   'common.close': '关闭',
   'common.back': '返回',
+  'common.retry': '重试',
   'common.total': '共 {count} 条',
   'common.deleteConfirmTitle': '确认删除',
   'common.deleteConfirmContent': '删除后不可恢复，确定继续？',
@@ -76,7 +85,6 @@ export const zhCN = {
   'menu.groupSystem': '系统与管理',
   'menu.dashboard': '安全态势大盘',
   'menu.assets': '产品与资产中心',
-  'menu.assetGroups': '资产分组',
   'menu.vulnerabilities': '全局漏洞视图',
   'menu.tasks': '安全审计任务',
   'menu.approvals': '审批中心',
@@ -1052,6 +1060,11 @@ export const zhCN = {
 
 export type MessageKey = keyof typeof zhCN;
 export type MessageCatalog = Record<MessageKey, string>;
+
+
+
+
+
 
 
 

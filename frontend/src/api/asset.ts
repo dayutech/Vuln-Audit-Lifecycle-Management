@@ -15,17 +15,23 @@ import type {
   AssetClaimVO,
   CreateAssetAccessRequest,
   AssetTagVO,
-  AssetGroupVO,
-  CreateAssetGroupRequest,
+  PageEnvelope,
 } from '@/types/asset';
 import type { PaginationParams } from '@/types/common';
 
 export interface AssetQueryParams extends PaginationParams {
   team_id?: string;
-  group_id?: string;
   target_type?: string;
   target_source?: string;
   status?: string;
+  /** 归属筛选（t143 修复：此前前端拼了参数但请求里没带上，导致筛选不生效） */
+  customer_id?: string;
+  project_id?: string;
+  phase_id?: string;
+  /** t141 标签筛选：AND 语义（同时满足全部） */
+  tags?: string;
+  /** t141 标签筛选：OR 语义（命中任一） */
+  tags_any?: string;
 }
 
 export interface AssetOptionItem {
@@ -47,10 +53,16 @@ export const getAssetList = (params: AssetQueryParams): Promise<any> => {
       size: params.page_size,
       keyword: params.search,
       teamId: params.team_id,
-      groupId: params.group_id,
       targetType: params.target_type,
       targetSource: params.target_source,
       status: params.status,
+      // t143：客户/项目/期次归属筛选（后端与标签筛选取交集）
+      customerId: params.customer_id,
+      projectId: params.project_id,
+      phaseId: params.phase_id,
+      // t141：tags=AND / tagsAny=OR
+      tags: params.tags,
+      tagsAny: params.tags_any,
     },
   });
 };
@@ -118,20 +130,62 @@ export const updateAssetMetadata = (
   });
 };
 
-export const getAssetFiles = (assetId: string, assetVersionId?: string, allVersions?: boolean): Promise<AssetFileVO[]> => {
-  return request.get(`/assets/${assetId}/files`, {
-    params: {
-      assetVersionId,
-      allVersions,
-    },
-  });
+/**
+ * 文件/交付物列表查询参数（t149，后端 t148 分页 + 筛选 + 排序）。
+ *
+ * `sort` 是**白名单字符串** `字段,方向`：文件 `uploadedAt|createdAt|name|size|fileSize|category`，
+ * 交付物另有 `type|deliverableType`；非法字段/方向后端直接 400。
+ */
+export interface AttachmentQueryParams {
+  /** 0 基；前端 1 基页码在调用处换算 */
+  page?: number;
+  /** ≤100，超限后端 400 */
+  size?: number;
+  sort?: string;
+  keyword?: string;
+  category?: string;
+  uploaderId?: string;
+  /** `YYYY-MM-DD` */
+  dateFrom?: string;
+  dateTo?: string;
+  assetVersionId?: string;
+  allVersions?: boolean;
+}
+
+const attachmentParams = (params: AttachmentQueryParams) => ({
+  page: params.page ?? 0,
+  size: params.size ?? 20,
+  sort: params.sort,
+  keyword: params.keyword,
+  category: params.category,
+  uploaderId: params.uploaderId,
+  dateFrom: params.dateFrom,
+  dateTo: params.dateTo,
+  assetVersionId: params.assetVersionId,
+  allVersions: params.allVersions,
+});
+
+/** 资产文件列表：**返回分页信封**（t148 起不再返回裸数组） */
+export const getAssetFiles = (assetId: string, params: AttachmentQueryParams = {}): Promise<PageEnvelope<AssetFileVO>> => {
+  return request.get(`/assets/${assetId}/files`, { params: attachmentParams(params) });
 };
 
-export const uploadAssetFile = (assetId: string, formData: FormData, assetVersionId?: string): Promise<AssetFileVO> => {
+export const uploadAssetFile = (
+  assetId: string,
+  formData: FormData,
+  assetVersionId?: string,
+  onProgress?: (percent: number) => void,
+): Promise<AssetFileVO> => {
   return request.post(`/assets/${assetId}/files`, formData, {
     params: {
       assetVersionId,
     },
+    // t146：真实上传进度（浏览器上报 event.total 时才有百分比；否则只会在完成时到 100）
+    onUploadProgress: onProgress
+      ? (event) => {
+          if (event.total) onProgress(Math.round((event.loaded / event.total) * 100));
+        }
+      : undefined,
   });
 };
 
@@ -145,20 +199,29 @@ export const downloadAssetFile = (id: string): Promise<Blob> => {
   });
 };
 
-export const getAssetDeliverables = (assetId: string, assetVersionId?: string, allVersions?: boolean): Promise<AssetDeliverableVO[]> => {
-  return request.get(`/assets/${assetId}/deliverables`, {
-    params: {
-      assetVersionId,
-      allVersions,
-    },
-  });
+/** 资产交付物列表：**返回分页信封**（t148 起不再返回裸数组） */
+export const getAssetDeliverables = (
+  assetId: string,
+  params: AttachmentQueryParams = {},
+): Promise<PageEnvelope<AssetDeliverableVO>> => {
+  return request.get(`/assets/${assetId}/deliverables`, { params: attachmentParams(params) });
 };
 
-export const uploadAssetDeliverable = (assetId: string, formData: FormData, assetVersionId?: string): Promise<AssetDeliverableVO> => {
+export const uploadAssetDeliverable = (
+  assetId: string,
+  formData: FormData,
+  assetVersionId?: string,
+  onProgress?: (percent: number) => void,
+): Promise<AssetDeliverableVO> => {
   return request.post(`/assets/${assetId}/deliverables`, formData, {
     params: {
       assetVersionId,
     },
+    onUploadProgress: onProgress
+      ? (event) => {
+          if (event.total) onProgress(Math.round((event.loaded / event.total) * 100));
+        }
+      : undefined,
   });
 };
 
@@ -392,65 +455,6 @@ export const deleteAssetTag = (assetId: string, tagId: string): Promise<any> => 
   return request.delete(`/assets/${assetId}/tags/${tagId}`);
 };
 
-// ==================== 资产分组 ====================
-
-export interface AssetGroupQueryParams {
-  page?: number;
-  page_size?: number;
-  type?: string;
-}
-
-/** 分组分页列表（GET /asset-groups?page&size&type） */
-export const getAssetGroupList = (params?: AssetGroupQueryParams): Promise<any> => {
-  return request.get('/asset-groups', {
-    params: {
-      page: Math.max((params?.page ?? 1) - 1, 0),
-      size: params?.page_size ?? 50,
-      type: params?.type,
-    },
-  });
-};
-
-/** 按类型获取分组（GET /asset-groups/type/{type}） */
-export const getAssetGroupsByType = (type: string): Promise<AssetGroupVO[]> => {
-  return request.get(`/asset-groups/type/${encodeURIComponent(type)}`);
-};
-
-/** 分组详情（GET /asset-groups/{id}） */
-export const getAssetGroupDetail = (id: string): Promise<AssetGroupVO> => {
-  return request.get(`/asset-groups/${id}`);
-};
-
-/** 创建分组（POST /asset-groups） */
-export const createAssetGroup = (data: CreateAssetGroupRequest): Promise<AssetGroupVO> => {
-  return request.post('/asset-groups', data);
-};
-
-/** 更新分组（PUT /asset-groups/{id}） */
-export const updateAssetGroup = (id: string, data: CreateAssetGroupRequest): Promise<AssetGroupVO> => {
-  return request.put(`/asset-groups/${id}`, data);
-};
-
-/** 删除分组（DELETE /asset-groups/{id}） */
-export const deleteAssetGroup = (id: string): Promise<any> => {
-  return request.delete(`/asset-groups/${id}`);
-};
-
-/** 分组内资产 ID 列表（GET /asset-groups/{id}/assets） */
-export const getAssetGroupAssets = (groupId: string): Promise<string[]> => {
-  return request.get(`/asset-groups/${groupId}/assets`);
-};
-
-/** 添加资产到分组（POST /asset-groups/{id}/assets?assetId=） */
-export const addAssetToGroup = (groupId: string, assetId: string): Promise<any> => {
-  return request.post(`/asset-groups/${groupId}/assets`, null, { params: { assetId } });
-};
-
-/** 从分组移除资产（DELETE /asset-groups/{groupId}/assets/{assetId}） */
-export const removeAssetFromGroup = (groupId: string, assetId: string): Promise<any> => {
-  return request.delete(`/asset-groups/${groupId}/assets/${assetId}`);
-};
-
 /* ==================== 项目挂靠（t69 / t73） ==================== */
 
 /** GET /assets/{id}/project-links —— 资产的项目挂靠明细（项目/客户摘要 + linkType/备注） */
@@ -486,3 +490,5 @@ export const extractAssetProjectLinks = (res: any): AssetProjectLinkVO[] => {
   const items = Array.isArray(payload) ? payload : payload?.content || payload?.items || [];
   return Array.isArray(items) ? (items as AssetProjectLinkVO[]) : [];
 };
+
+
