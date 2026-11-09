@@ -26,6 +26,8 @@ spring:
       hibernate:
         format_sql: true
         dialect: org.hibernate.dialect.H2Dialect
+        # t145：列表内联标签要断言「查询数不随页大小增长」，需要 Hibernate Statistics
+        generate_statistics: true
 
   flyway:
     enabled: false

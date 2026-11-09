@@ -22,5 +22,6 @@ public record ProjectAssetItem(
         String phaseName,
         String linkType,
         String remark,
-        LocalDateTime linkedAt) {
+        LocalDateTime linkedAt,
+        java.util.List<com.vulnaudit.dto.AssetTagBrief> tags) {
 }

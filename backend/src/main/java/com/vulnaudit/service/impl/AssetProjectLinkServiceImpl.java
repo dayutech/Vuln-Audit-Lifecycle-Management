@@ -72,6 +72,8 @@ public class AssetProjectLinkServiceImpl implements AssetProjectLinkService {
     private final ProjectRepository projectRepository;
     private final ProjectPhaseRepository projectPhaseRepository;
     private final CustomerRepository customerRepository;
+    /** t141：挂靠时自动打标签（客户名 + 项目名） */
+    private final com.vulnaudit.service.TagDefinitionService tagDefinitionService;
 
     // ------------------------------------------------------------------ 创建资产 + 挂靠
 
@@ -123,6 +125,9 @@ public class AssetProjectLinkServiceImpl implements AssetProjectLinkService {
                 normalizeLinkType(linkType), remark, operatorId);
         linkRepository.saveAndFlush(Objects.requireNonNull(link));
 
+        // t141：挂靠即自动打标签（客户名 + 项目名；定义不存在则自动创建为自定义标签）
+        autoTag(created.getId(), customer, project, operatorId);
+
         log.info("创建资产并挂靠: assetId={}, projectId={}, phaseId={}, customerId={}, linkType={}",
                 created.getId(), project.getId(), phase != null ? phase.getId() : null,
                 customer.getId(), link.getLinkType());
@@ -151,6 +156,9 @@ public class AssetProjectLinkServiceImpl implements AssetProjectLinkService {
         AssetProjectLink saved = linkRepository.saveAndFlush(Objects.requireNonNull(
                 buildLink(asset.getId(), project, customer, phase,
                         normalizeLinkType(request.getLinkType()), request.getRemark(), operatorId)));
+
+        // t141：追加挂靠同样自动打标签（幂等）
+        autoTag(asset.getId(), customer, project, operatorId);
 
         log.info("资产追加挂靠: assetId={}, projectId={}, phaseId={}, linkId={}",
                 asset.getId(), project.getId(), phase != null ? phase.getId() : null, saved.getId());
@@ -254,11 +262,22 @@ public class AssetProjectLinkServiceImpl implements AssetProjectLinkService {
                     asset.getId(), asset.getName(), asset.getCode(), asset.getStatus(), asset.getPriority(),
                     asset.getTargetType(), asset.getOwnerId(),
                     link.getId(), link.getPhaseId(), linkPhase != null ? linkPhase.getName() : null,
-                    link.getLinkType(), link.getRemark(), link.getLinkedAt()));
+                    link.getLinkType(), link.getRemark(), link.getLinkedAt(), java.util.List.of()));
         }
 
+        // t145：一次批量取本页资产的标签（与页大小无关），供「项目资产」列表内联
+        java.util.Map<UUID, java.util.List<com.vulnaudit.dto.AssetTagBrief>> tagsByAsset =
+                assetService.tagsByAssetIds(items.stream().map(ProjectAssetItem::assetId).toList());
+        List<ProjectAssetItem> itemsWithTags = items.stream()
+                .map(item -> new ProjectAssetItem(item.assetId(), item.assetName(), item.assetCode(),
+                        item.assetStatus(), item.assetPriority(), item.targetType(), item.ownerId(),
+                        item.linkId(), item.phaseId(), item.phaseName(), item.linkType(), item.remark(),
+                        item.linkedAt(),
+                        tagsByAsset.getOrDefault(item.assetId(), java.util.List.of())))
+                .toList();
+
         return PageResponse.<ProjectAssetItem>builder()
-                .content(items)
+                .content(itemsWithTags)
                 .totalElements(linkPage.getTotalElements())
                 .totalPages(linkPage.getTotalPages())
                 .currentPage(linkPage.getNumber())
@@ -353,6 +372,30 @@ public class AssetProjectLinkServiceImpl implements AssetProjectLinkService {
     private Customer requireCustomer(@Nullable UUID customerId) {
         return customerRepository.findById(customerId == null ? null : customerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.CUSTOMER_NOT_FOUND));
+    }
+
+    /**
+     * 挂靠时自动打标签（t141）：客户名 + 项目名
+     *
+     * <p>规则：
+     * <ul>
+     *   <li>标签定义不存在 → **自动创建**为自定义标签（builtin=false），name 即客户名/项目名；</li>
+     *   <li>幂等：同一资产重复挂靠同一项目不会产生重复的 {@code asset_tags} 行；</li>
+     *   <li>解绑**不**自动删标签（用户可能手工加过同名标签，删除会误伤），见 README §64.4。</li>
+     * </ul>
+     */
+    private void autoTag(UUID assetId, Customer customer, Project project, @Nullable UUID operatorId) {
+        java.util.List<String> names = new java.util.ArrayList<>(2);
+        if (customer != null && org.springframework.util.StringUtils.hasText(customer.getName())) {
+            names.add(customer.getName().trim());
+        }
+        if (project != null && org.springframework.util.StringUtils.hasText(project.getName())) {
+            names.add(project.getName().trim());
+        }
+        if (names.isEmpty()) {
+            return;
+        }
+        tagDefinitionService.applyTags(assetId, names, operatorId);
     }
 
     private ProjectPhase requirePhaseOfProject(@Nonnull Project project, @Nonnull UUID phaseId) {

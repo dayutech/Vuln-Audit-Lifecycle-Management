@@ -86,6 +86,9 @@ public class AssetResponse {
     @Schema(description = "挂靠明细（仅详情接口返回）")
     private List<AssetProjectLinkResponse> projectLinks;
 
+    /** t145：标签（列表内联，一次批量查询组装；无标签时为空数组而不是 null） */
+    private List<AssetTagBrief> tags;
+
     /**
      * 从Asset实体创建AssetResponse
      * 
@@ -114,6 +117,7 @@ public class AssetResponse {
                 .createdAt(asset.getCreatedAt())
                 .updatedAt(asset.getUpdatedAt())
                 .customers(List.of())
+                .tags(new java.util.ArrayList<>())
                 .projects(List.of())
                 .build();
     }

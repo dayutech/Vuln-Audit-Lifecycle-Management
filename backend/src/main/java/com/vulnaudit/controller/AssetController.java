@@ -14,6 +14,7 @@ import com.vulnaudit.service.AssetAccessService;
 import com.vulnaudit.service.AssetClaimService;
 import com.vulnaudit.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
+import jakarta.annotation.Nullable;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -56,6 +57,8 @@ public class AssetController {
     private final AssetHistoryRepository assetHistoryRepository;
     private final AssetRepository assetRepository;
     private final UserService userService;
+    /** t141：标签筛选（tags=AND / tagsAny=OR） */
+    private final com.vulnaudit.service.TagDefinitionService tagDefinitionService;
 
     private static final List<Map<String, String>> ASSET_PRIORITY_OPTIONS = List.of(
             Map.of("value", "P0", "label", "P0 - 核心/关键"),
@@ -148,10 +151,12 @@ public class AssetController {
             @Parameter(description = "优先级") @RequestParam(required = false) String priority,
             @Parameter(description = "客户ID（按挂靠筛选）") @RequestParam(required = false) UUID customerId,
             @Parameter(description = "项目ID（按挂靠筛选）") @RequestParam(required = false) UUID projectId,
-            @Parameter(description = "期次ID（按挂靠筛选）") @RequestParam(required = false) UUID phaseId) {
+            @Parameter(description = "期次ID（按挂靠筛选）") @RequestParam(required = false) UUID phaseId,
+            @Parameter(description = "标签名，逗号分隔，**AND** 语义（t141）") @RequestParam(required = false) String tags,
+            @Parameter(description = "标签名，逗号分隔，**OR** 语义（t141）") @RequestParam(required = false) String tagsAny) {
 
-        log.info("分页查询资产: page={}, size={}, keyword={}, status={}, customerId={}, projectId={}, phaseId={}",
-                page, size, keyword, status, customerId, projectId, phaseId);
+        log.info("分页查询资产: page={}, size={}, keyword={}, status={}, customerId={}, projectId={}, phaseId={}, tags={}, tagsAny={}",
+                page, size, keyword, status, customerId, projectId, phaseId, tags, tagsAny);
 
         // 单一事实来源：列表范围 = 详情判定（visibleAssetIds 为 null 表示管理层不限制）。
         // 此前列表未做任何过滤，导致「列表可见 → 点进去 403」。
@@ -162,9 +167,117 @@ public class AssetController {
         java.util.Set<UUID> ownershipFilteredIds =
                 assetProjectLinkService.filterAssetIds(customerId, projectId, phaseId);
 
+        // t141：标签筛选（tags=AND，tagsAny=OR）→ 与归属筛选取交集；可见性仍在服务层再收敛一次
+        java.util.Set<UUID> tagFilteredIds = resolveTagFilteredIds(tags, tagsAny, visibleAssetIds);
+        java.util.Set<UUID> filteredIds = intersect(ownershipFilteredIds, tagFilteredIds);
+
         PageResponse<AssetResponse> result = assetService.findAllWithDetails(
-                page, size, keyword, status, teamId, priority, visibleAssetIds, ownershipFilteredIds);
+                page, size, keyword, status, teamId, priority, visibleAssetIds, filteredIds);
         return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /**
+     * 标签筛选（t141）
+     *
+     * <p>选型：**同时支持** {@code tags}（AND）与 {@code tagsAny}（OR）；两者都给时取前者与后者的交集
+     * （即「同时满足全部 tags」且「至少命中一个 tagsAny」）。
+     *
+     * @return null 表示未指定标签筛选；空集表示无命中（调用方按「返回空页」处理）
+     */
+    private java.util.Set<UUID> resolveTagFilteredIds(@Nullable String tags, @Nullable String tagsAny,
+                                                     @Nullable java.util.Set<UUID> visibleAssetIds) {
+        java.util.Set<UUID> andIds = tagDefinitionService.resolveAssetIdsByTags(splitTags(tags));
+        java.util.Set<UUID> orIds = null;
+        java.util.List<String> anyList = splitTags(tagsAny);
+        if (anyList != null) {
+            orIds = new java.util.HashSet<>();
+            for (String name : anyList) {
+                orIds.addAll(tagDefinitionService.assetIdsWithTag(name, visibleAssetIds));
+            }
+        }
+        if (andIds == null) {
+            return orIds;
+        }
+        if (orIds == null) {
+            return andIds;
+        }
+        andIds.retainAll(orIds);
+        return andIds;
+    }
+
+    /** 逗号分隔 → 去空白/去重的名称列表；空串返回 null（= 未指定） */
+    private java.util.List<String> splitTags(@Nullable String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        java.util.List<String> names = new java.util.ArrayList<>();
+        for (String part : raw.split(",")) {
+            if (!part.isBlank()) {
+                names.add(part.trim());
+            }
+        }
+        return names.isEmpty() ? null : names;
+    }
+
+    /** 两个「受限 id 集合」求交；null = 不限制 */
+    private java.util.Set<UUID> intersect(@Nullable java.util.Set<UUID> left,
+                                          @Nullable java.util.Set<UUID> right) {
+        if (left == null) {
+            return right;
+        }
+        if (right == null) {
+            return left;
+        }
+        java.util.Set<UUID> result = new java.util.HashSet<>(left);
+        result.retainAll(right);
+        return result;
+    }
+
+    /** 批量端点最多接受的 id 数（t145） */
+    private static final int MAX_TAG_BATCH_IDS = 100;
+
+    @GetMapping("/tags")
+    @Operation(summary = "批量查询资产标签（t145）",
+            description = "ids 逗号分隔（最多 100 个）；返回 { assetId: [{id,name,color,builtin}] }；"
+                    + "不可见/不存在的 id 直接跳过（不报错、不泄露存在性）")
+    public ApiResponse<java.util.Map<UUID, java.util.List<com.vulnaudit.dto.AssetTagBrief>>> batchAssetTags(
+            @Parameter(description = "资产ID，逗号分隔，最多 100 个") @RequestParam(required = false) String ids,
+            org.springframework.security.core.Authentication authentication) {
+
+        java.util.List<UUID> requested = new java.util.ArrayList<>();
+        if (ids != null && !ids.isBlank()) {
+            for (String part : ids.split(",")) {
+                String value = part.trim();
+                if (value.isEmpty()) {
+                    continue;
+                }
+                if (requested.size() >= MAX_TAG_BATCH_IDS) {
+                    throw new com.vulnaudit.exception.BusinessException(
+                            com.vulnaudit.exception.ErrorCode.BAD_REQUEST,
+                            "一次最多查询 " + MAX_TAG_BATCH_IDS + " 个资产的标签");
+                }
+                try {
+                    requested.add(UUID.fromString(value));
+                } catch (IllegalArgumentException ex) {
+                    throw new com.vulnaudit.exception.BusinessException(
+                            com.vulnaudit.exception.ErrorCode.BAD_REQUEST, "资产ID 格式不正确: " + value);
+                }
+            }
+        }
+        if (requested.isEmpty()) {
+            return ApiResponse.success(java.util.Map.of());
+        }
+
+        // 与可见性取交集：不可见资产直接跳过（不泄露存在性）
+        java.util.Set<UUID> visibleAssetIds = accessGuard.visibleAssetIds(authentication);
+        java.util.List<UUID> allowed = visibleAssetIds == null
+                ? requested
+                : requested.stream().filter(visibleAssetIds::contains).toList();
+        if (allowed.isEmpty()) {
+            return ApiResponse.success(java.util.Map.of());
+        }
+        log.info("批量查询资产标签: requested={}, allowed={}", requested.size(), allowed.size());
+        return ApiResponse.success(assetService.tagsByAssetIds(allowed));
     }
 
     // ------------------------------------------------------------------ 资产-项目挂靠（t69）
@@ -268,15 +381,16 @@ public class AssetController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("@accessGuard.canWriteAsset(#id, authentication)")
-    @Operation(summary = "删除资产", description = "软删除资产（归档）")
+    @Operation(summary = "删除资产", description = "软删除资产（写 deleted_at，列表/详情/统计不再返回；唯一编号仍占用）")
     public ResponseEntity<ApiResponse<Void>> deleteAsset(@PathVariable UUID id) {
         log.info("删除资产: id={}", id);
-        
+
         UUID operatorId = getCurrentUserId(SecurityContextHolder.getContext().getAuthentication());
         String beforeStatus = assetRepository.findById(id).map(Asset::getStatus).orElse(null);
-        assetService.deleteAsset(id, null);
+        assetService.deleteAsset(id, operatorId);
         recordHistory(id, "status", beforeStatus, "archived", operatorId);
-        return ResponseEntity.ok(ApiResponse.success(null));
+        // t140：删除改为软删，响应语义统一为 204（不再返回 body）
+        return ResponseEntity.noContent().build();
     }
 
     @PutMapping("/{id}/status")

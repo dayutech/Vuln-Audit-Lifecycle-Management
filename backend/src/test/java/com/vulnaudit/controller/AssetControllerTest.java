@@ -284,7 +284,8 @@ public class AssetControllerTest extends BaseTest {
         void deleteAsset_Success() throws Exception {
             mockMvc.perform(delete("/api/v1/assets/" + testAsset.getId())
                     .header("Authorization", adminToken))
-                    .andExpect(status().isOk());
+                    // t140：删除改为软删，统一 204
+                    .andExpect(status().isNoContent());
         }
 
         @Test

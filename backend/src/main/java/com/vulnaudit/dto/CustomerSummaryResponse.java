@@ -70,6 +70,8 @@ public record CustomerSummaryResponse(
             String name,
             String targetType,
             String status,
-            List<String> projectNames) {
+            List<String> projectNames,
+            /** t145：标签摘要（与资产列表同一批查询口径） */
+            List<com.vulnaudit.dto.AssetTagBrief> tags) {
     }
 }

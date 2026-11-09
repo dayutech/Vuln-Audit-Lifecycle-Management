@@ -56,6 +56,20 @@ public class AssetGroup {
     private String description;
 
     /**
+     * 迁移水位（t141）：非空 = 该分组已转成标签（V30 / GroupToTagMigrator 处理过）
+     *
+     * <p>旧数据保留不删，便于回溯；迁移只处理 {@code deletedAt == null && migratedAt == null} 的分组。
+     */
+    @Column(name = "migrated_at")
+    private java.time.LocalDateTime migratedAt;
+
+    /**
+     * 软删时间（t141）：分组下线但保留历史；**已软删的分组不参与标签迁移**
+     */
+    @Column(name = "deleted_at")
+    private java.time.LocalDateTime deletedAt;
+
+    /**
      * 创建时间
      */
     @Column(name = "created_at", nullable = false, updatable = false)

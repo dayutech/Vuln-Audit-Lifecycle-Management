@@ -38,6 +38,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.List;
 import java.util.Locale;
+import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
@@ -77,6 +78,12 @@ public class CustomerServiceImpl implements CustomerService {
     private final AssetRepository assetRepository;
     private final VulnerabilityRepository vulnerabilityRepository;
     private final UserRepository userRepository;
+    /** t140：软删时记录操作者（deleted_by） */
+    private final com.vulnaudit.security.CurrentUserProvider currentUserProvider;
+    /** t140：原生 UPDATE 后清一级缓存，避免同事务读到旧快照 */
+    private final jakarta.persistence.EntityManager entityManager;
+    /** t145：summary 的 recentAssets 内联标签 */
+    private final com.vulnaudit.service.AssetService assetService;
 
     @Override
     @Transactional(readOnly = true)
@@ -161,8 +168,12 @@ public class CustomerServiceImpl implements CustomerService {
         // 客户下的挂靠（一次查询既算 stats 也用于 recentAssets）
         List<AssetProjectLink> customerLinks =
                 assetProjectLinkRepository.findByCustomerIdOrderByLinkedAtDesc(customer.getId());
-        List<UUID> allAssetIds = customerLinks.stream().map(AssetProjectLink::getAssetId)
+        List<UUID> linkedAssetIds = customerLinks.stream().map(AssetProjectLink::getAssetId)
                 .filter(Objects::nonNull).distinct().toList();
+        // t140：挂靠行在资产软删后仍保留（历史可追溯），但**已软删资产不计入**统计/最近资产；
+        // assetRepository 上的 @SQLRestriction 已过滤已删行，此处用它做一次「存活资产」交集（固定 1 次查询）
+        List<UUID> allAssetIds = linkedAssetIds.isEmpty() ? List.of()
+                : assetRepository.findAllById(linkedAssetIds).stream().map(Asset::getId).toList();
         List<UUID> visibleAssetIdsOfCustomer = visibleAssetIds == null
                 ? allAssetIds
                 : allAssetIds.stream().filter(visibleAssetIds::contains).toList();
@@ -190,13 +201,17 @@ public class CustomerServiceImpl implements CustomerService {
             }
         }
 
+        // t145：recentAssets 也内联标签（固定 2 次批量查询，与条数无关）
+        java.util.Map<UUID, java.util.List<com.vulnaudit.dto.AssetTagBrief>> tagsByAsset =
+                assetService.tagsByAssetIds(recentAssetIds);
         List<CustomerSummaryResponse.RecentAsset> recentAssets = recentAssetIds.stream()
                 .map(assetById::get)
                 .filter(Objects::nonNull)
                 .map(asset -> new CustomerSummaryResponse.RecentAsset(
                         asset.getId(), asset.getCode(), asset.getName(),
                         asset.getTargetType(), asset.getStatus(),
-                        projectNamesByAsset.getOrDefault(asset.getId(), List.of())))
+                        projectNamesByAsset.getOrDefault(asset.getId(), List.of()),
+                        tagsByAsset.getOrDefault(asset.getId(), List.of())))
                 .toList();
 
         // 漏洞数：按可见资产收敛（资产不可见 → 其漏洞也不该被计入）
@@ -314,6 +329,12 @@ public class CustomerServiceImpl implements CustomerService {
         return toResponse(customerRepository.save(customer));
     }
 
+    /**
+     * 删除客户 → **软删**（t140：只写 deleted_at，不再物理删除）
+     *
+     * <p>阻塞条件保持不变：其下仍有**未删**项目 → 409（已软删的子项不算阻塞）。
+     * 唯一键仍占用：删掉的 code 不能复用（数据库唯一索引未变）。
+     */
     @Override
     @Transactional
     public void delete(@Nullable UUID id) {
@@ -323,8 +344,10 @@ public class CustomerServiceImpl implements CustomerService {
             throw new BusinessException(ErrorCode.CUSTOMER_HAS_PROJECTS,
                     "该客户下仍有 " + projects.size() + " 个项目，无法删除");
         }
-        customerRepository.delete(customer);
-        log.info("删除客户: id={}, code={}", customer.getId(), customer.getCode());
+        UUID operatorId = currentUserProvider.currentUserId().orElse(null);
+        customerRepository.softDeleteById(customer.getId(), LocalDateTime.now(), operatorId);
+        entityManager.clear();
+        log.info("软删客户: id={}, code={}, operatorId={}", customer.getId(), customer.getCode(), operatorId);
     }
 
     // ------------------------------------------------------------------ 内部
@@ -388,14 +411,15 @@ public class CustomerServiceImpl implements CustomerService {
     private String resolveCode(String raw) {
         if (StringUtils.hasText(raw)) {
             String candidate = raw.trim();
-            if (customerRepository.existsByCode(candidate)) {
+            // t140：查重包含已软删行 —— 软删记录仍占用唯一键（code 不可复用）
+            if (customerRepository.countByCodeIncludingDeleted(candidate) > 0) {
                 throw new BusinessException(ErrorCode.CUSTOMER_CODE_EXISTS, "客户编码已存在: " + candidate);
             }
             return candidate;
         }
         for (int attempt = 0; attempt < CODE_MAX_ATTEMPTS; attempt++) {
             String candidate = generateCode();
-            if (!customerRepository.existsByCode(candidate)) {
+            if (customerRepository.countByCodeIncludingDeleted(candidate) == 0) {
                 return candidate;
             }
             log.warn("客户编码冲突，重试: code={}, attempt={}", candidate, attempt + 1);
@@ -418,6 +442,12 @@ public class CustomerServiceImpl implements CustomerService {
                 throw new BusinessException(ErrorCode.CUSTOMER_CODE_EXISTS, "客户编码已存在: " + candidate);
             }
         });
+        // 含已删行的占用检查（findByCode 已被 @SQLRestriction 过滤，看不到软删行）
+        long occupied = customerRepository.countByCodeIncludingDeleted(candidate)
+                - (candidate.equals(currentCode) ? 1 : 0);
+        if (occupied > 0 && !candidate.equals(currentCode)) {
+            throw new BusinessException(ErrorCode.CUSTOMER_CODE_EXISTS, "客户编码已存在: " + candidate);
+        }
         return candidate;
     }
 

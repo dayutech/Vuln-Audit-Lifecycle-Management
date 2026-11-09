@@ -36,6 +36,9 @@ public interface AssetTagRepository extends JpaRepository<AssetTag, UUID> {
      */
     List<AssetTag> findByTag(String tag);
 
+    /** t145：一次批量取多个资产的标签（列表内联，禁止 N+1） */
+    List<AssetTag> findByAssetIdIn(java.util.Collection<UUID> assetIds);
+
     /**
      * 检查资产是否有指定标签
      * 

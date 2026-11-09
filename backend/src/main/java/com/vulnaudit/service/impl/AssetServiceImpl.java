@@ -59,6 +59,11 @@ public class AssetServiceImpl implements AssetService {
     private final com.vulnaudit.repository.AssetProjectLinkRepository assetProjectLinkRepository;
     private final com.vulnaudit.repository.ProjectRepository projectRepository;
     private final com.vulnaudit.repository.CustomerRepository customerRepository;
+    /** t145：列表内联标签（批量查询，禁止 N+1） */
+    private final com.vulnaudit.repository.AssetTagRepository assetTagRepository;
+    private final com.vulnaudit.repository.TagDefinitionRepository tagDefinitionRepository;
+    /** t140：软删写入后 flush + clear，保证同一事务后续读取不再看到旧快照 */
+    private final jakarta.persistence.EntityManager entityManager;
 
     private static final List<String> VALID_PRIORITIES = List.of("P0", "P1", "P2", "P3");
     private static final List<String> VALID_STATUSES = List.of("active", "under_test", "suspended", "archived");
@@ -298,6 +303,8 @@ public class AssetServiceImpl implements AssetService {
 
         // t69：一次性批量组装归属摘要（挂靠 → 项目 → 客户），与页大小无关
         attachOwnership(responses);
+        // t145：一次性批量组装标签（2 次查询：asset_tags + tag_definitions），与页大小无关
+        attachTags(responses);
 
         return PageResponse.<AssetResponse>builder()
                 .content(responses)
@@ -371,6 +378,81 @@ public class AssetServiceImpl implements AssetService {
             response.setProjects(new ArrayList<>(
                     projectsByAsset.getOrDefault(response.getId(), new java.util.LinkedHashMap<>()).values()));
         }
+    }
+
+    /**
+     * 给当前页资产批量填充标签（t145）
+     *
+     * <p>**固定 2 次查询**（{@code asset_tags} 按 assetId 批量 + {@code tag_definitions} 按 name 批量），
+     * 与页大小、与「每项标签数量」都无关；不允许按行查（t143 报告里前端一页 20 行 = 20 个请求）。
+     *
+     * <p>无标签的资产填**空列表**（不是 null），前端可直接渲染。
+     */
+    private void attachTags(List<AssetResponse> responses) {
+        if (responses.isEmpty()) {
+            return;
+        }
+        List<UUID> assetIds = responses.stream().map(AssetResponse::getId).filter(Objects::nonNull).toList();
+        if (assetIds.isEmpty()) {
+            return;
+        }
+        Map<UUID, List<com.vulnaudit.dto.AssetTagBrief>> byAsset = loadTags(assetIds);
+        for (AssetResponse response : responses) {
+            response.setTags(byAsset.getOrDefault(response.getId(), new ArrayList<>()));
+        }
+    }
+
+    @Override
+    public Map<UUID, List<com.vulnaudit.dto.AssetTagBrief>> tagsByAssetIds(java.util.Collection<UUID> assetIds) {
+        if (assetIds == null || assetIds.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> ids = assetIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return loadTags(ids);
+    }
+
+    /**
+     * 批量装载标签：assetId → 标签摘要列表
+     *
+     * <p>两条查询：① {@code asset_tags} 按 assetId 集合；② {@code tag_definitions} 按 name 集合。
+     * 定义缺失（历史脏数据）时仍返回条目，只是 {@code id=null}/{@code builtin=false}，避免「标签莫名消失」。
+     */
+    private Map<UUID, List<com.vulnaudit.dto.AssetTagBrief>> loadTags(List<UUID> assetIds) {
+        List<com.vulnaudit.entity.AssetTag> rows = assetTagRepository.findByAssetIdIn(assetIds);
+        if (rows.isEmpty()) {
+            return Map.of();
+        }
+        java.util.Set<String> names = rows.stream()
+                .map(com.vulnaudit.entity.AssetTag::getTag)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<String, com.vulnaudit.entity.TagDefinition> definitions = names.isEmpty() ? Map.of()
+                : tagDefinitionRepository.findByNameIn(names).stream()
+                        .collect(Collectors.toMap(com.vulnaudit.entity.TagDefinition::getName,
+                                definition -> definition, (left, right) -> left));
+
+        Map<UUID, List<com.vulnaudit.dto.AssetTagBrief>> result = new java.util.HashMap<>();
+        for (com.vulnaudit.entity.AssetTag row : rows) {
+            if (row.getAssetId() == null || row.getTag() == null) {
+                continue;
+            }
+            com.vulnaudit.entity.TagDefinition definition = definitions.get(row.getTag());
+            result.computeIfAbsent(row.getAssetId(), key -> new ArrayList<>())
+                    .add(new com.vulnaudit.dto.AssetTagBrief(
+                            definition == null ? null : definition.getId(),
+                            row.getTag(),
+                            definition == null ? null : definition.getColor(),
+                            definition != null && definition.isBuiltin()));
+        }
+        // 稳定顺序：内置优先、再按名称，避免同一页刷新顺序跳动
+        result.values().forEach(list -> list.sort(java.util.Comparator
+                .comparing(com.vulnaudit.dto.AssetTagBrief::builtin).reversed()
+                .thenComparing(com.vulnaudit.dto.AssetTagBrief::name,
+                        java.util.Comparator.nullsLast(String::compareTo))));
+        return result;
     }
 
     /**
@@ -473,12 +555,14 @@ public class AssetServiceImpl implements AssetService {
     }
 
     /**
-     * 删除资产（软删除）
+     * 删除资产 → **软删**（t140：写 deleted_at/deleted_by；挂靠行保留，历史可追溯）
+     *
+     * <p>同时保留原来的 {@code status=archived}（历史口径：归档语义），但可见性由 deleted_at 统一控制。
      */
     @Override
     @Transactional
     public void deleteAsset(@Nullable UUID id, @Nullable UUID operatorId) {
-        log.info("删除资产: id={}, operatorId={}", id, operatorId);
+        log.info("删除资产（软删）: id={}, operatorId={}", id, operatorId);
 
         if (id == null) {
             throw new BusinessException(ErrorCode.ASSET_NOT_FOUND);
@@ -489,11 +573,15 @@ public class AssetServiceImpl implements AssetService {
                     log.warn("资产不存在: id={}", id);
                     return new BusinessException(ErrorCode.ASSET_NOT_FOUND);
                 });
-        
+
         asset.setStatus("archived");
+        asset.setDeletedAt(java.time.LocalDateTime.now());
+        asset.setDeletedBy(operatorId);
         assetRepository.save(asset);
-        
-        log.info("资产已归档: id={}", id);
+        entityManager.flush();
+        entityManager.clear();
+
+        log.info("资产已软删: id={}, operatorId={}", id, operatorId);
     }
 
     /**

@@ -22,6 +22,14 @@ import java.util.UUID;
 public interface AssetService {
 
     /**
+     * 批量取资产标签摘要（t145）：assetId -> [{id,name,color,builtin}]
+     *
+     * <p>实现固定 2 次查询（asset_tags 批量 + tag_definitions 批量），供列表内联与批量端点共用。
+     */
+    java.util.Map<UUID, java.util.List<com.vulnaudit.dto.AssetTagBrief>> tagsByAssetIds(
+            java.util.Collection<UUID> assetIds);
+
+    /**
      * 创建资产
      *
      * @param asset 资产实体
