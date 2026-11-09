@@ -61,6 +61,10 @@ public class AssetDeliverable {
     @Column(name = "uploaded_by", nullable = false)
     private UUID uploadedBy;
 
+    /** t148：上传备注（与 description 分离，≤500） */
+    @Column(name = "remark", length = 500)
+    private String remark;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

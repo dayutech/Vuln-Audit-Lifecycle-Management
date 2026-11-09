@@ -8,7 +8,8 @@ import java.util.List;
 import java.util.UUID;
 
 @Repository
-public interface AssetDeliverableRepository extends JpaRepository<AssetDeliverable, UUID> {
+public interface AssetDeliverableRepository extends JpaRepository<AssetDeliverable, UUID>,
+        org.springframework.data.jpa.repository.JpaSpecificationExecutor<AssetDeliverable> {
 
     List<AssetDeliverable> findByAssetIdAndAssetVersionIdOrderByCreatedAtDesc(UUID assetId, UUID assetVersionId);
 

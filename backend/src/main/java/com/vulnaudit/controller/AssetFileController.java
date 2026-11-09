@@ -1,6 +1,7 @@
 package com.vulnaudit.controller;
 
 import com.vulnaudit.dto.ApiResponse;
+import com.vulnaudit.dto.PageResponse;
 import com.vulnaudit.entity.AssetFile;
 import com.vulnaudit.entity.AssetFileVersion;
 import com.vulnaudit.exception.BusinessException;
@@ -22,6 +23,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.data.domain.Sort;
+import org.springframework.util.StringUtils;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
@@ -55,26 +58,102 @@ public class AssetFileController {
     private final AssetFileVersionRepository assetFileVersionRepository;
     private final AssetVersionRepository assetVersionRepository;
     private final UserService userService;
+    /** t148：排序白名单 + 上传人批量解析 */
+    private final com.vulnaudit.service.AttachmentListSupport attachmentListSupport;
     
     private static final String UPLOAD_DIR = "./uploads/assets/";
 
     @GetMapping("/assets/{assetId}/files")
     @PreAuthorize("@accessGuard.canReadAsset(#assetId, authentication)")
-    @Operation(summary = "获取资产文件列表", description = "获取指定资产的所有文件")
-    public ResponseEntity<ApiResponse<List<AssetFile>>> listAssetFiles(
+    @Operation(summary = "获取资产文件列表（分页 + 筛选 + 排序，t148）",
+            description = "默认 page=0&size=20（size ≤100）；sort 白名单 uploadedAt/createdAt、name、size/fileSize、category；"
+                    + "筛选 keyword（文件名）、category、uploaderId、dateFrom/dateTo；返回 {content,totalElements,totalPages,currentPage,pageSize}；"
+                    + "每项含 uploadedBy + uploaderName（一次批量解析，无 N+1）与 remark")
+    public ResponseEntity<ApiResponse<PageResponse<com.vulnaudit.dto.AssetFileItem>>> listAssetFiles(
             @PathVariable UUID assetId,
             @RequestParam(required = false) UUID assetVersionId,
-            @RequestParam(defaultValue = "false") boolean allVersions) {
-        if (allVersions) {
-            log.info("获取资产文件列表(所有版本): assetId={}", assetId);
-            List<AssetFile> files = assetFileRepository.findByAssetIdAndStatusOrderByCreatedAtDesc(assetId, "active");
-            return ResponseEntity.ok(ApiResponse.success(files));
-        }
-        UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
-        log.info("获取资产文件列表: assetId={}, assetVersionId={}", assetId, resolvedVersionId);
+            @RequestParam(defaultValue = "false") boolean allVersions,
+            @Parameter(description = "页码（0-based）") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "每页条数（≤100）") @RequestParam(defaultValue = "20") int size,
+            @Parameter(description = "排序，如 uploadedAt,desc / name,asc / size,desc")
+            @RequestParam(required = false) String sort,
+            @Parameter(description = "文件名模糊") @RequestParam(required = false) String keyword,
+            @Parameter(description = "分类") @RequestParam(required = false) String category,
+            @Parameter(description = "上传人ID") @RequestParam(required = false) UUID uploaderId,
+            @Parameter(description = "上传时间起（ISO 日期，含当日）")
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso =
+                    org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate dateFrom,
+            @Parameter(description = "上传时间止（ISO 日期，含当日）")
+            @RequestParam(required = false) @org.springframework.format.annotation.DateTimeFormat(iso =
+                    org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate dateTo) {
 
-        List<AssetFile> files = findFilesByAssetAndVersion(assetId, resolvedVersionId);
-        return ResponseEntity.ok(ApiResponse.success(files));
+        int safePage = attachmentListSupport.resolvePage(page);
+        int safeSize = attachmentListSupport.resolveSize(size);
+        Sort sortSpec = attachmentListSupport.resolveSort(sort,
+                com.vulnaudit.service.AttachmentListSupport.fileSortWhitelist(), "uploadedAt");
+
+        org.springframework.data.jpa.domain.Specification<AssetFile> spec = (root, query, cb) -> {
+            java.util.List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
+            predicates.add(cb.equal(root.get("assetId"), assetId));
+            // 旧语义：只列 active（deleted/archived 不进列表）
+            predicates.add(cb.equal(root.get("status"), "active"));
+            if (StringUtils.hasText(keyword)) {
+                predicates.add(cb.like(cb.lower(root.get("name")), "%" + keyword.trim().toLowerCase() + "%"));
+            }
+            if (StringUtils.hasText(category)) {
+                predicates.add(cb.equal(root.get("category"), category.trim()));
+            }
+            if (uploaderId != null) {
+                predicates.add(cb.equal(root.get("uploadedBy"), uploaderId));
+            }
+            if (dateFrom != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("createdAt"), dateFrom.atStartOfDay()));
+            }
+            if (dateTo != null) {
+                predicates.add(cb.lessThan(root.get("createdAt"), dateTo.plusDays(1).atStartOfDay()));
+            }
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+
+        org.springframework.data.domain.Page<AssetFile> result;
+        if (allVersions) {
+            log.info("获取资产文件列表(所有版本): assetId={}, page={}, size={}, sort={}", assetId, safePage, safeSize, sort);
+            result = assetFileRepository.findAll(spec,
+                    org.springframework.data.domain.PageRequest.of(safePage, safeSize, sortSpec));
+        } else {
+            UUID resolvedVersionId = resolveAssetVersionId(assetId, assetVersionId);
+            log.info("获取资产文件列表: assetId={}, assetVersionId={}, page={}, size={}, sort={}",
+                    assetId, resolvedVersionId, safePage, safeSize, sort);
+            // 旧语义：优先该版本的文件；该版本没有则回落到「无版本」文件
+            result = assetFileRepository.findAll(
+                    spec.and((root, query, cb) -> cb.equal(root.get("assetVersionId"), resolvedVersionId)),
+                    org.springframework.data.domain.PageRequest.of(safePage, safeSize, sortSpec));
+            if (result.getTotalElements() == 0) {
+                result = assetFileRepository.findAll(
+                        spec.and((root, query, cb) -> cb.isNull(root.get("assetVersionId"))),
+                        org.springframework.data.domain.PageRequest.of(safePage, safeSize, sortSpec));
+            }
+        }
+
+        // 上传人展示名：一次批量（与页大小无关）
+        java.util.Map<UUID, String> uploaderNames = attachmentListSupport.uploaderNames(
+                result.getContent().stream().map(AssetFile::getUploadedBy).toList());
+        List<com.vulnaudit.dto.AssetFileItem> items = result.getContent().stream()
+                .map(file -> new com.vulnaudit.dto.AssetFileItem(
+                        file.getId(), file.getAssetId(), file.getAssetVersionId(), file.getName(),
+                        file.getCategory(), file.getDescription(), file.getRemark(), file.getFileSize(),
+                        file.getFilePath(), file.getChecksum(), file.getVersion(), file.getStatus(),
+                        file.getCreatedAt(), file.getUploadedBy(),
+                        file.getUploadedBy() == null ? null : uploaderNames.get(file.getUploadedBy())))
+                .toList();
+
+        return ResponseEntity.ok(ApiResponse.success(PageResponse.<com.vulnaudit.dto.AssetFileItem>builder()
+                .content(items)
+                .totalElements(result.getTotalElements())
+                .totalPages(result.getTotalPages())
+                .currentPage(safePage)
+                .pageSize(safeSize)
+                .build()));
     }
 
     @GetMapping("/asset-files/{id}")
@@ -97,7 +176,9 @@ public class AssetFileController {
             @RequestParam(required = false) UUID assetVersionId,
             @Parameter(description = "文件") @RequestParam("file") MultipartFile file,
             @Parameter(description = "文件分类") @RequestParam String category,
-            @Parameter(description = "描述") @RequestParam(required = false) String description) throws IOException {
+            @Parameter(description = "描述") @RequestParam(required = false) String description,
+            @Parameter(description = "备注（≤500，与 description 分离）") @RequestParam(required = false) String remark) throws IOException {
+        com.vulnaudit.service.AttachmentListSupport.validateRemark(remark);
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "上传文件不能为空");
         }
@@ -130,6 +211,7 @@ public class AssetFileController {
                 .name(originalFilename)
                 .category(category)
                 .description(description)
+                .remark(remark)
                 .fileSize(fileSize)
                 .filePath(filePath.toString())
                 .checksum(checksum)

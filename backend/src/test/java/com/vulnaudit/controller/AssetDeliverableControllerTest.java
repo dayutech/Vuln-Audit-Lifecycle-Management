@@ -96,9 +96,9 @@ public class AssetDeliverableControllerTest extends BaseTest {
                             .param("assetVersionId", testVersion.getId().toString())
                             .header("Authorization", engineerToken))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data").isArray())
-                    .andExpect(jsonPath("$.data.length()").value(1))
-                    .andExpect(jsonPath("$.data[0].deliverableType").value("POC脚本"));
+                    .andExpect(jsonPath("$.data.content").isArray())
+                    .andExpect(jsonPath("$.data.content.length()").value(1))
+                    .andExpect(jsonPath("$.data.content[0].deliverableType").value("POC脚本"));
         }
     }
 

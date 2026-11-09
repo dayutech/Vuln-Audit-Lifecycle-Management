@@ -18,7 +18,8 @@ import java.util.UUID;
  * - 提供文件查询相关的自定义方法
  */
 @Repository
-public interface AssetFileRepository extends JpaRepository<AssetFile, UUID> {
+public interface AssetFileRepository extends JpaRepository<AssetFile, UUID>,
+        org.springframework.data.jpa.repository.JpaSpecificationExecutor<AssetFile> {
 
     /**
      * 根据资产ID查询所有文件

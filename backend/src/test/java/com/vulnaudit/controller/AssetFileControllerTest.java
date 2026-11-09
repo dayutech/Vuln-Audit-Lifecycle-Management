@@ -99,8 +99,8 @@ public class AssetFileControllerTest extends BaseTest {
             mockMvc.perform(get("/api/v1/assets/" + testAsset.getId() + "/files")
                     .header("Authorization", adminToken))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.data.length()").value(1))
-                    .andExpect(jsonPath("$.data[0].name").value("test_file.zip"));
+                    .andExpect(jsonPath("$.data.content.length()").value(1))
+                    .andExpect(jsonPath("$.data.content[0].name").value("test_file.zip"));
         }
     }
 
