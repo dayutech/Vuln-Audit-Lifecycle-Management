@@ -2054,3 +2054,19 @@ Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试
 说明：本应按三个提交落地，但 `CustomerServiceImpl`（t140 的统计改动）依赖 t145 的 `AssetTagBrief/tagsByAssetIds`，拆开会编译不过，故合并为两个提交并在提交信息中注明。
 
 **已知边界（新增）**：① `@SQLRestriction` 对原生 SQL 不生效，「含已删」路径必须显式走管理端/restore 原生查询，新增统计代码需自查；② 标签筛选先取 id 集合再求交，超大租户后续可改 `EXISTS` 子查询；③ 解绑项目不删标签（`asset_tags.tag` 是快照，避免误删手工标签）。
+
+### 2.36 t150 部署验收：V31 附件元数据 + 分页契约 + 内联标签（前后端同批）
+
+**全量回归**：`mvn -B clean test` 连续 2 次 → **995 例 / Failures 0 / Errors 0 / Skipped 0**。
+
+**V31 迁移**：空库 + 生产克隆 × `general_ci`/`unicode_ci` × 各 2 遍 → **18 项断言全绿**；生产库两遍 `exit=0`：两表 `remark varchar(500)`、两个排序索引、`uploaded_by IS NULL` 覆盖率 0/0、既有附件未受影响。
+
+**同批部署**：后端 jar 73,458,082 B（重启 18–20s login=200）+ 前端清 `.tmp` 后构建 `index-BJk1I-ZA.js` / `index-C9wuC1eN.css` 并 `sync-dist`；线上 `index.html` 已引用新 chunk —— 契约变更必须前后端同批，否则页签空白。
+
+**真机 API 23 项**：分页信封、`size=1/20`、`size=101→400`、`sort` 白名单与非法 sort 400、keyword/category/uploaderId 过滤、上传 `remark` 回读与 501→400、交付物同构（`deliverableType` 必填）、内联 `tags`、软删除 204/404/409/restore、2FA、remember-me、锁定 429+900。
+
+**真机浏览器 11 项（真实 Edge + CDP）**：资产列表页 per-asset `/assets/{id}/tags` 请求数 **0** 且标签列渲染；「资产文件」页签 2 行含备注与上传人；「交付物管理」页签 1 行含备注；页面上下文取 `files` 接口为分页信封；`pageErrors=[]`。
+
+**排查记档**：自动化首轮报「页签空白」属脚本误判（页签文案为「资产文件」「交付物管理」、行选择器应取 `.ant-table-row`、须按 `aria-hidden` 取当前面板），**页面与接口契约均正常**，未以修改断言的方式绕过。
+
+**已知边界**：① 前端在拿到分页信封后仍保留「本地降级模式」文案（`筛选对已加载的数据生效`），属 t149 双模式设计；② 上传人下拉选项来自当前页（后端无聚合端点），跨页选择受限；③ `version`/`uploader` 两列后端排序白名单未包含，前端仅做页内排序。

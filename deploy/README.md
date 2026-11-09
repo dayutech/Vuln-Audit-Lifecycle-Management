@@ -4345,3 +4345,53 @@ V31 脚本守卫（两表 remark、两个排序索引、uploaded_by 覆盖率校
 3. **任务粒度提交会破坏可编译性**：`CustomerServiceImpl`（t140 的统计改动）依赖 t145 的 `AssetTagBrief/tagsByAssetIds`，按 t140 单独提交编译不过 → 最终按 `t140` 与 `t141+t145` 两个提交落地（已在提交信息注明）。
 4. **连续多轮冒烟会撞限流**：除 IP 验证码上限外，还有「重置密码失败次数」限流（默认 5/15min），需临时放宽 `APP_VERIFICATION_RESET_MAX_FAILED` 才能跑完整链路。
 5. **401 的假象**：真机脚本里用 `/users/me` 取 admin id 拿不到（返回体结构不同），导致后续创建项目缺 `managerId` → 400，连锁使标签断言全红；改用登录响应 `data.userId`。
+---
+
+## 67. 第四十三轮（t150 部署：V31 附件元数据 + 分页契约 + 内联标签，前后端同批）
+
+时间：2026-11-09 17:30–18:2x。**后端 jar 与前端 dist 同一批次发布**（契约变更必须同批，否则页签空白）。
+
+| 项 | 结果 |
+|---|---|
+| 全量回归 | `mvn -B clean test` **连续 2 次全绿：995 例 / 0 / 0 / 0**（宿主 JDK21，pom target 17） |
+| V31 迁移双场景 | V31 × 空库/生产克隆 × `general_ci`/`unicode_ci` × 各 2 遍 → **18 项断言全绿**；生产库执行两遍 `exit=0`：`asset_files.remark` / `asset_deliverables.remark` 各 `varchar(500)`、两个排序索引就位、`uploaded_by IS NULL` 覆盖率 **0/0**、数据未受影响（files=4） |
+| 部署 | jar **73,458,082 B**（旧 jar 备份），重启 18–20s 内 login=200；前端清 `.tmp` 后构建 **`index-BJk1I-ZA.js` 2,862.40 kB / `index-C9wuC1eN.css` 30.80 kB**，`sync-dist` 5 文件，线上 `index.html` 已引用新 chunk |
+| 冒烟 | **292 / 292 PASS，0 FAIL，0 SKIP**（无需改断言：软删 204 与标签接口自 t147 起已覆盖） |
+| 真机 API | **23 项全通过**（分页契约 13 + 内联标签 2 + 回归 4 + 前置），见 §67.1 |
+| 真机浏览器 | **T150_UI 11/11 PASS，pageErrors=[]**，见 §67.2 |
+
+### 67.1 真机 API 验收（关键项）
+
+- **分页契约**：`GET /assets/{id}/files?page=0&size=20` → `{content,totalElements,totalPages,currentPage,pageSize}`；`size=1` → 1 条、`size=20` → 2 条；`size=101` → **400**；`sort=name,asc` 生效、`sort=hack,asc` → **400**；`keyword=t150-a` → 1 条；`category=REPORT` → 1 条；`uploaderId=<admin>` → 2 条；交付物同构（`deliverableType` 必填，`sort=deliverableType` → 200）。
+- **上传备注**：上传带 `remark` → 列表回读 `remark` 与 `uploadedBy.uploaderName`；`remark` 501 字符 → **400**（落盘前校验）。
+- **内联标签**：`GET /assets?size=20` 每项含 `tags`；挂靠后 `GET /assets/{id}/tags` 含客户名 + 项目名。
+- **回归**：软删除 204 → 详情 404 → 同 code 409 → restore 204；2FA 全链路；remember-me 下发与轮换；恢复默认后 6 次错密码 **429 + Retry-After 900**。
+
+### 67.2 真机浏览器验收（真实 Edge + 原生 CDP，11 项）
+
+| # | 断言 | 结果 |
+|---|---|---|
+| 1 | 资产列表页**未按行**请求 `/assets/{id}/tags`（内联标签生效） | **per-asset=0**，batch=0 |
+| 2 | 列表有数据行 + 标签列渲染（客户名/项目名） | 6 行，命中 `t150客户`/`t150项目` |
+| 3 | 资产详情「**资产文件**」页签不空白 | **2 行**：`t150-b.txt REPORT 20B admin t150备注B`、`t150-a.txt SCREENSHOT 20B admin t150备注A` |
+| 4 | 文件列表含**备注列**与**上传人列** | 命中 `t150备注A/B`、`admin` |
+| 5 | 「**交付物管理**」页签不空白 + 备注 | **1 行**：`t150-d2.txt REPORT 21B admin t150交付备注` |
+| 6 | 页面上下文取 `files` 接口 → 分页信封 | `{envelope:true,total:2}` |
+| 7 | 页面无 JS 异常 | `pageErrors=[]` |
+
+截图：`.tmp-t150/shot-asset-list.png`、`shot-asset-files.png`、`shot-asset-deliverables.png`。
+
+### 67.3 排查记档（页签「空白」的三次误判）
+
+首次自动化报「文件页签 rows=0」，逐层排查后确认**页面本身正常**，全部是验证脚本的错：
+1. 页签文案是「**资产文件**」和「**交付物管理**」，脚本按 `^文件$` / `^交付物$` 匹配 → 点不到；
+2. 行选择器用了 `tbody tr`，该表用虚拟/普通表混排时应取 `.ant-table-row`；
+3. 页签面板需按 `aria-hidden` 判断当前面板，否则统计到隐藏面板（概览）的 0 行。
+
+另记：页面在拿到分页信封后仍显示「筛选对已加载的数据生效」是 t149 的**双模式**设计（本地降级模式文案），不是契约不一致——接口返回的是 `{content,totalElements}`（页面上下文实测）。
+
+### 67.4 环境与清理
+
+- 临时开关（dev-mode / IP / 重置 / 锁定阈值）全部移除并重启复核：发码响应无 `devCode`、锁定仍 6 次触发 **429 + Retry-After 900**。
+- 临时库 `vuln_audit_verify_*`/`vuln_audit_clone_*` 全部 DROP，`vulnapp` 临时授权已 REVOKE。
+- 数据终态：`customers=1 projects=1 phases=0 assets=3 links=3`、`orphan_assets=0`、`tag_definitions=3(builtin)`、`asset_tags=0`、`files=4`（示例资产原有附件）、`deliverables=0`、`users=12`、`requests=0`、`codes=0`、`rm_tokens=0`。

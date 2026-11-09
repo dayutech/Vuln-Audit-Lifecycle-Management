@@ -373,3 +373,12 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 冒烟：TOTAL=292 PASS=292 FAIL=0 SKIP=0（新增软删 7 + 标签 6）。
 - 真机验收：软删除 10 项（204/列表不含/404/同code 409/includeDeleted/restore 204/deleted_at 回 NULL/再删 NOT NULL）、标签 5 项（自动打客户名+项目名、列表内联 tags、批量端点、/tags assetCount 管理员 18 vs 工程师 0）、N+1 观测（size5 141ms vs size20 142ms，单测断言查询数严格相等）、回归（2FA 全链路、remember-me 轮换、锁定 429 + Retry-After 899）。
 - 数据终态：customers=1 projects=1 phases=0 assets=3 links=3、orphan=0、soft_deleted_rows=0、tag_definitions=3、asset_tags=0、users=12、requests=0、codes=0、rm_tokens=0；临时开关与临时库全部清理。
+########## 二十、t150 部署（V31 附件元数据 + 分页契约 + 内联标签，前后端同批，2026-11-09 18:2x） ##########
+- 全量回归：mvn -B clean test 连续 2 次 → 995 例 / Failures 0 / Errors 0 / Skipped 0。
+- V31 双场景：空库/克隆 × general_ci/unicode_ci × 各 2 遍 → 18 项断言全绿；生产库两遍 exit=0（两表 remark varchar(500)、2 个排序索引、uploaded_by 空值覆盖率 0/0、files=4 未受影响）。
+- 部署：后端 jar 73,458,082 B，重启 18–20s login=200；前端清 tsbuildinfo 后构建 index-BJk1I-ZA.js 2,862.40 kB + index-C9wuC1eN.css 30.80 kB，sync-dist 5 文件，线上 index.html 引用新 chunk（前后端同批）。
+- 冒烟：TOTAL=292 PASS=292 FAIL=0 SKIP=0（断言无需改动）。
+- 真机 API 23 项全通过：分页信封/size=1&20/size=101→400/sort 白名单/非法 sort→400/keyword/category/uploaderId 过滤、上传 remark 回读、remark 501→400、交付物同构、内联 tags、软删 204/404/409/restore、2FA、remember-me、锁定 429+900。
+- 真机浏览器 T150_UI 11/11：列表页 per-asset /assets/{id}/tags 请求数 0 且标签列渲染；资产文件页签 2 行（含备注/上传人）；交付物管理页签 1 行（含备注）；files 接口分页信封；pageErrors=[]。
+- 排查记档：页签「空白」三次误判均为脚本问题（页签文案「资产文件/交付物管理」、行选择器应用 .ant-table-row、按 aria-hidden 取当前面板），页面与契约正常。
+- 数据终态：customers=1 projects=1 assets=3 links=3、orphan=0、tag_definitions=3、asset_tags=0、files=4、deliverables=0、users=12、requests/codes/rm_tokens=0；临时开关/临时库/临时授权全部清理。
