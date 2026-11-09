@@ -640,7 +640,12 @@ if [ -n "$ADMIN_TOKEN" ] && [ -n "$ENGINEER_TOKEN" ] && [ -n "$LEADER_TOKEN" ]; 
       seen=$((seen + 1))
       [ "$seen" -gt 5 ] && break
       request GET "/api/v1/assets/${aid}" "$tk"
-      [ "$LAST_STATUS" = "200" ] || { bad=$((bad + 1)); echo "    detail($aid)=${LAST_STATUS}" >&2; }
+      # t147：列表 → 详情之间夹具可能已被软删/清掉（404），这不算可见性缺陷；只把 401/403/5xx 计为失败
+      case "$LAST_STATUS" in
+        200) ;;
+        404) seen=$((seen - 1)); echo "    detail($aid)=404（已删除，跳过）" >&2 ;;
+        *) bad=$((bad + 1)); echo "    detail($aid)=${LAST_STATUS}" >&2 ;;
+      esac
     done <"$list_ids"
     if [ "$seen" -eq 0 ]; then
       pass "vis/${prefix}-列表空" "$LAST_STATUS" "该账号列表为空，逐条详情跳过"
@@ -2191,7 +2196,83 @@ else
   fi
 fi
 
-printf '\n==== 冒烟汇总 ====\n'
+# ---- 软删除（t140）：204 / 404 / 同 code 409 / includeDeleted 可见 / restore ----
+  SD_CODE="SMK-SD-${TAG}"
+  api_json POST '/api/v1/customers' "$ADMIN_TOKEN" \
+    "{\"code\":\"${SD_CODE}\",\"name\":\"冒烟软删客户 ${TAG}\",\"industryName\":\"金融业\"}"
+  SD_ID="$(jfirst id)"
+  judge "softdel/建客户-201" 201 '"id"' "POST /customers（软删夹具）"
+  if [ -n "$SD_ID" ]; then
+    request DELETE "/api/v1/customers/${SD_ID}" "$ADMIN_TOKEN"
+    judge "softdel/删除-204" 204 '' "DELETE /customers/{id}（软删）"
+
+    request GET "/api/v1/customers/${SD_ID}" "$ADMIN_TOKEN"
+    judge "softdel/删后详情-404" 404 '' "软删后详情不可见"
+
+    api_json POST '/api/v1/customers' "$ADMIN_TOKEN" \
+      "{\"code\":\"${SD_CODE}\",\"name\":\"冒烟软删客户重建 ${TAG}\",\"industryName\":\"金融业\"}"
+    judge "softdel/同code重建-409" 409 '' "软删行仍占唯一键"
+
+    request GET '/api/v1/admin/customers?includeDeleted=true&page=0&size=100' "$ADMIN_TOKEN"
+    if [ "$LAST_STATUS" = "200" ] && flatten | grep -q "$SD_CODE"; then
+      pass "softdel/管理端可见已删" 200 "includeDeleted=true 命中 ${SD_CODE}"
+    else
+      fail "softdel/管理端可见已删" "$LAST_STATUS" "未命中 ｜ $(snippet)"
+    fi
+
+    request POST "/api/v1/admin/customers/${SD_ID}/restore" "$ADMIN_TOKEN"
+    judge "softdel/恢复-204" 204 '' "POST /admin/customers/{id}/restore"
+
+    request GET "/api/v1/customers/${SD_ID}" "$ADMIN_TOKEN"
+    judge_ok "softdel/恢复后可查" '' "GET 详情 200"
+
+    request DELETE "/api/v1/customers/${SD_ID}" "$ADMIN_TOKEN" >/dev/null 2>&1
+  else
+    skip "softdel/删除-204" "$LAST_STATUS" "软删夹具未创建"
+    skip "softdel/删后详情-404" "-" "依赖上一条"
+    skip "softdel/同code重建-409" "-" "依赖上一条"
+    skip "softdel/管理端可见已删" "-" "依赖上一条"
+    skip "softdel/恢复-204" "-" "依赖上一条"
+    skip "softdel/恢复后可查" "-" "依赖上一条"
+  fi
+
+  # ---- 标签（t141/t145）：挂靠自动打标签 / 列表内联 tags / 批量端点 / 下拉 ----
+  if [ -n "${ASSET_ID:-}" ]; then
+    request GET "/api/v1/assets/${ASSET_ID}/tags" "$ADMIN_TOKEN"
+    if [ "$LAST_STATUS" = "200" ] && flatten | grep -q "冒烟项目 ${TAG}"; then
+      pass "tag/挂靠自动打项目名" 200 "命中项目名"
+    else
+      fail "tag/挂靠自动打项目名" "$LAST_STATUS" "未命中项目名 ｜ $(snippet)"
+    fi
+
+    request GET '/api/v1/assets?page=0&size=5' "$ADMIN_TOKEN"
+    if [ "$LAST_STATUS" = "200" ] && flatten | grep -q '"tags"'; then
+      pass "tag/资产列表内联tags" 200 "每项含 tags"
+    else
+      fail "tag/资产列表内联tags" "$LAST_STATUS" "未见 tags ｜ $(snippet)"
+    fi
+
+    request GET "/api/v1/assets/tags?ids=${ASSET_ID}" "$ADMIN_TOKEN"
+    judge "tag/批量端点-200" 200 "\"${ASSET_ID}\"" "GET /assets/tags?ids="
+
+    request GET '/api/v1/tags' "$ADMIN_TOKEN"
+    judge "tag/下拉-200" 200 '"assetCount"' "GET /tags"
+
+    request GET '/api/v1/admin/tag-definitions?includeDeleted=true&page=0&size=50' "$ADMIN_TOKEN"
+    judge "tag/管理端列表-200" 200 '"content"' "GET /admin/tag-definitions"
+
+    api_json POST '/api/v1/admin/tag-definitions' "$ENGINEER_TOKEN" '{"name":"越权标签"}'
+    judge "tag/非ADMIN写-403" 403 '' "POST /admin/tag-definitions 仅 ADMIN"
+  else
+    skip "tag/挂靠自动打项目名" "-" "无资产夹具"
+    skip "tag/资产列表内联tags" "-" "依赖上一条"
+    skip "tag/批量端点-200" "-" "依赖上一条"
+    skip "tag/下拉-200" "-" "依赖上一条"
+    skip "tag/管理端列表-200" "-" "依赖上一条"
+    skip "tag/非ADMIN写-403" "-" "依赖上一条"
+  fi
+
+  printf '\n==== 冒烟汇总 ====\n'
 printf 'TOTAL=%d  PASS=%d  FAIL=%d  SKIP=%d\n' "$TOTAL" "$PASSED" "$FAILED" "$SKIPPED"
 if [ "$FAILED" -gt 0 ]; then
   printf '失败用例：%s\n' "$FAILED_NAMES"

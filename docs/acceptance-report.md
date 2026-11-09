@@ -1941,3 +1941,116 @@ CREATE DATABASE t134_unicode CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;  
 **收尾提交**：`6029031`(t133) → `7e32e78`(t129–t132) → `ee1f110`(t134) → `d83319c`(前端 2FA/解锁) → `2b19a50`(锁定时长修复)，每个提交后 `compile` 均 BUILD SUCCESS。
 
 **已知边界（新增）**：① 历史上以 `utf8mb4_general_ci` 默认建出来的**既有表不会被迁移改写**（仅新表/新列显式 unicode_ci）；生产库本就是 `unicode_ci`，无需动作，但若在其他实例复用需先统一默认 collation。② 锁定计数在进程内，多副本需 Redis。③ 2FA 主密钥轮换会使**已开启用户的 TOTP 密文失效**，需走关闭-重开流程。
+
+### 2.32 客户 / 项目 / 资产改为软删除（t140）
+
+**需求**：删除不是真删，只对前端不可见、库中仍保留（审计证据的锚点：漏洞/文档/期次/挂靠都挂在客户、项目、资产上，物理删除会造成悬空引用或被迫级联删除）。
+
+**数据（V29，幂等 + manual-ddl 等价段）**：`customers` / `projects` / `assets` 各加 `deleted_at DATETIME(6)` +
+`deleted_by VARCHAR(36) COLLATE utf8mb4_unicode_ci` + 索引 `idx_*_deleted`；**唯一键语义不变**——软删行仍占用
+`code` 唯一键，唯一索引无需改，服务层查重改为「含已删」`countByCodeIncludingDeleted(...)`（同 code 重建 → **409**）。
+
+**过滤方式（二选一，选了 `@SQLRestriction`）**：三个实体加 `@SQLRestriction("deleted_at IS NULL")`，
+对 JPQL/派生查询/懒加载/**子查询**一律生效（另一种「每个仓储方法加 `AndDeletedAtIsNull`」极易漏，本轮要求覆盖
+列表、详情、summary、stats、分布、导入查重、项目资产、客户项目列表等多处）。需要「含已删」的路径走**原生 SQL**：
+`GET /api/v1/admin/{customers|projects|assets}?includeDeleted=true`、`POST /api/v1/admin/{...}/{id}/restore`、
+`countByCodeIncludingDeleted`。聚合计数里的资产子查询已显式加 `and l.assetId in (select a.id from Asset a)`。
+
+**行为**：DELETE 三个端点写 `deleted_at`/`deleted_by` 并返回 **204**；对被软删对象做详情/更新/挂靠/统计 → **404**；
+删客户时其下有**未删**项目 → 409；删项目时仍有**未删资产**挂靠 → 409（用原生 SQL 统计「未被软删的资产挂靠」：
+资产行缺失按「存在」处理，宁可拦住也不放过脏数据）；**不做级联软删**（期次、挂靠行全保留）；恢复幂等（未删时 204、
+不重复审计），审计 `RESTORE_CUSTOMER/PROJECT/ASSET`，删除审计仍由拦截器记 `DELETE <Controller>.<method>`。
+
+**统计口径**：挂靠行不随软删删除，所以「孤儿资产」这类基于挂靠的查询不受影响；但基于资产的统计必须排除已删——
+客户 summary 的 `stats.assetCount` 改为「挂靠 ∩ 存活资产」交集（`assetRepository.findAllById`，固定 1 次查询），
+项目 `assetCount`、仪表盘 `assets/stats`/`customer-distribution`/`project-distribution` 由 restriction + 子查询保证。
+
+**验证**：`SoftDeleteTest` **16/16**（客户删除后列表不含/详情 404/`deleted_at` 非空且记 `deleted_by`、同 code 重建 409、
+管理端 `includeDeleted=true` 可见、恢复 200 + 1 条审计、重复恢复幂等且不重复审计、不存在恢复 404、有未删项目 409；
+项目删除后列表/summary/详情/`/assets`/`/stats` 全不可见、有未删挂靠 409、仅剩已删资产挂靠时可删、恢复可查、挂靠行保留；
+资产删除后列表/详情/`project-links`/项目资产/仪表盘统计不计、`deleted_at` 非空、管理端可见与恢复、
+客户 summary 的 `assetCount`/`projectCount` 随软删归零；非 ADMIN 403；删除写审计）。
+关联回归：`AssetControllerTest,CustomerProjectApiTest,CustomerProjectStatsTest,ProjectSummaryTest,ImportAssetProjectTest,
+ImportCustomerProjectTest,MetaAndProjectCodeTest,MetaTypeAdminTest,DataIntegrityConflictTest,AssetProjectLinkTest`
+（既有断言按新语义更新：删除返回 204、软删保留期次与挂靠行）。规则、过滤点清单与边界见 README §63。
+
+### 2.33 资产分组并入标签体系（t141）
+
+**迁移（V30，幂等 + manual-ddl 等价段）**：新增 `tag_definitions`（name 唯一含软删行、builtin、color、deleted_at、sort_order）；
+`asset_groups` 补 `migrated_at`（迁移水位）与 `deleted_at`；每个**未软删**分组生成同名标签定义，`asset_group_relations`
+转成 `asset_tags`（沿用既有表、同资产同标签去重），旧数据**不删**只打水位；内置标签 3 条（核心系统/对外服务/测试环境）。
+Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试用它驱动，脚本幂等守卫另行断言）。
+
+**标签管理（ADMIN）**：`GET/POST/PUT/DELETE /api/v1/admin/tag-definitions`（分页 + keyword + includeDeleted）；
+内置改名/删除 403；被资产引用删除 409（带引用数）；重名（含软删行）409；删除为软删；每次写操作 1 条
+`UPDATE_TAG_DEFINITION` 审计。公开下拉 `GET /api/v1/tags` → `[{id,name,color,builtin,assetCount}]`，
+`assetCount` 按可见范围收敛。
+
+**自动标签**：挂靠（`POST /assets/{id}/project-links` 与建资产带 `projectId`，含 CSV 导入路径）时自动打
+**客户名 + 项目名** 两个标签（取实体 name，不取 code），定义不存在则自动创建（builtin=false）；
+幂等（重复挂靠/解挂重挂不产生重复行）；**解绑不删标签**（避免误删手工标签），已在 README §64.4 说明。
+
+**筛选**：`GET /assets?tags=a,b`（AND）与 `?tagsAny=a,b`（OR）**都支持**（同时给则求交）；与
+`customerId/projectId/phaseId` 归属筛选及 `visibleAssetIds` 权限口径**取交集**，不越权。
+
+**验证**：`AssetTagSystemTest` **18/18**（迁移生成/关联保持/幂等/软删不迁移/脚本守卫；内置改名 403、重名 409、
+删内置 403、删被引用 409、软删后隐藏且同名不可复用、审计 1 条；自动标签两个 + 定义自动创建 + 解绑不删 + 重挂不重复 +
+多项目客户名唯一 + 取 name 不取 code；AND/OR 语义、可见性交集与 assetCount 收敛、`/tags` 形状）。
+关联回归 `AssetControllerTest,AssetProjectLinkTest,SoftDeleteTest,ImportAssetProjectTest,ProjectSummaryTest` → **74/74**。
+迁移说明、规则与边界见 README §64。
+
+### 2.34 资产列表内联标签（t145）
+
+**问题**（t143 报告的后端缺口）：`AssetResponse` 无 `tags`、无批量端点，前端只能按行 `GET /assets/{id}/tags`，
+**一页 20 行 = 20 个请求**。
+
+**实现**：
+- `AssetResponse` 新增 `tags: [{id,name,color,builtin}]`；`AssetServiceImpl#loadTags` 固定 **2 次查询**
+  （`asset_tags` 按 assetId 集合 + `tag_definitions` 按 name 集合），与页大小、每项标签数量都无关；
+  无标签资产返回 `[]`（不是 null）；排序固定「内置优先 + 名称升序」。
+- 三个列表共用：`GET /assets`、`GET /projects/{id}/assets`（`ProjectAssetItem.tags`）、
+  `GET /customers/{id}/summary`（`recentAssets[].tags`）。
+- 批量端点 `GET /api/v1/assets/tags?ids=a,b,c`：≤100 个（第 101 个 → **400**）、非法 UUID → 400、
+  与 `visibleAssetIds` 取交集（不可见/不存在的 id 直接跳过，不泄露存在性）、空 ids → `{}`。
+- 性能断言：测试开启 `hibernate.generate_statistics`，`AssetTagsBatchTest#queryCountDoesNotGrowWithPageSize`
+  在**同一事务内**比较 size=5 与 size=20 的 `prepareStatementCount` 增量，断言**严格相等**并 ≤15。
+
+**验证**：`AssetTagsBatchTest` **11/11**（每项含 tags、与单资产端点一致、查询数不随页大小增长、`tags`/`tagsAny`
+筛选下 tags 正确、批量端点 map/上限 400/不可见跳过/非法 id 400/空 ids、项目资产带 tags、customer summary 带 tags）。
+规则与前端硬要求（**列表页禁止按行拉取**）见 README §65。
+
+
+
+### 2.35 资产文件 / 交付物元数据与列表能力（t148）
+
+**核对结论（与任务描述有出入，已按代码实际口径实现）**：`uploaded_by` 两表**本来就有**（NOT NULL，上传时已写当前用户），
+缺的是**接口没返回展示名**；`remark` 确实缺失；列表确实无分页/筛选/排序。因此 V31 只加 `remark VARCHAR(500)` +
+`(asset_id, created_at)` 排序索引 + 覆盖率校验，**没有**「新增 uploaded_by / 从 created_by 回填」这一步（两表无 created_by 列）。
+
+**实现**：
+- 上传接口新增独立 `remark`（multipart 表单项，≤500，超限 **400**，在落盘/落库前校验）；
+- 列表接口改为**分页结构** `{content,totalElements,totalPages,currentPage,pageSize}`，参数 `page/size(≤100)/sort/keyword/category/uploaderId/dateFrom/dateTo`；
+- `sort` **白名单**（`uploadedAt|createdAt|name|size|fileSize|category`，交付物另有 `type`），非法字段/方向 → 400；
+- 每项补 `uploadedBy` + `uploaderName`（`AttachmentListSupport#uploaderNames` 一次 `findAllById` 批量解析，无 N+1）与 `remark`；
+- 分页/排序/筛选全部走数据库（`JpaSpecificationExecutor` + `Pageable`）；
+- **兼容口径选方案①**：不传参数 = `page=0&size=20`，响应给 `totalElements`；老前端把对象当数组会渲染空，故 README §66.5 列出 6 处必须跟进的调用点。
+- 旧语义保留：指定 `assetVersionId` 时优先进该版本，该版本无数据则回落到「无版本」附件（用例 `versionFallbackPreserved`）。
+
+**验证**：`AssetFileMetaTest` **20/20**；`AssetFileControllerTest` + `AssetDeliverableControllerTest` 同步改为读 `data.content`，三类合计 **31/31**。
+规则、契约、排序白名单与前端改动清单见 README §66。
+
+### 2.35 t147 backend 收口二：软删除、标签体系与内联标签（t140/t141/t145）
+
+**全量回归**：隔离树（`git archive HEAD` + 本轮 in-scope 文件）`mvn -B clean test` **连续 2 次全绿 —— 975 例 / Failures 0 / Errors 0 / Skipped 0**。
+之所以用隔离树：共享工作树里有他人半成品（`AssetDeliverableController` 缺 `StringUtils` 导入），直接在部署机对整棵树上跑会**编译失败**。
+
+**迁移双场景（V29/V30）**：空库 + 生产克隆 × `general_ci`/`unicode_ci` × 各 2 遍 → **40 项断言全绿**；生产库执行两遍均 `exit=0`（`deleted_at/deleted_by` 6 列 + 3 索引、既有行未被标记删除、`tag_definitions=3(builtin)`、`asset_groups.migrated_at` 就位、collation `unicode_ci`）。
+
+**修复的真实缺陷（V30）**：两处「标签名 = 分组名」是列间比较，新表 `tag_definitions.name` 显式 unicode_ci、旧表 `asset_groups.name`/`asset_tags.tag` 继承库默认；在默认 `general_ci` 的实例上抛 `ERROR 1267 Illegal mix of collations`，**V30 从第 50 行起中断**（分组迁移与水位都不执行）。生产库默认恰好 unicode_ci 掩盖了它。修复：两侧显式 `COLLATE utf8mb4_unicode_ci`，manual-ddl 同步，守卫测试改为断言两侧 COLLATE。
+
+**真机验收**：软删除 10 项、标签 5 项、N+1 观测、回归三项（2FA / remember-me / 锁定）全部通过；详见 README §66.2。
+
+**提交**：`4676826`(t140 软删除) → `d91f3e7`(t141+t145 标签与内联标签)。
+说明：本应按三个提交落地，但 `CustomerServiceImpl`（t140 的统计改动）依赖 t145 的 `AssetTagBrief/tagsByAssetIds`，拆开会编译不过，故合并为两个提交并在提交信息中注明。
+
+**已知边界（新增）**：① `@SQLRestriction` 对原生 SQL 不生效，「含已删」路径必须显式走管理端/restore 原生查询，新增统计代码需自查；② 标签筛选先取 id 集合再求交，超大租户后续可改 `EXISTS` 子查询；③ 解绑项目不删标签（`asset_tags.tag` 是快照，避免误删手工标签）。

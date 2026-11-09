@@ -3924,3 +3924,424 @@ IP 锁「15 分钟」实际是 **900000 秒（≈10.4 天）**、账户锁「30 
 3. **`sudo -S` 抢 stdin**：给 `mariadb` 喂 SQL 走 heredoc 会失败（表现为 `sql_exit=1` 且无任何错误输出）。做法：SQL 写文件 → `sudo bash -c 'mariadb db < file'`。
 4. **root 写 `/tmp` 被 `fs.protected_regular` 拦**：`curl -o /tmp/x` 在 sudo 下写成 `status=000`。临时文件写 `$HOME` 或 `/root`。
 5. **`systemctl --user` 不能在 sudo 里跑**（丢 `XDG_RUNTIME_DIR`）：重启必须以登录用户身份执行。
+
+## 63. 第四十六轮（客户 / 项目 / 资产的软删除，t140）
+
+### 63.1 为什么不做物理删除
+
+客户、项目、资产是**审计证据的锚点**：漏洞、文档、期次、挂靠、历史记录都挂在它们上面。
+物理删除会让这些行变成悬空引用（或被迫级联删除，直接丢掉审计证据），而合同/测评场景要求「删除后仍可追溯」。
+因此三个域统一改为**软删除**：只写 `deleted_at`/`deleted_by`，默认查询看不到，库里的行与关联全保留。
+
+### 63.2 数据（V29，幂等 + manual-ddl 等价段）
+
+```sql
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS deleted_at DATETIME(6) NULL;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS deleted_by VARCHAR(36) COLLATE utf8mb4_unicode_ci NULL;
+CREATE INDEX IF NOT EXISTS idx_customers_deleted ON customers (deleted_at);
+-- projects / assets 同构（idx_projects_deleted / idx_assets_deleted）
+```
+
+- **唯一键语义不变**：软删行**仍占用唯一键**（`customers.code` / `projects.code` / `assets.code`），
+  因此唯一索引无需变更；服务层查重改成「含已删」——`countByCodeIncludingDeleted(...)`，
+  同 code 重建直接 **409**（不会因为「删掉了」而放行，避免历史单号复用导致口径混乱）。
+- 迁移脚本：`V29__soft_delete_customers_projects_assets.sql`；生产手工段：`deploy/manual-ddl.sql`「V29」段
+  （含 4 条校验 SQL：列、索引、唯一索引仍在、软删水位）。
+
+### 63.3 过滤方式（二选一：选了 `@SQLRestriction`）
+
+在 `Customer` / `Project` / `Asset` 实体上加：
+
+```java
+@org.hibernate.annotations.SQLRestriction("deleted_at IS NULL")
+```
+
+理由：另一种做法（每个仓储方法都改 `findBy...AndDeletedAtIsNull`）**极易漏**——本轮要求覆盖的就有
+列表、详情、summary、stats、分布、导入查重、项目资产、客户项目列表等多处；漏一处就是「删了还在」。
+`@SQLRestriction` 对 JPQL、派生查询、懒加载**一律生效**，包括**子查询**（这点很关键，见下）。
+
+需要「含已删」的地方必须绕开限制，统一走**原生 SQL**（原生查询不受 `@SQLRestriction` 影响）：
+
+| 场景 | 入口 |
+|---|---|
+| 管理端含已删列表 | `GET /api/v1/admin/{customers\|projects\|assets}?includeDeleted=true` |
+| 恢复 | `POST /api/v1/admin/{customers\|projects\|assets}/{id}/restore` → 204（幂等；不存在 404） |
+| 查重含已删 | `countByCodeIncludingDeleted(code)`（客户/项目/资产） |
+
+**过滤点清单（都靠 `@SQLRestriction` 自动生效，无需逐个改）**：
+客户列表/详情/`/customers/{id}/summary`/`/customers/{id}/stats`；
+项目列表/`/projects/summary`/详情/`/projects/{id}/stats`/`/projects/{id}/assets`；
+资产列表/详情/`/assets/{id}/project-links`/`/assets/options`/标签与历史；仪表盘 `assets/stats`、
+`customer-distribution`、`project-distribution`、工作负载；导入查重（`findByCode`）；
+以及**聚合计数里的资产子查询**（`countAssetsGroupedByProjectIds` 等已显式加
+`and l.assetId in (select a.id from Asset a)`，子查询同样被 restriction 过滤）。
+
+### 63.4 行为口径
+
+| 场景 | 结果 |
+|---|---|
+| `DELETE /customers/{id}`、`DELETE /projects/{id}`、`DELETE /assets/{id}` | 写 `deleted_at`/`deleted_by` → **204**（不再 200 + body） |
+| 对被软删对象做详情/更新/挂靠/统计 | **404**（与 t65 的存在性语义一致，不泄露「曾存在」） |
+| 删客户：其下有**未删**项目 | **409**（已软删的项目不算阻塞） |
+| 删项目：仍有**未删资产**挂靠 | **409**（挂靠指向已软删资产时不算阻塞，见 `countByProjectIdAndAssetNotDeleted`） |
+| 级联 | **不做**级联软删：项目保留期次与挂靠行、资产保留挂靠行，全部历史可追溯 |
+| 恢复 | 清 `deleted_at`/`deleted_by`，状态机/stage 等其它字段一律不动；审计 `RESTORE_CUSTOMER`/`RESTORE_PROJECT`/`RESTORE_ASSET`（**一次恢复 1 条**，重复恢复不重复审计） |
+| 删除审计 | 仍由 `AuditTrailInterceptor` 记 `DELETE <Controller>.<method>`（恢复端点已进 `SKIP_ENDPOINTS`，避免双写） |
+
+### 63.5 统计口径
+
+- 挂靠行（`asset_project_links`）**不因软删而删除**，所以「孤儿资产」这类**基于挂靠**的查询不受影响
+  （软删资产仍保留挂靠，不会被误判成孤儿）。
+- 但**基于资产的统计**必须排除已删：客户 summary 的 `stats.assetCount`、项目 `assetCount`、
+  仪表盘分布等，均由 `@SQLRestriction` + 资产子查询保证（客户 summary 另外用
+  `assetRepository.findAllById` 做一次「存活资产」交集，取代原来的纯挂靠推导）。
+
+### 63.6 验证（`SoftDeleteTest` 16 例）
+
+```bash
+cd backend && mvn -B test -Dtest=SoftDeleteTest   # 16/16
+```
+
+覆盖：客户删除后列表不含/详情 404/`deleted_at` 非空且记录 `deleted_by`、同 code 重建 **409**、
+管理端 `includeDeleted=true` 可见、恢复后详情 200 且只写 1 条审计、重复恢复幂等（不重复审计）、
+不存在对象恢复 404、有未删项目时删客户 409；
+项目删除后列表/`summary`/详情/`/assets`/`/stats` 全部不可见、有未删挂靠 409、仅剩已删资产挂靠时**可删**、
+恢复后可查、软删保留挂靠行；
+资产删除后列表/详情/`project-links`/项目资产/仪表盘统计均不计、`deleted_at` 非空、
+管理端可见与恢复、客户 summary 的 `assetCount`/`projectCount` 随软删归零；非 ADMIN 访问管理端点 403；删除写审计。
+
+### 63.7 已知边界
+
+1. `@SQLRestriction` 对**原生 SQL** 不生效 —— 新增原生查询时若涉及这三张表，必须自己写 `deleted_at IS NULL`
+   （本轮的 `searchAdmin`/`restoreById`/`findByIdIncludingDeleted`/`countByCodeIncludingDeleted` 是有意绕过的）。
+2. 恢复只清软删标记，**不重建**已发生的其他状态变化（例如删除后有人复用了同一个 name，恢复不会改名）。
+3. 软删不释放唯一键（设计如此）；若业务确实需要复用单号，需另做「归档改名」流程（当前不做）。
+
+## 64. 第四十七轮（资产分组并入标签体系：V30 迁移 + 标签管理 + 自动标签 + 标签筛选，t141）
+
+### 64.1 结论先说
+
+「资产分组」并入资产中心的**标签**：`asset_groups` 与 `asset_group_relations` **保留不删**（历史可回溯），
+新增 `tag_definitions` 作为标签目录；分组关系转换为资产标签关联（沿用既有 `asset_tags(asset_id, tag)` 表）；
+标签由管理员统一维护；资产挂靠客户/项目时自动打上「客户名」「项目名」两个标签。
+
+### 64.2 数据（V30，幂等 + manual-ddl 等价段）
+
+```sql
+CREATE TABLE IF NOT EXISTS tag_definitions (
+    id VARCHAR(36) NOT NULL PRIMARY KEY, name VARCHAR(50) NOT NULL, color VARCHAR(20) NULL,
+    builtin BOOLEAN NOT NULL DEFAULT FALSE, deleted_at DATETIME(6) NULL,
+    sort_order INT NOT NULL DEFAULT 0, created_at DATETIME(6) NOT NULL, updated_at DATETIME(6) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_tag_definitions_name ON tag_definitions (name);   -- 含软删行
+ALTER TABLE asset_groups ADD COLUMN IF NOT EXISTS migrated_at DATETIME(6) NULL;       -- 迁移水位
+ALTER TABLE asset_groups ADD COLUMN IF NOT EXISTS deleted_at DATETIME(6) NULL;        -- 软删分组不迁移
+-- ① 未软删分组 → 标签定义（NOT EXISTS 守卫）  ② 分组关系 → asset_tags（同资产同标签去重）
+-- ③ 标记 migrated_at（只标记未软删、未迁过的）
+```
+
+- 内置标签 3 条：`核心系统` / `对外服务` / `测试环境`（`builtin=true`，名称不可改、不可删）。
+- 迁移**幂等**：定义用 `NOT EXISTS(name)`、关联用 `NOT EXISTS(asset_id, tag)`、水位用 `migrated_at IS NULL`；
+  反复执行只补缺。**旧数据不删**，`asset_groups` 只补 `migrated_at` / `deleted_at` 两列。
+- Java 侧同一套规则：`GroupToTagMigrator`（供测试驱动与运维重跑；H2 单测不执行迁移脚本，故用它与 SQL 同语义），
+  见 `AssetTagSystemTest#migratesGroupsToTags / #migrationIsIdempotent / #softDeletedGroupSkipped / #migrationScriptGuards`。
+
+### 64.3 标签管理（ADMIN）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/tags` | 登录即可：`[{id,name,color,builtin,assetCount}]`，**assetCount 按可见范围收敛** |
+| GET | `/api/v1/admin/tag-definitions?keyword=&includeDeleted=` | 分页；`includeDeleted=true` 含软删行 |
+| POST | `/api/v1/admin/tag-definitions` | 新建（builtin 恒 false）；**name 重复（含软删行）→ 409** |
+| PUT | `/api/v1/admin/tag-definitions/{id}` | 改 name/color/sortOrder；**内置改 name → 403** |
+| DELETE | `/api/v1/admin/tag-definitions/{id}` | 内置 403；**被资产引用 → 409（带引用数）**；软删 |
+
+审计：每次写操作恰好 1 条 `UPDATE_TAG_DEFINITION`（details 含名称/动作），端点已进 `SKIP_ENDPOINTS`。
+
+### 64.4 自动标签规则
+
+- 触发点：`POST /assets/{id}/project-links`（追加挂靠）与建资产时带 `projectId`（`createAssetWithLink`，
+  内含 CSV 导入路径）。两个入口共用 `AssetProjectLinkServiceImpl#autoTag`。
+- 打两个标签：**客户名** + **项目名**（取实体 `name`，不是 code）；标签定义不存在 → **自动创建**（`builtin=false`）。
+- **幂等**：同一资产重复挂靠同一项目不会产生重复 `asset_tags` 行；跨项目挂靠时客户名标签只有一行。
+- **解绑不删标签**：用户可能手工加过同名标签，自动删除会误伤；需要下线请走管理员删除标签（被引用会 409 提示引用数）。
+- 唯一编号/名称的副作用：如果客户/项目改名，已打的标签仍是旧名（标签是快照，不做联动改名）。
+
+### 64.5 按标签筛选
+
+- `GET /api/v1/assets?tags=a,b` → **AND**（全部命中）；`?tagsAny=a,b` → **OR**（命中任一）；两者可同时给（结果再求交）。
+  选型说明：**两种都支持**，因为「按一组标签收窄」与「按多个可选标签扩展」是两个不同诉求，前端筛选面板可以按需组合。
+- 与既有过滤**取交集**：与 `customerId/projectId/phaseId`（归属）∩，再与 `AccessGuard.visibleAssetIds`（权限）∩，
+  不可越权：工程师按标签筛选时只看到自己可见的资产（用例 `filterByTagsRespectsVisibility` 断言列表为空、`assetCount=0`）。
+- `/api/v1/tags` 的 `assetCount` 同样按 `visibleAssetIds` 收敛（管理层为 null → 全量）。
+
+### 64.6 与软删除的关系
+
+- 标签定义删除是**软删**（`deleted_at`），软删后不出现在 `/tags`，但 `includeDeleted=true` 可见；名称唯一**含软删行**。
+- 资产软删（t140）后：其标签行仍在（历史），但 `/tags` 的 `assetCount` 与 `/assets?tags=` 结果都**不含**软删资产
+  （`assetCount` 用 `assetRepository.findAllById` 取「存活资产」，筛选结果落到 `Asset` 查询时受 `@SQLRestriction` 过滤）。
+
+### 64.7 验证（`AssetTagSystemTest` 18 例）
+
+```bash
+cd backend && mvn -B test -Dtest=AssetTagSystemTest   # 18/18
+```
+
+覆盖：分组→标签定义/关联生成 + `migrated_at`、重复迁移幂等、软删分组不迁移、V30 脚本幂等守卫（含 collation 与两处 NOT EXISTS）；
+内置改名 403 / 改颜色排序 200、重名 409、非 ADMIN 403、删内置 403、删被引用 409（消息带「1 个资产」）、
+软删后不出现在 `/tags` 但含已删列表可见且同名不可复用、写操作恰好 1 条 `UPDATE_TAG_DEFINITION`；
+建资产带 projectId 自动打客户名+项目名（含 `/assets/{id}/tags` 回读、定义自动创建且 builtin=false）、
+追加挂靠同样打标签、解绑不删标签且重挂不产生重复行、多项目挂靠客户名只有一行、标签取 name 不取 code；
+`tags` AND 与 `tagsAny` OR 语义、可见性交集（工程师 0 条且 assetCount=0）、`/tags` 形状与内置标签。
+关联回归：`AssetControllerTest,AssetProjectLinkTest,SoftDeleteTest,ImportAssetProjectTest,ProjectSummaryTest` → **74/74**。
+
+### 64.8 已知边界
+
+1. 标签与分组**不是双向同步**：迁移是一次性的（V30 / `GroupToTagMigrator`），此后改分组不会回写标签（分组已下线使用）。
+2. 标签名唯一（含软删行），改名会与既有标签冲突直接 409；改名**不**回填已打标签的资产（`asset_tags.tag` 是快照）。
+3. 标签筛选先取 id 集合再求交，超大租户下集合可能较大（当前量级可接受）；后续可改成 `EXISTS` 子查询或物化视图。
+4. 自动标签只在**挂靠时**触发；直接改项目/客户名称不会重打标签。
+
+## 65. 第四十八轮（资产列表内联标签：禁止按行拉取，批量端点 + 查询数常数，t145）
+
+### 65.1 问题
+
+t143 报告的后端缺口：`AssetResponse` 没有 `tags` 字段、也没有批量端点，前端只能按行
+`GET /assets/{id}/tags`（并发上限 6）——**一页 20 行 = 20 个请求**，首屏明显变慢。
+
+### 65.2 结论：列表内联 + 批量端点（**禁止按行拉取**）
+
+| 场景 | 用法 |
+|---|---|
+| 资产列表 | `GET /api/v1/assets?page&size` → 每项自带 `tags: [{id,name,color,builtin}]` |
+| 项目资产 | `GET /api/v1/projects/{id}/assets` → 每项自带 `tags` |
+| 客户 summary | `GET /api/v1/customers/{id}/summary` → `recentAssets[].tags` |
+| 按需刷新 | `GET /api/v1/assets/tags?ids=a,b,c`（≤100）→ `{"<assetId>": [{id,name,color,builtin}]}` |
+| 单资产详情 | `GET /api/v1/assets/{id}/tags`（**仅在详情页/编辑弹窗里用**） |
+
+**前端硬规则**：列表页**不要**遍历行去调 `/assets/{id}/tags`；要刷新标签就调批量端点（一次 ≤100）。
+`tags` 恒为数组——**空标签是 `[]` 而不是 `null`**，可直接 `map`。
+
+### 65.3 实现：固定 2 次查询，与页大小无关
+
+`AssetServiceImpl#loadTags(ids)`：
+
+```java
+List<AssetTag> rows = assetTagRepository.findByAssetIdIn(assetIds);          // ① 本页所有资产标签行
+Map<String, TagDefinition> defs = tagDefinitionRepository.findByNameIn(names); // ② 这些标签名的定义
+```
+
+- `asset_tags` 存的是**标签名**（t141 的设计），所以第 2 步按 `name` 批量取定义（不是 `findAllById`），
+  得到 `id/color/builtin`；定义缺失（历史脏数据）仍返回条目，`id=null`、`builtin=false`，不让标签凭空消失。
+- 排序：**内置优先 + 名称升序**，保证同一页刷新顺序不跳动。
+- 三个列表入口共用这一个方法；批量端点也复用它（同一口径，不会出现「列表和批量端点不一致」）。
+
+### 65.4 性能断言（Hibernate Statistics）
+
+测试侧开启 `spring.jpa.properties.hibernate.generate_statistics=true`（`application-test.yml`），
+在**同一事务内**比较 `size=5` 与 `size=20` 两次请求的 `prepareStatementCount` 增量：
+
+```java
+long delta5  = after5  - before5;   // 例：11
+long delta20 = after20 - before20;  // 例：11  → assertEquals(delta5, delta20)
+```
+
+`AssetTagsBatchTest#queryCountDoesNotGrowWithPageSize` 断言**严格相等**，并额外断言 `delta20 <= 15`
+（常数级上限），防止后续有人在 `attachTags` 里加 per-asset 查询。
+
+### 65.5 批量端点的边界
+
+- `ids` 逗号分隔，**最多 100 个**，第 101 个开始 **400**（消息「一次最多查询 100 个资产的标签」）；
+- 非法 UUID → **400**（不静默丢弃，避免前端拼错却看不到错误）；
+- **与 `visibleAssetIds` 取交集**：不可见资产与不存在的 id 一律**跳过**（返回体里没有该 key），
+  不报错、也不泄露「这个 id 存在」；
+- 空 `ids` → `{}`。
+
+### 65.6 验证（`AssetTagsBatchTest` 11 例）
+
+```bash
+cd backend && mvn -B test -Dtest=AssetTagsBatchTest   # 11/11
+```
+
+覆盖：每项都有 `tags` 数组且无标签为 `[]`、列表 tags 与 `/assets/{id}/tags` 一致（名称集合相等）、
+**size=5 与 size=20 查询数严格相等**且 ≤15、`tags` 筛选下 tags 正确、`tagsAny` 筛选下 tags 正确、
+批量端点返回 map 且多 id 正确、101 个 id → 400 / 正好 100 个 → 200、不可见与不存在 id 被跳过（管理员可见）、
+非法 id → 400 与空 ids → `{}`、项目资产列表带 tags（含自动标签）、客户 summary `recentAssets[].tags`。
+
+### 65.7 已知边界
+
+1. 批量端点上限 100：超过请分页调用（前端列表一页通常 ≤50，不需要分批）。
+2. `tags` 是**快照**（`asset_tags.tag` 存名称）：标签定义改名后，已打标签的资产仍显示旧名（与 t141 一致）。
+3. 顺序为「内置优先 + 名称升序」的固定规则，不跟随后台的 `sort_order`（列表内联为了稳定，`/api/v1/tags` 下拉才按 `sort_order`）。
+
+
+## 66. 第四十九轮（资产文件 / 交付物元数据与列表能力：remark + 上传人 + 分页筛选排序，t148）
+
+### 66.1 三个缺口的实际结论
+
+t146 前端反馈的三点，逐一核对代码后的结论：
+
+| 前端反馈 | 实际情况 | 本轮处理 |
+|---|---|---|
+| 没有上传人字段 | **列一直存在**（`uploaded_by NOT NULL`，上传时已写当前用户），但**接口没返回展示名** | 列表每项补 `uploadedBy` + `uploaderName`（批量解析） |
+| 没有独立备注 | 确实没有，前端把备注拼进 `description` | 新增 `remark VARCHAR(500)`（V31）+ 上传表单项 |
+| 列表无分页/筛选/排序 | 确实没有，只按版本/全版本返回 `List` | 改为分页结构 + sort 白名单 + 4 个筛选参数 |
+
+> 因此 V31 **没有**「`uploaded_by` 新增列」和「从 `created_by` 回填」这两步——两表既没有 `created_by` 列，
+> `uploaded_by` 也早已有值。脚本只加 `remark` + 排序索引，并输出覆盖率校验（README 写法与实际一致，避免后人误以为漏做）。
+
+### 66.2 接口契约（本轮之后）
+
+**上传（有变更）**
+
+```
+POST /api/v1/assets/{assetId}/files
+  multipart: file（必填）、category（必填）、description（可空）、remark（可空，≤500）、assetVersionId（可空）
+POST /api/v1/assets/{assetId}/deliverables
+  multipart: file（必填）、deliverableType（必填）、description（可空）、remark（可空，≤500）、assetVersionId（可空）
+```
+
+- `remark` 超过 500 字符 → **400**（在写文件/写库**之前**校验，不会留下半成功数据）；
+- `uploaded_by` 由后端写当前登录用户，前端不要传。
+
+**列表（破坏性变更：数组 → 分页对象）**
+
+```
+GET /api/v1/assets/{assetId}/files
+GET /api/v1/assets/{assetId}/deliverables
+
+参数：
+  page     0-based，默认 0
+  size     默认 20，**上限 100**（>100 → 400）
+  sort     白名单，见下表；非法字段/方向 → 400
+  keyword  文件名模糊（忽略大小写）
+  文件独有：category（精确匹配）
+  交付物独有：category 等价于 deliverableType（精确匹配）
+  uploaderId  上传人 UUID
+  dateFrom / dateTo  ISO 日期（yyyy-MM-dd，**闭区间含当日**）
+  assetVersionId / allVersions  语义与旧版一致（指定版本优先，该版本无数据时回落到「无版本」）
+```
+
+响应：
+
+```json
+{
+  "code": 200,
+  "data": {
+    "content": [
+      { "id": "...", "name": "poc.py", "remark": "独立备注", "fileSize": 1024,
+        "createdAt": "2026-11-09T16:00:00", "uploadedBy": "<uuid>", "uploaderName": "admin_1" }
+    ],
+    "totalElements": 25, "totalPages": 2, "currentPage": 0, "pageSize": 20
+  }
+}
+```
+
+### 66.3 排序白名单
+
+| 文件 | 交付物 | 说明 |
+|---|---|---|
+| `uploadedAt`、`createdAt` | 同 | 都映射到 `created_at`（默认 `uploadedAt,desc`） |
+| `name` | `name` | 文件名 |
+| `size`、`fileSize` | 同 | 文件大小 |
+| `category` | `type`、`deliverableType` | 分类 / 交付物类型 |
+
+方向 `asc`/`desc`（默认 `desc`）；写成 `sort=name` 等价 `name,desc`；未知字段 → 400 并提示可选值。
+
+### 66.4 性能
+
+- 分页/排序/筛选**全部走数据库**（`JpaSpecificationExecutor` + `Pageable`），没有内存过滤；
+- `uploaderName` 用**一次** `userRepository.findAllById(ids)` 批量解析（`AttachmentListSupport#uploaderNames`），
+  与页大小无关；测试 `queryCountDoesNotGrowWithPageSize` 用 Hibernate Statistics 断言
+  `size=5` 与 `size=20` 的 `prepareStatementCount` 增量**严格相等**且 ≤8。
+
+### 66.5 前端需要跟进的调用点（重要）
+
+| 位置 | 现状 | 改成 |
+|---|---|---|
+| 资产详情「文件」页签 | `GET /assets/{id}/files` 当作数组 `.map` | 读 `data.content`（数组），用 `data.totalElements` 做分页器 |
+| 资产详情「交付物」页签 | 同上 | 同上 |
+| 文件/交付物筛选条 | 本地过滤已加载数据 | 传 `keyword`/`category`/`uploaderId`/`dateFrom`/`dateTo` 给后端 |
+| 排序表头 | 本地排序 | 传 `sort=<白名单字段>,<asc|desc>` |
+| 上传弹窗 | 备注拼进 `description` | 单独一个 `remark` 字段（≤500 前端也拦一下） |
+| 「上传人」列 / 筛选下拉 | 显示"数据未提供"、置灰 | 直接用 `uploaderName`／用 `GET /api/v1/users?keyword=` 或团队成员列表填 `uploaderId` |
+
+> 不传任何参数时行为 = `page=0&size=20`（**方案①**），因此**老前端不会 500，但会把对象当数组用而渲染空**——
+> 两个页签必须一起改，已在上面列出。
+
+### 66.6 验证（`AssetFileMetaTest` 20 例）
+
+```bash
+cd backend && mvn -B test -Dtest=AssetFileMetaTest   # 20/20
+```
+
+覆盖：上传 remark 落库 + `uploadedBy`=操作者 + 列表可读；remark 501 字符 → 400（文件与交付物各一）、500 字符边界通过；
+交付物上传 remark/uploaderName；默认分页 20 + total 一致；page/size 生效；size=101 → 400；
+`sort=uploadedAt,desc`（映射 created_at）/`name,asc`/`size,desc` 生效；非法字段与非法方向 → 400（含交付物）；
+keyword/category/uploaderId/dateFrom+dateTo 逐项生效；uploaderName 正确且未知上传人 → null；
+查询数不随页大小增长（≤8，严格相等）；历史行（无 remark、有 uploaded_by）仍能列出；
+V31 脚本守卫（两表 remark、两个排序索引、uploaded_by 覆盖率校验、manual-ddl 等价段）；
+交付物分页 + type 排序、交付物 category/uploaderId 筛选；指定版本无数据时回落到「无版本」文件（旧语义保留）。
+
+### 66.7 已知边界
+
+1. 列表**只返回 `status=active`**（与旧语义一致）；已归档附件不进列表，需要时另开 includeArchived。
+2. `dateFrom`/`dateTo` 按服务器时区解释（与 `created_at` 同源）；跨时区租户需前端换算。
+3. `remark` 只是备注，不参与搜索（搜索只匹配文件名）；如需全文检索另开任务。
+4. 排序白名单是**代码常量**（`AttachmentListSupport#fileSortWhitelist`），新增可排序字段要改代码而不是配置。
+---
+
+## 66. 第四十二轮（t147 backend 收口二：软删除 + 标签体系 + 内联标签，V29/V30 上线）
+
+时间：2026-11-09 15:1x–17:2x。**迁移 V29/V30 已在生产库执行**（幂等）。
+
+| 项 | 结果 |
+|---|---|
+| 全量回归 | 隔离树（HEAD + 本轮 in-scope 文件）`mvn -B clean test` **连续 2 次全绿：975 例 / 0 / 0 / 0**（宿主 JDK21，pom target 17） |
+| 迁移双场景 | V29/V30 × 空库/生产克隆 × `general_ci`/`unicode_ci` × 各 2 遍 → **40 项断言全绿**；生产库两脚本各跑两遍 `exit=0`：`deleted_at/deleted_by` 6 列 + 3 索引、既有行 `deleted_at IS NULL`、`tag_definitions=3(builtin)`、`asset_groups.migrated_at` 就位、`SHOW CREATE TABLE tag_definitions` 尾部 `COLLATE=utf8mb4_unicode_ci` |
+| 部署 | 用 HEAD 隔离树打包 jar **73,441,963 B**（旧 jar 备份），重启 17–21s 内 login=200；前端 dist **保持原发布版本未动**（前端另有任务在飞） |
+| 冒烟 | **292 / 292 PASS，0 FAIL，0 SKIP**（新增 13 条：软删 7 + 标签 6） |
+| 真机验收 | 软删除 10 项、标签 5 项、N+1 观测、回归（2FA/remember-me/锁定）全通过，见 §66.2 |
+| 收口提交 | `4676826`(t140 软删除) → `d91f3e7`(t141+t145 标签与内联标签)，两个提交在隔离树 `mvn -DskipTests compile` 均 BUILD SUCCESS（555→573 类） |
+
+### 66.1 本轮修复的真实缺陷（V30 排序规则）
+
+`V30__asset_groups_to_tags.sql` 的两处「标签名 = 分组名」是**列 = 列**比较：
+`tag_definitions.name`（新建，显式 unicode_ci）与 `asset_groups.name` / `asset_tags.tag`（继承**库默认**）。
+在默认 `utf8mb4_general_ci` 的实例上直接抛
+`ERROR 1267 (HY000): Illegal mix of collations (utf8mb4_unicode_ci,IMPLICIT) and (utf8mb4_general_ci,IMPLICIT)`，
+**第 50 行起整个 V30 中断**（分组迁移与水位全不执行）。生产库默认恰好 unicode_ci 所以历史没炸，属于**环境依赖缺陷**。
+修复：两处比较**两侧都加 `COLLATE utf8mb4_unicode_ci`**，`deploy/manual-ddl.sql` 的 V30 段同步；
+`AssetTagSystemTest#migrationScriptGuards` 从「断言 `t.name = g.name` 字面量」改为「断言两侧 COLLATE」。
+复验：空库 general_ci 场景 V29/V30 各两遍全绿（40 项断言）。
+
+### 66.2 真机验收（curl 级，全部通过）
+
+**软删除（10 项）**：`DELETE /customers/{id}` → **204**；列表不含；`GET` → **404**；同 code 重建 → **409**；`GET /admin/customers?includeDeleted=true` 可见；`POST /admin/customers/{id}/restore` → **204** → 详情 200；库中 `deleted_at` 由非空回 **NULL**；再删后为 **NOT NULL**。
+
+**标签（5 项）**：建客户→建项目→建资产（带 projectId）后 `GET /assets/{id}/tags` 含 **客户名 + 项目名** 两条；`GET /assets?page=0&size=20` 每项含 `tags`；`GET /assets/tags?ids=` 返回含标签的 map；`GET /tags` 的 `assetCount` 管理员=18 / 工程师=**0**（按可见范围收敛）。
+
+**内联标签无 N+1**：`GET /assets?size=5` 与 `size=20` 各 3 次，总耗时 141ms vs 142ms（无随页增长趋势）；严格证据见单测 `AssetTagsBatchTest#queryCountDoesNotGrowWithPageSize`（size=5 与 20 的 `prepareStatementCount` **严格相等**）。
+
+**回归**：2FA `init→confirm→两步登录(202→200)→disable` 全通过；remember-me `owl_rm` 下发 + `/auth/refresh` 轮换通过；恢复默认配置后 6 次错密码 → **429 + `Retry-After: 899`**（t136 单位修复仍生效）。
+
+### 66.3 冒烟脚本更新（13 条）
+
+软删 7 条（建客户 201 / DELETE 204 / 列表不含 / 详情 404 / 同 code 409 / includeDeleted 可见 / restore 204 + 恢复后可查）、
+标签 6 条（挂靠自动打项目名 / 列表内联 tags / 批量端点 / `/tags` 下拉 / 管理端列表 / 非 ADMIN 写 403）。
+另修两处**脚本自身**问题：① `api_json GET` 少传 payload 触发 `$4: unbound`；② 可见性检查 `vis/*-列表内详情全200` 把「列表→详情之间夹具已被删除（404）」判成失败，改为 404 跳过、只把 401/403/5xx 计失败。
+
+### 66.4 部署与清理
+
+- 临时开关（`APP_VERIFICATION_DEV_MODE`、放宽的 IP/重置/锁定阈值）**全部移除**并重启复核（发码响应无 `devCode`）。
+- 数据终态：`customers=1 projects=1 phases=0 assets=3 links=3`、`orphan_assets=0`、`soft_deleted_rows=0`、`tag_definitions=3(builtin)`、`asset_tags=0`、`users=12`、`requests=0`、`codes=0`、`rm_tokens=0`。
+- 临时验证库 `vuln_audit_verify_*` / `vuln_audit_clone_*` 已 DROP。
+- **工作树仍有他人未提交改动**（`AssetDeliverable/AssetFile` + `V31`，另一任务在飞），本任务未触碰、未提交。
+
+### 66.5 踩坑（本轮新增）
+
+1. **部署机跑全量回归必须同步 `deploy/manual-ddl.sql`**（t136 已记，本轮再次命中 `MetaTypeAdminTest#migrationScriptGuards`）。
+2. **共享工作树会污染构建**：`git status` 里他人的半成品（`AssetDeliverableController` 缺 `StringUtils` 导入）会让 `mvn clean test` 直接编译失败；正确做法是 `git archive HEAD` + 覆盖本轮 in-scope 文件做**隔离树**回归。
+3. **任务粒度提交会破坏可编译性**：`CustomerServiceImpl`（t140 的统计改动）依赖 t145 的 `AssetTagBrief/tagsByAssetIds`，按 t140 单独提交编译不过 → 最终按 `t140` 与 `t141+t145` 两个提交落地（已在提交信息注明）。
+4. **连续多轮冒烟会撞限流**：除 IP 验证码上限外，还有「重置密码失败次数」限流（默认 5/15min），需临时放宽 `APP_VERIFICATION_RESET_MAX_FAILED` 才能跑完整链路。
+5. **401 的假象**：真机脚本里用 `/users/me` 取 admin id 拿不到（返回体结构不同），导致后续创建项目缺 `managerId` → 400，连锁使标签断言全红；改用登录响应 `data.userId`。

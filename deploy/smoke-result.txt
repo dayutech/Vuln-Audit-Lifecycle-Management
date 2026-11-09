@@ -365,3 +365,11 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 修复缺陷：LoginLockoutTracker 单位错误（15 分钟被算成 900000 秒）；LoginLockoutTest 17/17，线上复测 Retry-After=900。
 - 新增配置：APP_TOTP_SECRET_KEY（2FA 主密钥），未配置时 2FA 接口 503。
 - 数据终态：customers=1 projects=1 phases=0 assets=3 links=3、orphan=0、users=12、requests=0、codes=0、rm_tokens=0、2fa_enabled=0、industry_types=22、project_types=5；临时库与 vulnapp 临时授权已回收。
+########## 十九、t147 backend 收口二（软删除 + 标签 + 内联标签，V29/V30 上线，2026-11-09 17:2x） ##########
+- 全量回归：隔离树（HEAD + 本轮 in-scope 文件）mvn -B clean test 连续 2 次 → 975 例 / Failures 0 / Errors 0 / Skipped 0。
+- 迁移双场景：V29/V30 × 空库/克隆 × general_ci/unicode_ci × 各 2 遍 → 40 项断言全绿；生产库两脚本各两遍 exit=0（deleted_at/deleted_by 6 列+3 索引、既有行未标记删除、tag_definitions=3 builtin、asset_groups.migrated_at 就位、collation=unicode_ci）。
+- 修复缺陷：V30 两处「标签名=分组名」列比较补 COLLATE（默认 general_ci 实例原会 ERROR 1267，迁移中断）；manual-ddl 同步 + 守卫测试改为断言两侧 COLLATE。
+- 部署：HEAD 隔离树打包 jar 73,441,963 B，重启 17–21s login=200；前端 dist 保持原版本未动。
+- 冒烟：TOTAL=292 PASS=292 FAIL=0 SKIP=0（新增软删 7 + 标签 6）。
+- 真机验收：软删除 10 项（204/列表不含/404/同code 409/includeDeleted/restore 204/deleted_at 回 NULL/再删 NOT NULL）、标签 5 项（自动打客户名+项目名、列表内联 tags、批量端点、/tags assetCount 管理员 18 vs 工程师 0）、N+1 观测（size5 141ms vs size20 142ms，单测断言查询数严格相等）、回归（2FA 全链路、remember-me 轮换、锁定 429 + Retry-After 899）。
+- 数据终态：customers=1 projects=1 phases=0 assets=3 links=3、orphan=0、soft_deleted_rows=0、tag_definitions=3、asset_tags=0、users=12、requests=0、codes=0、rm_tokens=0；临时开关与临时库全部清理。
