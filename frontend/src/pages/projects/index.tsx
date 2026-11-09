@@ -7,8 +7,8 @@ import { useT } from '@/i18n';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
 import { useUserStore } from '@/store/userStore';
 import { canCreateProject, canManageProject, resolveCurrentUserId } from '@/utils/accessRoles';
-import { extractCustomerPage, getCustomerOptions } from '@/api/customer';
-import type { CustomerVO } from '@/types/customer';
+import CustomerSelectEmpty from '@/components/customer/CustomerSelectEmpty';
+import { useCustomerOptions } from '@/hooks/useCustomerOptions';
 import {
   changeProjectStatus,
   deleteProject,
@@ -56,7 +56,9 @@ const Projects: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [total, setTotal] = useState(0);
-  const [customers, setCustomers] = useState<CustomerVO[]>([]);
+  // t139：客户下拉带状态（失败不再静默变成空列表）
+  const customerOptionsState = useCustomerOptions();
+  const customers = customerOptionsState.items;
   const [statusChanging, setStatusChanging] = useState<string | null>(null);
 
   const customerId = searchParams.get('customerId') ?? undefined;
@@ -79,12 +81,6 @@ const Projects: React.FC = () => {
     // 只在 URL 里的 customerId 真的变化时同步，避免挂载时多打一次列表请求
     setParams((prev) => (prev.customerId === customerId ? prev : { ...prev, customerId, page: 1 }));
   }, [customerId]);
-
-  useEffect(() => {
-    getCustomerOptions(undefined, 200)
-      .then((res) => setCustomers(extractCustomerPage(res).items))
-      .catch(() => setCustomers([]));
-  }, []);
 
   const fetchProjects = useCallback(async () => {
     setLoading(true);
@@ -418,6 +414,17 @@ const Projects: React.FC = () => {
           placeholder={t('project.filterCustomerPlaceholder')}
           value={params.customerId}
           options={customerOptions}
+          loading={customerOptionsState.status === 'loading'}
+          data-testid="project-filter-customer-select"
+          // t139：失败/空客户时给出指引，而不是空白下拉
+          notFoundContent={
+            <CustomerSelectEmpty
+              compact
+              status={customerOptionsState.status}
+              detail={customerOptionsState.detail}
+              onRetry={() => void customerOptionsState.reload()}
+            />
+          }
           onChange={(value) => setParams((prev) => ({ ...prev, customerId: value, page: 1 }))}
         />
         <Select
@@ -498,3 +505,4 @@ const Projects: React.FC = () => {
 };
 
 export default Projects;
+

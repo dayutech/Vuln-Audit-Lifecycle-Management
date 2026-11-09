@@ -1,4 +1,5 @@
 import request from '@/utils/request';
+import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
 import type {
   CustomerVO,
   CustomerDetailVO,
@@ -103,6 +104,50 @@ export const getCustomerOptions = (keyword?: string, limit = 200): Promise<any> 
   } as any);
 };
 
+/**
+ * 客户下拉的**带状态**加载器（t139）。
+ *
+ * 背景：各页面的客户下拉原来统一写成 `getCustomerOptions().then(...).catch(() => setCustomers([]))`，
+ * 一旦请求失败（403 无权限 / 401 会话过期 / 5xx / 网络），就会**静默变成空下拉**，
+ * 用户只看到「下拉框是空的」，完全看不出原因（历史缺陷）。
+ *
+ * 这里把「成功 / 空 / 无权限 / 未登录 / 出错」显式建模，交给 UI 渲染对应的空态与重试入口：
+ * - `ok`：拿到客户（items 可能非空）
+ * - `empty`：请求成功但系统里确实没有客户 → 引导去客户管理创建
+ * - `forbidden`：403（含两步验证未完成的业务 403）→ 提示权限/去完成安全设置
+ * - `unauthorized`：401（会话过期）→ 提示重新登录
+ * - `error`：其它（5xx / 网络 / 解析异常）
+ */
+export type CustomerOptionsStatus = 'ok' | 'empty' | 'forbidden' | 'unauthorized' | 'error';
+
+export interface CustomerOptionsResult {
+  status: CustomerOptionsStatus;
+  items: CustomerVO[];
+  total: number;
+  /** 后端 message 或网络错误摘要，供 UI 追加展示（可能为空） */
+  detail?: string;
+  /** HTTP 状态码（网络错误时为空） */
+  httpStatus?: number;
+}
+
+export const loadCustomerOptions = async (limit = 200): Promise<CustomerOptionsResult> => {
+  try {
+    const res = await getCustomerOptions(undefined, limit);
+    const { items, total } = extractCustomerPage(res);
+    return { status: items.length > 0 ? 'ok' : 'empty', items, total };
+  } catch (error) {
+    const httpStatus = getApiErrorStatus(error);
+    const detail = getApiErrorMessage(error, '') || undefined;
+    if (httpStatus === 401) {
+      return { status: 'unauthorized', items: [], total: 0, detail, httpStatus };
+    }
+    if (httpStatus === 403) {
+      return { status: 'forbidden', items: [], total: 0, detail, httpStatus };
+    }
+    return { status: 'error', items: [], total: 0, detail, httpStatus };
+  }
+};
+
 /* ==================== t77：客户详情聚合 + 资产列表 ==================== */
 
 /** GET /customers/{id}/summary —— 一次拿全 customer + stats + projects(含计数) + recentAssets */
@@ -141,3 +186,5 @@ export const extractCustomerAssetPage = (
     total: payload.totalElements ?? payload.total ?? 0,
   };
 };
+
+

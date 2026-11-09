@@ -2,8 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { DatePicker, Form, Input, Modal, Select, Switch, message } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useT } from '@/i18n';
-import { getCustomerOptions, extractCustomerPage } from '@/api/customer';
-import type { CustomerVO } from '@/types/customer';
+import CustomerSelectEmpty from '@/components/customer/CustomerSelectEmpty';
+import { useCustomerOptions } from '@/hooks/useCustomerOptions';
 import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT, mergeUserDirectory } from '@/api/user';
 import type { UserDirectoryEntry } from '@/api/user';
 import { createProject, updateProject, extractProject } from '@/api/project';
@@ -55,20 +55,15 @@ const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
   const { t } = useT();
   const [form] = Form.useForm<ProjectFormValues>();
   const [submitting, setSubmitting] = useState(false);
-  const [customers, setCustomers] = useState<CustomerVO[]>([]);
   const [users, setUsers] = useState<UserDirectoryEntry[]>([]);
+  // t139：客户下拉带状态加载（历史缺陷：请求失败被 catch 吞成空下拉，没有任何提示）
+  const customerOptionsState = useCustomerOptions(open);
+  const customers = customerOptionsState.items;
   const isEdit = Boolean(project?.id);
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    getCustomerOptions(undefined, 200)
-      .then((res) => {
-        if (!cancelled) setCustomers(extractCustomerPage(res).items);
-      })
-      .catch(() => {
-        if (!cancelled) setCustomers([]);
-      });
     getUserDirectory({ limit: USER_DIRECTORY_DEFAULT_LIMIT })
       .then((list) => {
         if (!cancelled) setUsers((prev) => mergeUserDirectory(prev, list));
@@ -204,6 +199,17 @@ const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
             optionFilterProp="label"
             placeholder={t('project.form.customerPlaceholder')}
             options={customerOptions}
+            loading={customerOptionsState.status === 'loading'}
+            data-testid="project-form-customer-select"
+            // t139：请求失败/无客户时给出可执行指引，而不是一片空白
+            notFoundContent={
+              <CustomerSelectEmpty
+                compact
+                status={customerOptionsState.status}
+                detail={customerOptionsState.detail}
+                onRetry={() => void customerOptionsState.reload()}
+              />
+            }
           />
         </Form.Item>
         <Form.Item name="managerId" label={t('project.form.manager')}>
@@ -249,3 +255,4 @@ const ProjectFormModal: React.FC<ProjectFormModalProps> = ({
 };
 
 export default ProjectFormModal;
+

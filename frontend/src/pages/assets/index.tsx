@@ -29,9 +29,9 @@ import type {
   UpdateAssetRequest,
 } from '@/types/asset';
 import { getTeamList } from '@/api/team';
-import { getCustomerOptions, extractCustomerPage } from '@/api/customer';
+import CustomerSelectEmpty from '@/components/customer/CustomerSelectEmpty';
+import { useCustomerOptions } from '@/hooks/useCustomerOptions';
 import { getProjectDetail, getProjectList, extractPhaseList } from '@/api/project';
-import type { CustomerVO } from '@/types/customer';
 import type { PhaseVO, ProjectVO } from '@/types/project';
 import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
@@ -81,7 +81,9 @@ const Assets: React.FC = () => {
   const [form] = Form.useForm();
 
   /* ---- t73 项目挂靠：客户 → 项目 → 期次 三级联动 ---- */
-  const [customers, setCustomers] = useState<CustomerVO[]>([]);
+  // t139：客户下拉带状态（失败不再静默变成空列表）
+  const customerOptionsState = useCustomerOptions();
+  const customers = customerOptionsState.items;
   /** 筛选区的项目/期次选项 */
   const [filterProjects, setFilterProjects] = useState<ProjectVO[]>([]);
   const [filterPhases, setFilterPhases] = useState<PhaseVO[]>([]);
@@ -119,15 +121,6 @@ const Assets: React.FC = () => {
       console.error(error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadCustomers = async () => {
-    try {
-      const res = await getCustomerOptions(undefined, 200);
-      setCustomers(extractCustomerPage(res).items);
-    } catch {
-      setCustomers([]);
     }
   };
 
@@ -241,7 +234,6 @@ const Assets: React.FC = () => {
   useEffect(() => {
     fetchTeams();
     fetchAssetOptions();
-    loadCustomers();
   }, []);
 
   const handleCreate = () => {
@@ -584,6 +576,17 @@ const Assets: React.FC = () => {
           placeholder={t('asset.list.filterCustomerPlaceholder')}
           value={params.customer_id}
           options={customers.map((customer) => ({ value: customer.id, label: customer.name }))}
+          loading={customerOptionsState.status === 'loading'}
+          data-testid="asset-filter-customer-select"
+          // t139：失败/无客户时给出指引，而不是空白下拉
+          notFoundContent={
+            <CustomerSelectEmpty
+              compact
+              status={customerOptionsState.status}
+              detail={customerOptionsState.detail}
+              onRetry={() => void customerOptionsState.reload()}
+            />
+          }
           onChange={(value) => {
             setParams((prev) => ({ ...prev, customer_id: value, project_id: undefined, phase_id: undefined, page: 1 }));
             loadFilterProjects(value);
@@ -669,6 +672,17 @@ const Assets: React.FC = () => {
                   optionFilterProp="label"
                   placeholder={t('asset.projectLink.customerPlaceholder')}
                   options={customers.map((customer) => ({ value: customer.id, label: customer.name }))}
+                  loading={customerOptionsState.status === 'loading'}
+                  data-testid="asset-form-customer-select"
+                  // t139：三级联动的第一级同样要能解释「为什么是空的」
+                  notFoundContent={
+                    <CustomerSelectEmpty
+                      compact
+                      status={customerOptionsState.status}
+                      detail={customerOptionsState.detail}
+                      onRetry={() => void customerOptionsState.reload()}
+                    />
+                  }
                   onChange={(value) => {
                     setFormCustomerId(value);
                     form.setFieldValue('project_id', undefined);
@@ -756,3 +770,6 @@ const Assets: React.FC = () => {
 };
 
 export default Assets;
+
+
+

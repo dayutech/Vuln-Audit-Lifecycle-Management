@@ -12,9 +12,9 @@ import {
   removeAssetProjectLink,
 } from '@/api/asset';
 import type { AssetProjectLinkVO } from '@/types/asset';
-import { getCustomerOptions, extractCustomerPage } from '@/api/customer';
+import CustomerSelectEmpty from '@/components/customer/CustomerSelectEmpty';
+import { useCustomerOptions } from '@/hooks/useCustomerOptions';
 import { getProjectDetail, getProjectList, extractPhaseList } from '@/api/project';
-import type { CustomerVO } from '@/types/customer';
 import type { PhaseVO, ProjectVO } from '@/types/project';
 import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
 
@@ -50,7 +50,9 @@ const AssetProjectLinksPanel: React.FC<AssetProjectLinksPanelProps> = ({ assetId
     remark?: string;
   }>();
 
-  const [customers, setCustomers] = useState<CustomerVO[]>([]);
+  // t139：客户下拉带状态（失败不再静默变成空列表）
+  const customerOptionsState = useCustomerOptions();
+  const customers = customerOptionsState.items;
   const [projects, setProjects] = useState<ProjectVO[]>([]);
   const [phases, setPhases] = useState<PhaseVO[]>([]);
   const [projectLoading, setProjectLoading] = useState(false);
@@ -95,14 +97,7 @@ const AssetProjectLinksPanel: React.FC<AssetProjectLinksPanelProps> = ({ assetId
     form.setFieldsValue({ link_type: 'TARGET' });
     setProjects([]);
     setPhases([]);
-    if (customers.length === 0) {
-      try {
-        const res = await getCustomerOptions(undefined, 200);
-        setCustomers(extractCustomerPage(res).items);
-      } catch {
-        setCustomers([]);
-      }
-    }
+    // t139：客户列表由 useCustomerOptions 统一加载（挂载即取，失败有明确提示与重试）
   };
 
   const loadProjects = async (customerId?: string) => {
@@ -334,6 +329,16 @@ const AssetProjectLinksPanel: React.FC<AssetProjectLinksPanelProps> = ({ assetId
               optionFilterProp="label"
               placeholder={t('asset.projectLink.customerPlaceholder')}
               options={customers.map((customer) => ({ value: customer.id, label: customer.name }))}
+              loading={customerOptionsState.status === 'loading'}
+              data-testid="asset-link-customer-select"
+              notFoundContent={
+                <CustomerSelectEmpty
+                  compact
+                  status={customerOptionsState.status}
+                  detail={customerOptionsState.detail}
+                  onRetry={() => void customerOptionsState.reload()}
+                />
+              }
               onChange={(value) => {
                 form.setFieldValue('project_id', undefined);
                 form.setFieldValue('phase_id', undefined);
@@ -385,3 +390,5 @@ const AssetProjectLinksPanel: React.FC<AssetProjectLinksPanelProps> = ({ assetId
 };
 
 export default AssetProjectLinksPanel;
+
+
