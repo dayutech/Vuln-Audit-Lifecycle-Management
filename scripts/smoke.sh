@@ -2272,6 +2272,72 @@ fi
     skip "tag/非ADMIN写-403" "-" "依赖上一条"
   fi
 
+  # ---- 项目批量资产（t154）与审批历史（t156）----
+  if [ -n "${PROJECT_ID:-}" ] && [ -n "${CUST_ID:-}" ]; then
+    request GET "/api/v1/projects/${PROJECT_ID}/available-assets?page=0&size=10" "$ADMIN_TOKEN"
+    judge "bulk/可选资产列表-200" 200 '"content"' "GET /projects/{id}/available-assets"
+
+    api_json POST '/api/v1/projects' "$ADMIN_TOKEN" \
+      "{\"code\":\"SMK-BULK-${TAG}\",\"name\":\"冒烟批量项目 ${TAG}\",\"customerId\":\"${CUST_ID}\",\"managerId\":\"${ADMIN_ID}\"}"
+    BULK_PID="$(jfirst id)"
+    if [ -n "$BULK_PID" ]; then
+      api_json POST '/api/v1/assets' "$ADMIN_TOKEN" \
+        "{\"name\":\"冒烟批量资产 ${TAG}\",\"targetType\":\"Web应用\",\"targetSource\":\"客户委托\",\"priority\":\"P3\",\"status\":\"active\",\"teamId\":\"${TEAM_ID}\",\"projectId\":\"${BULK_PID}\"}"
+      BULK_AID="$(jfirst id)"
+    fi
+    if [ -n "${BULK_AID:-}" ]; then
+      api_json POST "/api/v1/projects/${PROJECT_ID}/assets" "$ADMIN_TOKEN" \
+        "{\"assetIds\":[\"${BULK_AID}\"]}"
+      judge "bulk/批量添加-200-added1" 200 '"added"[[:space:]]*:[[:space:]]*1' "POST /projects/{id}/assets"
+
+      api_json POST "/api/v1/projects/${PROJECT_ID}/assets" "$ADMIN_TOKEN" \
+        "{\"assetIds\":[\"${BULK_AID}\"]}"
+      judge "bulk/重复添加-skipped1" 200 '"skipped"[[:space:]]*:[[:space:]]*1' "幂等：已挂靠同项目"
+
+      QV_BULK="$(flatten | grep -o '"skipped"[[:space:]]*:[[:space:]]*[0-9]*' | head -1 | grep -o '[0-9]*$')"
+
+      # A2 仍挂 P2 → 从 P1 移除安全（removed=1）
+      api_json DELETE "/api/v1/projects/${PROJECT_ID}/assets" "$ADMIN_TOKEN" \
+        "{\"assetIds\":[\"${BULK_AID}\"]}"
+      judge "bulk/移除一条-removed1" 200 '"removed"[[:space:]]*:[[:space:]]*1' "DELETE body 用 assetIds"
+
+      # 从唯一挂靠的项目移除 → 409（一条都不删）
+      api_json DELETE "/api/v1/projects/${BULK_PID}/assets" "$ADMIN_TOKEN" \
+        "{\"assetIds\":[\"${BULK_AID}\"]}"
+      judge "bulk/移除唯一挂靠-409" 409 '' "移除后零挂靠 → 409"
+
+      api_json POST '/api/v1/projects/00000000-0000-0000-0000-0000000000ff/assets' "$ADMIN_TOKEN" \
+        "{\"assetIds\":[\"${BULK_AID}\"]}"
+      judge "bulk/项目不存在-404" 404 '' "POST /projects/{未知id}/assets"
+
+      request DELETE "/api/v1/assets/${BULK_AID}" "$ADMIN_TOKEN" >/dev/null 2>&1
+      request DELETE "/api/v1/projects/${BULK_PID}" "$ADMIN_TOKEN" >/dev/null 2>&1
+    else
+      skip "bulk/批量添加-200-added1" "$LAST_STATUS" "批量夹具未就绪"
+      skip "bulk/重复添加-skipped1" "-" "依赖上一条"
+      skip "bulk/移除一条-removed1" "-" "依赖上一条"
+      skip "bulk/移除唯一挂靠-409" "-" "依赖上一条"
+      skip "bulk/项目不存在-404" "-" "依赖上一条"
+    fi
+  else
+    skip "bulk/可选资产列表-200" "-" "缺少项目/客户夹具"
+    skip "bulk/批量添加-200-added1" "-" "缺少项目夹具"
+    skip "bulk/重复添加-skipped1" "-" "依赖上一条"
+    skip "bulk/移除一条-removed1" "-" "依赖上一条"
+    skip "bulk/移除唯一挂靠-409" "-" "依赖上一条"
+    skip "bulk/项目不存在-404" "-" "依赖上一条"
+  fi
+
+  # 审批历史（t156）
+  request GET '/api/v1/assets/my/access-approval-history?as=reviewer&status=all&page=0&size=10' "$ADMIN_TOKEN"
+  judge "approval/历史列表-200" 200 '"content"' "GET /assets/my/access-approval-history"
+  request GET '/api/v1/assets/my/access-approval-history?as=bogus' "$ADMIN_TOKEN"
+  judge "approval/非法as-400" 400 '' "as 白名单"
+  request GET '/api/v1/assets/my/access-approval-history/count?as=reviewer' "$ADMIN_TOKEN"
+  judge "approval/历史计数-200" 200 '"approved"' "GET .../access-approval-history/count"
+  request GET '/api/v1/assets/my/access-approval-history?as=reviewer' ""
+  judge "approval/未登录-401" 401 '' "只读端点仍需登录"
+
   printf '\n==== 冒烟汇总 ====\n'
 printf 'TOTAL=%d  PASS=%d  FAIL=%d  SKIP=%d\n' "$TOTAL" "$PASSED" "$FAILED" "$SKIPPED"
 if [ "$FAILED" -gt 0 ]; then

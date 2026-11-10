@@ -4591,3 +4591,51 @@ cd backend && mvn -B test -Dtest=ApprovalHistoryTest   # 11/11
 2. `requestedAt` 取 `asset_accesses.created_at`（申请时间）；重新提交会新增一行，历史因此可能有多条。
 3. keyword 走「先解析资产 id 再 `in` 过滤」，超大租户下 keyword 命中集合可能较大（当前量级可接受）。
 4. 历史不含 `requestNote`（申请理由）——只有 `reviewNote`（审批意见）；需要申请理由请用待审批接口或另加字段。
+---
+
+## 68. 第四十四轮（t158 收口三：菜单排序 / 审批历史 / 批量资产 / 产品概览 / 附件排序，前后端同批）
+
+时间：2026-11-10 15:50–17:1x。本轮 **无新迁移**（生产仍为 V31；`manual-ddl.sql` 覆盖 V18–V31，与 migration 目录一致 —— V1–V17 属 Flyway 关闭前的历史基线，不在手工段内）。
+
+| 项 | 结果 |
+|---|---|
+| 全量回归 | `mvn -B clean test` **连续 2 次全绿：1024 例 / 0 / 0 / 0**（宿主 JDK21，pom target 17） |
+| 部署 | 后端 jar **73,482,723 B**（旧 jar 备份），重启 14–20s 内 login=200；前端清 `.tmp` 后构建 **`index-Bht1i7kT.js` 2,894.53 kB / `index-C9wuC1eN.css` 30.80 kB**，`sync-dist` 5 文件，线上 `index.html` 已引用新 chunk（前后端同批） |
+| 冒烟 | **302 / 302 PASS，0 FAIL，0 SKIP**（新增 10 条：批量资产 6 + 审批历史 4） |
+| 真机浏览器 | **T158_UI_A 16/16 + T158_UI_B 15/15，pageErrors=[]**，见 §68.2 / §68.3 |
+
+### 68.1 冒烟新增 10 条
+
+批量资产（t154）：可选资产列表 200 / 批量添加 `added=1` / 重复添加 `skipped=1` / 移除一条 `removed=1` / **移除唯一挂靠 409** / 项目不存在 404。
+审批历史（t156）：历史列表 200（`content`）/ 非法 `as` 400 / count 200（含 `approved`）/ 未登录 401。
+
+### 68.2 真机验收 A（菜单 / 审批 / 产品概览 / 所属项目，16 项）
+
+- **菜单**：`安全审计任务` 索引 **4** < `全局漏洞视图` **5**（`安全态势大盘/客户管理/项目管理/产品与资产中心/安全审计任务/全局漏洞视图/审批中心` 七项逐一点击，选中态与文案完全一致）。
+- **审批三分类**：Tab 为 `待审批 | 已通过 30 | 已拒绝 46`，默认停「待审批」；「已通过」发 `GET /assets/my/access-approval-history?as=reviewer&status=approved&page=0&size=10`，「已拒绝」带 `status=rejected`。
+- **localStorage 证据**：清空除 `access_token` 外所有键（`keys=["access_token"]`）后刷新，**已拒绝仍 10 行** —— 历史数据确实来自后端。
+- **软删资产**：记录带「资产已删除」Tag（4 处），目标渲染为不可点文本（`hasAnchor=false`）。
+- **产品概览**：默认只读，只读区输入控件 **0**（版本选择器按 `.ant-select` 排除）；点「修改」后表单控件 **9** 个。
+- **所属项目**：解绑/移除按钮 **0**，有「请在项目管理中操作」说明 + 跳转链接。
+
+### 68.3 真机验收 B（批量资产 / 附件排序，15 项）
+
+- **批量添加**：弹窗勾选 2 个资产 → `POST /projects/{id}/assets` 响应 `{"added":2,"skipped":0,"failed":[]}`；添加后这些资产**不再出现在可选列表**（重复提交走 `skipped`，由冒烟 `bulk/重复添加-skipped1` 覆盖）。
+- **移除唯一挂靠**：勾选唯一挂靠资产 → 确认框文案「如果某个资产移除后不再属于任何项目，后端会拒绝整批操作（一条都不会删）」→ `DELETE` 返回 **409**「以下资产移除后将不再挂靠任何项目…: AST-20261110-13020B」，**列表行数 3 → 3 不变**。
+- **DELETE 请求体证据**：`{"assetIds":["4a87a50d-8fbe-46f5-8861-0cdd9a82eb6a"]}` —— 是 **assetId（36 位 UUID）**，不是 linkId。
+- **未再调用资产侧挂靠**：`/assets/{id}/project-links` 请求数 **0**。
+- **附件排序**：文件表「版本」「上传人」列均可排序；点「版本」→ `?sort=assetVersionId,asc&allVersions=true`，点「上传人」→ `?sort=uploadedBy,asc`；上传人表头有「按账号排序」提示；**交付物「版本」列 `sortable=false`**（无排序图标，符合 t151 决策 —— 交付物无版本号列）。
+
+### 68.4 部署与清理
+
+- 临时开关（dev-mode / IP / 重置 / 锁定阈值）全部移除并重启复核：发码无 `devCode`、锁定第 6 次 **429 + Retry-After 900**。
+- 顺带修复：**admin 的 2FA 处于开启状态**（历史测试遗留），导致部署后首轮 `login` 返回 202；已复位 `two_factor_enabled=false / totp_secret=NULL` 并清理恢复码。**后续验证脚本若开启 2FA 必须确保关闭**。
+- 数据终态：`customers=1 projects=1 phases=0 assets=3 links=3`、`orphan=0`、`tag_definitions=3(builtin)`、`asset_tags=0`、`files=4`、`deliverables=0`、`users=12`、`codes=0`、`requests=0`、`rm_tokens=0`、`2fa_on=0`；临时库 `temp_dbs=0`、`vulnapp` 临时授权已 REVOKE。
+- 遗留：`asset_access` 保留 70 条历史申请（引用基线示例资产的冒烟历史），不影响页面与统计。
+
+### 68.5 踩坑（本轮新增）
+
+1. **脚本先探结构再断言**：审批页签、项目页按钮、概览只读区都可点/可读，但名称与结构必须先 dump（`资产文件`/`交付物管理`/`添加资产`/`移除所选（0）`），否则「空白/失败」多半是选择器错。
+2. **`api_json GET` 必须带 payload**（t147 已记，本轮又踩一次）：GET 用 `request GET`，否则 `$4: unbound`。
+3. **清理脚本用错表名会整体中断**：访问申请表是 **`asset_access`**（不是 `asset_access_requests`）；`mariadb < file` 遇错即停，表现为「sql_exit=1 但无任何输出」。
+4. **重复添加无法在 UI 复现**：资产一旦挂靠就不再出现在可选列表，`skipped` 语义只能在 API/冒烟层验证（UI 侧改为断言「已挂靠资产不再出现」）。

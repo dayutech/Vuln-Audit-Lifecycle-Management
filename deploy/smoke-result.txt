@@ -382,3 +382,12 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 真机浏览器 T150_UI 11/11：列表页 per-asset /assets/{id}/tags 请求数 0 且标签列渲染；资产文件页签 2 行（含备注/上传人）；交付物管理页签 1 行（含备注）；files 接口分页信封；pageErrors=[]。
 - 排查记档：页签「空白」三次误判均为脚本问题（页签文案「资产文件/交付物管理」、行选择器应用 .ant-table-row、按 aria-hidden 取当前面板），页面与契约正常。
 - 数据终态：customers=1 projects=1 assets=3 links=3、orphan=0、tag_definitions=3、asset_tags=0、files=4、deliverables=0、users=12、requests/codes/rm_tokens=0；临时开关/临时库/临时授权全部清理。
+########## 二十一、t158 收口三（菜单/审批历史/批量资产/产品概览/附件排序，前后端同批，2026-11-10 17:1x） ##########
+- 全量回归：mvn -B clean test 连续 2 次 → 1024 例 / Failures 0 / Errors 0 / Skipped 0。
+- 迁移：本轮无新迁移；生产仍为 V31，manual-ddl 覆盖 V18–V31 与 migration 一致（V1–V17 为 Flyway 关闭前基线）。
+- 部署：后端 jar 73,482,723 B（重启 14–20s login=200）+ 前端 index-Bht1i7kT.js 2,894.53 kB / index-C9wuC1eN.css 30.80 kB，sync-dist 5 文件，线上 index.html 已引用新 chunk。
+- 冒烟：TOTAL=302 PASS=302 FAIL=0 SKIP=0（新增 10 条：批量资产 6 + 审批历史 4）。
+- 真机浏览器 A 16/16：菜单 安全审计任务(#4) 在 全局漏洞视图(#5) 之上、7 项点击高亮一致；审批 Tab「待审批 | 已通过 30 | 已拒绝 46」、默认待审批、历史走 /access-approval-history（status=approved/rejected）、**清空 localStorage 后已拒绝仍 10 行**、软删 Tag 4 处且目标不可点；产品概览只读输入 0 → 修改后 9；所属项目解绑 0 + 说明与链接。
+- 真机浏览器 B 15/15：批量添加 added=2、已挂靠资产不再出现在可选列表、移除唯一挂靠 409（消息含 AST 编号）且 3 行不变、**DELETE 体 {"assetIds":["<assetId UUID>"]}**、/assets/{id}/project-links 请求 0；文件表 版本/上传人 可排序并分别发出 sort=assetVersionId / sort=uploadedBy，上传人表头有「按账号排序」，交付物「版本」列 sortable=false。
+- 修复：admin 2FA 历史遗留开启导致部署后首轮 login 202 → 已复位 two_factor_enabled=false/totp_secret=NULL 并清恢复码。
+- 清理：临时开关全部移除并重启复核（无 devCode、锁定 429+900）；临时库 0、临时授权已回收；终态 customers=1 projects=1 assets=3 links=3、orphan=0、tag_definitions=3、files=4、deliverables=0、users=12、codes/requests/rm_tokens=0、2fa_on=0。

@@ -2131,3 +2131,25 @@ Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试
 **验证**：`ApprovalHistoryTest` **11/11**（pending 不出现、字段完整、status/as 白名单 400、默认倒序、分页、
 两审批人互不可见、`as=requester` 语义、软删后仍可见+`assetDeleted=true`、assetId/keyword 筛选、count 与列表一致、
 未登录 401、只读不写审计）。契约与**前端 localStorage 移除替换点**见 README §69。
+
+### 2.40 t158 收口三：菜单排序 / 审批历史 / 批量资产 / 产品概览 / 附件排序（t151–t157 共 7 项）
+
+**全量回归**：`mvn -B clean test` 连续 2 次 → **1024 例 / Failures 0 / Errors 0 / Skipped 0**。
+**迁移**：本轮无新 DDL，生产仍 V31；`deploy/manual-ddl.sql` 覆盖 V18–V31，与 migration 目录一致（V1–V17 属 Flyway 关闭前基线）。
+**部署**：后端 jar 73,482,723 B + 前端 `index-Bht1i7kT.js` 同批发布（契约变更必须同批）。
+**冒烟**：302/302（新增批量资产 6 + 审批历史 4）。
+
+**真机验收（真实 Edge + CDP，A 16/16 + B 15/15，pageErrors=[]）**
+
+| 组 | 关键证据 |
+|---|---|
+| 菜单 | `安全审计任务` 索引 4 < `全局漏洞视图` 5；七项点击选中态与文案逐一匹配 |
+| 审批三分类 | Tab `待审批 / 已通过 30 / 已拒绝 46`，默认待审批；历史请求 `access-approval-history?as=reviewer&status=approved|rejected`；**清空 localStorage 后已拒绝仍 10 行**；软删记录带 Tag 且目标非 `<a>` |
+| 产品概览 | 只读区输入控件 0（排除版本选择器）→ 点「修改」后 9 |
+| 所属项目 | 解绑按钮 0 + 「请在项目管理中操作」+ 跳转链接 |
+| 批量资产 | `added=2`；已挂靠资产移出可选列表；移除唯一挂靠 **409**（消息含 `AST-…`）且清单 3→3 不变；**DELETE 体 `{"assetIds":["<assetId>"]}`**；`/assets/{id}/project-links` 请求 0 |
+| 附件排序 | 文件「版本」→ `sort=assetVersionId`、「上传人」→ `sort=uploadedBy`（表头「按账号排序」）；交付物「版本」`sortable=false` |
+
+**顺带修复**：admin 的 2FA 为历史遗留开启状态，导致部署后首轮登录 202；已复位并清恢复码（README §68.4）。
+
+**已知边界（新增）**：① 重复添加的 `skipped` 只能在 API/冒烟层验证（UI 中已挂靠资产不再出现在候选列表）；② `asset_access` 保留 70 条历史申请（引用基线资产的冒烟历史），不影响页面与统计。
