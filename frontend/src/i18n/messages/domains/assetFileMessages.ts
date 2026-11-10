@@ -35,7 +35,10 @@ export const assetFileZh = {
   'assetFile.filter.uploaderPlaceholder': '上传人',
   'assetFile.filter.uploaderUnavailable': '上传人（数据未提供）',
   'assetFile.filter.reset': '重置筛选',
-  'assetFile.filter.frontendHint': '筛选对已加载的数据生效',
+  'assetFile.filter.serverHint': '筛选/排序/分页由服务端处理',
+  'assetFile.filter.localHint': '当前为降级模式：筛选仅作用于当前页已加载的数据',
+  'assetFile.col.uploaderSortHint': '按账号（用户 ID）排序，不是姓名拼音序',
+  'assetFile.col.noVersion': '无版本',
   'assetFile.filter.resultCount': '共 {count} 个文件',
   'assetFile.filter.empty': '没有符合筛选条件的文件',
   'assetFile.filter.localFallback': '本地筛选（后端未返回分页信息）',
@@ -83,7 +86,10 @@ export const assetFileEn: Record<keyof typeof assetFileZh, string> = {
   'assetFile.filter.uploaderPlaceholder': 'Uploader',
   'assetFile.filter.uploaderUnavailable': 'Uploader (not provided by the API)',
   'assetFile.filter.reset': 'Reset filters',
-  'assetFile.filter.frontendHint': 'Filters apply to the loaded rows',
+  'assetFile.filter.serverHint': 'Filtering, sorting and paging are handled by the server',
+  'assetFile.filter.localHint': 'Fallback mode: filters apply only to the rows already loaded on this page',
+  'assetFile.col.uploaderSortHint': 'Sorts by account (user ID), not by name',
+  'assetFile.col.noVersion': 'No version',
   'assetFile.filter.resultCount': '{count} file(s)',
   'assetFile.filter.empty': 'No files match the filters',
   'assetFile.filter.localFallback': 'local filtering (no pagination info from the server)',
@@ -98,4 +104,5 @@ export const assetFileEn: Record<keyof typeof assetFileZh, string> = {
   'deliverable.upload.type': 'Deliverable type',
   'deliverable.upload.success': 'Deliverable uploaded',
 };
+
 

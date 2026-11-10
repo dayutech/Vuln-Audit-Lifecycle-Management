@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Tabs, Card, Button, Descriptions, Tag, Spin, Result, Form, Input, Select, Row, Col, Space, Table, message, Modal, Tooltip, Steps, Alert, Typography } from 'antd';
-import { AppstoreOutlined, BuildOutlined, FileZipOutlined, BugOutlined, SafetyCertificateOutlined, UploadOutlined, PlusOutlined, MinusCircleOutlined, UserOutlined, LockOutlined, TagOutlined, PlusCircleOutlined, CodeOutlined, SettingOutlined, NodeIndexOutlined, LinkOutlined, InfoCircleOutlined, PlayCircleOutlined, StopOutlined, CloudUploadOutlined, ReloadOutlined, ProjectOutlined } from '@ant-design/icons';
+import { EditOutlined, AppstoreOutlined, BuildOutlined, FileZipOutlined, BugOutlined, SafetyCertificateOutlined, UploadOutlined, PlusOutlined, MinusCircleOutlined, UserOutlined, LockOutlined, TagOutlined, PlusCircleOutlined, CodeOutlined, SettingOutlined, NodeIndexOutlined, LinkOutlined, InfoCircleOutlined, PlayCircleOutlined, StopOutlined, CloudUploadOutlined, ReloadOutlined, ProjectOutlined } from '@ant-design/icons';
 import { 
   getAssetDetail, 
   getAssetVersions,
@@ -70,12 +70,18 @@ import { canWriteAsset, resolveCurrentUserId, ASSET_WRITE_FORBIDDEN_TIP } from '
 import { useT } from '@/i18n';
 import type { MessageKey } from '@/i18n/messages/zh-CN';
 
-/** UI 排序键 → 后端 sort 白名单（t148）：version/uploader 后端不支持 → 只在本地页内排序 */
+/**
+ * UI 排序键 → 后端 sort 白名单（t148 + t151）。
+ * t151 起后端支持 `assetVersionId`（按 version 整数排）与 `uploadedBy`（**按用户 UUID 排**），
+ * 因此这两列也走服务端排序（跨页才正确），不再退化为页内本地排序。
+ */
 const SERVER_SORT_FIELD: Record<string, string> = {
   name: 'name',
   category: 'category',
   fileSize: 'size',
   createdAt: 'uploadedAt',
+  version: 'assetVersionId',
+  uploader: 'uploadedBy',
 };
 
 /** 生成 `sort=field,asc|desc`；不支持的列返回 undefined（后端会 400） */
@@ -288,6 +294,11 @@ const AssetDetail: React.FC = () => {
   // 卡片切换状态
   const [overviewStep, setOverviewStep] = useState(0);
 
+  /** t152：产品概览默认只读；点「修改」才进入编辑态（退出有未保存修改需二次确认） */
+  const [overviewEditing, setOverviewEditing] = useState(false);
+  /** 只读展示用的快照（每次加载模块后刷新，避免只读态直接读表单控件值） */
+  const [overviewSnapshot, setOverviewSnapshot] = useState<Record<string, any>>({});
+
   // Environment states
   const [environments, setEnvironments] = useState<EnvironmentVO[]>([]);
   const [envLoading, setEnvLoading] = useState(false);
@@ -494,7 +505,7 @@ const AssetDetail: React.FC = () => {
             data.copiedFromAssetVersionId ?? data.copied_from_asset_version_id ?? undefined
           );
         }
-        metadataForm.setFieldsValue({
+        const formValues = {
           ...data,
           ...(module === 'account' ? { accountCredentials } : {}),
           ...(module === 'base' ? { programmingLanguagesList } : {}),
@@ -506,7 +517,10 @@ const AssetDetail: React.FC = () => {
             servicePortsList: parseJsonList(data.servicePorts, { key: 'accessType', val: 'all' }),
             apiEndpointsList: parseJsonList(data.apiEndpoints, { key: 'authType', val: 'auth_required' }),
           } : {}),
-        });
+        };
+        metadataForm.setFieldsValue(formValues);
+        // t152：只读态用快照渲染（表单只在编辑态出现）
+        setOverviewSnapshot(formValues);
       } else {
         setMetadataExists(false);
         if (module === 'base') {
@@ -1227,6 +1241,8 @@ const AssetDetail: React.FC = () => {
       }
 
       await updateAssetMetadata(asset.id, currentModule, payload, overviewVersionId);
+      // t152：保存成功回到只读态
+      setOverviewEditing(false);
       message.success(t('asset.detail.metadataSaveSuccess'));
       setMetadataExists(true);
     } catch (error) {
@@ -1609,6 +1625,77 @@ const AssetDetail: React.FC = () => {
     setDeliverableFilters(next);
     setDeliverablePage(1);
   };
+  /**
+   * 只读态的字段清单（t152）：按步骤分组，值与「编辑态表单字段名」一一对应，
+   * 但从 `overviewSnapshot` 读，**只读态不渲染任何输入框**。
+   */
+  const overviewReadonlyFields: Array<{ step: number; name: string; labelKey: MessageKey; format?: 'list' }> = [
+    { step: 0, name: 'runtimePlatform', labelKey: 'asset.detail.runtimePlatform' },
+    { step: 0, name: 'deploymentMethod', labelKey: 'asset.detail.deploymentMethod' },
+    { step: 0, name: 'systemArchitecture', labelKey: 'asset.detail.systemArchitecture' },
+    { step: 0, name: 'programmingLanguagesList', labelKey: 'asset.detail.programmingLanguages', format: 'list' },
+    { step: 0, name: 'installPath', labelKey: 'asset.detail.installPath' },
+    { step: 0, name: 'startupCommand', labelKey: 'asset.detail.startupCommand' },
+    { step: 1, name: 'servicePortsList', labelKey: 'asset.detail.servicePorts', format: 'list' },
+    { step: 1, name: 'apiEndpointsList', labelKey: 'asset.detail.apiEndpoints', format: 'list' },
+    { step: 2, name: 'startupScriptPathList', labelKey: 'asset.detail.startupScript', format: 'list' },
+    { step: 2, name: 'configFilePathList', labelKey: 'asset.detail.configFile', format: 'list' },
+    { step: 3, name: 'databaseType', labelKey: 'asset.detail.databaseType' },
+    { step: 3, name: 'databaseConnection', labelKey: 'asset.detail.databaseConnection' },
+    { step: 4, name: 'specialNotes', labelKey: 'asset.detail.specialNotes' },
+  ];
+
+  /** 只读值格式化：数组 → 文本，空 → '-' */
+  const formatReadonlyValue = (value: any, asList?: 'list'): string => {
+    if (value === null || value === undefined || value === '') return '-';
+    if (Array.isArray(value)) {
+      const parts = value
+        .map((item) => {
+          if (item === null || item === undefined) return '';
+          if (typeof item === 'string') return item;
+          if (typeof item === 'number') return String(item);
+          const keys = ['name', 'path', 'value', 'port', 'host', 'url', 'username', 'label'];
+          const hit = keys.map((k) => item[k]).find((v) => v !== undefined && v !== null && v !== '');
+          return hit !== undefined ? String(hit) : JSON.stringify(item);
+        })
+        .filter(Boolean);
+      return parts.length > 0 ? parts.join('、') : '-';
+    }
+    if (asList === 'list') return String(value);
+    return String(value);
+  };
+
+  /** 是否有未保存修改（只比较编辑态表单与加载快照） */
+  const hasOverviewUnsavedChanges = useCallback((): boolean => {
+    const current = metadataForm.getFieldsValue(true) ?? {};
+    const keys = new Set([...Object.keys(current), ...Object.keys(overviewSnapshot)]);
+    for (const key of keys) {
+      const a = current[key];
+      const b = overviewSnapshot[key];
+      if (JSON.stringify(a ?? null) !== JSON.stringify(b ?? null)) return true;
+    }
+    return false;
+  }, [metadataForm, overviewSnapshot]);
+
+  /** 退出编辑：有未保存修改时二次确认 */
+  const exitOverviewEditing = useCallback(() => {
+    if (!hasOverviewUnsavedChanges()) {
+      setOverviewEditing(false);
+      return;
+    }
+    Modal.confirm({
+      title: t('asset.detail.overviewDiscardTitle'),
+      content: t('asset.detail.overviewDiscardContent'),
+      okText: t('asset.detail.overviewDiscardOk'),
+      cancelText: t('common.cancel'),
+      okButtonProps: { danger: true },
+      onOk: () => {
+        metadataForm.setFieldsValue(overviewSnapshot);
+        setOverviewEditing(false);
+      },
+    });
+  }, [hasOverviewUnsavedChanges, metadataForm, overviewSnapshot, t]);
+
   const fileColumns = [
     {
       title: <span data-testid="file-sort-name">{t('asset.detail.fileName')}</span>,
@@ -1624,7 +1711,8 @@ const AssetDetail: React.FC = () => {
     },
     {
       title: <span data-testid="file-sort-version">{t('asset.detail.colVersion')}</span>,
-      key: 'assetVersionId',
+      // key 必须是 'version'：onTableChange 用 columnKey 反查排序键（t152 修：曾写成 assetVersionId 导致点列头不发 sort）
+      key: 'version',
       render: (_: any, record: AssetFileVO & { asset_version_id?: string }) => versionLabelById(record.assetVersionId || record.asset_version_id),
       ...fileSort.sorterFor('version', versionLabelById),
     },
@@ -1644,7 +1732,11 @@ const AssetDetail: React.FC = () => {
     },
     {
       // t148/t149：上传人（uploadedBy + uploaderName，列表一次批量解析，无 N+1）
-      title: <span data-testid="file-sort-uploader">{t('assetFile.col.uploader')}</span>,
+      title: (
+        <Tooltip title={t('assetFile.col.uploaderSortHint')}>
+          <span data-testid="file-sort-uploader">{t('assetFile.col.uploader')}</span>
+        </Tooltip>
+      ),
       key: 'uploader',
       width: 140,
       render: (_: any, record: AssetFileVO) => (
@@ -1686,10 +1778,11 @@ const AssetDetail: React.FC = () => {
       ...deliverableSort.sorterFor('category'),
     },
     {
-      title: <span data-testid="deliverable-sort-version">{t('asset.detail.colVersion')}</span>,
+      // t152（captain 口径）：交付物**没有版本号列**（只有 asset_version_id UUID），
+      // 按 UUID 排序对用户无意义 → 该列**不提供排序**，只展示「无版本」
+      title: <span data-testid="deliverable-version">{t('asset.detail.colVersion')}</span>,
       key: 'assetVersionId',
-      render: (_: any, record: AssetDeliverableVO & { asset_version_id?: string }) => versionLabelById(record.assetVersionId || record.asset_version_id),
-      ...deliverableSort.sorterFor('version', versionLabelById),
+      render: () => <span data-testid="deliverable-no-version">{t('assetFile.col.noVersion')}</span>,
     },
     {
       title: <span data-testid="deliverable-sort-fileSize">{t('asset.detail.colSize')}</span>,
@@ -1706,7 +1799,11 @@ const AssetDetail: React.FC = () => {
       ...deliverableSort.sorterFor('createdAt'),
     },
     {
-      title: <span data-testid="deliverable-sort-uploader">{t('assetFile.col.uploader')}</span>,
+      title: (
+        <Tooltip title={t('assetFile.col.uploaderSortHint')}>
+          <span data-testid="deliverable-sort-uploader">{t('assetFile.col.uploader')}</span>
+        </Tooltip>
+      ),
       key: 'uploader',
       width: 140,
       render: (_: any, record: AssetDeliverableVO) => (
@@ -2059,7 +2156,27 @@ const AssetDetail: React.FC = () => {
       </Modal>
 
       <Card style={{ borderRadius: 8 }} bodyStyle={{ padding: '0 24px 24px' }}>
-        <Tabs defaultActiveKey="overview" size="large">
+        <Tabs
+          defaultActiveKey="overview"
+          size="large"
+          onChange={(key) => {
+            // t152：离开「产品概览」编辑态且存在未保存修改 → 二次确认
+            if (overviewEditing && hasOverviewUnsavedChanges()) {
+              Modal.confirm({
+                title: t('asset.detail.overviewDiscardTitle'),
+                content: t('asset.detail.overviewDiscardContent'),
+                okText: t('asset.detail.overviewDiscardOk'),
+                cancelText: t('common.cancel'),
+                okButtonProps: { danger: true },
+                onOk: () => {
+                  metadataForm.setFieldsValue(overviewSnapshot);
+                  setOverviewEditing(false);
+                },
+              });
+            }
+            void key;
+          }}
+        >
           <TabPane tab={<span><FileZipOutlined />{t('asset.detail.filesTitle')}</span>} key="asset-files">
             <div style={{ padding: '24px 0' }} data-testid="asset-tab-asset-files">
               {/* t146：上传改为弹框（页面无内联上传表单）；筛选 + 列头排序见下 */}
@@ -2079,6 +2196,7 @@ const AssetDetail: React.FC = () => {
                   versions={filterVersionOptions}
                   uploaderOptions={fileUploaderOptions}
                   uploaderUnavailable={fileUploaderOptions.length === 0}
+                  localMode={fileLocalMode}
                   testIdPrefix="file-filter"
                 />
               </div>
@@ -2147,6 +2265,7 @@ const AssetDetail: React.FC = () => {
                   ]}
                 />
                 
+                {overviewEditing ? (
                 <Form form={metadataForm} layout="vertical">
                   <div style={{ display: overviewStep === 0 ? 'block' : 'none' }}>
                     <Card bordered={false} className="overview-step-card">
@@ -2367,11 +2486,33 @@ const AssetDetail: React.FC = () => {
                   <div style={{ marginTop: 40, paddingTop: 24, borderTop: '1px solid #f0f0f0', display: 'flex', gap: 8, alignItems: 'center' }}>
                     <Button disabled={overviewStep === 0} onClick={() => setOverviewStep(overviewStep - 1)}>{t('asset.detail.prevStep')}</Button>
                     <Button disabled={overviewStep === 4} onClick={() => setOverviewStep(overviewStep + 1)}>{t('asset.detail.nextStep')}</Button>
-                    <Button type="primary" loading={metadataSubmitting} onClick={handleSubmitMetadata} style={{ marginLeft: 8 }}>
+                    <Button type="primary" loading={metadataSubmitting} onClick={handleSubmitMetadata} style={{ marginLeft: 8 }} data-testid="overview-save-btn">
                       {metadataExists ? t('asset.detail.saveChanges') : t('asset.detail.createMetadata')}
                     </Button>
+                    <Button onClick={exitOverviewEditing} data-testid="overview-cancel-btn">{t('asset.detail.overviewCancelEdit')}</Button>
                   </div>
                 </Form>
+                ) : (
+                  <div data-testid="overview-readonly">
+                    <Descriptions bordered size="small" column={2} styles={{ label: { width: 180 } }}>
+                      {overviewReadonlyFields
+                        .filter((field) => field.step === overviewStep)
+                        .map((field) => (
+                          <Descriptions.Item key={field.name} label={t(field.labelKey)}>
+                            {formatReadonlyValue(overviewSnapshot[field.name], field.format)}
+                          </Descriptions.Item>
+                        ))}
+                    </Descriptions>
+                    {overviewReadonlyFields.filter((field) => field.step === overviewStep).length === 0 ? (
+                      <Alert type="info" showIcon message={t('asset.detail.overviewReadonlyEmpty')} />
+                    ) : null}
+                    <div style={{ marginTop: 16 }}>
+                      <Button type="primary" icon={<EditOutlined />} disabled={!canWriteCurrentAsset} onClick={() => setOverviewEditing(true)} data-testid="overview-edit-btn">
+                        {t('asset.detail.overviewEdit')}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </Spin>
             </div>
           </TabPane>
@@ -2511,6 +2652,7 @@ const AssetDetail: React.FC = () => {
                   versions={filterVersionOptions}
                   uploaderOptions={deliverableUploaderOptions}
                   uploaderUnavailable={deliverableUploaderOptions.length === 0}
+                  localMode={deliverableLocalMode}
                   testIdPrefix="deliverable-filter"
                 />
               </div>
@@ -2784,6 +2926,14 @@ const AssetDetail: React.FC = () => {
 };
 
 export default AssetDetail;
+
+
+
+
+
+
+
+
 
 
 

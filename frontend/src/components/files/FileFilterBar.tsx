@@ -1,7 +1,7 @@
 import React from 'react';
 import { Button, DatePicker, Input, Select, Space } from 'antd';
 import dayjs from 'dayjs';
-import { FilterOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons';
+import { CloudServerOutlined, ReloadOutlined, SearchOutlined, WarningOutlined } from '@ant-design/icons';
 import { hasActiveFilters, type FileFilters } from '@/utils/fileFilters';
 import { useT } from '@/i18n';
 
@@ -28,6 +28,12 @@ export interface FileFilterBarProps {
   testIdPrefix?: string;
   /** 额外提示：当前数据集里没有上传人字段 */
   uploaderUnavailable?: boolean;
+  /**
+   * t152：是否处于降级模式（后端返回裸数组 / 无 totalPages）。
+   * - false（正常拿到分页信封）→ 不显示任何"筛选范围"提示（筛选是服务端做的）；
+   * - true → 显示"当前页筛选"提示，提醒换页后结果会变。
+   */
+  localMode?: boolean;
 }
 
 const FileFilterBar: React.FC<FileFilterBarProps> = ({
@@ -38,6 +44,7 @@ const FileFilterBar: React.FC<FileFilterBarProps> = ({
   uploaderOptions,
   testIdPrefix = 'file-filter',
   uploaderUnavailable = false,
+  localMode = false,
 }) => {
   const { t } = useT();
   const patch = (next: Partial<FileFilters>) => onChange({ ...filters, ...next });
@@ -105,14 +112,22 @@ const FileFilterBar: React.FC<FileFilterBarProps> = ({
       >
         {t('assetFile.filter.reset')}
       </Button>
-      <span style={{ fontSize: 12, color: '#8c8c8c' }} data-testid={`${testIdPrefix}-hint`}>
-        <FilterOutlined /> {t('assetFile.filter.frontendHint')}
-      </span>
+      {/* t152：只有降级模式才提示"当前页筛选"；正常服务端筛选不出现这类说明 */}
+      {localMode ? (
+        <span style={{ fontSize: 12, color: '#d97706' }} data-testid={`${testIdPrefix}-hint`} data-mode="local">
+          <WarningOutlined /> {t('assetFile.filter.localHint')}
+        </span>
+      ) : (
+        <span style={{ fontSize: 12, color: '#8c8c8c' }} data-testid={`${testIdPrefix}-hint`} data-mode="server">
+          <CloudServerOutlined /> {t('assetFile.filter.serverHint')}
+        </span>
+      )}
     </Space>
   );
 };
 
 export default FileFilterBar;
+
 
 
 

@@ -270,7 +270,14 @@ export const assetZh = {
   'asset.detail.purposeNote': '用途备注',
   'asset.detail.remove': '移除',
   'asset.detail.add': '添加',
-  'asset.detail.servicePorts': '服务端口',
+  'asset.detail.overviewEdit': '修改',
+  'asset.detail.overviewCancelEdit': '取消编辑',
+  'asset.detail.overviewDiscardTitle': '放弃未保存的修改？',
+  'asset.detail.overviewDiscardContent': '当前编辑的内容尚未保存，离开后修改将丢失。',
+  'asset.detail.overviewDiscardOk': '放弃修改',
+  'asset.detail.overviewReadonlyEmpty': '该步骤暂无可展示的内容',
+  'asset.projectLink.readonlyHint': '如需调整归属，请在项目管理中操作；本页仅展示挂靠关系（不可解绑）。',
+  'asset.projectLink.openProject': '打开项目详情',  'asset.detail.servicePorts': '服务端口',
   'asset.detail.servicePortsPlaceholder': '如：8080',
   'asset.detail.accessScope': '访问权限',
   'asset.detail.accessAll': '全部开放',
@@ -747,7 +754,14 @@ export const assetEn: Record<keyof typeof assetZh, string> = {
   'asset.detail.purposeNote': 'Purpose note',
   'asset.detail.remove': 'Remove',
   'asset.detail.add': 'Add',
-  'asset.detail.servicePorts': 'Service ports',
+  'asset.detail.overviewEdit': 'Edit',
+  'asset.detail.overviewCancelEdit': 'Cancel editing',
+  'asset.detail.overviewDiscardTitle': 'Discard unsaved changes?',
+  'asset.detail.overviewDiscardContent': 'Your edits have not been saved; leaving now discards them.',
+  'asset.detail.overviewDiscardOk': 'Discard',
+  'asset.detail.overviewReadonlyEmpty': 'Nothing to show for this step',
+  'asset.projectLink.readonlyHint': 'To change ownership, use Project management. This page only shows the links (unlinking is disabled).',
+  'asset.projectLink.openProject': 'Open project',  'asset.detail.servicePorts': 'Service ports',
   'asset.detail.servicePortsPlaceholder': 'e.g. 8080',
   'asset.detail.accessScope': 'Access scope',
   'asset.detail.accessAll': 'Open to all',
@@ -956,4 +970,5 @@ export const assetEn: Record<keyof typeof assetZh, string> = {
 
   /* ---------- Asset groups ---------- */
 };
+
 

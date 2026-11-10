@@ -9,7 +9,6 @@ import {
   addAssetProjectLink,
   getAssetProjectLinks,
   extractAssetProjectLinks,
-  removeAssetProjectLink,
 } from '@/api/asset';
 import type { AssetProjectLinkVO } from '@/types/asset';
 import CustomerSelectEmpty from '@/components/customer/CustomerSelectEmpty';
@@ -135,41 +134,6 @@ const AssetProjectLinksPanel: React.FC<AssetProjectLinksPanelProps> = ({ assetId
     }
   };
 
-  const handleUnlink = (record: AssetProjectLinkVO) => {
-    Modal.confirm({
-      title: t('asset.projectLink.unlinkTitle'),
-      content: t('asset.projectLink.unlinkContent', { name: record.projectName ?? record.projectCode ?? '-' }),
-      okText: t('asset.projectLink.unlink'),
-      okType: 'danger',
-      cancelText: t('common.cancel'),
-      onOk: async () => {
-        try {
-          await removeAssetProjectLink(assetId, record.linkId);
-          message.success(t('asset.projectLink.removed'));
-          await loadLinks();
-        } catch (err) {
-          const status = getApiErrorStatus(err);
-          if (status === 409) {
-            // 最后一条挂靠 / 其他业务冲突：后端 message 已说明原因，优先展示并给出引导
-            message.error(
-              getApiErrorMessage(err, t('asset.projectLink.lastOne')) || t('asset.projectLink.lastOne'),
-            );
-            return;
-          }
-          if (status === 404) {
-            message.error(t('asset.projectLink.linkNotFound'));
-            return;
-          }
-          if (status === 403) {
-            message.error(t('asset.projectLink.forbidden'));
-            return;
-          }
-          message.error(getApiErrorMessage(err, t('common.operationFailed')));
-        }
-      },
-    });
-  };
-
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields();
@@ -248,23 +212,21 @@ const AssetProjectLinksPanel: React.FC<AssetProjectLinksPanelProps> = ({ assetId
       width: 180,
       render: (_: unknown, record) => (record.linkedAt ? dayjs(record.linkedAt).format('YYYY-MM-DD HH:mm:ss') : '-'),
     },
-    ...(canWrite
-      ? [
-          {
-            title: t('asset.projectLink.colAction'),
-            key: 'action',
-            width: 150,
-            render: (_: unknown, record: AssetProjectLinkVO) => (
-              <Space size="small">
-                <a onClick={() => navigate(`/projects/${record.projectId}`)}>{t('asset.projectLink.viewProject')}</a>
-                <Button type="link" size="small" danger style={{ padding: 0 }} onClick={() => handleUnlink(record)}>
-                  {t('asset.projectLink.unlink')}
-                </Button>
-              </Space>
-            ),
-          } as TableColumnsType<AssetProjectLinkVO>[number],
-        ]
-      : []),
+    // t152：操作列对**所有角色**都只给「打开项目详情」，不再有解绑入口
+    // （用户要求：不能通过资产��绑项目；挂靠的新增仍保留，受 canWriteAsset 控制）
+    {
+      title: t('asset.projectLink.colAction'),
+      key: 'action',
+      width: 150,
+      render: (_: unknown, record: AssetProjectLinkVO) => (
+        <a
+          onClick={() => navigate(`/projects/${record.projectId}`)}
+          data-testid={`asset-project-open-${record.linkId}`}
+        >
+          {t('asset.projectLink.openProject')}
+        </a>
+      ),
+    } as TableColumnsType<AssetProjectLinkVO>[number],
   ];
 
   const addableProjects = useMemo(
@@ -278,6 +240,14 @@ const AssetProjectLinksPanel: React.FC<AssetProjectLinksPanelProps> = ({ assetId
         <div>
           {/* t143：去掉与 tab 同名的「所属项目」重复标题，仅保留说明 */}
           <p style={{ marginTop: 8, marginBottom: 0, color: '#8c8c8c' }}>{t('asset.projectLink.desc')}</p>
+          {/* t152：只读说明（不可解绑） */}
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 8 }}
+            message={t('asset.projectLink.readonlyHint')}
+            data-testid="asset-project-readonly-hint"
+          />
         </div>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={loadLinks} loading={loading}>
@@ -390,5 +360,8 @@ const AssetProjectLinksPanel: React.FC<AssetProjectLinksPanelProps> = ({ assetId
 };
 
 export default AssetProjectLinksPanel;
+
+
+
 
 
