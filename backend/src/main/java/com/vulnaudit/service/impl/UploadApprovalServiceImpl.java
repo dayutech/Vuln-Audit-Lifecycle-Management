@@ -88,8 +88,11 @@ public class UploadApprovalServiceImpl implements UploadApprovalService {
 
     @Override
     @Transactional
-    public UploadPendingResponse submit(MultipartFile file, String targetType, @Nullable String name,
+    public UploadPendingResponse submit(MultipartFile file, String targetType, @Nullable String displayName,
                                         @Nullable String description, @Nullable UUID operatorId) {
+        // t165：显示名/描述在两条分支都要保留（PENDING 存审批表，DIRECT 直接建记录）；超长 → 400
+        String safeDisplayName = validateDisplayName(displayName);
+        String safeDescription = validateDescription(description);
         if (file == null || file.isEmpty()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "上传文件不能为空");
         }
@@ -104,9 +107,9 @@ public class UploadApprovalServiceImpl implements UploadApprovalService {
 
         if (size <= approvalThresholdBytes) {
             // 未超门限：保持既有直传体验，直接落业务表
-            UUID targetId = createBusinessRecord(type, safeName, size, file, name, description, operatorId);
+            UUID targetId = createBusinessRecord(type, safeName, size, safeDisplayName, safeDescription, operatorId);
             log.info("上传直传（未超门限）: type={}, name={}, size={}, targetId={}", type, safeName, size, targetId);
-            return new UploadPendingResponse(null, "DIRECT", type, targetId, safeName, size, null);
+            return new UploadPendingResponse(null, "DIRECT", type, targetId, safeName, safeDisplayName, size, null);
         }
 
         // 超门限：只写临时区 + PENDING，业务表保持干净
@@ -125,6 +128,8 @@ public class UploadApprovalServiceImpl implements UploadApprovalService {
         UploadApprovalRequest request = repository.save(Objects.requireNonNull(UploadApprovalRequest.builder()
                 .targetType(type)
                 .fileName(safeName)
+                .displayName(safeDisplayName)
+                .description(safeDescription)
                 .fileSize(size)
                 .contentType(file.getContentType())
                 .storageKey(key)
@@ -137,7 +142,7 @@ public class UploadApprovalServiceImpl implements UploadApprovalService {
                 "type=" + type + ", file=" + safeName + ", size=" + size);
         log.info("大文件进入审批: requestId={}, file={}, size={}", request.getId(), safeName, size);
         return new UploadPendingResponse(request.getId(), UploadApprovalRequest.STATUS_PENDING, type, null,
-                safeName, size, request.getPurgeAfter());
+                safeName, safeDisplayName, size, request.getPurgeAfter());
     }
 
     // ------------------------------------------------------------------ 查询
@@ -289,15 +294,15 @@ public class UploadApprovalServiceImpl implements UploadApprovalService {
     }
 
     /** 未超门限：直接落业务表（当前只实现 TOOL，其余类型返回 null 表示「无需业务记录」） */
-    private UUID createBusinessRecord(String type, String fileName, long size, MultipartFile file,
-                                      @Nullable String name, @Nullable String description,
+    private UUID createBusinessRecord(String type, String fileName, long size,
+                                      @Nullable String displayName, @Nullable String description,
                                       @Nullable UUID operatorId) {
         if (!UploadApprovalRequest.TARGET_TOOL.equals(type)) {
             return null;
         }
-        String beanName = stripExtension(fileName);
         Tool tool = toolRepository.save(Objects.requireNonNull(Tool.builder()
-                .name(StringUtils.hasText(name) ? name.trim() : beanName)
+                // t165：优先用用户填写的显示名，为空才回落「文件名去扩展名」
+                .name(resolveToolName(displayName, fileName))
                 .category("upload")
                 .description(description)
                 .fileName(fileName)
@@ -314,15 +319,47 @@ public class UploadApprovalServiceImpl implements UploadApprovalService {
             return null;
         }
         Tool tool = toolRepository.save(Objects.requireNonNull(Tool.builder()
-                .name(stripExtension(request.getFileName()))
+                // t165：批准时回填用户填写的显示名（为空才回落文件名去扩展名）与描述
+                .name(resolveToolName(request.getDisplayName(), request.getFileName()))
                 .category("upload")
-                .description("经管理员批准的大文件上传")
+                .description(StringUtils.hasText(request.getDescription())
+                        ? request.getDescription()
+                        : "经管理员批准的大文件上传")
                 .fileName(request.getFileName())
                 .filePath(approvedKey)
                 .fileSize(request.getFileSize())
                 .createdBy(request.getRequestedBy())
                 .build()));
         return tool.getId();
+    }
+
+    /** t165：工具名解析——显示名优先，为空回落「文件名去扩展名」 */
+    private String resolveToolName(@Nullable String displayName, String fileName) {
+        return StringUtils.hasText(displayName) ? displayName.trim() : stripExtension(fileName);
+    }
+
+    /** t165：显示名校验（≤200，超长 400） */
+    private String validateDisplayName(@Nullable String displayName) {
+        if (!StringUtils.hasText(displayName)) {
+            return null;
+        }
+        String trimmed = displayName.trim();
+        if (trimmed.length() > 200) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "displayName 不能超过 200 个字符（当前 " + trimmed.length() + "）");
+        }
+        return trimmed;
+    }
+
+    /** t165：描述校验（≤1000，超长 400） */
+    private String validateDescription(@Nullable String description) {
+        if (description == null) {
+            return null;
+        }
+        String trimmed = description.trim();
+        if (trimmed.length() > 1000) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "description 不能超过 1000 个字符（当前 " + trimmed.length() + "）");
+        }
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private String stripExtension(String fileName) {
@@ -348,6 +385,8 @@ public class UploadApprovalServiceImpl implements UploadApprovalService {
                 request.getTargetType(),
                 request.getTargetId(),
                 request.getFileName(),
+                request.getDisplayName(),
+                request.getDescription(),
                 request.getFileSize(),
                 request.getContentType(),
                 request.getStatus(),

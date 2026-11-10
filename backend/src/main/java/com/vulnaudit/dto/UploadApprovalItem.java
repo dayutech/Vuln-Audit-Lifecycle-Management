@@ -12,6 +12,10 @@ public record UploadApprovalItem(
         String targetType,
         UUID targetId,
         String fileName,
+        /** t165：用户填写的显示名（可空；批准时优先用它命名业务实体） */
+        String displayName,
+        /** t165：用户填写的描述（可空） */
+        String description,
         Long fileSize,
         String contentType,
         String status,

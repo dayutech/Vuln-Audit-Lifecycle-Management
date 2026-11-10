@@ -4860,3 +4860,34 @@ cd backend && mvn -B test -Dtest=DocumentAttachmentTest   # 15/15
 - 临时开关（dev-mode / IP / 重置 / 锁定阈值）与 `APP_UPLOAD_MAX_BYTES` 覆盖全部移除并重启复核：**发码无 devCode**、锁定第 6 次 **429 + Retry-After 900**、**2FA 开启用户数 = 0**（t158 教训）。
 - 临时库 `vuln_audit_verify_*`/`vuln_audit_clone_*` 全 DROP，`vulnapp` 临时授权已 REVOKE；`uploads/pending`、`uploads/approved` 清空；`upload_approval_requests`、`document_attachments` 归零。
 - 数据终态：`customers=1 projects=1 phases=0 assets=3 links=3`、`orphan=0`、`tag_definitions=3`、`files=4`、`deliverables=0`、`users=12`、`codes/requests/rm_tokens=0`、`2fa_on=0`。
+### 70.9 t165 增补：PENDING 也保留 `displayName` / `description`
+
+**问题**（t163 真机验收发现）：V32 的 `upload_approval_requests` 没有这两列，用户填的工具名/描述在「走审批」这条路径上丢失，
+批准后工具名回退成「文件名去扩展名」（实测 `t163_big_<ts>` → `t163-big50`）。
+
+**数据**：V34（幂等 + manual-ddl 等价段）给 `upload_approval_requests` 加
+`display_name VARCHAR(200)`、`description VARCHAR(1000)`（均显式 `COLLATE utf8mb4_unicode_ci`）。
+
+**上传契约（更新）**
+
+```
+POST /api/v1/uploads/pending
+  multipart: file（必填）、targetType、displayName（≤200，可空）、description（≤1000，可空）
+  # 兼容：老的 name 表单字段仍可用（与 displayName 同义，displayName 优先）
+```
+
+- `displayName` 超过 200 字符、`description` 超过 1000 字符 → **400**（在落盘/落库之前校验）；
+- **两条分支都保留**：超门限 → 写进 PENDING 记录；未超门限（DIRECT）→ 直接用于建业务记录。
+
+**批准时的回填规则**
+
+| 字段 | 优先取 | 回落 |
+|---|---|---|
+| 业务实体名（Tool.name） | `display_name` | 文件名去扩展名（旧行为） |
+| 业务实体描述（Tool.description） | `description` | `经管理员批准的大文件上传`（旧行为） |
+
+**响应**：`GET /api/v1/uploads/pending/{id}` 与 `GET /api/v1/admin/upload-approvals` 现在都返回
+`displayName` / `description`（增量字段，不破坏既有契约，前端可选用作列表标题）。
+
+**验证**：`UploadApprovalTest` **20/20**（原 14 + 新 6）：PENDING 保留两字段并可查、批准后工具名 = displayName 且 description 落库、
+不传时回落行为不变、DIRECT 分支同样生效、超长 400（200/1000 边界）、V34 脚本守卫。

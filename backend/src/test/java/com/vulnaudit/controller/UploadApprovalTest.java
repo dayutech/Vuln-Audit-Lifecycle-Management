@@ -345,4 +345,110 @@ public class UploadApprovalTest extends BaseTest {
     void thresholdConfigured() {
         assertEquals(1024L, uploadApprovalService.approvalThresholdBytes());
     }
+
+    // ------------------------------------------------------------------ 八、t165：displayName / description 保留与回填
+
+    private JsonNode submitWithMeta(MockMultipartFile file, String displayName, String description) throws Exception {
+        var request = multipart(SUBMIT).file(file).param("targetType", "TOOL")
+                .header("Authorization", engineerToken);
+        if (displayName != null) {
+            request = request.param("displayName", displayName);
+        }
+        if (description != null) {
+            request = request.param("description", description);
+        }
+        String body = mockMvc.perform(request)
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).path("data");
+    }
+
+    @Test
+    @DisplayName("t165：超门限上传带 displayName/description → PENDING 记录可查（不再丢失）")
+    void pendingKeepsDisplayNameAndDescription() throws Exception {
+        JsonNode data = submitWithMeta(bigFile("meta-upload.zip"), "我的工具", "这是我上传的工具说明");
+        assertEquals("我的工具", data.path("displayName").asText());
+
+        UploadApprovalRequest request = uploadApprovalRequestRepository
+                .findById(UUID.fromString(data.path("requestId").asText())).orElseThrow();
+        assertEquals("我的工具", request.getDisplayName());
+        assertEquals("这是我上传的工具说明", request.getDescription());
+
+        // 申请人查询端点与审批列表都返回这两个字段（增量，不破坏既有契约）
+        mockMvc.perform(get(SUBMIT + "/" + request.getId()).header("Authorization", engineerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.displayName").value("我的工具"))
+                .andExpect(jsonPath("$.data.description").value("这是我上传的工具说明"));
+    }
+
+    @Test
+    @DisplayName("t165：批准后用 displayName 作为工具名（不回落文件名），description 一并落库")
+    void approveBackfillsDisplayNameAndDescription() throws Exception {
+        JsonNode data = submitWithMeta(bigFile("t165_big_1699999999.zip"), "我的工具", "工具说明 ABC");
+        UUID id = UUID.fromString(data.path("requestId").asText());
+
+        String body = mockMvc.perform(post(ADMIN_LIST + "/" + id + "/approve")
+                        .header("Authorization", adminToken))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        UUID targetId = UUID.fromString(objectMapper.readTree(body).path("data").path("targetId").asText());
+
+        var tool = toolRepository.findById(targetId).orElseThrow();
+        assertEquals("我的工具", tool.getName(), "批准后工具名应使用 displayName");
+        assertEquals("工具说明 ABC", tool.getDescription(), "description 应落库");
+        assertFalse(tool.getName().startsWith("t165_big"), "不应回落到文件名去扩展名");
+    }
+
+    @Test
+    @DisplayName("t165：不传 displayName/description 时回落行为不变（工具名 = 文件名去扩展名）")
+    void approveFallsBackWhenMetaAbsent() throws Exception {
+        JsonNode data = submitWithMeta(bigFile("fallback-tool.zip"), null, null);
+        UUID id = UUID.fromString(data.path("requestId").asText());
+
+        String body = mockMvc.perform(post(ADMIN_LIST + "/" + id + "/approve")
+                        .header("Authorization", adminToken))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        var tool = toolRepository.findById(
+                UUID.fromString(objectMapper.readTree(body).path("data").path("targetId").asText())).orElseThrow();
+
+        assertEquals("fallback-tool", tool.getName(), "未传显示名时应回落文件名去扩展名");
+        assertEquals("经管理员批准的大文件上传", tool.getDescription(), "未传描述时保留默认说明");
+    }
+
+    @Test
+    @DisplayName("t165：未超门限（DIRECT）也使用 displayName/description")
+    void directUploadUsesDisplayName() throws Exception {
+        JsonNode data = submitWithMeta(smallFile("small-meta.txt"), "直传工具", "直传说明");
+        UUID targetId = UUID.fromString(data.path("targetId").asText());
+        var tool = toolRepository.findById(targetId).orElseThrow();
+        assertEquals("直传工具", tool.getName());
+        assertEquals("直传说明", tool.getDescription());
+    }
+
+    @Test
+    @DisplayName("t165：displayName 超 200 / description 超 1000 → 400")
+    void metaLengthValidation() throws Exception {
+        mockMvc.perform(multipart(SUBMIT).file(bigFile("too-long-name.zip"))
+                        .param("targetType", "TOOL").param("displayName", "名".repeat(201))
+                        .header("Authorization", engineerToken))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(multipart(SUBMIT).file(bigFile("too-long-desc.zip"))
+                        .param("targetType", "TOOL").param("description", "描".repeat(1001))
+                        .header("Authorization", engineerToken))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("t165：V34 脚本守卫（两列 + 幂等 + manual-ddl 等价）")
+    void migrationV34Guards() throws Exception {
+        String sql = java.nio.file.Files.readString(
+                java.nio.file.Paths.get("src/main/resources/db/migration/V34__upload_approval_display_name.sql"),
+                java.nio.charset.StandardCharsets.UTF_8);
+        assertTrue(sql.contains("ADD COLUMN IF NOT EXISTS display_name VARCHAR(200)"));
+        assertTrue(sql.contains("ADD COLUMN IF NOT EXISTS description VARCHAR(1000)"));
+        assertTrue(sql.contains("COLLATE utf8mb4_unicode_ci"));
+        assertTrue(java.nio.file.Files.readString(java.nio.file.Paths.get("../deploy/manual-ddl.sql"),
+                java.nio.charset.StandardCharsets.UTF_8).contains("V34：PENDING"));
+    }
 }

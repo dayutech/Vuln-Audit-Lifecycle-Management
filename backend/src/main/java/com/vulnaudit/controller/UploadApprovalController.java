@@ -51,11 +51,16 @@ public class UploadApprovalController {
             @Parameter(description = "文件") @RequestParam("file") MultipartFile file,
             @Parameter(description = "目标类型：TOOL/COMPONENT/KNOWLEDGE/DOCUMENT")
             @RequestParam(defaultValue = "TOOL") String targetType,
-            @Parameter(description = "业务名称（可空，默认取文件名）") @RequestParam(required = false) String name,
-            @Parameter(description = "描述（可空）") @RequestParam(required = false) String description) {
+            @Parameter(description = "显示名（t165；≤200，超长 400；为空则批准时回落文件名去扩展名）")
+            @RequestParam(required = false) String displayName,
+            @Parameter(description = "描述（t165；≤1000，超长 400）") @RequestParam(required = false) String description,
+            @Parameter(hidden = true) @RequestParam(required = false) String name) {
 
+        // t165：displayName 优先；兼容老的 name 表单字段（同名语义）
+        String resolvedDisplayName = (displayName == null || displayName.isBlank()) ? name : displayName;
         UploadPendingResponse result = uploadApprovalService.submit(
-                file, targetType, name, description, currentUserProvider.currentUserId().orElse(null));
+                file, targetType, resolvedDisplayName, description,
+                currentUserProvider.currentUserId().orElse(null));
         log.info("提交上传: status={}, requestId={}, targetId={}", result.status(), result.requestId(),
                 result.targetId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(result));

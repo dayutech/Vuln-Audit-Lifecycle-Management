@@ -2227,3 +2227,17 @@ Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试
 2. **工具页 PENDING 提示不稳定**：`POST /uploads/pending` 确实发出，但 toast/持久面板 3 次中仅 1 次稳定观测，`localStorage.owl_my_uploads` 两次为空 —— 需人工点一次确认（也可能是 CDP 设文件时序导致 antd fileList 未接住）。
 3. **元数据行不即时刷新**：PENDING 分支在 `fetchData()` 前早退，列表要刷新才见新工具行。
 4. 部署机 `backend/uploads` 为陈旧目录（656 个历史文件），已清理；线上存储为 `~/apps/vuln-audit/uploads/`。
+### 2.43 PENDING 上传保留 displayName/description + 批准回填（t165）
+
+**问题**（t163 真机验收）：V32 审批表没有 `display_name`/`description`，用户填的工具名/描述在审批路径上丢失，
+批准后工具名回退为「文件名去扩展名」（实测 `t163_big_<ts>` → `t163-big50`）。
+
+**实现**：
+- **V34**（幂等 + manual-ddl 等价段）：`upload_approval_requests` 加 `display_name VARCHAR(200)`、`description VARCHAR(1000)`（显式 collation）；
+- 上传接口接收 `displayName`（≤200）/`description`（≤1000），超长 **400**（落盘前校验），**PENDING 与 DIRECT 两条分支都保留**；
+  兼容旧 `name` 字段（同义，displayName 优先）；
+- **批准回填**：Tool.name 优先 `display_name`（空则回落「文件名去扩展名」），Tool.description 优先 `description`（空则默认说明）；
+- 审批列表与「我的上传」返回两个新字段（增量，不破坏契约）。
+
+**验证**：`UploadApprovalTest` **20/20**（原 14 + 新 6：PENDING 保留可查、批准后工具名=displayName 且描述落库、
+不传时回落不变、DIRECT 同样生效、超长 400 两个边界、V34 脚本守卫）。契约与回填规则见 README §70.9。

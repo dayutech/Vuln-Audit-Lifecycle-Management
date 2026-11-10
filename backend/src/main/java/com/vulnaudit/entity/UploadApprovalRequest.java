@@ -56,6 +56,14 @@ public class UploadApprovalRequest {
     @Column(name = "file_size")
     private Long fileSize;
 
+    /** t165：用户填写的显示名（批准时优先用它做业务实体名） */
+    @Column(name = "display_name", length = 200)
+    private String displayName;
+
+    /** t165：用户填写的描述（批准时写入业务实体） */
+    @Column(name = "description", length = 1000)
+    private String description;
+
     @Column(name = "content_type", length = 200)
     private String contentType;
 

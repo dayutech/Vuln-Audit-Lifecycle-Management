@@ -20,7 +20,16 @@ import java.util.UUID;
 public interface UploadApprovalService {
 
     /** 提交上传（超门限走审批） */
-    UploadPendingResponse submit(MultipartFile file, String targetType, @Nullable String name,
+    /**
+     * 提交上传（超门限走审批）
+     *
+     * <p>t165：`displayName`/`description` 在**两条分支**（PENDING 与 DIRECT）都保留：
+     * PENDING 存进审批表、批准时回填业务实体；DIRECT 直接用于建记录。
+     *
+     * @param displayName 用户填写的显示名（≤200，超长 400；为空则回落「文件名去扩展名」）
+     * @param description 用户填写的描述（≤1000，超长 400）
+     */
+    UploadPendingResponse submit(MultipartFile file, String targetType, @Nullable String displayName,
                                  @Nullable String description, @Nullable UUID operatorId);
 
     /** 申请人查自己的请求 */

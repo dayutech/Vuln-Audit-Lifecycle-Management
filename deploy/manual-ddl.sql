@@ -939,3 +939,23 @@ SELECT COUNT(*) AS attachments_total,
        SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END) AS deleted_attachments
   FROM document_attachments;
 SELECT owner_type, COUNT(*) AS cnt FROM document_attachments GROUP BY owner_type;
+
+-- =============================================================================
+-- V34：PENDING 上传保留 display_name / description（t165）
+-- 与 backend/src/main/resources/db/migration/V34__upload_approval_display_name.sql 等价
+-- =============================================================================
+-- 幂等：ADD COLUMN IF NOT EXISTS。⚠ 列显式 COLLATE utf8mb4_unicode_ci（t134 硬规则）。
+
+ALTER TABLE upload_approval_requests
+    ADD COLUMN IF NOT EXISTS display_name VARCHAR(200) COLLATE utf8mb4_unicode_ci NULL;
+
+ALTER TABLE upload_approval_requests
+    ADD COLUMN IF NOT EXISTS description VARCHAR(1000) COLLATE utf8mb4_unicode_ci NULL;
+
+-- 校验：两列覆盖率（历史数据为空属预期）+ 已批准且带显示名的条数
+SELECT COUNT(*) AS total_requests,
+       SUM(CASE WHEN display_name IS NULL THEN 1 ELSE 0 END) AS without_display_name,
+       SUM(CASE WHEN description IS NULL THEN 1 ELSE 0 END) AS without_description
+  FROM upload_approval_requests;
+SELECT COUNT(*) AS approved_with_display_name FROM upload_approval_requests
+ WHERE status = 'APPROVED' AND display_name IS NOT NULL;

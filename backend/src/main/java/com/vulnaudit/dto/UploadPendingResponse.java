@@ -15,6 +15,8 @@ public record UploadPendingResponse(
         /** 直传时为已创建的业务实体 id；PENDING 时为 null */
         UUID targetId,
         String fileName,
+        /** t165：用户填写的显示名（未填则 null，批准后回落「文件名去扩展名」） */
+        String displayName,
         Long fileSize,
         LocalDateTime purgeAfter) {
 }
