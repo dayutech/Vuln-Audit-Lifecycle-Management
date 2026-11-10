@@ -156,18 +156,87 @@ public class UploadApprovalServiceImpl implements UploadApprovalService {
 
     @Override
     public PageResponse<UploadApprovalItem> list(@Nullable String status, int page, int size) {
+        return list(status, null, null, page, size);
+    }
+
+    @Override
+    public PageResponse<UploadApprovalItem> list(@Nullable String status, @Nullable String keyword,
+                                                 @Nullable UUID requestedBy, int page, int size) {
         int safePage = Math.max(page, 0);
         int safeSize = size <= 0 ? 20 : Math.min(size, 100);
         PageRequest pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "requestedAt"));
-        Page<UploadApprovalRequest> result = StringUtils.hasText(status)
-                ? repository.findByStatus(status.trim().toUpperCase(Locale.ROOT), pageable)
-                : repository.findAll(pageable);
+        String normalizedStatus = normalizeStatus(status);
+        Page<UploadApprovalRequest> result = repository.searchAdmin(normalizedStatus, requestedBy,
+                likeKeyword(keyword), pageable);
+        return toPage(result, safePage, safeSize);
+    }
+
+    // ------------------------------------------------------------------ 我的上传（t166）
+
+    @Override
+    public PageResponse<UploadApprovalItem> findMine(UUID userId, @Nullable String status,
+                                                     @Nullable String keyword, int page, int size) {
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
+        }
+        int safePage = Math.max(page, 0);
+        int safeSize = size <= 0 ? 20 : Math.min(size, 100);
+        PageRequest pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "requestedAt"));
+        Page<UploadApprovalRequest> result = repository.findMine(userId, normalizeStatus(status),
+                likeKeyword(keyword), pageable);
+        return toPage(result, safePage, safeSize);
+    }
+
+    @Override
+    @Transactional
+    public UploadApprovalItem cancelMine(UUID id, UUID userId) {
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "未登录");
+        }
+        UploadApprovalRequest request = repository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "上传请求不存在"));
+        if (!userId.equals(request.getRequestedBy())) {
+            // 不是自己的请求：403（不泄露该请求的更多信息）
+            throw new BusinessException(ErrorCode.FORBIDDEN, "只能撤回自己提交的上传请求");
+        }
+        if (!UploadApprovalRequest.STATUS_PENDING.equals(request.getStatus())) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "只能撤回待审批（PENDING）的请求，当前状态：" + request.getStatus());
+        }
+        deleteQuietly(resolvePendingFile(request.getStorageKey()));
+        request.setStatus(UploadApprovalRequest.STATUS_CANCELLED);
+        request.setReviewedAt(LocalDateTime.now());
+        request.setReviewNote("申请人主动撤回");
+        repository.save(request);
+        log.info("上传请求撤回: requestId={}, by={}", id, userId);
+        return toItem(request);
+    }
+
+    /** status 白名单（含 CANCELLED），空/all → null（不过滤），非法 → 400 */
+    private String normalizeStatus(@Nullable String status) {
+        if (!StringUtils.hasText(status) || "all".equalsIgnoreCase(status.trim())) {
+            return null;
+        }
+        String normalized = status.trim().toUpperCase(Locale.ROOT);
+        if (!UploadApprovalRequest.ALL_STATUSES.contains(normalized)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "status 不合法: " + status + "（可选：PENDING/APPROVED/REJECTED/EXPIRED/CANCELLED/all）");
+        }
+        return normalized;
+    }
+
+    /** keyword → `%kw%`（小写）；空 → null（不过滤） */
+    private String likeKeyword(@Nullable String keyword) {
+        return StringUtils.hasText(keyword) ? "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%" : null;
+    }
+
+    private PageResponse<UploadApprovalItem> toPage(Page<UploadApprovalRequest> result, int page, int size) {
         return PageResponse.<UploadApprovalItem>builder()
                 .content(result.getContent().stream().map(this::toItem).toList())
                 .totalElements(result.getTotalElements())
                 .totalPages(result.getTotalPages())
-                .currentPage(safePage)
-                .pageSize(safeSize)
+                .currentPage(page)
+                .pageSize(size)
                 .build();
     }
 

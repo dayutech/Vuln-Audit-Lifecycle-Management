@@ -34,6 +34,12 @@ public class UploadApprovalRequest {
     public static final String STATUS_APPROVED = "APPROVED";
     public static final String STATUS_REJECTED = "REJECTED";
     public static final String STATUS_EXPIRED = "EXPIRED";
+    /** t166：申请人主动撤回 */
+    public static final String STATUS_CANCELLED = "CANCELLED";
+
+    /** 全部合法状态（白名单，供 service 校验） */
+    public static final java.util.Set<String> ALL_STATUSES =
+            java.util.Set.of(STATUS_PENDING, STATUS_APPROVED, STATUS_REJECTED, STATUS_EXPIRED, STATUS_CANCELLED);
 
     public static final String TARGET_TOOL = "TOOL";
 

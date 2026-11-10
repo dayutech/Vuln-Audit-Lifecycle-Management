@@ -2241,3 +2241,21 @@ Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试
 
 **验证**：`UploadApprovalTest` **20/20**（原 14 + 新 6：PENDING 保留可查、批准后工具名=displayName 且描述落库、
 不传时回落不变、DIRECT 同样生效、超长 400 两个边界、V34 脚本守卫）。契约与回填规则见 README §70.9。
+
+### 2.44 「我的上传」列表 + 撤回（t166）
+
+**问题**（t164）：前端「我的上传」只能在 localStorage 登记 requestId 再逐条回查，换设备/清缓存即丢。
+
+**实现**：
+- `GET /api/v1/uploads/my?status=&page=&size=&keyword=`：**只含自己提交的**（`requested_by = 当前用户`），
+  默认 `status=all`、`requestedAt desc`；每项含 `displayName/description/reviewer/reviewNote/purgeAfter/targetId`
+  （`targetId` 仅 APPROVED）；`status` 白名单含新增的 **`CANCELLED`**，非法 400；`keyword` 匹配 fileName/displayName；
+- `DELETE /api/v1/uploads/my/{id}`：仅本人 **PENDING** → 删临时文件 + 置 `CANCELLED`；他人 **403**、非 PENDING **409**、不存在 404；
+- 管理端 `GET /admin/upload-approvals` 增加 `keyword` 与 `requestedBy` 过滤（按人查），状态白名单同步加 `CANCELLED`；
+- 仓储用两条 JPQL（`findMine` / `searchAdmin`），`status`/`keyword`/`requestedBy` 全在**数据库**过滤。
+
+**验证**：`UploadApprovalTest` **30/30**（原 20 + 新 10）：
+三态可查 + APPROVED 带 targetId、他人不可见、status 过滤与非法 400、分页、keyword 双字段命中、
+撤回自己的 PENDING（文件删除 + CANCELLED + 管理员再批 409）、撤回他人 403、撤回已批准 409、
+管理端 keyword/requestedBy + 非法 status 400、未登录 401、撤回不存在 404。
+前端可整体删除 `utils/myUploads.ts`（替换点见 README §70.10）。

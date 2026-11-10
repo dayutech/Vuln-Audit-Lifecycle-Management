@@ -19,6 +19,29 @@ public interface UploadApprovalRequestRepository extends JpaRepository<UploadApp
 
     Page<UploadApprovalRequest> findByStatus(String status, Pageable pageable);
 
+    /**
+     * t166：我的上传（只含 requested_by = 我），status 为 null 表示全部
+     *
+     * <p>keyword 匹配 fileName 或 displayName（大小写不敏感）；非法 status 在 service 层白名单拦掉。
+     */
+    @Query("select r from UploadApprovalRequest r where r.requestedBy = :userId "
+            + "and (:status is null or r.status = :status) "
+            + "and (:keyword is null or lower(r.fileName) like :keyword or lower(r.displayName) like :keyword)")
+    Page<UploadApprovalRequest> findMine(@Param("userId") UUID userId,
+                                         @Param("status") String status,
+                                         @Param("keyword") String keyword,
+                                         Pageable pageable);
+
+    /** t166：管理端列表增加 keyword（fileName/displayName）与 requestedBy 过滤 */
+    @Query("select r from UploadApprovalRequest r where "
+            + "(:status is null or r.status = :status) "
+            + "and (:requestedBy is null or r.requestedBy = :requestedBy) "
+            + "and (:keyword is null or lower(r.fileName) like :keyword or lower(r.displayName) like :keyword)")
+    Page<UploadApprovalRequest> searchAdmin(@Param("status") String status,
+                                            @Param("requestedBy") UUID requestedBy,
+                                            @Param("keyword") String keyword,
+                                            Pageable pageable);
+
     Page<UploadApprovalRequest> findAll(Pageable pageable);
 
     Optional<UploadApprovalRequest> findByIdAndRequestedBy(UUID id, UUID requestedBy);

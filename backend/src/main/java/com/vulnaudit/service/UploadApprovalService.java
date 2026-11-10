@@ -38,6 +38,28 @@ public interface UploadApprovalService {
     /** 管理端分页列表（status 可空 = 全部） */
     PageResponse<UploadApprovalItem> list(@Nullable String status, int page, int size);
 
+    /**
+     * t166：管理端分页列表（增加 keyword 与 requestedBy 过滤，便于按人查）
+     */
+    PageResponse<UploadApprovalItem> list(@Nullable String status, @Nullable String keyword,
+                                          @Nullable UUID requestedBy, int page, int size);
+
+    /**
+     * t166：我的上传（只含 requested_by = 我），按 requestedAt 倒序
+     *
+     * @param status PENDING/APPROVED/REJECTED/EXPIRED/CANCELLED/all（白名单，非法 400；null=all）
+     * @param keyword 匹配 fileName 或 displayName
+     */
+    PageResponse<UploadApprovalItem> findMine(UUID userId, @Nullable String status,
+                                              @Nullable String keyword, int page, int size);
+
+    /**
+     * t166：撤回自己的 PENDING（删临时文件 + 标记 CANCELLED）
+     *
+     * <p>非本人 → 403；非 PENDING（已批准/已拒绝/已过期）→ 409。
+     */
+    UploadApprovalItem cancelMine(UUID id, UUID userId);
+
     /** 管理员批准：把临时文件移入正式存储 + 创建业务记录，返回目标实体 id */
     UploadApprovalItem approve(UUID id, @Nullable UUID reviewerId);
 

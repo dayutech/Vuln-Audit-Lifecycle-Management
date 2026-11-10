@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -450,5 +451,193 @@ public class UploadApprovalTest extends BaseTest {
         assertTrue(sql.contains("COLLATE utf8mb4_unicode_ci"));
         assertTrue(java.nio.file.Files.readString(java.nio.file.Paths.get("../deploy/manual-ddl.sql"),
                 java.nio.charset.StandardCharsets.UTF_8).contains("V34：PENDING"));
+    }
+
+    // ------------------------------------------------------------------ 九、t166：我的上传列表 + 撤回
+
+    private JsonNode myList(String token, String query) throws Exception {
+        String body = mockMvc.perform(get("/api/v1/uploads/my" + query).header("Authorization", token))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return objectMapper.readTree(body).path("data");
+    }
+
+    @Test
+    @DisplayName("t166：我的上传含三态（PENDING/APPROVED/REJECTED），且只含自己提交的")
+    void myUploadsContainsOwnThreeStates() throws Exception {
+        JsonNode pending = submitWithMeta(bigFile("mine-pending.zip"), "我的待审", null);
+        JsonNode approved = submitWithMeta(bigFile("mine-approved.zip"), "我的已批", null);
+        JsonNode rejected = submitWithMeta(bigFile("mine-rejected.zip"), "我的被拒", null);
+        mockMvc.perform(post(ADMIN_LIST + "/" + approved.path("requestId").asText() + "/approve")
+                .header("Authorization", adminToken)).andExpect(status().isOk());
+        mockMvc.perform(post(ADMIN_LIST + "/" + rejected.path("requestId").asText() + "/reject")
+                .header("Authorization", adminToken).contentType(APPLICATION_JSON).content("{}"))
+                .andExpect(status().isOk());
+
+        JsonNode all = myList(engineerToken, "?status=all&size=50");
+        assertTrue(all.path("totalElements").asInt() >= 3, "应有自己提交的 3 条: " + all);
+
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        all.path("content").forEach(node -> ids.add(node.path("id").asText()));
+        assertTrue(ids.contains(pending.path("requestId").asText()));
+        assertTrue(ids.contains(approved.path("requestId").asText()));
+        assertTrue(ids.contains(rejected.path("requestId").asText()));
+
+        // APPROVED 项含 targetId；PENDING 项没有
+        for (JsonNode node : all.path("content")) {
+            if ("APPROVED".equals(node.path("status").asText())) {
+                assertFalse(node.path("targetId").isNull(), "APPROVED 应带 targetId");
+            }
+            if ("PENDING".equals(node.path("status").asText())) {
+                assertTrue(node.path("targetId").isNull(), "PENDING 不应有 targetId");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("t166：我的上传不含他人请求（管理员看自己的列表也看不到工程师的）")
+    void myUploadsExcludeOthers() throws Exception {
+        submitWithMeta(bigFile("engineer-only.zip"), null, null);
+        String body = mockMvc.perform(get("/api/v1/uploads/my?status=all").header("Authorization", adminToken))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        JsonNode content = objectMapper.readTree(body).path("data").path("content");
+        for (JsonNode node : content) {
+            assertFalse("engineer-only.zip".equals(node.path("fileName").asText()),
+                    "管理员不应看到工程师的上传: " + node);
+        }
+    }
+
+    @Test
+    @DisplayName("t166：status 过滤（PENDING 只返回待审）+ 非法 status → 400")
+    void myUploadsStatusFilter() throws Exception {
+        JsonNode pending = submitWithMeta(bigFile("filter-pending.zip"), null, null);
+        JsonNode approved = submitWithMeta(bigFile("filter-approved.zip"), null, null);
+        mockMvc.perform(post(ADMIN_LIST + "/" + approved.path("requestId").asText() + "/approve")
+                .header("Authorization", adminToken)).andExpect(status().isOk());
+
+        JsonNode onlyPending = myList(engineerToken, "?status=PENDING&size=50");
+        for (JsonNode node : onlyPending.path("content")) {
+            assertEquals("PENDING", node.path("status").asText());
+        }
+        boolean sawPendingId = false;
+        for (JsonNode node : onlyPending.path("content")) {
+            if (node.path("id").asText().equals(pending.path("requestId").asText())) {
+                sawPendingId = true;
+            }
+        }
+        assertTrue(sawPendingId);
+
+        mockMvc.perform(get("/api/v1/uploads/my").header("Authorization", engineerToken)
+                        .param("status", "DONE"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("t166：分页结构正确（total/content/pageSize 一致）")
+    void myUploadsPagination() throws Exception {
+        for (int i = 0; i < 5; i++) {
+            submitWithMeta(bigFile("page-my-" + i + ".zip"), null, null);
+        }
+        JsonNode page0 = myList(engineerToken, "?status=all&page=0&size=2");
+        JsonNode page1 = myList(engineerToken, "?status=all&page=1&size=2");
+
+        assertTrue(page0.path("totalElements").asInt() >= 5);
+        assertEquals(2, page0.path("content").size());
+        assertEquals(2, page0.path("pageSize").asInt());
+        assertEquals(1, page1.path("currentPage").asInt());
+    }
+
+    @Test
+    @DisplayName("t166：keyword 命中 fileName 与 displayName")
+    void myUploadsKeyword() throws Exception {
+        submitWithMeta(bigFile("kw-file-name.zip"), "无关名字", null);
+        submitWithMeta(bigFile("other.zip"), "关键字显示名", null);
+
+        JsonNode byFileName = myList(engineerToken, "?status=all&keyword=kw-file");
+        assertEquals(1, byFileName.path("totalElements").asInt());
+        assertEquals("kw-file-name.zip", byFileName.path("content").get(0).path("fileName").asText());
+
+        JsonNode byDisplayName = myList(engineerToken, "?status=all&keyword=关键字显示名");
+        assertEquals(1, byDisplayName.path("totalElements").asInt());
+        assertEquals("关键字显示名", byDisplayName.path("content").get(0).path("displayName").asText());
+    }
+
+    @Test
+    @DisplayName("t166：撤回自己的 PENDING → 临时文件删除且状态 CANCELLED")
+    void cancelOwnPending() throws Exception {
+        JsonNode data = submitWithMeta(bigFile("cancel-me.zip"), "待撤回", null);
+        UUID id = UUID.fromString(data.path("requestId").asText());
+        UploadApprovalRequest request = uploadApprovalRequestRepository.findById(id).orElseThrow();
+        Path pending = pendingPath(request);
+        assertTrue(Files.exists(pending));
+
+        mockMvc.perform(delete("/api/v1/uploads/my/" + id).header("Authorization", engineerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"));
+
+        assertFalse(Files.exists(pending), "撤回后临时文件应删除");
+        assertEquals(UploadApprovalRequest.STATUS_CANCELLED,
+                uploadApprovalRequestRepository.findById(id).orElseThrow().getStatus());
+
+        // 撤回后管理员也批不了（非 PENDING → 409）
+        mockMvc.perform(post(ADMIN_LIST + "/" + id + "/approve").header("Authorization", adminToken))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("t166：撤回他人请求 → 403；撤回已批准 → 409")
+    void cancelRules() throws Exception {
+        JsonNode mine = submitWithMeta(bigFile("others-cannot.zip"), null, null);
+        UUID id = UUID.fromString(mine.path("requestId").asText());
+
+        mockMvc.perform(delete("/api/v1/uploads/my/" + id).header("Authorization", leaderToken))
+                .andExpect(status().isForbidden());
+
+        JsonNode approved = submitWithMeta(bigFile("already-approved.zip"), null, null);
+        UUID approvedId = UUID.fromString(approved.path("requestId").asText());
+        mockMvc.perform(post(ADMIN_LIST + "/" + approvedId + "/approve").header("Authorization", adminToken))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(delete("/api/v1/uploads/my/" + approvedId).header("Authorization", engineerToken))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    @DisplayName("t166：管理端列表支持 keyword 与 requestedBy 过滤")
+    void adminListFilters() throws Exception {
+        submitWithMeta(bigFile("admin-filter-a.zip"), "管理端关键字甲", null);
+
+        String body = mockMvc.perform(get(ADMIN_LIST).header("Authorization", adminToken)
+                        .param("keyword", "管理端关键字甲").param("status", "PENDING"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertEquals(1, objectMapper.readTree(body).path("data").path("totalElements").asInt());
+
+        String byRequester = mockMvc.perform(get(ADMIN_LIST).header("Authorization", adminToken)
+                        .param("requestedBy", engineerUserId.toString()).param("size", "50"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        for (JsonNode node : objectMapper.readTree(byRequester).path("data").path("content")) {
+            assertEquals(engineerUserId.toString(), node.path("requester").path("id").asText());
+        }
+
+        mockMvc.perform(get(ADMIN_LIST).header("Authorization", adminToken).param("status", "BOGUS"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("t166：未登录访问我的上传/撤回 → 401")
+    void myUploadsRequiresLogin() throws Exception {
+        mockMvc.perform(get("/api/v1/uploads/my")).andExpect(status().isUnauthorized());
+        mockMvc.perform(delete("/api/v1/uploads/my/" + UUID.randomUUID())).andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("t166：撤回不存在的请求 → 404")
+    void cancelMissing() throws Exception {
+        mockMvc.perform(delete("/api/v1/uploads/my/" + UUID.randomUUID())
+                        .header("Authorization", engineerToken))
+                .andExpect(status().isNotFound());
     }
 }

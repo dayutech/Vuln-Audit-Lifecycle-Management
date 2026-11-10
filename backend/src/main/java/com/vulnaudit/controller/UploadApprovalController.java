@@ -73,16 +73,45 @@ public class UploadApprovalController {
                 id, currentUserProvider.currentUserId().orElse(null)));
     }
 
+    /**
+     * t166：我的上传（只含自己提交的），替换前端 localStorage 的 requestId 登记
+     */
+    @GetMapping("/api/v1/uploads/my")
+    @Operation(summary = "我的上传列表",
+            description = "只返回 requested_by = 当前用户的请求；status=PENDING|APPROVED|REJECTED|EXPIRED|CANCELLED|all"
+                    + "（默认 all，非法 400）；按 requestedAt 倒序；keyword 匹配 fileName/displayName")
+    public ApiResponse<PageResponse<UploadApprovalItem>> findMine(
+            @Parameter(description = "状态（默认 all）") @RequestParam(required = false) String status,
+            @Parameter(description = "关键字：fileName/displayName") @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.success(uploadApprovalService.findMine(
+                currentUserProvider.currentUserId().orElse(null), status, keyword, page, size));
+    }
+
+    /**
+     * t166：撤回自己的 PENDING（删临时文件 + 标 CANCELLED）
+     */
+    @DeleteMapping("/api/v1/uploads/my/{id}")
+    @Operation(summary = "撤回上传请求", description = "仅本人 PENDING：删临时文件并标记 CANCELLED；他人 → 403，非 PENDING → 409")
+    public ApiResponse<UploadApprovalItem> cancelMine(@PathVariable UUID id) {
+        return ApiResponse.success(uploadApprovalService.cancelMine(
+                id, currentUserProvider.currentUserId().orElse(null)));
+    }
+
     // ------------------------------------------------------------------ 管理员
 
     @GetMapping("/api/v1/admin/upload-approvals")
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "上传审批列表（分页）", description = "status 可空（全部）/PENDING/APPROVED/REJECTED/EXPIRED")
     public ApiResponse<PageResponse<UploadApprovalItem>> list(
-            @Parameter(description = "状态") @RequestParam(required = false) String status,
+            @Parameter(description = "状态：PENDING/APPROVED/REJECTED/EXPIRED/CANCELLED/all")
+            @RequestParam(required = false) String status,
+            @Parameter(description = "关键字：匹配 fileName 或 displayName") @RequestParam(required = false) String keyword,
+            @Parameter(description = "申请人ID（按人查）") @RequestParam(required = false) UUID requestedBy,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ApiResponse.success(uploadApprovalService.list(status, page, size));
+        return ApiResponse.success(uploadApprovalService.list(status, keyword, requestedBy, page, size));
     }
 
     @PostMapping("/api/v1/admin/upload-approvals/{id}/approve")

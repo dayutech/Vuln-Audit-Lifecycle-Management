@@ -4891,3 +4891,43 @@ POST /api/v1/uploads/pending
 
 **验证**：`UploadApprovalTest` **20/20**（原 14 + 新 6）：PENDING 保留两字段并可查、批准后工具名 = displayName 且 description 落库、
 不传时回落行为不变、DIRECT 分支同样生效、超长 400（200/1000 边界）、V34 脚本守卫。
+
+### 70.10 t166 增补：「我的上传」列表 + 撤回（替换前端本地登记）
+
+**问题**（t164）：前端「我的上传」只能靠自己 `localStorage` 登记 requestId，再逐条 `GET /uploads/pending/{id}` 回查，
+**换设备/清缓存即丢**。
+
+**新端点**
+
+```
+GET /api/v1/uploads/my?status=PENDING|APPROVED|REJECTED|EXPIRED|CANCELLED|all&page=&size=&keyword=
+DELETE /api/v1/uploads/my/{id}          # 仅本人 PENDING：撤回
+```
+
+- `GET /uploads/my`：**只含 `requested_by = 当前用户`**；默认 `status=all`；按 `requestedAt desc`；
+  `size ≤100`（默认 20）；`keyword` 匹配 `fileName` 或 `displayName`（大小写不敏感）；`status` 非法 → **400**；
+- 每项：`id, targetType, fileName, displayName, description, fileSize, status, requestedAt, reviewedAt,
+  reviewer{id,username}, reviewNote, purgeAfter, targetId`（`targetId` 仅 APPROVED 有值）；
+- `DELETE /uploads/my/{id}`：**只能撤回自己的 PENDING** → 删临时文件 + 状态置 **CANCELLED**；
+  他人的请求 → **403**；非 PENDING（已批准/已拒绝/已过期/已撤回）→ **409**；不存在 → 404；
+- 撤回后管理员也批不了（状态非 PENDING → 409），临时文件已不存在。
+
+**状态机补充**：`PENDING` →（申请人撤回）**`CANCELLED`**（与 APPROVED / REJECTED / EXPIRED 并列）。
+
+**管理端对齐**：`GET /api/v1/admin/upload-approvals` 增加 `keyword`（fileName/displayName）与 `requestedBy`（按人查），
+`status` 白名单含 `CANCELLED`。
+
+**前端可以删掉本地登记了**
+
+| 位置 | 现在 | 改成 |
+|---|---|---|
+| `utils/myUploads.ts`（整体） | localStorage 存 requestId 列表 + 逐条回查状态 | **删除**；直接 `GET /api/v1/uploads/my?status=all&page=&size=` 渲染 |
+| 「我的上传」页/角标 | 本地计数 | 用列表的 `totalElements`，需要分状态就传 `status=PENDING` |
+| 「撤回」按钮 | 没有 | `DELETE /api/v1/uploads/my/{id}`（只有 PENDING 显示；403/409 要处理） |
+
+### 70.11 t166 的验证补充
+
+`UploadApprovalTest` **30/30**（原 20 + 新 10）：三态都能查到且 `APPROVED` 带 `targetId`、他人请求不在我的列表、
+`status=PENDING` 只返回待审 + 非法 status 400、分页结构、keyword 命中 fileName 与 displayName、
+撤回自己的 PENDING（文件删除 + CANCELLED + 管理员再批 409）、撤回他人 403、撤回已批准 409、
+管理端 keyword/requestedBy 过滤 + 非法 status 400、未登录 401、撤回不存在 404。
