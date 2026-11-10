@@ -2088,3 +2088,46 @@ Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试
 `sortByUploadedByAcrossPages`（3 上传人 / size=1 → 第 2 页为 UUID 序居中者，含 `uploaderId` 别名）、
 `sortErrorMessageListsAllOptions`（逐个断言白名单键出现在 400 消息里）、`deliverableNewSortKeysWork`。
 前端可直接传 `sort=assetVersionId,asc` / `sort=uploadedBy,desc`，去掉这两列的页内排序降级。
+
+### 2.38 项目侧批量添加 / 移除资产 + 可选资产列表（t154）
+
+**背景**：此前只有资产侧挂靠（一次一个），项目详情页无法「批量添加/移除」，选择器也拿不到「未挂靠本项目的资产」。
+
+**实现**（`ProjectController` 三个端点 + `AssetProjectLinkServiceImpl` 三个方法）：
+- `POST /api/v1/projects/{projectId}/assets`：`assetIds` 1–100（空/超限 400）、可选 `phaseId`/`linkType`；
+  **不整体失败**（不存在/已软删/无权限 → `failed[{assetId,code,reason}]`），已挂靠同项目同期次 → `skipped`；
+  新挂靠**自动打客户名+项目名标签**（t141 规则）；
+- `DELETE /api/v1/projects/{projectId}/assets`：移除该项目下这些资产的全部挂靠；**先全量校验**——
+  任一资产移除后零挂靠 → **409 且一条都不删**（消息列出资产编号）；未挂靠本项目 → 幂等 `removed=0`；
+- `GET /api/v1/projects/{projectId}/available-assets?keyword=&page=&size=`：未挂靠本项目且**可见**的资产，
+  含 `linkCount`（一次分组查询，无 per-asset 查询）；
+- 审计各 1 条（`BULK_ADD_PROJECT_ASSETS` / `BULK_REMOVE_PROJECT_ASSETS`，details 含数量与失败数），
+  两个端点已入 `SKIP_ENDPOINTS` 避免重复。
+
+**验证**：`ProjectBulkAssetsTest` **14/14**（计数与落库+自动标签、不存在/已软删 → failed 其余成功、重复 → skipped 不重复行、
+空/101 → 400、项目 404、无写权限 → failed、移除只删本项目挂靠、零挂靠 → 409 且未删任何记录、未挂靠幂等、
+可选资产只含未挂靠且可见 + linkCount、可见性不绕过、分页、keyword、审计各 1 条）。
+契约与前端调用方式见 README §68。
+
+### 2.39 审批历史查询端点（t156）
+
+**背景**：`GET /assets/my/access-approval-requests` 只返回 pending，已通过/已拒绝取不到 → 前端只能用 localStorage 兜底，
+「审批完的内容要留存」并未真正落地。
+
+**实现**：
+- `GET /api/v1/assets/my/access-approval-history?as=reviewer|requester&status=approved|rejected|all&page&size&assetId&keyword`：
+  默认 `as=reviewer`（`reviewed_by=我`）、`status=all`、`reviewedAt desc`；`status`/`as` 白名单非法 → **400**；
+  返回 `{content,totalElements,totalPages,currentPage,pageSize}`，每项含
+  `id/assetId/assetCode/assetName/assetDeleted/applicant{id,username}/status/requestedAt/reviewedAt/reviewer{id,username}/reviewNote/scope{...}`；
+- `GET .../access-approval-history/count?as=reviewer` → `{approved, rejected}`（角标用，避免全量拉取）；
+- 只含已处理（pending 不出现）；只能看与自己相关的记录；**资产软删后记录仍可见并标 `assetDeleted=true`**；
+  keyword 匹配资产名/编号且**含已软删资产**；只读端点**不写审计**。
+
+**踩坑记档**：资产摘要最初用 native `select a.id, a.code, ...` 返回 `Object[]`，H2 里 `id` 是二进制列，
+`UUID.fromString(String.valueOf(row[0]))` 直接抛 `Invalid UUID string: [B@...` → 全部 500。改为
+`select * from assets where id in :ids` **返回实体**，让 Hibernate 做 UUID 映射；同时历史查询的 `status` 过滤放在
+**数据库**（`status in :statuses`），不是「取一页再内存筛」（否则 total 和分页都会错）。
+
+**验证**：`ApprovalHistoryTest` **11/11**（pending 不出现、字段完整、status/as 白名单 400、默认倒序、分页、
+两审批人互不可见、`as=requester` 语义、软删后仍可见+`assetDeleted=true`、assetId/keyword 筛选、count 与列表一致、
+未登录 401、只读不写审计）。契约与**前端 localStorage 移除替换点**见 README §69。

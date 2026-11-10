@@ -120,4 +120,8 @@ public interface AssetProjectLinkRepository extends JpaRepository<AssetProjectLi
             + "and not exists (select 1 from assets a where a.id = l.asset_id and a.deleted_at is not null)",
             nativeQuery = true)
     long countByProjectIdAndAssetNotDeleted(@Param("projectId") UUID projectId);
+
+    /** t154：一次分组查询取多个资产的挂靠数（可选资产列表用，禁止 per-asset 查询） */
+    @Query("select l.assetId, count(l) from AssetProjectLink l where l.assetId in :assetIds group by l.assetId")
+    List<Object[]> countLinksGroupedByAssetIds(@Param("assetIds") java.util.Collection<UUID> assetIds);
 }

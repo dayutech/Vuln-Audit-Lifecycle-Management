@@ -134,4 +134,26 @@ public interface AssetRepository extends JpaRepository<Asset, UUID>, JpaSpecific
             @org.springframework.data.repository.query.Param("includeDeleted") boolean includeDeleted,
             org.springframework.data.domain.Pageable pageable);
 
+    /**
+     * t156：审批历史里的资产摘要（**含已软删**）
+     *
+     * <p>用原生 SQL 绕开实体上的 `@SQLRestriction("deleted_at IS NULL")`：审批历史不应因资产删除而消失，
+     * 但要能标注 `assetDeleted=true`。
+     *
+     * @return 每行 [id, code, name, deletedAt]
+     */
+    @org.springframework.data.jpa.repository.Query(
+            // 返回**实体**而不是 Object[]：H2 里 id 是二进制列，手动 UUID.fromString 会炸（"Invalid UUID string: [B@..."），
+            // 交给 Hibernate 的实体映射做 UUID 转换最稳。
+            value = "select * from assets where id in :ids",
+            nativeQuery = true)
+    java.util.List<Asset> findAssetBriefsIncludingDeleted(
+            @org.springframework.data.repository.query.Param("ids") java.util.Collection<UUID> ids);
+
+    /** t156：keyword 先按资产名/编号筛出 id（含已软删资产的历史同样可搜） */
+    @org.springframework.data.jpa.repository.Query(
+            value = "select * from assets where lower(name) like :like or lower(code) like :like",
+            nativeQuery = true)
+    java.util.List<Asset> findByKeywordIncludingDeleted(
+            @org.springframework.data.repository.query.Param("like") String like);
 }

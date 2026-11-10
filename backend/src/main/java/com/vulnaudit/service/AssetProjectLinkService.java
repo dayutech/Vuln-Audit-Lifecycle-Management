@@ -127,6 +127,38 @@ public interface AssetProjectLinkService {
     @Nullable
     Set<UUID> filterAssetIds(@Nullable UUID customerId, @Nullable UUID projectId, @Nullable UUID phaseId);
 
+    // ------------------------------------------------------------------ 项目侧批量操作（t154）
+
+    /**
+     * 项目侧批量添加资产（幂等、不整体失败）
+     *
+     * @param operatorId      操作者（写 audit、自动标签的 created_by）
+     * @param manager         调用者是否为管理层（管理层对可见资产均可写）
+     * @param visibleAssetIds 调用者可见资产集合（null = 不限制）
+     */
+    com.vulnaudit.dto.ProjectBulkAddResult bulkAddAssets(@Nullable UUID projectId,
+                                                         @Nonnull com.vulnaudit.dto.ProjectBulkAssetsRequest request,
+                                                         @Nullable UUID operatorId,
+                                                         boolean manager,
+                                                         @Nullable Set<UUID> visibleAssetIds);
+
+    /**
+     * 项目侧批量移除资产
+     *
+     * <p>先**全量校验**再执行：任一资产移除后「再无任何挂靠」→ 409 且整体不执行（保持不变式）。
+     */
+    com.vulnaudit.dto.ProjectBulkRemoveResult bulkRemoveAssets(@Nullable UUID projectId,
+                                                               @Nonnull com.vulnaudit.dto.ProjectBulkRemoveRequest request,
+                                                               @Nullable UUID operatorId,
+                                                               boolean manager,
+                                                               @Nullable Set<UUID> visibleAssetIds);
+
+    /** 「添加资产」选择器：未挂靠本项目 + 调用者可见 */
+    PageResponse<com.vulnaudit.dto.AvailableAssetItem> availableAssets(@Nullable UUID projectId,
+                                                                       @Nullable String keyword,
+                                                                       int page, int size,
+                                                                       @Nullable Set<UUID> visibleAssetIds);
+
     /** 归属摘要 */
     record Ownership(List<com.vulnaudit.dto.CustomerBrief> customers,
                      List<com.vulnaudit.dto.ProjectBrief> projects) {

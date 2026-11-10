@@ -74,6 +74,8 @@ public class AssetProjectLinkServiceImpl implements AssetProjectLinkService {
     private final CustomerRepository customerRepository;
     /** t141：挂靠时自动打标签（客户名 + 项目名） */
     private final com.vulnaudit.service.TagDefinitionService tagDefinitionService;
+    /** t154：批量操作审计 */
+    private final com.vulnaudit.service.AuditLogService auditLogService;
 
     // ------------------------------------------------------------------ 创建资产 + 挂靠
 
@@ -468,5 +470,228 @@ public class AssetProjectLinkServiceImpl implements AssetProjectLinkService {
                 link.getRemark(),
                 link.getLinkedBy(),
                 link.getLinkedAt());
+    }
+    // ------------------------------------------------------------------ 项目侧批量操作（t154）
+
+    /** 批量操作上限（与前端选择器一致） */
+    private static final int BULK_LIMIT = 100;
+
+    private static final String AUDIT_BULK_ADD = "BULK_ADD_PROJECT_ASSETS";
+    private static final String AUDIT_BULK_REMOVE = "BULK_REMOVE_PROJECT_ASSETS";
+
+    @Override
+    @Transactional
+    public com.vulnaudit.dto.ProjectBulkAddResult bulkAddAssets(@Nullable UUID projectId,
+                                                                @Nonnull com.vulnaudit.dto.ProjectBulkAssetsRequest request,
+                                                                @Nullable UUID operatorId,
+                                                                boolean manager,
+                                                                @Nullable java.util.Set<UUID> visibleAssetIds) {
+        java.util.List<UUID> assetIds = normalizeBulkIds(request == null ? null : request.assetIds());
+        Project project = requireProject(projectId);
+        Customer customer = requireCustomer(project.getCustomerId());
+        ProjectPhase phase = validatePhase(project, request.phaseId());
+        String linkType = normalizeLinkType(request.linkType());
+
+        // 一次取全部资产（含已软删会被 @SQLRestriction 过滤掉 → 视为不存在）
+        java.util.Map<UUID, Asset> found = assetRepository.findAllById(assetIds).stream()
+                .collect(Collectors.toMap(Asset::getId, Function.identity()));
+
+        java.util.LinkedHashMap<UUID, com.vulnaudit.dto.ProjectBulkAddResult.FailedItem> failed =
+                new java.util.LinkedHashMap<>();
+        java.util.List<AssetProjectLink> toCreate = new java.util.ArrayList<>();
+        int skipped = 0;
+
+        for (UUID assetId : assetIds) {
+            Asset asset = found.get(assetId);
+            if (asset == null) {
+                // 不存在或已软删：不整体失败，只记失败明细
+                failed.put(assetId, new com.vulnaudit.dto.ProjectBulkAddResult.FailedItem(
+                        assetId, null, "资产不存在或已删除"));
+                continue;
+            }
+            boolean visible = visibleAssetIds == null || visibleAssetIds.contains(assetId);
+            boolean writable = visible && (manager
+                    || (operatorId != null && operatorId.equals(asset.getOwnerId())));
+            if (!writable) {
+                failed.put(assetId, new com.vulnaudit.dto.ProjectBulkAddResult.FailedItem(
+                        assetId, asset.getCode(),
+                        visible ? "无该资产的写权限（仅负责人或管理层可挂靠）" : "资产不在你的可见范围内"));
+                continue;
+            }
+            if (linkRepository.existsByAssetIdAndProjectIdAndPhaseId(assetId, project.getId(),
+                    phase != null ? phase.getId() : null)) {
+                skipped++;
+                continue;
+            }
+            toCreate.add(buildLink(assetId, project, customer, phase, linkType, null, operatorId));
+        }
+
+        if (!toCreate.isEmpty()) {
+            linkRepository.saveAll(toCreate);
+            linkRepository.flush();
+            // t141/t154：新挂靠的资产自动打「客户名 + 项目名」标签（幂等）
+            for (AssetProjectLink created : toCreate) {
+                autoTag(created.getAssetId(), customer, project, operatorId);
+            }
+        }
+
+        String detail = "project=" + project.getCode() + ", added=" + toCreate.size()
+                + ", skipped=" + skipped + ", failed=" + failed.size()
+                + (phase != null ? ", phase=" + phase.getName() : "");
+        auditLogService.log(operatorId, AUDIT_BULK_ADD, "project", project.getId(), detail);
+        log.info("项目批量添加资产: {}", detail);
+        return new com.vulnaudit.dto.ProjectBulkAddResult(toCreate.size(), skipped,
+                new java.util.ArrayList<>(failed.values()));
+    }
+
+    @Override
+    @Transactional
+    public com.vulnaudit.dto.ProjectBulkRemoveResult bulkRemoveAssets(
+            @Nullable UUID projectId,
+            @Nonnull com.vulnaudit.dto.ProjectBulkRemoveRequest request,
+            @Nullable UUID operatorId,
+            boolean manager,
+            @Nullable java.util.Set<UUID> visibleAssetIds) {
+        java.util.List<UUID> assetIds = normalizeBulkIds(request == null ? null : request.assetIds());
+        Project project = requireProject(projectId);
+
+        java.util.Map<UUID, Asset> found = assetRepository.findAllById(assetIds).stream()
+                .collect(Collectors.toMap(Asset::getId, Function.identity()));
+
+        // ① 全量校验（先校验后执行：任一不满足 → 409 且一条都不删）
+        java.util.List<com.vulnaudit.dto.ProjectBulkAddResult.FailedItem> forbidden = new java.util.ArrayList<>();
+        java.util.List<String> zeroLinkCodes = new java.util.ArrayList<>();
+        java.util.List<AssetProjectLink> toDelete = new java.util.ArrayList<>();
+
+        for (UUID assetId : assetIds) {
+            Asset asset = found.get(assetId);
+            if (asset == null) {
+                throw new BusinessException(ErrorCode.ASSET_NOT_FOUND);
+            }
+            boolean visible = visibleAssetIds == null || visibleAssetIds.contains(assetId);
+            boolean writable = visible && (manager
+                    || (operatorId != null && operatorId.equals(asset.getOwnerId())));
+            if (!writable) {
+                forbidden.add(new com.vulnaudit.dto.ProjectBulkAddResult.FailedItem(
+                        assetId, asset.getCode(),
+                        visible ? "无该资产的写权限" : "资产不在你的可见范围内"));
+                continue;
+            }
+            java.util.List<AssetProjectLink> links = linkRepository.findByAssetId(assetId).stream()
+                    .filter(link -> project.getId().equals(link.getProjectId()))
+                    .toList();
+            if (links.isEmpty()) {
+                // 本来就没挂靠本项目：幂等，跳过
+                continue;
+            }
+            // 不变式：移除后该资产必须仍有至少一个挂靠
+            long total = linkRepository.countByAssetId(assetId);
+            if (total - links.size() == 0) {
+                zeroLinkCodes.add(asset.getCode());
+            }
+            toDelete.addAll(links);
+        }
+
+        if (!forbidden.isEmpty()) {
+            throw new BusinessException(ErrorCode.FORBIDDEN,
+                    "以下资产无写权限，整个请求未执行: "
+                            + forbidden.stream().map(com.vulnaudit.dto.ProjectBulkAddResult.FailedItem::code)
+                            .collect(java.util.stream.Collectors.joining(", ")));
+        }
+        if (!zeroLinkCodes.isEmpty()) {
+            // 整体不执行：保持「资产必须至少挂靠一个项目」不变式
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "以下资产移除后将不再挂靠任何项目，请先挂到其它项目或删除资产: "
+                            + String.join(", ", zeroLinkCodes));
+        }
+
+        if (!toDelete.isEmpty()) {
+            linkRepository.deleteAll(toDelete);
+            linkRepository.flush();
+        }
+
+        String detail = "project=" + project.getCode() + ", removed=" + toDelete.size()
+                + ", requested=" + assetIds.size();
+        auditLogService.log(operatorId, AUDIT_BULK_REMOVE, "project", project.getId(), detail);
+        log.info("项目批量移除资产: {}", detail);
+        return new com.vulnaudit.dto.ProjectBulkRemoveResult(toDelete.size());
+    }
+
+    @Override
+    public PageResponse<com.vulnaudit.dto.AvailableAssetItem> availableAssets(@Nullable UUID projectId,
+                                                                              @Nullable String keyword,
+                                                                              int page, int size,
+                                                                              @Nullable java.util.Set<UUID> visibleAssetIds) {
+        Project project = requireProject(projectId);
+        int safePage = Math.max(page, 0);
+        int safeSize = size <= 0 ? 20 : Math.min(size, 100);
+
+        // 已挂靠本项目的资产（一次查询，作为排除集）
+        java.util.Set<UUID> linkedToProject = linkRepository.findByProjectId(project.getId()).stream()
+                .map(AssetProjectLink::getAssetId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
+        if (visibleAssetIds != null && visibleAssetIds.isEmpty()) {
+            return PageResponse.<com.vulnaudit.dto.AvailableAssetItem>builder()
+                    .content(java.util.List.of()).totalElements(0L).totalPages(0)
+                    .currentPage(safePage).pageSize(safeSize).build();
+        }
+
+        org.springframework.data.jpa.domain.Specification<Asset> spec = (root, query, cb) -> {
+            java.util.List<jakarta.persistence.criteria.Predicate> predicates = new java.util.ArrayList<>();
+            if (visibleAssetIds != null) {
+                predicates.add(root.get("id").in(visibleAssetIds));
+            }
+            if (!linkedToProject.isEmpty()) {
+                predicates.add(cb.not(root.get("id").in(linkedToProject)));
+            }
+            if (StringUtils.hasText(keyword)) {
+                String like = "%" + keyword.trim().toLowerCase(Locale.ROOT) + "%";
+                predicates.add(cb.or(cb.like(cb.lower(root.get("name")), like),
+                        cb.like(cb.lower(root.get("code")), like)));
+            }
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+
+        org.springframework.data.domain.Page<Asset> result = assetRepository.findAll(spec,
+                org.springframework.data.domain.PageRequest.of(safePage, safeSize,
+                        org.springframework.data.domain.Sort.by("createdAt").descending()));
+
+        // 当前挂靠数：一次分组查询（不做 per-asset 查询）
+        java.util.List<UUID> ids = result.getContent().stream().map(Asset::getId).toList();
+        java.util.Map<UUID, Long> linkCounts = ids.isEmpty() ? java.util.Map.of()
+                : linkRepository.countLinksGroupedByAssetIds(ids).stream()
+                        .collect(Collectors.toMap(row -> (UUID) row[0], row -> ((Number) row[1]).longValue()));
+
+        java.util.List<com.vulnaudit.dto.AvailableAssetItem> items = result.getContent().stream()
+                .map(asset -> new com.vulnaudit.dto.AvailableAssetItem(
+                        asset.getId(), asset.getCode(), asset.getName(), asset.getTargetType(),
+                        asset.getStatus(), linkCounts.getOrDefault(asset.getId(), 0L)))
+                .toList();
+
+        return PageResponse.<com.vulnaudit.dto.AvailableAssetItem>builder()
+                .content(items)
+                .totalElements(result.getTotalElements())
+                .totalPages(result.getTotalPages())
+                .currentPage(safePage)
+                .pageSize(safeSize)
+                .build();
+    }
+
+    /** 批量入参规整 + 校验（1–100，去重保序） */
+    private java.util.List<UUID> normalizeBulkIds(@Nullable java.util.List<UUID> assetIds) {
+        if (assetIds == null || assetIds.isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "assetIds 不能为空");
+        }
+        java.util.List<UUID> ids = assetIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "assetIds 不能为空");
+        }
+        if (ids.size() > BULK_LIMIT) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "一次最多操作 " + BULK_LIMIT + " 个资产，当前 " + ids.size());
+        }
+        return ids;
     }
 }

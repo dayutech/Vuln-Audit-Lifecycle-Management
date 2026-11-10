@@ -4424,3 +4424,170 @@ t149/t150 报告的两个小缺口（前端这两列只能页内本地排序、�
 - 跨页正确性用例：`sortByAssetVersionIdAcrossPages`（25 条、size=20 → 第 2 页首行版本 **21**）、
   `sortByUploadedByAcrossPages`（3 个上传人、size=1 → 第 2 页为 UUID 排序居中者）；
 - **前端可以去掉这两列的「页内排序」降级**，直接传 `sort=assetVersionId,asc` / `sort=uploadedBy,desc`。
+## 68. 第五十轮（项目侧批量添加 / 移除资产 + 可选资产列表，t154）
+
+### 67.1 为什么需要
+
+此前只有「资产侧挂靠」（`POST /assets/{id}/project-links`，一次一个资产）。项目详情页要「批量添加已有资产 /
+移除资产」时，前端得循环 N 次，既慢又会踩「同一资产最后一条挂靠不能删」的不变式；选择器也拿不到「还没挂靠本项目的资产」。
+
+### 67.2 接口契约
+
+**批量添加**（不整体失败、幂等）
+
+```
+POST /api/v1/projects/{projectId}/assets
+{ "assetIds": ["<uuid>", ...], "phaseId": "<uuid>|null", "linkType": "TARGET|SHARED|REFERENCE" }
+
+200 { "added": 2, "skipped": 0, "failed": [{ "assetId": "...", "code": "A-1", "reason": "..." }] }
+```
+
+- `assetIds` **1–100**（空 / 超限 → **400**），自动去重保序；
+- 逐条判定：资产不存在或**已软删** → `failed`（原因「资产不存在或已删除」）；已挂靠**同项目同期次** → `skipped`；
+  不在可见范围 / 非负责人且非管理层 → `failed`（原因区分「不可见」与「无写权限」）；
+- 项目不存在 → **404**；项目未启用分期却传 `phaseId` → 400（沿用 `validatePhase`）；
+- 新挂靠的资产**自动打「客户名 + 项目名」标签**（t141 规则，幂等）。
+
+**批量移除**（先全量校验再执行）
+
+```
+DELETE /api/v1/projects/{projectId}/assets
+{ "assetIds": ["<uuid>", ...] }
+
+200 { "removed": 1 }
+409 资产清单（任一资产移除后不再挂靠任何项目 → 整体不执行）
+```
+
+- 移除该项目下这些资产的**全部**挂靠（含各期次）；
+- 未挂靠本项目的资产 → 幂等跳过（不计入 removed，不报错）；
+- **不变式**：「资产必须至少挂靠一个项目」——先算「移除后剩余挂靠数」，任一条为 0 → **409 并在消息里列出资产编号**，
+  **一条都不删**（不是删一半再报错）。
+
+**可选资产列表（选择器）**
+
+```
+GET /api/v1/projects/{projectId}/available-assets?keyword=&page=0&size=20
+
+200 { content:[{id,code,name,targetType,status,linkCount}], totalElements, totalPages, currentPage, pageSize }
+```
+
+- 只返回**未挂靠本项目**且**调用者可见**的资产（`visibleAssetIds` 收敛，不绕过 t70/t140 口径）；
+- `linkCount` = 该资产当前的挂靠总数（一次分组查询，不做 per-asset 查询）；0 表示孤儿资产，前端可提示；
+- `keyword` 匹配名称或编号；`size ≤100`。
+
+**审计**：批量添加/移除**各写 1 条**（`BULK_ADD_PROJECT_ASSETS` / `BULK_REMOVE_PROJECT_ASSETS`，
+details 含 `project=<code>, added=, skipped=, failed=` / `removed=, requested=`），两个端点已进
+`AuditTrailInterceptor.SKIP_ENDPOINTS`，避免和拦截器重复写。
+
+### 67.3 前端调用方式
+
+| 场景 | 调用 |
+|---|---|
+| 打开「添加资产」弹窗 | `GET /projects/{id}/available-assets?keyword=&page=0&size=20`（表格勾选，最多 100） |
+| 点「确定添加」 | `POST /projects/{id}/assets` body `{assetIds, phaseId?, linkType?}`；按 `added/skipped/failed` 分别提示（failed 用 `code + reason` 逐条列出） |
+| 详情页表格「移除」多选 | `DELETE /projects/{id}/assets` body `{assetIds}`；409 时把消息里的资产编号回显，引导「挂到其它项目」或「删除资产」 |
+| 项目详情页资产表 | 仍用 `GET /projects/{id}/assets`（已有，含 tags） |
+
+> 不要在前端循环调用资产侧的 `POST /assets/{id}/project-links` —— 那样失败会「删一半」、慢，而且拿不到 skipped/failed 汇总。
+
+### 67.4 验证（`ProjectBulkAssetsTest` 14 例）
+
+```bash
+cd backend && mvn -B test -Dtest=ProjectBulkAssetsTest   # 14/14
+```
+
+覆盖：批量添加 2 个 → added=2 且挂靠落库 + 自动打客户名/项目名标签；不存在与已软删资产 → 计入 failed 且其余成功；
+重复挂靠 → skipped 且不产生重复行；assetIds 空 / 101 个 → 400；项目不存在 → 404；
+无写权限（工程师挂管理员资产）→ failed 而自己的成功；批量移除 removed=1 且只删本项目挂靠；
+移除导致零挂靠 → 409 且**一条都没删**；未挂靠本项目 → removed=0 幂等；
+可选资产只含未挂靠且可见（linkCount 正确）、可见性不绕过（工程师看不到管理员专属）、分页正确、keyword 筛选；
+审计各 1 条且 details 含数量。
+
+### 67.5 已知边界
+
+1. 「可选资产」上限由分页控制（`size ≤100`），没有「一次取全部」的开关；超大租户请用 keyword 收窄。
+2. 批量添加的 `linkType` 对**整批**生效（不能逐条不同）；需要不同 linkType 请分批调用。
+3. 批量移除会移除**该项目下该资产的所有期次挂靠**（不按期次细粒度移除）；按期次移除仍走资产侧 `DELETE /assets/{id}/project-links/{linkId}`。
+4. 批量期间若并发有人删掉某资产，可能有个别条目落 `failed`——**已经写入的挂靠不回滚**（设计如此：不整体失败）。
+## 69. 第五十一轮（审批历史查询端点：替换前端 localStorage 兜底，t156）
+
+### 69.1 问题
+
+`GET /assets/my/access-approval-requests` 只返回 **pending**，已通过/已拒绝的记录后端取不到 → 前端只能用
+`localStorage` 兜底（换浏览器/清缓存即丢）。用户需求「审批完的内容要留存显示」因此并没有真正落地。
+
+### 69.2 接口契约
+
+**历史列表**
+
+```
+GET /api/v1/assets/my/access-approval-history
+    ?as=reviewer|requester      # 默认 reviewer
+    &status=approved|rejected|all   # 默认 all，非法 → 400
+    &page=0&size=20             # size ≤100
+    &assetId=<uuid>&keyword=<资产名/编号模糊>
+
+200 { content:[{
+        id, assetId, assetCode, assetName,
+        assetDeleted,                    // 资产已软删 → true（历史不隐藏，只标注）
+        applicant:{id,username}, status, // approved / rejected
+        requestedAt, reviewedAt,
+        reviewer:{id,username}, reviewNote,
+        scope:{canViewDocuments, canViewEnvironments, canViewFiles, allowedFileTypes}
+      }],
+      totalElements, totalPages, currentPage, pageSize }
+```
+
+**计数（角标）**
+
+```
+GET /api/v1/assets/my/access-approval-history/count?as=reviewer
+200 { "approved": 2, "rejected": 1 }
+```
+
+### 69.3 语义（明确写死，避免歧义）
+
+| 项 | 口径 |
+|---|---|
+| `as=reviewer`（默认） | `reviewed_by = 当前用户` —— **我审批过的** |
+| `as=requester` | `user_id = 当前用户` 且已被处理 —— **我申请且已被处理** |
+| 只含已处理 | 历史永远是 `approved`/`rejected`；**pending 不在此列**（还在待办里） |
+| 排序 | `reviewedAt desc`（最新处理在前），无其他排序参数 |
+| 权限 | 只能看与自己相关的记录；**没有**跨用户/管理员全量视图（如需另开 `/admin/access-approval-history`） |
+| 软删除 | 资产软删后记录**仍然可见**，用 `assetDeleted=true` 标注（历史不因资产消失） |
+| keyword | 匹配资产**名称/编号**，且**含已软删资产**（历史可搜） |
+| 审计 | 只读端点**不写审计** |
+
+实现要点：历史查询用 JPQL（`status in :statuses` 在**数据库**过滤，不是取一页再内存筛）；
+资产摘要（含已软删）用原生 SQL **返回实体**（`select * ... where id in :ids`）——
+H2 里 id 是二进制列，用 `Object[]` + `UUID.fromString` 会报 `Invalid UUID string: [B@...`，交给 Hibernate 实体映射最稳。
+
+### 69.4 前端可以移除 localStorage 兜底了（替换点）
+
+| 位置 | 原来 | 改成 |
+|---|---|---|
+| 「审批历史」列表 | 读 `localStorage.approvalHistory` 拼接 | `GET /assets/my/access-approval-history?as=reviewer&status=all&page=0&size=20`，渲染 `content` |
+| 「我申请过的」列表 | 同上 | 同端点 `as=requester` |
+| 审批中心角标 | 本地计数 | `GET .../access-approval-history/count?as=reviewer`（`approved`/`rejected`） |
+| 已通过的申请详情 | 本地缓存里的字段 | 直接用列表项（已含 `applicant`/`reviewer`/`reviewNote`/`scope`） |
+
+> 待审批列表仍用**原来的** `GET /assets/my/access-approval-requests`（pending 专用），两者不要混。
+
+### 69.5 验证（`ApprovalHistoryTest` 11 例）
+
+```bash
+cd backend && mvn -B test -Dtest=ApprovalHistoryTest   # 11/11
+```
+
+覆盖：pending 不出现在历史（approved/rejected 出现且字段完整：assetCode/assetName/申请人/审批人/reviewNote/scope/时间）；
+`status=approved|rejected|all` 分别过滤且非法 status/as → 400；默认 `reviewedAt desc`；分页 total/content/页码正确；
+两个审批人互不可见；`as=requester` 与 `as=reviewer` 语义互不串；资产软删后记录仍可见且 `assetDeleted=true` 并保留 assetCode；
+`assetId`/`keyword` 筛选（含已软删资产可搜）；count 与列表一致（approved/rejected 分开）；count 的 `as=requester` 与非法 as；
+未登录 401；只读端点不写审计。
+
+### 69.6 已知边界
+
+1. 没有管理员全量视图（任务明确「本任务先不做」）；需要时另开 `/admin/access-approval-history`。
+2. `requestedAt` 取 `asset_accesses.created_at`（申请时间）；重新提交会新增一行，历史因此可能有多条。
+3. keyword 走「先解析资产 id 再 `in` 过滤」，超大租户下 keyword 命中集合可能较大（当前量级可接受）。
+4. 历史不含 `requestNote`（申请理由）——只有 `reviewNote`（审批意见）；需要申请理由请用待审批接口或另加字段。

@@ -110,7 +110,10 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
             // t141：标签定义写操作由服务层写 1 条 UPDATE_TAG_DEFINITION
             "POST /api/v1/admin/tag-definitions",
             "PUT /api/v1/admin/tag-definitions/{id}",
-            "DELETE /api/v1/admin/tag-definitions/{id}"
+            "DELETE /api/v1/admin/tag-definitions/{id}",
+            // t154：项目批量添加/移除由服务层各写 1 条审计（含数量与失败数）
+            "POST /api/v1/projects/{projectId}/assets",
+            "DELETE /api/v1/projects/{projectId}/assets"
     };
 
     private final AuditLogService auditLogService;

@@ -46,4 +46,23 @@ public interface AssetAccessService {
 
     @Nonnull
     PageResponse<AssetAccess> findPendingApprovalByUser(@Nullable UUID userId, int page, int size);
+
+    // ------------------------------------------------------------------ 审批历史（t156）
+
+    /**
+     * 我的审批历史（只含已处理：approved / rejected）
+     *
+     * @param asReviewer true = 我审批过的（reviewedBy = 我）；false = 我申请且已被处理的（userId = 我）
+     * @param status     approved / rejected / all（null 视为 all）
+     * @param keyword    资产名称/编号模糊（含已软删资产）
+     */
+    PageResponse<com.vulnaudit.dto.ApprovalHistoryItem> findApprovalHistory(@Nullable UUID userId,
+                                                                            boolean asReviewer,
+                                                                            @Nullable String status,
+                                                                            @Nullable UUID assetId,
+                                                                            @Nullable String keyword,
+                                                                            int page, int size);
+
+    /** 我的审批历史计数（前端角标用） */
+    com.vulnaudit.dto.ApprovalHistoryCount countApprovalHistory(@Nullable UUID userId, boolean asReviewer);
 }

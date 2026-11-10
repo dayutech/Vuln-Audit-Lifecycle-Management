@@ -107,4 +107,38 @@ public interface AssetAccessRepository extends JpaRepository<AssetAccess, UUID>,
     @Query("DELETE FROM AssetAccess aa WHERE aa.assetId = :assetId")
     int deleteByAssetId(@Param("assetId") UUID assetId);
 
+    /** t156：审批人视角的历史（只含已处理） */
+    @Query("select a from AssetAccess a where a.reviewedBy = :userId "
+            + "and a.status in :statuses "
+            + "and (:assetId is null or a.assetId = :assetId) "
+            + "and (:restrictAssets = false or a.assetId in :assetIds)")
+    org.springframework.data.domain.Page<AssetAccess> findHistoryAsReviewer(
+            @Param("userId") UUID userId,
+            @Param("statuses") java.util.Collection<String> statuses,
+            @Param("assetId") UUID assetId,
+            @Param("restrictAssets") boolean restrictAssets,
+            @Param("assetIds") java.util.Collection<UUID> assetIds,
+            org.springframework.data.domain.Pageable pageable);
+
+    /** t156：申请人视角的历史（我提交过、且已被处理） */
+    @Query("select a from AssetAccess a where a.userId = :userId "
+            + "and a.status in :statuses "
+            + "and (:assetId is null or a.assetId = :assetId) "
+            + "and (:restrictAssets = false or a.assetId in :assetIds)")
+    org.springframework.data.domain.Page<AssetAccess> findHistoryAsRequester(
+            @Param("userId") UUID userId,
+            @Param("statuses") java.util.Collection<String> statuses,
+            @Param("assetId") UUID assetId,
+            @Param("restrictAssets") boolean restrictAssets,
+            @Param("assetIds") java.util.Collection<UUID> assetIds,
+            org.springframework.data.domain.Pageable pageable);
+
+    /** t156：角标计数（一次分组，避免前端全量拉取） */
+    @Query("select a.status, count(a) from AssetAccess a "
+            + "where a.reviewedBy = :userId and a.status in ('approved','rejected') group by a.status")
+    java.util.List<Object[]> countHistoryAsReviewer(@Param("userId") UUID userId);
+
+    @Query("select a.status, count(a) from AssetAccess a "
+            + "where a.userId = :userId and a.status in ('approved','rejected') group by a.status")
+    java.util.List<Object[]> countHistoryAsRequester(@Param("userId") UUID userId);
 }

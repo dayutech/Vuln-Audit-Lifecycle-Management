@@ -314,4 +314,155 @@ public class AssetAccessServiceImpl implements AssetAccessService {
                 .pageSize(accessPage.getSize())
                 .build();
     }
+    // ------------------------------------------------------------------ 审批历史（t156）
+
+    private static final java.util.Set<String> HISTORY_STATUSES =
+            java.util.Set.of("approved", "rejected");
+
+    @Override
+    public PageResponse<com.vulnaudit.dto.ApprovalHistoryItem> findApprovalHistory(@Nullable UUID userId,
+                                                                                  boolean asReviewer,
+                                                                                  @Nullable String status,
+                                                                                  @Nullable UUID assetId,
+                                                                                  @Nullable String keyword,
+                                                                                  int page, int size) {
+        int safePage = Math.max(page, 0);
+        int safeSize = size <= 0 ? 20 : Math.min(size, 100);
+        java.util.List<String> statuses = resolveHistoryStatuses(status);
+
+        // keyword 先解析成资产 id 集合（含已软删资产，审批历史不应因删资产而搜不到）
+        java.util.List<UUID> keywordAssetIds = java.util.List.of();
+        if (org.springframework.util.StringUtils.hasText(keyword)) {
+            keywordAssetIds = assetRepository.findByKeywordIncludingDeleted(
+                            "%" + keyword.trim().toLowerCase(java.util.Locale.ROOT) + "%").stream()
+                    .map(com.vulnaudit.entity.Asset::getId)
+                    .toList();
+            if (keywordAssetIds.isEmpty()) {
+                return emptyHistory(safePage, safeSize);
+            }
+        }
+        boolean restrictAssets = !keywordAssetIds.isEmpty();
+
+        org.springframework.data.domain.Pageable pageable = org.springframework.data.domain.PageRequest.of(
+                safePage, safeSize,
+                org.springframework.data.domain.Sort.by(
+                        org.springframework.data.domain.Sort.Direction.DESC, "reviewedAt"));
+
+        org.springframework.data.domain.Page<AssetAccess> result = queryHistory(
+                userId, asReviewer, statuses, assetId, restrictAssets, keywordAssetIds, pageable);
+        return PageResponse.<com.vulnaudit.dto.ApprovalHistoryItem>builder()
+                .content(toHistoryItems(result.getContent()))
+                .totalElements(result.getTotalElements())
+                .totalPages(result.getTotalPages())
+                .currentPage(safePage)
+                .pageSize(safeSize)
+                .build();
+    }
+
+    private org.springframework.data.domain.Page<AssetAccess> queryHistory(
+            @Nullable UUID userId, boolean asReviewer, java.util.List<String> statuses, @Nullable UUID assetId,
+            boolean restrictAssets, java.util.List<UUID> keywordAssetIds,
+            org.springframework.data.domain.Pageable pageable) {
+        return asReviewer
+                ? assetAccessRepository.findHistoryAsReviewer(userId, statuses, assetId, restrictAssets,
+                        keywordAssetIds, pageable)
+                : assetAccessRepository.findHistoryAsRequester(userId, statuses, assetId, restrictAssets,
+                        keywordAssetIds, pageable);
+    }
+
+    @Override
+    public com.vulnaudit.dto.ApprovalHistoryCount countApprovalHistory(@Nullable UUID userId, boolean asReviewer) {
+        java.util.List<Object[]> rows = asReviewer
+                ? assetAccessRepository.countHistoryAsReviewer(userId)
+                : assetAccessRepository.countHistoryAsRequester(userId);
+        long approved = 0;
+        long rejected = 0;
+        for (Object[] row : rows) {
+            long count = ((Number) row[1]).longValue();
+            if ("approved".equals(row[0])) {
+                approved = count;
+            } else if ("rejected".equals(row[0])) {
+                rejected = count;
+            }
+        }
+        return new com.vulnaudit.dto.ApprovalHistoryCount(approved, rejected);
+    }
+
+    /** status 白名单（approved / rejected / all），非法 → 400 */
+    private java.util.List<String> resolveHistoryStatuses(@Nullable String status) {
+        if (!org.springframework.util.StringUtils.hasText(status) || "all".equalsIgnoreCase(status.trim())) {
+            return new java.util.ArrayList<>(HISTORY_STATUSES);
+        }
+        String normalized = status.trim().toLowerCase(java.util.Locale.ROOT);
+        if (!HISTORY_STATUSES.contains(normalized)) {
+            throw new com.vulnaudit.exception.BusinessException(
+                    com.vulnaudit.exception.ErrorCode.BAD_REQUEST,
+                    "status 不合法: " + status + "（可选：approved/rejected/all）");
+        }
+        return java.util.List.of(normalized);
+    }
+
+    private PageResponse<com.vulnaudit.dto.ApprovalHistoryItem> emptyHistory(int page, int size) {
+        return PageResponse.<com.vulnaudit.dto.ApprovalHistoryItem>builder()
+                .content(java.util.List.of())
+                .totalElements(0L)
+                .totalPages(0)
+                .currentPage(page)
+                .pageSize(size)
+                .build();
+    }
+
+    /** 组装历史条目：资产摘要（含已软删）+ 申请人/审批人用户名（各一次批量查询） */
+    private java.util.List<com.vulnaudit.dto.ApprovalHistoryItem> toHistoryItems(java.util.List<AssetAccess> rows) {
+        if (rows.isEmpty()) {
+            return java.util.List.of();
+        }
+        java.util.List<UUID> assetIds = rows.stream().map(AssetAccess::getAssetId)
+                .filter(java.util.Objects::nonNull).distinct().toList();
+        java.util.Map<UUID, com.vulnaudit.entity.Asset> assetBriefs = assetIds.isEmpty() ? java.util.Map.of()
+                : assetRepository.findAssetBriefsIncludingDeleted(assetIds).stream()
+                        .collect(java.util.stream.Collectors.toMap(
+                                com.vulnaudit.entity.Asset::getId,
+                                asset -> asset, (left, right) -> left));
+
+        java.util.Set<UUID> userIds = new java.util.HashSet<>();
+        rows.forEach(row -> {
+            if (row.getUserId() != null) {
+                userIds.add(row.getUserId());
+            }
+            if (row.getReviewedBy() != null) {
+                userIds.add(row.getReviewedBy());
+            }
+        });
+        java.util.Map<UUID, String> usernames = userRepository.findAllById(userIds).stream()
+                .filter(user -> user.getId() != null)
+                .collect(java.util.stream.Collectors.toMap(
+                        com.vulnaudit.entity.User::getId, com.vulnaudit.entity.User::getUsername));
+
+        java.util.List<com.vulnaudit.dto.ApprovalHistoryItem> items = new java.util.ArrayList<>(rows.size());
+        for (AssetAccess row : rows) {
+            com.vulnaudit.entity.Asset brief = assetBriefs.get(row.getAssetId());
+            items.add(new com.vulnaudit.dto.ApprovalHistoryItem(
+                    row.getId(),
+                    row.getAssetId(),
+                    brief == null ? null : brief.getCode(),
+                    brief == null ? null : brief.getName(),
+                    // assetDeleted：deleted_at 非空（原生 SQL 取到的第 4 列）
+                    brief != null && brief.getDeletedAt() != null,
+                    new com.vulnaudit.dto.ApprovalHistoryItem.ApprovalUserBrief(
+                            row.getUserId(), usernames.get(row.getUserId())),
+                    row.getStatus(),
+                    row.getCreatedAt(),
+                    row.getReviewedAt(),
+                    new com.vulnaudit.dto.ApprovalHistoryItem.ApprovalUserBrief(
+                            row.getReviewedBy(), usernames.get(row.getReviewedBy())),
+                    row.getReviewNote(),
+                    new com.vulnaudit.dto.ApprovalHistoryItem.AccessScope(
+                            Boolean.TRUE.equals(row.getCanViewDocuments()),
+                            Boolean.TRUE.equals(row.getCanViewEnvironments()),
+                            Boolean.TRUE.equals(row.getCanViewFiles()),
+                            row.getAllowedFileTypes())));
+        }
+        return items;
+    }
 }

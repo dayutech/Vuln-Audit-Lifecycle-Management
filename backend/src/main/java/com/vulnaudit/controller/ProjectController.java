@@ -205,4 +205,60 @@ public class ProjectController {
         return ResponseEntity.ok(ApiResponse.success(
                 assetProjectLinkService.listAssetsByProject(projectId, phaseId, page, size, visible)));
     }
+
+    // ------------------------------------------------------------------ 项目侧批量添加/移除资产（t154）
+
+    @PostMapping("/{projectId}/assets")
+    @Operation(summary = "批量添加资产到项目（t154）",
+            description = "assetIds 1–100；**不整体失败**：不存在/已软删/无权限的资产记入 failed，"
+                    + "已挂靠同项目同期次计入 skipped；新挂靠自动打「客户名+项目名」标签；返回 {added,skipped,failed[]}")
+    public ResponseEntity<ApiResponse<com.vulnaudit.dto.ProjectBulkAddResult>> bulkAddAssets(
+            @PathVariable UUID projectId,
+            @jakarta.validation.Valid @RequestBody com.vulnaudit.dto.ProjectBulkAssetsRequest request,
+            org.springframework.security.core.Authentication authentication) {
+
+        log.info("项目批量添加资产: projectId={}, assetIds={}, phaseId={}, linkType={}",
+                projectId, request.assetIds() == null ? 0 : request.assetIds().size(),
+                request.phaseId(), request.linkType());
+        com.vulnaudit.dto.ProjectBulkAddResult result = assetProjectLinkService.bulkAddAssets(
+                projectId, request, currentUserId(), accessGuard.isManager(authentication),
+                accessGuard.visibleAssetIds(authentication));
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    @DeleteMapping("/{projectId}/assets")
+    @Operation(summary = "批量移除项目下的资产（t154）",
+            description = "assetIds 1–100；移除该项目下这些资产的**全部**挂靠（含各期次）；"
+                    + "任一资产移除后不再挂靠任何项目 → 409 且**整体不执行**；返回 {removed}")
+    public ResponseEntity<ApiResponse<com.vulnaudit.dto.ProjectBulkRemoveResult>> bulkRemoveAssets(
+            @PathVariable UUID projectId,
+            @jakarta.validation.Valid @RequestBody com.vulnaudit.dto.ProjectBulkRemoveRequest request,
+            org.springframework.security.core.Authentication authentication) {
+
+        log.info("项目批量移除资产: projectId={}, assetIds={}", projectId,
+                request.assetIds() == null ? 0 : request.assetIds().size());
+        com.vulnaudit.dto.ProjectBulkRemoveResult result = assetProjectLinkService.bulkRemoveAssets(
+                projectId, request, currentUserId(), accessGuard.isManager(authentication),
+                accessGuard.visibleAssetIds(authentication));
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    @GetMapping("/{projectId}/available-assets")
+    @Operation(summary = "可选资产列表（添加资产选择器，t154）",
+            description = "返回**未挂靠本项目**且调用者可见的资产（分页），含 code/name/targetType/status/linkCount")
+    public ResponseEntity<ApiResponse<PageResponse<com.vulnaudit.dto.AvailableAssetItem>>> availableAssets(
+            @PathVariable UUID projectId,
+            @Parameter(description = "关键字（名称/编号模糊）") @RequestParam(required = false) String keyword,
+            @Parameter(description = "页码（从0开始）") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "每页大小（≤100）") @RequestParam(defaultValue = "20") int size,
+            org.springframework.security.core.Authentication authentication) {
+
+        return ResponseEntity.ok(ApiResponse.success(assetProjectLinkService.availableAssets(
+                projectId, keyword, page, size, accessGuard.visibleAssetIds(authentication))));
+    }
+
+    /** 当前登录用户 id（写审计/自动标签用；未登录返回 null，由服务层按「无操作者」处理） */
+    private UUID currentUserId() {
+        return currentUserProvider.currentUserId().orElse(null);
+    }
 }

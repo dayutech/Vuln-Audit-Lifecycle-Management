@@ -702,6 +702,57 @@ public class AssetController {
     }
 
     /**
+     * 我的审批历史（t156）：替换前端 localStorage 兜底
+     */
+    @GetMapping("/my/access-approval-history")
+    @Operation(summary = "我的审批历史（已通过/已拒绝）",
+            description = "只含已处理记录（pending 不在此列）。默认 `as=reviewer`（我审批过的）；"
+                    + "`as=requester` 表示我申请且已被处理的。status=approved|rejected|all（默认 all，非法 400）；"
+                    + "默认按 reviewedAt 倒序；资产已软删时记录仍可见并标注 assetDeleted=true")
+    public ResponseEntity<ApiResponse<PageResponse<com.vulnaudit.dto.ApprovalHistoryItem>>> getMyAccessApprovalHistory(
+            @Parameter(description = "视角：reviewer（默认，我审批过的）/ requester（我申请的）")
+            @RequestParam(defaultValue = "reviewer") String as,
+            @Parameter(description = "状态：approved / rejected / all（默认 all）")
+            @RequestParam(required = false) String status,
+            @Parameter(description = "页码") @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "每页大小（≤100）") @RequestParam(defaultValue = "20") int size,
+            @Parameter(description = "资产ID") @RequestParam(required = false) UUID assetId,
+            @Parameter(description = "资产名称/编号模糊") @RequestParam(required = false) String keyword) {
+
+        UUID currentUserId = getCurrentUserId(SecurityContextHolder.getContext().getAuthentication());
+        boolean asReviewer = resolveHistoryAs(as);
+        log.info("查询审批历史: userId={}, asReviewer={}, status={}, assetId={}, keyword={}",
+                currentUserId, asReviewer, status, assetId, keyword);
+        return ResponseEntity.ok(ApiResponse.success(assetAccessService.findApprovalHistory(
+                currentUserId, asReviewer, status, assetId, keyword, page, size)));
+    }
+
+    /**
+     * 我的审批历史计数（t156）：给前端角标用，避免全量拉取
+     */
+    @GetMapping("/my/access-approval-history/count")
+    @Operation(summary = "我的审批历史计数", description = "返回 {approved, rejected}；`as` 语义同上")
+    public ResponseEntity<ApiResponse<com.vulnaudit.dto.ApprovalHistoryCount>> getMyAccessApprovalHistoryCount(
+            @Parameter(description = "视角：reviewer（默认）/ requester") @RequestParam(defaultValue = "reviewer") String as) {
+        UUID currentUserId = getCurrentUserId(SecurityContextHolder.getContext().getAuthentication());
+        return ResponseEntity.ok(ApiResponse.success(
+                assetAccessService.countApprovalHistory(currentUserId, resolveHistoryAs(as))));
+    }
+
+    /** as 参数白名单：reviewer（默认）/ requester，其他值 400 */
+    private boolean resolveHistoryAs(String as) {
+        if (as == null || as.isBlank() || "reviewer".equalsIgnoreCase(as.trim())) {
+            return true;
+        }
+        if ("requester".equalsIgnoreCase(as.trim())) {
+            return false;
+        }
+        throw new com.vulnaudit.exception.BusinessException(
+                com.vulnaudit.exception.ErrorCode.BAD_REQUEST,
+                "as 不合法: " + as + "（可选：reviewer/requester）");
+    }
+
+    /**
      * 获取我已获授权的资产
      */
     @GetMapping("/my/authorized-assets")
