@@ -391,3 +391,15 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 真机浏览器 B 15/15：批量添加 added=2、已挂靠资产不再出现在可选列表、移除唯一挂靠 409（消息含 AST 编号）且 3 行不变、**DELETE 体 {"assetIds":["<assetId UUID>"]}**、/assets/{id}/project-links 请求 0；文件表 版本/上传人 可排序并分别发出 sort=assetVersionId / sort=uploadedBy，上传人表头有「按账号排序」，交付物「版本」列 sortable=false。
 - 修复：admin 2FA 历史遗留开启导致部署后首轮 login 202 → 已复位 two_factor_enabled=false/totp_secret=NULL 并清恢复码。
 - 清理：临时开关全部移除并重启复核（无 devCode、锁定 429+900）；临时库 0、临时授权已回收；终态 customers=1 projects=1 assets=3 links=3、orphan=0、tag_definitions=3、files=4、deliverables=0、users=12、codes/requests/rm_tokens=0、2fa_on=0。
+########## 二十二、t163 收口四（V32/V33 + 上传审批 + 附件 + 整页化，前后端同批，2026-11-10 20:1x） ##########
+- 全量回归：mvn -B clean test 连续 2 次 → 1053 例 / Failures 0 / Errors 0 / Skipped 0（预估 1060+，实测 1053）。
+- 迁移双场景：V29–V33 五份 × 空库/克隆 × general_ci/unicode_ci × 各 2 遍 → 56 项断言全绿；生产库 V32/V33 各两遍 exit=0（两表 + 5 索引 + collation unicode_ci，16/13 列）。
+- nginx：client_max_body_size 200m、/api/ proxy_request_buffering off、超时 300s 均在；50MB 经 8089 上传 201 PENDING（未 413）。
+- 部署：后端 jar 73,535,828 B（重启 18s login=200）+ 前端 index-OTmOKSRW.js 2,938.10 kB / index-C9wuC1eN.css，sync-dist 5 文件，线上已引用新 chunk。
+- 冒烟：TOTAL=314 PASS=314 FAIL=0 SKIP=0（新增 12 条：上传审批 4 + 附件 6 + status 2）。
+- 上传审批真机 API 11/11：50MB→PENDING（不入 /tools、临时区有文件、审批列表可见）→ approve→APPROVED+落正式区 52,428,800B → reject→REJECTED+临时文件删除；压 max-bytes=1MB 后 2MB→413，恢复默认→DIRECT。
+- 附件真机：5MB PDF（中文名）上传→列表→下载 filename*=UTF-8 且回读 5,242,880B 一致；跨实体 404；非作者 403；删除后 404。
+- status 真机：all=16=DRAFT 11+PUBLISHED 5，PUBLISHED size=2 totalPages=3 且第 3 页有数据，非法 status 400。
+- 前端真机：/knowledge/new 与 /documents/new 整页（modal=0）；上传页「生成知识条目」→POST /knowledge→/knowledge/{id} 草稿；工具页 25MB→POST /uploads/pending；管理员审批页 PENDING 行可见且可拒绝；非管理员 403 且无菜单入口。
+- 发现记录（未改代码）：① PENDING 丢失 name/description（V32 无列）→ 批准后工具名回退文件名；② 工具页 PENDING toast/面板 3 次仅 1 次稳定观察到，localStorage 我的上传两次为空，需人工确认；③ PENDING 分支早退导致元数据行不即时刷新；④ 清理陈旧 backend/uploads 656 个历史文件。
+- 清理：临时开关与 APP_UPLOAD_MAX_BYTES 覆盖全部移除并重启复核（无 devCode、锁定 429+900、2FA 开启用户 0）；临时库 0、临时授权回收；uploads/pending 与 approved 清空；终态 customers=1 projects=1 assets=3 links=3、orphan=0、tag_definitions=3、users=12、codes/requests/rm_tokens=0。

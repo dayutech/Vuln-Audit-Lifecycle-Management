@@ -2338,6 +2338,73 @@ fi
   request GET '/api/v1/assets/my/access-approval-history?as=reviewer' ""
   judge "approval/未登录-401" 401 '' "只读端点仍需登录"
 
+  # ---- 上传审批（t160）----
+  printf 'small tool\n' > /tmp/smk_tool_small.txt
+  api_upload_tool() {
+    local extra="$1"
+    request POST "/api/v1/uploads/pending?targetType=TOOL&name=smk_review_${TAG}${extra}" "$ADMIN_TOKEN"
+  }
+  # 小文件 → DIRECT 落业务表
+  DIR_ST=$(curl -s -o /tmp/smk_up.json -w '%{http_code}' -X POST "$BASE_URL/api/v1/uploads/pending?targetType=TOOL&name=smk_direct_${TAG}" \
+    -H "Authorization: Bearer $ADMIN_TOKEN" -F 'file=@/tmp/smk_tool_small.txt')
+  DIR_STATUS=$(python3 -c "import json;d=json.load(open('/tmp/smk_up.json'));print((d.get('data') or {}).get('status',''))" 2>/dev/null)
+  if [ "$DIR_ST" = "200" ] || [ "$DIR_ST" = "201" ]; then
+    pass "upload/小文件直接落库(${DIR_STATUS:-DIRECT})" "$DIR_ST" "≤阈值 → DIRECT"
+  else
+    fail "upload/小文件直接落库(${DIR_STATUS:-DIRECT})" "$DIR_ST" "期望 200/201"
+  fi
+
+  request GET '/api/v1/admin/upload-approvals?status=PENDING&page=0&size=10' "$ADMIN_TOKEN"
+  judge "upload/管理员审批列表-200" 200 '"content"' "GET /admin/upload-approvals"
+  request GET '/api/v1/admin/upload-approvals?status=PENDING&page=0&size=10' "$ENGINEER_TOKEN"
+  judge "upload/非管理员审批列表-403" 403 '' "仅 ADMIN"
+
+  # ---- 知识库/文档附件（t162）----
+  api_json POST '/api/v1/knowledge' "$ADMIN_TOKEN" \
+    "{\"title\":\"冒烟附件文章 ${TAG}\",\"category\":\"技术\",\"summary\":\"冒烟\",\"content\":\"冒烟内容\"}"
+  KNOWLEDGE_ID="$(jfirst id)"
+  if [ -n "${KNOWLEDGE_ID:-}" ]; then
+    printf 'PDF-ish payload %s\n' "$TAG" > /tmp/smk_attach.pdf
+    ATT_ST=$(curl -s -o /tmp/smk_att.json -w '%{http_code}' -X POST "$BASE_URL/api/v1/knowledge/${KNOWLEDGE_ID}/attachments" \
+      -H "Authorization: Bearer $ADMIN_TOKEN" -F 'file=@/tmp/smk_attach.pdf;filename=冒烟附件.pdf')
+    ATT_ID=$(python3 -c "import json;d=json.load(open('/tmp/smk_att.json'));print((d.get('data') or {}).get('id',''))" 2>/dev/null)
+    [ "$ATT_ST" = "200" ] || [ "$ATT_ST" = "201" ] && [ -n "$ATT_ID" ] && pass "attach/知识库上传-200" "$ATT_ST" "id=${ATT_ID}" || fail "attach/知识库上传-200" "$ATT_ST" "期望 200/201"
+    if [ -n "${ATT_ID:-}" ]; then
+      request GET "/api/v1/knowledge/${KNOWLEDGE_ID}/attachments" "$ADMIN_TOKEN"
+      judge "attach/列表含上传件" 200 '冒烟附件.pdf' "GET /knowledge/{id}/attachments"
+      DL_H=$(curl -s -D - -o /dev/null "$BASE_URL/api/v1/knowledge/${KNOWLEDGE_ID}/attachments/${ATT_ID}/download" -H "Authorization: Bearer $ADMIN_TOKEN")
+      printf '%s' "$DL_H" | grep -qi 'filename\*=UTF-8' && pass "attach/下载带 RFC5987 中文名" "200" "$(printf '%s' "$DL_H" | grep -i 'content-disposition' | head -1 | tr -d '\r')" || fail "attach/下载带 RFC5987 中文名" "-" "缺少 filename*"
+      # 跨实体 404（用另一个知识库 id 或文档侧）
+      OTHER_ST=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/documents/${KNOWLEDGE_ID}/attachments/${ATT_ID}/download" -H "Authorization: Bearer $ADMIN_TOKEN")
+      [ "$OTHER_ST" = "404" ] && pass "attach/跨实体下载-404" 404 "ownerType 隔离" || fail "attach/跨实体下载-404" "$OTHER_ST" "期望 404"
+      request DELETE "/api/v1/knowledge/${KNOWLEDGE_ID}/attachments/${ATT_ID}" "$ADMIN_TOKEN"
+      judge "attach/删除-200" 200 '' "软删 + 删物理文件"
+      AFTER_ST=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/api/v1/knowledge/${KNOWLEDGE_ID}/attachments/${ATT_ID}/download" -H "Authorization: Bearer $ADMIN_TOKEN")
+      [ "$AFTER_ST" = "404" ] && pass "attach/删除后下载-404" 404 '' || fail "attach/删除后下载-404" "$AFTER_ST" "期望 404"
+    else
+      skip "attach/列表含上传件" "-" "附件 id 缺失"
+      skip "attach/下载带 RFC5987 中文名" "-" "依赖上一条"
+      skip "attach/跨实体下载-404" "-" "依赖上一条"
+      skip "attach/删除-200" "-" "依赖上一条"
+      skip "attach/删除后下载-404" "-" "依赖上一条"
+    fi
+  else
+    skip "attach/知识库上传-200" "-" "缺少知识库夹具"
+    skip "attach/列表含上传件" "-" "缺少知识库夹具"
+    skip "attach/下载带 RFC5987 中文名" "-" "缺少知识库夹具"
+    skip "attach/跨实体下载-404" "-" "缺少知识库夹具"
+    skip "attach/删除-200" "-" "缺少知识库夹具"
+    skip "attach/删除后下载-404" "-" "缺少知识库夹具"
+  fi
+
+  # ---- 列表 status 过滤（t162）----
+  request GET '/api/v1/knowledge?status=DRAFT&page=0&size=2' "$ADMIN_TOKEN"
+  judge "knowledge/status=DRAFT-200" 200 '"totalElements"' "数据库过滤"
+  request GET '/api/v1/knowledge?status=bogus' "$ADMIN_TOKEN"
+  judge "knowledge/非法status-400" 400 '' "白名单"
+  request GET '/api/v1/documents?status=PUBLISHED&page=0&size=2' "$ADMIN_TOKEN"
+  judge "documents/status=PUBLISHED-200" 200 '"totalElements"' "数据库过滤"
+
   printf '\n==== 冒烟汇总 ====\n'
 printf 'TOTAL=%d  PASS=%d  FAIL=%d  SKIP=%d\n' "$TOTAL" "$PASSED" "$FAILED" "$SKIPPED"
 if [ "$FAILED" -gt 0 ]; then

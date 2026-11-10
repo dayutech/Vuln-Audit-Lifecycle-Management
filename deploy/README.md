@@ -4809,3 +4809,54 @@ cd backend && mvn -B test -Dtest=DocumentAttachmentTest   # 15/15
 2. 删除是「软删 DB + 立即删物理文件」；若删除文件失败只 WARN（DB 已标删），需靠运维巡检清理孤儿文件。
 3. 历史 base64 正文块不迁移（保持可读）；新能力只走附件端点。
 4. 单附件 50MB 是应用层限制；nginx 的 `client_max_body_size` 需同步放大，否则 413 会先被网关拦下。
+---
+
+## 69. 第四十五轮（t163 收口四：V32/V33 + 上传审批 + 知识库/文档附件 + 整页化，前后端同批）
+
+时间：2026-11-10 18:42–20:1x。
+
+| 项 | 结果 |
+|---|---|
+| 全量回归 | `mvn -B clean test` **连续 2 次全绿：1053 例 / 0 / 0 / 0**（任务预估 1060+，实测 1053 —— 预估偏差，非缺陷） |
+| 迁移双场景 | **V29–V33 五份一起** × 空库/生产克隆 × `general_ci`/`unicode_ci` × 各 2 遍 → **56 项断言全绿**；生产库 V32/V33 各执行两遍 `exit=0`：两表就位、**5 个新索引**、表 collation `utf8mb4_unicode_ci`、`upload_approval_requests` 16 列 / `document_attachments` 13 列 |
+| nginx | `client_max_body_size 200m`、`/api/` 内 `proxy_request_buffering off`、`client_body_timeout/proxy_*_timeout 300s` 均在；**50MB 经 8089 上传成功（201 PENDING，未被网关 413）** |
+| 部署 | 后端 jar **73,535,828 B**（旧 jar 备份），重启 18s 内 login=200；前端清 `.tmp` 后构建 **`index-OTmOKSRW.js` 2,938.10 kB / `index-C9wuC1eN.css` 30.80 kB**，`sync-dist` 5 文件，线上已引用新 chunk |
+| 冒烟 | **314 / 314 PASS，0 FAIL，0 SKIP**（新增 12 条：上传审批 4 + 附件 6 + status 2… 合计 12） |
+
+### 69.1 上传审批真机验收（API 11/11）
+
+| 断言 | 证据 |
+|---|---|
+| 50MB 经 nginx → PENDING | `201 {requestId, status:PENDING, fileSize:52428800}`；pending 目录 0→1 |
+| PENDING 不进业务列表 | `GET /tools?keyword=…` 未命中；管理员列表 `GET /admin/upload-approvals?status=PENDING` 可见 |
+| 批准 → 记录出现 + 落正式区 | `approve` 200 → `APPROVED`；`GET /tools` 命中；正式区文件 **52,428,800 字节**完整；该工具 `filePath=approved/…` |
+| 拒绝 → 临时文件删除 | `reject` 200 → `REJECTED`；pending 目录 1→0；该名不在 `/tools` |
+| 超上限 → 413 | 把 `app.upload.max-bytes` 压到 1MB 后 2MB 上传 → **413**「文件超过上限 1048576 字节（当前 2097152）」；恢复默认后同一文件 → **201 DIRECT** |
+
+### 69.2 附件与 status 真机验收
+
+- 5MB PDF 上传（中文名 `渗透测试报告.pdf`）→ 列表可见 → 下载 `Content-Disposition` 同时给 ASCII 回退与 **`filename*=UTF-8''…`**，回读 **5,242,880 字节**完全一致。
+- 跨实体（用 `documents/{id}` 路径取知识库附件）→ **404**；非作者上传附件 → **403**；删除 → 200，随后下载 **404**。
+- **status 数据库过滤**：`all=16`、`DRAFT=11`、`PUBLISHED=5`（`11+5=16` 合计一致）；`status=PUBLISHED&size=2` → `totalPages=3`，第 3 页有数据（跨页正确）；非法 status → **400**。
+
+### 69.3 前端真机验收（真实 Edge + CDP）
+
+- `/knowledge/new`、`/documents/new` **整页**（`.ant-modal` = 0，编辑器控件就位）。
+- `/knowledge/upload`：选文件 → 标题自动带出（`t163-note2`）→ 选分类 → 点「**生成知识条目**」→ 发 `POST /api/v1/knowledge` → 跳到 `/knowledge/{id}`（草稿记录）。
+- 工具页：`上传工具` → 25MB 文件 → **`POST /api/v1/uploads/pending` 被发出**（大文件统一入口生效）。
+- 管理员 `/admin/upload-approvals`：PENDING 行可见（`共 1 条`）→ 拒绝成功，列表反映拒绝状态。
+- 非管理员：`/admin/upload-approvals` 显示无权限、侧栏**无「上传审批」入口**。
+
+### 69.4 本轮发现并记录的问题（未改代码，交由任务方决定）
+
+1. **PENDING 上传丢失业务名/描述**：`V32` 表没有 `name`/`description` 列，提交时的 `name` 在批准后没被采用 —— 批准生成的工具名回退为**文件名去扩展名**（实测传 `name=t163_big_<ts>`、文件名 `t163-big50.bin`，最终工具名 `t163-big50`）。要修需在 V32 加两列并在批准时回填。
+2. **工具页 PENDING 提示不稳定**：`POST /uploads/pending` 确实发出，但「文件已提交，等待管理员审核」toast 与持久面板在 3 次自动化里仅 1 次可稳定观察到，`localStorage.owl_my_uploads` 两次为空 → 需人工点一次确认（也可能是 CDP 设置文件的时序导致 `packageFile` 未进 antd fileList）。
+3. **工具元数据行不即时刷新**：PENDING 分支在 `catch/return` 与 `fetchData()` 之前返回，列表要手动刷新才出现新建的元数据行（小 UX 问题）。
+4. **回归总数 1053**：任务预估 1060+，实测 1053，属预估偏差（两轮一致）。
+5. 部署机存在**陈旧的 `backend/uploads` 目录**（656 个历史文件，非线上存储目录），已清理；线上存储为 `~/apps/vuln-audit/uploads/`（`WorkingDirectory` 决定）。
+
+### 69.5 清理
+
+- 临时开关（dev-mode / IP / 重置 / 锁定阈值）与 `APP_UPLOAD_MAX_BYTES` 覆盖全部移除并重启复核：**发码无 devCode**、锁定第 6 次 **429 + Retry-After 900**、**2FA 开启用户数 = 0**（t158 教训）。
+- 临时库 `vuln_audit_verify_*`/`vuln_audit_clone_*` 全 DROP，`vulnapp` 临时授权已 REVOKE；`uploads/pending`、`uploads/approved` 清空；`upload_approval_requests`、`document_attachments` 归零。
+- 数据终态：`customers=1 projects=1 phases=0 assets=3 links=3`、`orphan=0`、`tag_definitions=3`、`files=4`、`deliverables=0`、`users=12`、`codes/requests/rm_tokens=0`、`2fa_on=0`。

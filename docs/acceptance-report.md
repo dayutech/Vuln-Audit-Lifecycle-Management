@@ -2203,3 +2203,27 @@ Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试
 **验证**：`DocumentAttachmentTest` **15/15**（上传/列表/下载中文名/删除/跨实体 404/413/400/文件名净化/403/
 文档全链路/查询数无关/知识库 status 跨页 total=7/文档 status 与非法 400/V33 脚本守卫/401/ownerType 隔离/不存在 404）。
 前端替换点（删 `buildAttachmentBlock`/`downloadRecordFile`）见 README §71.5。
+
+### 2.41 t163 收口四：V32/V33、上传审批、知识库/文档附件、整页化（t159–t162）
+
+**全量回归**：`mvn -B clean test` 连续 2 次 → **1053 例 / 0 / 0 / 0**（预估 1060+，实测 1053，属预估偏差）。
+
+**迁移**：**V29–V33 五份一起** × 空库/生产克隆 × 两种默认 collation × 各 2 遍 → **56 项断言全绿**；生产库 V32/V33 各两遍 `exit=0`（两表、5 索引、`utf8mb4_unicode_ci`、16/13 列）。
+
+**部署**：后端 jar 73,535,828 B + 前端 `index-OTmOKSRW.js` 同批；50MB 经 nginx 8089 上传 **201 PENDING**（`client_max_body_size 200m` 与 `proxy_request_buffering off` 均在）。
+
+**冒烟**：314/314（新增上传审批 4、附件 6、status 2）。
+
+**真机验收**
+| 组 | 结果 |
+|---|---|
+| 上传审批 | API **11/11**：PENDING（不入列表）→ approve（可见 + 落正式区 50MB）→ reject（临时文件删除）；压 `max-bytes=1MB` → 2MB **413**，恢复后 DIRECT |
+| 附件 | 5MB 中文名 PDF：上传→列表→`filename*=UTF-8''…` → 回读字节一致；跨实体 404、非作者 403、删除后 404 |
+| status | `all=16 = DRAFT 11 + PUBLISHED 5`；`size=2` 时 `totalPages=3` 且第 3 页有数据；非法 400 |
+| 前端 | `/knowledge/new`、`/documents/new` 整页（modal=0）；上传页生成草稿并跳详情；工具页 25MB → `POST /uploads/pending`；管理员审批页可见 PENDING 且可拒绝；非管理员 403 + 无菜单 |
+
+**新发现（未改代码，交任务方决定）**
+1. **PENDING 上传丢失 `name`/`description`**：V32 表无这两列，批准后工具名回退为文件名去扩展名（实测 `t163_big_<ts>` → `t163-big50`）。修法：V32 加列 + 批准时回填。
+2. **工具页 PENDING 提示不稳定**：`POST /uploads/pending` 确实发出，但 toast/持久面板 3 次中仅 1 次稳定观测，`localStorage.owl_my_uploads` 两次为空 —— 需人工点一次确认（也可能是 CDP 设文件时序导致 antd fileList 未接住）。
+3. **元数据行不即时刷新**：PENDING 分支在 `fetchData()` 前早退，列表要刷新才见新工具行。
+4. 部署机 `backend/uploads` 为陈旧目录（656 个历史文件），已清理；线上存储为 `~/apps/vuln-audit/uploads/`。
