@@ -62,6 +62,11 @@ export const unpublishDocument = (id: string): Promise<any> => {
   return request.post(`/documents/${id}/unpublish`);
 };
 
+/** 文档版本历史（t159 详情页用）：GET /documents/{id}/versions */
+export const getDocumentVersions = (id: string): Promise<any> => {
+  return request.get(`/documents/${id}/versions`);
+};
+
 /* ==================== 文档标签（t66） ==================== */
 
 /**

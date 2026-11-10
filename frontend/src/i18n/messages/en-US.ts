@@ -1,6 +1,7 @@
 import type { MessageCatalog } from './zh-CN';
 import { assetEn } from './domains/assetMessages';
 import { approvalCenterEn } from './domains/approvalCenterMessages';
+import { knowledgeDocEn } from './domains/knowledgeDocMessages';
 import { vulnEn } from './domains/vulnMessages';
 import { projectEn } from './domains/projectMessages';
 import { appEn } from './domains/appMessages';
@@ -16,6 +17,7 @@ import { registrationReviewEn } from './domains/registrationReviewMessages';
 import { customerPageEn } from './domains/customerPageMessages';
 import { layoutEn } from './domains/layoutMessages';
 import { projectAssetEn } from './domains/projectAssetMessages';
+import { uploadEn } from './domains/uploadMessages';
 
 /**
  * English copy.
@@ -28,6 +30,7 @@ import { projectAssetEn } from './domains/projectAssetMessages';
 export const enUS: MessageCatalog = {
   ...assetEn,
   ...approvalCenterEn,
+  ...knowledgeDocEn,
   ...vulnEn,
   ...projectEn,
   ...appEn,
@@ -43,6 +46,7 @@ export const enUS: MessageCatalog = {
   ...customerPageEn,
   ...layoutEn,
   ...projectAssetEn,
+  ...uploadEn,
   /* ==================== common ==================== */
   'common.appName': 'Vulnerability Audit Lifecycle Management',
   'common.loading': 'Loading…',
@@ -99,6 +103,7 @@ export const enUS: MessageCatalog = {
   'menu.users': 'Users',
   'menu.roles': 'Roles & Permissions',
   'menu.auditLogs': 'Audit Logs',
+  'menu.uploadApprovals': 'Upload approvals',
   'menu.import': 'Data Import',
   'menu.notifications': 'Notifications',
   'header.userMenu': 'Account',
@@ -1055,6 +1060,9 @@ export const enUS: MessageCatalog = {
   'impersonation.expired': 'Impersonation ended (expired); your admin account was restored',
   'impersonation.needRelogin': 'The original admin credentials are gone — please sign in again',
 };
+
+
+
 
 
 

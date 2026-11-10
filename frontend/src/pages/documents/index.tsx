@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Table, Button, Space, Card, Input, Tag, Modal, Form, Select, message, Tabs, Drawer, Empty, Typography } from 'antd';
-import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
+import { Alert, Button, Card, Drawer, Empty, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
+import { CloudUploadOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import {
   getDocumentList,
-  createDocument,
-  updateDocument,
   deleteDocument,
   publishDocument,
   unpublishDocument,
@@ -13,7 +12,7 @@ import {
   removeDocumentTag,
   extractDocumentTags,
 } from '@/api/document';
-import type { DocumentVO, CreateDocumentRequest, UpdateDocumentRequest, DocumentTagVO } from '@/types/document';
+import type { DocumentVO, DocumentTagVO } from '@/types/document';
 import { formatDateTime } from '@/utils/datetime';
 import { useLocation } from 'react-router-dom';
 import { useT, type MessageKey } from '@/i18n';
@@ -21,7 +20,6 @@ import { useAccessProfile } from '@/hooks/useAccessProfile';
 import { canWriteDocumentTags, DOCUMENT_TAG_FORBIDDEN_MESSAGE, DOCUMENT_TAG_READONLY_HINT } from '@/utils/accessRoles';
 import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
 
-const { Option } = Select;
 
 const statusColors: Record<string, string> = {
   draft: 'default',
@@ -35,86 +33,11 @@ const STATUS_LABEL_KEYS: Record<string, MessageKey> = {
   archived: 'documents.status.archived'
 };
 
-const containsHtmlTag = (content: string) => /<\/?[a-z][\s\S]*>/i.test(content);
-const escapeHtml = (content: string) =>
-  content
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 
-const renderInlineMarkdown = (text: string) =>
-  escapeHtml(text)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-
-const renderMarkdownToHtml = (markdown: string) => {
-  const codeBlocks: string[] = [];
-  const placeholderMarkdown = markdown.replace(/```([\s\S]*?)```/g, (_, block: string) => {
-    const index = codeBlocks.push(block) - 1;
-    return `@@CODE_BLOCK_${index}@@`;
-  });
-  const lines = placeholderMarkdown.replace(/\r\n/g, '\n').split('\n');
-  const htmlParts: string[] = [];
-  let listItems: string[] = [];
-  const flushList = () => {
-    if (listItems.length > 0) {
-      htmlParts.push(`<ul>${listItems.map((item) => `<li>${item}</li>`).join('')}</ul>`);
-      listItems = [];
-    }
-  };
-
-  lines.forEach((raw) => {
-    const line = raw.trimEnd();
-    if (line.startsWith('- ')) {
-      listItems.push(renderInlineMarkdown(line.slice(2).trim()));
-      return;
-    }
-    flushList();
-    if (!line.trim()) {
-      htmlParts.push('<div><br/></div>');
-      return;
-    }
-    if (line.startsWith('### ')) {
-      htmlParts.push(`<h3>${renderInlineMarkdown(line.slice(4).trim())}</h3>`);
-      return;
-    }
-    if (line.startsWith('## ')) {
-      htmlParts.push(`<h2>${renderInlineMarkdown(line.slice(3).trim())}</h2>`);
-      return;
-    }
-    if (line.startsWith('# ')) {
-      htmlParts.push(`<h1>${renderInlineMarkdown(line.slice(2).trim())}</h1>`);
-      return;
-    }
-    htmlParts.push(`<p>${renderInlineMarkdown(line.trim())}</p>`);
-  });
-  flushList();
-
-  let html = htmlParts.join('');
-  codeBlocks.forEach((block, index) => {
-    const codeHtml = `<pre style="padding:12px;background:#f6f8fa;border-radius:6px;overflow:auto;"><code>${escapeHtml(block.trim())}</code></pre>`;
-    html = html.replace(`@@CODE_BLOCK_${index}@@`, codeHtml);
-  });
-  return html;
-};
-
-const renderRichContent = (content: string, emptyText: string) => {
-  const normalized = (content || '').trim();
-  if (!normalized) {
-    return `<p>${emptyText}</p>`;
-  }
-  if (containsHtmlTag(normalized)) {
-    return normalized;
-  }
-  return renderMarkdownToHtml(normalized);
-};
 
 const Documents: React.FC = () => {
   const { t } = useT();
+  const navigate = useNavigate();
   const location = useLocation();
   const tableWrapRef = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<DocumentVO[]>([]);
@@ -122,13 +45,10 @@ const Documents: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [params, setParams] = useState({ page: 1, page_size: 10, search: '' });
   const [searchText, setSearchText] = useState('');
+  /** t159：状态筛选（草稿/已发布） */
+  const [statusFilter, setStatusFilter] = useState('');
 
   // Modal states
-  const [isModalVisible, setIsModalVisible] = useState(false);
-  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
-  const [currentDoc, setCurrentDoc] = useState<DocumentVO | null>(null);
-  const [form] = Form.useForm();
-  const [editorContent, setEditorContent] = useState('');
 
   // ===== 文档标签（t66）：后端 t61 起仅作者本人或管理层可写 =====
   const { profile: accessProfile, loaded: accessLoaded } = useAccessProfile();
@@ -272,25 +192,13 @@ const Documents: React.FC = () => {
     row?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, [data, normalizedSearch]);
 
+  // t159（需求 14）：新建 / 编辑改为整页，不再弹框
   const handleCreate = () => {
-    setModalMode('create');
-    form.resetFields();
-    setEditorContent('');
-    setCurrentDoc(null);
-    setIsModalVisible(true);
+    navigate('/documents/new');
   };
 
   const handleEdit = (record: DocumentVO) => {
-    setModalMode('edit');
-    setCurrentDoc(record);
-    form.setFieldsValue({
-      title: record.title,
-      category: record.category,
-      summary: record.summary,
-      changelog: '', // for new version
-    });
-    setEditorContent(record.content || '');
-    setIsModalVisible(true);
+    navigate(`/documents/${record.id}/edit`);
   };
 
   const handleDelete = (id: string) => {
@@ -324,30 +232,6 @@ const Documents: React.FC = () => {
     }
   };
 
-  const handleModalOk = async () => {
-    try {
-      const values = await form.validateFields();
-      if (!editorContent.trim()) {
-        message.warning(t('feedback.document.bodyRequired'));
-        return;
-      }
-      const payload = { ...values, content: editorContent };
-      
-      if (modalMode === 'create') {
-        await createDocument(payload as CreateDocumentRequest);
-        message.success(t('feedback.document.created'));
-      } else {
-        if (currentDoc) {
-          await updateDocument(currentDoc.id, payload as UpdateDocumentRequest);
-          message.success(t('feedback.document.updatedNewVersion'));
-        }
-      }
-      setIsModalVisible(false);
-      fetchData();
-    } catch (error) {
-      // Form validation error or API error
-    }
-  };
 
   const columns = [
     { title: t('documents.colTitle'), dataIndex: 'title', key: 'title' },
@@ -371,6 +255,7 @@ const Documents: React.FC = () => {
       key: 'action',
       render: (_: any, record: DocumentVO) => (
         <Space size="middle">
+          <a onClick={() => navigate(`/documents/${record.id}`)}>{t('documents.actionDetail')}</a>
           <a onClick={() => handleEdit(record)}>{t('documents.actionEdit')}</a>
           <a onClick={() => openTags(record)}>{t('documents.tags.action')}</a>
           <a onClick={() => handlePublishToggle(record)}>
@@ -383,7 +268,19 @@ const Documents: React.FC = () => {
   ];
 
   return (
-    <Card title={t('documents.title')} extra={<Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('documents.create')}</Button>}>
+    <Card
+      title={t('documents.title')}
+      extra={
+        <Space>
+          <Button icon={<CloudUploadOutlined />} onClick={() => navigate('/documents/upload')} data-testid="document-upload-open">
+            {t('documents.upload.open')}
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} data-testid="document-create">
+            {t('documents.create')}
+          </Button>
+        </Space>
+      }
+    >
       <div style={{ marginBottom: 16 }}>
         <Input 
           placeholder={t('documents.searchPlaceholder')} 
@@ -393,11 +290,24 @@ const Documents: React.FC = () => {
           onChange={(e) => setSearchText(e.target.value)}
           onPressEnter={() => setParams((prev) => ({ ...prev, search: searchText.trim(), page: 1 }))}
         />
+        {/* t159（需求 4）：状态筛选，草稿/已发布一眼可辨 */}
+        <Select
+          allowClear
+          placeholder={t('documents.filterStatus')}
+          style={{ width: 160, marginLeft: 12 }}
+          value={statusFilter || undefined}
+          onChange={(value) => setStatusFilter(value ?? '')}
+          data-testid="document-filter-status"
+          options={[
+            { value: 'draft', label: t('documents.status.draft') },
+            { value: 'published', label: t('documents.status.published') },
+          ]}
+        />
       </div>
       <div ref={tableWrapRef}>
         <Table 
           columns={columns} 
-          dataSource={data} 
+          dataSource={statusFilter ? data.filter((item) => item.status === statusFilter) : data}
           rowKey="id"
           loading={loading}
           onRow={(record) => (
@@ -414,65 +324,6 @@ const Documents: React.FC = () => {
         />
       </div>
 
-      <Modal
-        title={modalMode === 'create' ? t('documents.modalCreate') : t('documents.modalEdit')}
-        open={isModalVisible}
-        onOk={handleModalOk}
-        onCancel={() => setIsModalVisible(false)}
-        destroyOnClose
-        width={1000}
-      >
-        <Form form={form} layout="vertical">
-          <Form.Item name="title" label={t('documents.form.title')} rules={[{ required: true, message: t('documents.form.titleRequired') }]}>
-            <Input />
-          </Form.Item>
-          <Form.Item name="category" label={t('documents.form.category')} rules={[{ required: true, message: t('documents.form.categoryRequired') }]}>
-            <Select disabled={modalMode === 'edit'}>
-              <Option value="guide">{t('documents.form.categoryGuide')}</Option>
-              <Option value="report">{t('documents.form.categoryReport')}</Option>
-              <Option value="policy">{t('documents.form.categoryPolicy')}</Option>
-              <Option value="other">{t('documents.form.categoryOther')}</Option>
-            </Select>
-          </Form.Item>
-          <Form.Item name="summary" label={t('documents.form.summary')}>
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          {modalMode === 'edit' && (
-            <Form.Item name="changelog" label={t('documents.form.changelog')} rules={[{ required: true, message: t('documents.form.changelogRequired') }]}>
-              <Input.TextArea rows={2} placeholder={t('documents.form.changelogPlaceholder')} />
-            </Form.Item>
-          )}
-          <Form.Item label={t('documents.form.content')} required>
-            <Tabs
-              defaultActiveKey="edit"
-              items={[
-                {
-                  key: 'edit',
-                  label: t('documents.tabWrite'),
-                  children: (
-                    <Input.TextArea
-                      rows={14}
-                      value={editorContent}
-                      onChange={(e) => setEditorContent(e.target.value)}
-                      placeholder={t('documents.editorPlaceholder')}
-                    />
-                  ),
-                },
-                {
-                  key: 'preview',
-                  label: t('documents.tabPreview'),
-                  children: (
-                    <div
-                      style={{ minHeight: 320, border: '1px solid #f0f0f0', borderRadius: 6, padding: 12, background: '#fafafa' }}
-                      dangerouslySetInnerHTML={{ __html: renderRichContent(editorContent, t('documents.emptyContent')) }}
-                    />
-                  ),
-                },
-              ]}
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
       {/* 文档标签（t66） */}
       <Drawer
         title={t('documents.tags.title', { title: tagDoc?.title ?? '' })}
@@ -519,3 +370,10 @@ const Documents: React.FC = () => {
 };
 
 export default Documents;
+
+
+
+
+
+
+

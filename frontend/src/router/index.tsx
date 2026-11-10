@@ -13,9 +13,15 @@ import Teams from '@/pages/teams/index';
 import Roles from '@/pages/roles/index';
 import Users from '@/pages/users/index';
 import Documents from '@/pages/documents/index';
+import DocumentEditorPage from '@/pages/documents/DocumentEditorPage';
+import DocumentDetailPage from '@/pages/documents/DocumentDetailPage';
+import DocumentUploadPage from '@/pages/documents/DocumentUploadPage';
 import Tools from '@/pages/tools/index';
 import Notifications from '@/pages/notifications/index';
 import Knowledge from '@/pages/knowledge/index';
+import KnowledgeEditorPage from '@/pages/knowledge/KnowledgeEditorPage';
+import KnowledgeDetailPage from '@/pages/knowledge/KnowledgeDetailPage';
+import KnowledgeUploadPage from '@/pages/knowledge/KnowledgeUploadPage';
 import Tasks from '@/pages/tasks/index';
 import Approvals from '@/pages/approvals/index';
 import ApprovalScopes from '@/pages/approval-scopes/index';
@@ -27,6 +33,7 @@ import Projects from '@/pages/projects/index';
 import ProjectFormPage from '@/pages/projects/ProjectForm';
 import ProjectDetail from '@/pages/projects/Detail';
 import Settings from '@/pages/settings/index';
+import UploadApprovals from '@/pages/admin/UploadApprovals';
 import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
 import SsoCallback from '@/pages/SsoCallback';
@@ -156,6 +163,11 @@ const router = createBrowserRouter([
         path: '/documents',
         element: <Documents />,
       },
+      // t159（需求 14）：规范文档的整页新建 / 编辑 / 详情 / 上传
+      { path: '/documents/new', element: <DocumentEditorPage /> },
+      { path: '/documents/upload', element: <DocumentUploadPage /> },
+      { path: '/documents/:id/edit', element: <DocumentEditorPage /> },
+      { path: '/documents/:id', element: <DocumentDetailPage /> },
       {
         path: '/tools',
         element: <Tools />,
@@ -164,6 +176,11 @@ const router = createBrowserRouter([
         path: '/knowledge',
         element: <Knowledge />,
       },
+      // t159（需求 13/15）：知识库的整页新建 / 编辑 / 详情 / 上传（原弹框已移除）
+      { path: '/knowledge/new', element: <KnowledgeEditorPage /> },
+      { path: '/knowledge/upload', element: <KnowledgeUploadPage /> },
+      { path: '/knowledge/:id/edit', element: <KnowledgeEditorPage /> },
+      { path: '/knowledge/:id', element: <KnowledgeDetailPage /> },
       {
         path: '/teams',
         element: <Teams />,
@@ -213,6 +230,11 @@ const router = createBrowserRouter([
         element: <TagsAdmin />,
       },
       {
+        // t161：大文件上传审批（仅 ADMIN；页面内再判一次，非管理员显示 403 提示）
+        path: '/admin/upload-approvals',
+        element: <UploadApprovals />,
+      },
+      {
         // t106：账号设置 - 社交账号绑定（登录用户都可访问，只操作自己）
         path: '/account/sso-bindings',
         element: <SsoBindings />,
@@ -235,6 +257,8 @@ const router = createBrowserRouter([
 ]);
 
 export default router;
+
+
 
 
 

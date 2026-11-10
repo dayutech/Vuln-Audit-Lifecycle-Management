@@ -21,10 +21,12 @@ import { twoFactorZh } from './domains/twoFactorMessages';
 import { tagZh } from './domains/tagMessages';
 import { assetFileZh } from './domains/assetFileMessages';
 import { approvalCenterZh } from './domains/approvalCenterMessages';
+import { knowledgeDocZh } from './domains/knowledgeDocMessages';
 import { registrationReviewZh } from './domains/registrationReviewMessages';
 import { customerPageZh } from './domains/customerPageMessages';
 import { layoutZh } from './domains/layoutMessages';
 import { projectAssetZh } from './domains/projectAssetMessages';
+import { uploadZh } from './domains/uploadMessages';
 
 export const zhCN = {
   ...assetZh,
@@ -40,10 +42,12 @@ export const zhCN = {
   ...tagZh,
   ...assetFileZh,
   ...approvalCenterZh,
+  ...knowledgeDocZh,
   ...registrationReviewZh,
   ...customerPageZh,
   ...layoutZh,
   ...projectAssetZh,
+  ...uploadZh,
   /* ==================== 通用 ==================== */
   'common.appName': '漏洞审计生命周期管理系统',
   'common.loading': '加载中…',
@@ -100,6 +104,7 @@ export const zhCN = {
   'menu.users': '账号管理',
   'menu.roles': '角色与权限',
   'menu.auditLogs': '审计日志',
+  'menu.uploadApprovals': '上传审批',
   'menu.import': '数据导入',
   'menu.notifications': '系统消息',
   'header.userMenu': '账号',
@@ -1064,6 +1069,9 @@ export const zhCN = {
 
 export type MessageKey = keyof typeof zhCN;
 export type MessageCatalog = Record<MessageKey, string>;
+
+
+
 
 
 

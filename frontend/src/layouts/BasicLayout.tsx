@@ -204,6 +204,8 @@ const BasicLayout: React.FC = () => {
         ...(isAdmin ? [{ key: '/settings', icon: <ControlOutlined />, label: t('menu.settings') }] : []),
         // 标签定义管理（t143）：仅管理员（后端 /admin/tag-definitions 只放行 ADMIN）
         ...(isAdmin ? [{ key: '/admin/tags', icon: <TagsOutlined />, label: t('menu.tags') }] : []),
+        // 大文件上传审批（t161）：仅管理员（后端 /admin/upload-approvals 只放行 ADMIN）
+        ...(isAdmin ? [{ key: '/admin/upload-approvals', icon: <CloudUploadOutlined />, label: t('menu.uploadApprovals') }] : []),
         // 注册审批（t114）：仅管理层（admin / project_leader，与后端 hasAnyRole 一致）+ 待审批角标
         ...(managerEligible === false
           ? []

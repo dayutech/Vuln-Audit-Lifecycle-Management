@@ -20,6 +20,7 @@ import {
 import {
   CloudDownloadOutlined,
   DownloadOutlined,
+  InboxOutlined,
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -39,7 +40,6 @@ import {
   getToolTags,
   getToolVersions,
   removeToolTag,
-  uploadToolPackage,
   uploadToolVersion,
 } from '@/api/tool';
 import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
@@ -48,6 +48,9 @@ import { canManageTools, canDeleteTool, TOOL_TAG_FORBIDDEN_MESSAGE, TOOL_TAG_REA
 import type { ToolVO, ToolVersionVO } from '@/types/tool';
 import { formatDateTime } from '@/utils/datetime';
 import { saveBlobAsFile } from '@/utils/download';
+import MyUploadsModal from '@/components/upload/MyUploadsModal';
+import { extractSubmitUpload, submitPendingUpload } from '@/api/upload';
+import { rememberMyUpload } from '@/utils/myUploads';
 import { getApiErrorMessage, getApiErrorStatus, getBlobErrorMessage } from '@/utils/errorMessage';
 import { useT, type MessageKey } from '@/i18n';
 
@@ -103,6 +106,9 @@ const Tools: React.FC = () => {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [createForm] = Form.useForm();
   const [packageFile, setPackageFile] = useState<File | null>(null);
+  /** t161：我的上传（待审批状态）面板 + PENDING 提示 */
+  const [myUploadsOpen, setMyUploadsOpen] = useState(false);
+  const [pendingNotice, setPendingNotice] = useState<{ fileName: string; purgeAfter?: string | null } | null>(null);
   const [creating, setCreating] = useState(false);
 
   // 版本
@@ -198,11 +204,40 @@ const Tools: React.FC = () => {
       });
       const toolId = created?.data?.id ?? created?.id;
       if (packageFile && toolId) {
+        // t161：大文件统一走 /uploads/pending —— 超门限时后端只写临时区、业务表没有记录，
+        // 因此 PENDING 分支**绝不**把工具塞进列表，只提示「等待审核」。
         try {
-          await uploadToolPackage(toolId, packageFile, packageFile.name);
-          message.success(t('feedback.tool.createdWithPackage'));
-        } catch {
-          message.warning(t('feedback.tool.packageUploadFailed'));
+          const res = await submitPendingUpload({
+            file: packageFile,
+            fileName: packageFile.name,
+            targetType: 'TOOL',
+            name: values.name,
+            description: values.description,
+          });
+          const result = extractSubmitUpload(res);
+          if (result.status === 'PENDING' && result.requestId) {
+            rememberMyUpload({
+              requestId: result.requestId,
+              fileName: result.fileName || packageFile.name,
+              fileSize: result.fileSize ?? packageFile.size,
+              targetType: result.targetType || 'TOOL',
+              requestedAt: new Date().toISOString(),
+              purgeAfter: result.purgeAfter ?? null,
+            });
+            setPendingNotice({ fileName: result.fileName || packageFile.name, purgeAfter: result.purgeAfter ?? null });
+            message.info(t('upload.pendingNoticeTitle'));
+          } else {
+            message.success(t('feedback.tool.createdWithPackage'));
+          }
+        } catch (error) {
+          // 错误分级：413 超上限 / 400 非法类型 / 403 无权限 / 其它可重试（**不清空表单**）
+          const status = getApiErrorStatus(error);
+          if (status === 413) message.error(t('upload.tooLarge'));
+          else if (status === 400) message.error(t('upload.invalidType'));
+          else if (status === 403) message.error(t('upload.forbidden'));
+          else message.error(t('upload.uploadFailed'));
+          setCreating(false);
+          return; // 保留弹窗与已选文件，用户可直接重试
         }
       } else {
         message.success(t('feedback.tool.createdWithoutPackage'));
@@ -523,10 +558,44 @@ const Tools: React.FC = () => {
       extra={
         <Space>
           <Button icon={<ReloadOutlined />} loading={loading} onClick={fetchData}>{t('common.refresh')}</Button>
+          {/* t161：我提交的上传（大文件待审批状态） */}
+          <Button icon={<InboxOutlined />} onClick={() => setMyUploadsOpen(true)} data-testid="upload-pending-status-open">
+            {t('upload.myUploadsOpen')}
+          </Button>
           <Button type="primary" icon={<UploadOutlined />} disabled={!allowManageTools} onClick={openCreate}>{t('tools.upload')}</Button>
         </Space>
       }
+      data-testid="tools-page"
     >
+      {/* t161：超门限上传的待审提示（PENDING 的记录不会出现在下面的业务列表里） */}
+      {pendingNotice ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          data-testid="upload-pending-notice"
+          message={t('upload.pendingNoticeTitle')}
+          description={
+            pendingNotice.purgeAfter
+              ? t('upload.pendingNoticeBody', {
+                  purgeAfter: formatDateTime(pendingNotice.purgeAfter, '-'),
+                })
+              : t('upload.pendingNoticeBodyNoDate')
+          }
+          action={
+            <Space direction="vertical" size={4}>
+              <Button size="small" onClick={() => setMyUploadsOpen(true)} data-testid="upload-pending-notice-open">
+                {t('upload.viewStatus')}
+              </Button>
+              <Button size="small" type="text" onClick={() => setPendingNotice(null)}>
+                {t('common.close')}
+              </Button>
+            </Space>
+          }
+          closable
+          onClose={() => setPendingNotice(null)}
+        />
+      ) : null}
       <div style={{ marginBottom: 16 }}>
         <Input
           allowClear
@@ -552,6 +621,9 @@ const Tools: React.FC = () => {
           onChange: (page, pageSize) => setParams({ ...params, page, page_size: pageSize }),
         }}
       />
+
+      {/* t161：我的上传（大文件待审批状态） */}
+      <MyUploadsModal open={myUploadsOpen} onClose={() => setMyUploadsOpen(false)} />
 
       {/* 新建工具 */}
       <Modal
@@ -826,3 +898,6 @@ const describeVersionError = (error: unknown, fallback: string, t: (key: Message
 };
 
 export default Tools;
+
+
+

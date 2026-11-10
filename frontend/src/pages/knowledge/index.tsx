@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   Button,
   Card,
   Col,
-  Divider,
   Drawer,
   Empty,
-  Form,
   Input,
   List,
   Modal,
@@ -15,13 +14,12 @@ import {
   Select,
   Space,
   Table,
-  Tabs,
   Tag,
   Typography,
   message,
 } from 'antd';
 import {
-  CommentOutlined,
+  CloudUploadOutlined,
   FireOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -29,13 +27,10 @@ import {
   TagsOutlined,
 } from '@ant-design/icons';
 import {
-  addKnowledgeComment,
   addKnowledgeTag,
-  createKnowledge,
   deleteKnowledge,
   extractKnowledgeList,
   extractStringList,
-  getKnowledgeDetail,
   getKnowledgeList,
   getKnowledgeTags,
   getPopularKnowledge,
@@ -43,7 +38,7 @@ import {
   searchKnowledge,
 } from '@/api/knowledge';
 import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT } from '@/api/user';
-import type { CreateKnowledgeRequest, KnowledgeArticleVO } from '@/types/knowledge';
+import type { KnowledgeArticleVO } from '@/types/knowledge';
 import { formatDateTime } from '@/utils/datetime';
 import { useUserStore } from '@/store/userStore';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
@@ -57,8 +52,7 @@ import {
 } from '@/utils/accessRoles';
 import { useT, type MessageKey } from '@/i18n';
 
-const { Option } = Select;
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 const CATEGORY_KEYS: Record<string, MessageKey> = {
   vulnerability: 'knowledge.category.vulnerability',
@@ -67,83 +61,7 @@ const CATEGORY_KEYS: Record<string, MessageKey> = {
   tool: 'knowledge.category.tool',
 };
 
-const containsHtmlTag = (content: string) => /<\/?[a-z][\s\S]*>/i.test(content);
-const escapeHtml = (content: string) =>
-  content
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
 
-const renderInlineMarkdown = (text: string) =>
-  escapeHtml(text)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-
-const renderMarkdownToHtml = (markdown: string) => {
-  const codeBlocks: string[] = [];
-  const placeholderMarkdown = markdown.replace(/```([\s\S]*?)```/g, (_, block: string) => {
-    const index = codeBlocks.push(block) - 1;
-    return `@@CODE_BLOCK_${index}@@`;
-  });
-  const lines = placeholderMarkdown.replace(/\r\n/g, '\n').split('\n');
-  const htmlParts: string[] = [];
-  let listItems: string[] = [];
-  const flushList = () => {
-    if (listItems.length > 0) {
-      htmlParts.push(`<ul>${listItems.map((item) => `<li>${item}</li>`).join('')}</ul>`);
-      listItems = [];
-    }
-  };
-
-  lines.forEach((raw) => {
-    const line = raw.trimEnd();
-    if (line.startsWith('- ')) {
-      listItems.push(renderInlineMarkdown(line.slice(2).trim()));
-      return;
-    }
-    flushList();
-    if (!line.trim()) {
-      htmlParts.push('<div><br/></div>');
-      return;
-    }
-    if (line.startsWith('### ')) {
-      htmlParts.push(`<h3>${renderInlineMarkdown(line.slice(4).trim())}</h3>`);
-      return;
-    }
-    if (line.startsWith('## ')) {
-      htmlParts.push(`<h2>${renderInlineMarkdown(line.slice(3).trim())}</h2>`);
-      return;
-    }
-    if (line.startsWith('# ')) {
-      htmlParts.push(`<h1>${renderInlineMarkdown(line.slice(2).trim())}</h1>`);
-      return;
-    }
-    htmlParts.push(`<p>${renderInlineMarkdown(line.trim())}</p>`);
-  });
-  flushList();
-
-  let html = htmlParts.join('');
-  codeBlocks.forEach((block, index) => {
-    const codeHtml = `<pre style="padding:12px;background:#f6f8fa;border-radius:6px;overflow:auto;"><code>${escapeHtml(block.trim())}</code></pre>`;
-    html = html.replace(`@@CODE_BLOCK_${index}@@`, codeHtml);
-  });
-  return html;
-};
-
-const renderRichContent = (content: string, emptyText: string) => {
-  const normalized = (content || '').trim();
-  if (!normalized) {
-    return `<p>${emptyText}</p>`;
-  }
-  if (containsHtmlTag(normalized)) {
-    return normalized;
-  }
-  return renderMarkdownToHtml(normalized);
-};
 
 const splitTags = (tags?: string): string[] =>
   (tags ?? '')
@@ -163,6 +81,7 @@ const splitTags = (tags?: string): string[] =>
  */
 const Knowledge: React.FC = () => {
   const { t } = useT();
+  const navigate = useNavigate();
   const currentUser = useUserStore((state) => state.user);
   // t50：DELETE /knowledge/{id} 仅作者本人或管理层
   const { profile: accessProfile, loaded: accessLoaded } = useAccessProfile();
@@ -172,6 +91,8 @@ const Knowledge: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
   const [keyword, setKeyword] = useState('');
+  /** t159：状态筛选（当前页过滤；后端 /knowledge 暂不支持 status 参数） */
+  const [statusOnly, setStatusOnly] = useState('');
   const [params, setParams] = useState({ page: 1, page_size: 10, search: '' });
 
   // 搜索态
@@ -182,19 +103,10 @@ const Knowledge: React.FC = () => {
   const [popular, setPopular] = useState<KnowledgeArticleVO[]>([]);
 
   // 新建
-  const [isModalVisible, setIsModalVisible] = useState(false);
-  const [form] = Form.useForm();
-  const [editorContent, setEditorContent] = useState('');
-  const [creating, setCreating] = useState(false);
 
   // 详情
-  const [detail, setDetail] = useState<KnowledgeArticleVO | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
 
   // 评论
-  const [commentArticle, setCommentArticle] = useState<KnowledgeArticleVO | null>(null);
-  const [commentContent, setCommentContent] = useState('');
-  const [commentSubmitting, setCommentSubmitting] = useState(false);
 
   // 标签
   const [tagArticle, setTagArticle] = useState<KnowledgeArticleVO | null>(null);
@@ -299,10 +211,9 @@ const Knowledge: React.FC = () => {
 
   // ==================== 新建 / 删除 ====================
 
+  // t159（需求 13）：新建/发布改为整页编辑，不再弹框
   const handleCreate = () => {
-    form.resetFields();
-    setEditorContent('');
-    setIsModalVisible(true);
+    navigate('/knowledge/new');
   };
 
   const handleDelete = (record: KnowledgeArticleVO) => {
@@ -323,86 +234,17 @@ const Knowledge: React.FC = () => {
     });
   };
 
-  const handleModalOk = async () => {
-    let values: any;
-    try {
-      values = await form.validateFields();
-    } catch {
-      return;
-    }
-    if (!editorContent.trim()) {
-      message.warning(t('feedback.knowledge.bodyRequired'));
-      return;
-    }
-    if (!currentUser?.id) {
-      message.error(t('feedback.knowledge.currentUserMissing'));
-      return;
-    }
-    setCreating(true);
-    try {
-      await createKnowledge({
-        title: values.title,
-        category: values.category,
-        summary: values.summary,
-        content: editorContent,
-        tags: values.tags || [],
-        status: 'published',
-      } as CreateKnowledgeRequest);
-      message.success(t('feedback.knowledge.published'));
-      setIsModalVisible(false);
-      fetchData();
-      fetchPopular();
-    } catch {
-      // 400 由拦截器提示
-    } finally {
-      setCreating(false);
-    }
-  };
 
   // ==================== 详情 ====================
 
-  const openDetail = async (record: KnowledgeArticleVO) => {
-    setDetail(record);
-    setDetailLoading(true);
-    try {
-      const res: any = await getKnowledgeDetail(record.id);
-      const payload = res?.data ?? res;
-      if (payload && payload.id) {
-        setDetail(payload);
-      }
-    } catch {
-      // 详情接口会累加浏览量，失败时仍展示列表里的内容
-    } finally {
-      setDetailLoading(false);
-    }
+  // t159（需求 13）：详情改为整页（/knowledge/:id），不再用 Drawer
+  const openDetail = (record: KnowledgeArticleVO) => {
+    navigate(`/knowledge/${record.id}`);
   };
 
   // ==================== 评论 ====================
 
-  const openComment = (record: KnowledgeArticleVO) => {
-    setCommentArticle(record);
-    setCommentContent('');
-  };
 
-  const handleSubmitComment = async () => {
-    if (!commentArticle) return;
-    const content = commentContent.trim();
-    if (!content) {
-      message.warning(t('feedback.knowledge.commentRequired'));
-      return;
-    }
-    setCommentSubmitting(true);
-    try {
-      await addKnowledgeComment(commentArticle.id, content);
-      message.success(t('feedback.knowledge.commentAdded'));
-      setCommentArticle(null);
-      setCommentContent('');
-    } catch {
-      // 404 由拦截器提示
-    } finally {
-      setCommentSubmitting(false);
-    }
-  };
 
   // ==================== 标签 ====================
 
@@ -481,6 +323,20 @@ const Knowledge: React.FC = () => {
         render: (category: string) => <Tag color="geekblue">{CATEGORY_KEYS[category] ? t(CATEGORY_KEYS[category]) : category}</Tag>,
       },
       {
+        // t159（需求 4）：草稿/已发布状态清晰区分
+        title: t('knowledge.colStatus'),
+        key: 'status',
+        width: 110,
+        render: (_: unknown, record: KnowledgeArticleVO) => {
+          const published = (record.status ?? '').toLowerCase() === 'published';
+          return (
+            <Tag color={published ? 'green' : 'gold'} data-testid={`knowledge-status-${record.id}`}>
+              {published ? t('knowledge.status.published') : t('knowledge.status.draft')}
+            </Tag>
+          );
+        },
+      },
+      {
         title: t('knowledge.colTagsLabel'),
         key: 'tags',
         render: (_: unknown, record: KnowledgeArticleVO) => {
@@ -518,9 +374,7 @@ const Knowledge: React.FC = () => {
         render: (_: unknown, record: KnowledgeArticleVO) => (
           <Space size="middle" wrap>
             <a onClick={() => openDetail(record)}>{t('knowledge.actionDetail')}</a>
-            <a onClick={() => openComment(record)}>
-              <CommentOutlined /> {t('knowledge.actionComment')}
-            </a>
+            {/* t159：评论入口移到详情页（列表页不再弹框） */}
             <a onClick={() => openTags(record)}>
               <TagsOutlined /> {t('knowledge.actionTags')}
             </a>
@@ -540,7 +394,12 @@ const Knowledge: React.FC = () => {
       extra={
         <Space>
           <Button icon={<ReloadOutlined />} loading={loading} onClick={() => { fetchData(); fetchPopular(); }}>{t('common.refresh')}</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>{t('knowledge.publish')}</Button>
+          <Button icon={<CloudUploadOutlined />} onClick={() => navigate('/knowledge/upload')} data-testid="knowledge-upload-open">
+            {t('knowledge.upload.open')}
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} data-testid="knowledge-new">
+            {t('knowledge.publish')}
+          </Button>
         </Space>
       }
     >
@@ -563,6 +422,19 @@ const Knowledge: React.FC = () => {
             >
               {t('knowledge.advancedFilter')}
             </Button>
+            {/* t159（需求 4）：状态筛选（后端列表暂无 status 参数，先按当前页过滤并说明） */}
+            <Select
+              allowClear
+              placeholder={t('knowledge.filterStatus')}
+              style={{ width: 150 }}
+              value={statusOnly || undefined}
+              onChange={(value) => setStatusOnly(value ?? '')}
+              data-testid="knowledge-filter-status"
+              options={[
+                { value: 'draft', label: t('knowledge.status.draft') },
+                { value: 'published', label: t('knowledge.status.published') },
+              ]}
+            />
           </Space>
 
           {searchKeyword !== null && (
@@ -577,7 +449,7 @@ const Knowledge: React.FC = () => {
 
           <Table
             columns={columns}
-            dataSource={data}
+            dataSource={statusOnly ? data.filter((item) => (item.status ?? '').toLowerCase() === statusOnly) : data}
             rowKey="id"
             loading={loading}
             pagination={
@@ -624,125 +496,10 @@ const Knowledge: React.FC = () => {
       </Row>
 
       {/* 发布文章 */}
-      <Modal
-        title={t('knowledge.publish')}
-        open={isModalVisible}
-        onOk={handleModalOk}
-        onCancel={() => setIsModalVisible(false)}
-        confirmLoading={creating}
-        okText={t('knowledge.publishOk')}
-        destroyOnClose
-        width={1000}
-      >
-        <Form form={form} layout="vertical">
-          <Form.Item name="title" label={t('knowledge.form.title')} rules={[{ required: true, message: t('knowledge.form.titleRequired') }]}>
-            <Input maxLength={500} />
-          </Form.Item>
-          <Form.Item name="category" label={t('knowledge.form.category')} rules={[{ required: true, message: t('knowledge.form.categoryRequired') }]}>
-            <Select>
-              {Object.entries(CATEGORY_KEYS).map(([value, labelKey]) => (
-                <Option key={value} value={value}>{t(labelKey)}</Option>
-              ))}
-            </Select>
-          </Form.Item>
-          <Form.Item name="summary" label={t('knowledge.form.summary')}>
-            <Input maxLength={500} />
-          </Form.Item>
-          <Form.Item name="tags" label={t('knowledge.form.tags')}>
-            <Select mode="tags" placeholder={t('knowledge.form.tagsPlaceholder')} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item label={t('knowledge.form.content')} required>
-            <Tabs
-              defaultActiveKey="edit"
-              items={[
-                {
-                  key: 'edit',
-                  label: t('knowledge.tabWrite'),
-                  children: (
-                    <Input.TextArea
-                      rows={14}
-                      value={editorContent}
-                      onChange={(event) => setEditorContent(event.target.value)}
-                      placeholder={t('knowledge.editorPlaceholder')}
-                    />
-                  ),
-                },
-                {
-                  key: 'preview',
-                  label: t('knowledge.tabPreview'),
-                  children: (
-                    <div
-                      style={{ minHeight: 320, border: '1px solid #f0f0f0', borderRadius: 6, padding: 12, background: '#fafafa' }}
-                      dangerouslySetInnerHTML={{ __html: renderRichContent(editorContent, t('knowledge.emptyContent')) }}
-                    />
-                  ),
-                },
-              ]}
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
 
       {/* 文章详情 */}
-      <Drawer
-        title={detail?.title ?? t('knowledge.detailTitle')}
-        open={!!detail}
-        onClose={() => setDetail(null)}
-        width={720}
-        destroyOnClose
-      >
-        {detail && (
-          <>
-            <Space wrap style={{ marginBottom: 8 }}>
-              <Tag color="geekblue">{CATEGORY_KEYS[detail.category] ? t(CATEGORY_KEYS[detail.category]) : detail.category}</Tag>
-              {splitTags(detail.tags).map((tag) => (
-                <Tag key={tag} color="cyan">{tag}</Tag>
-              ))}
-              <Text type="secondary">
-                {t('knowledge.authorLine', { author: authorName(detail), views: detail.viewCount ?? detail.view_count ?? 0 })}
-                {formatDateTime(detail.createdAt ?? detail.created_at)}
-              </Text>
-            </Space>
-            <Divider />
-            <div
-              style={{ lineHeight: 1.8 }}
-              dangerouslySetInnerHTML={{ __html: renderRichContent(detail.content, t('knowledge.emptyContent')) }}
-            />
-            <Divider />
-            <Space>
-              <Button icon={<CommentOutlined />} onClick={() => openComment(detail)}>{t('knowledge.addComment')}</Button>
-              <Button icon={<TagsOutlined />} onClick={() => openTags(detail)}>{t('knowledge.manageTags')}</Button>
-            </Space>
-            {detailLoading && <Paragraph type="secondary">{t('knowledge.detailLoading')}</Paragraph>}
-          </>
-        )}
-      </Drawer>
 
       {/* 评论 */}
-      <Modal
-        title={t('knowledge.commentDrawerTitle', { title: commentArticle?.title ?? '' })}
-        open={!!commentArticle}
-        onOk={handleSubmitComment}
-        onCancel={() => setCommentArticle(null)}
-        okText={t('knowledge.submitComment')}
-        confirmLoading={commentSubmitting}
-        destroyOnClose
-      >
-        <Input.TextArea
-          rows={5}
-          maxLength={1000}
-          showCount
-          value={commentContent}
-          onChange={(event) => setCommentContent(event.target.value)}
-          placeholder={t('knowledge.commentPlaceholder')}
-        />
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginTop: 12 }}
-          message={t('knowledge.commentNotice')}
-        />
-      </Modal>
 
       {/* 标签 */}
       <Drawer
@@ -785,3 +542,13 @@ const Knowledge: React.FC = () => {
 };
 
 export default Knowledge;
+
+
+
+
+
+
+
+
+
+
