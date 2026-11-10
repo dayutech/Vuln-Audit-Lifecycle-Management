@@ -50,7 +50,7 @@ import { formatDateTime } from '@/utils/datetime';
 import { saveBlobAsFile } from '@/utils/download';
 import MyUploadsModal from '@/components/upload/MyUploadsModal';
 import { extractSubmitUpload, submitPendingUpload } from '@/api/upload';
-import { rememberMyUpload } from '@/utils/myUploads';
+import { cleanupLegacyUploadKeys, rememberMyUpload } from '@/utils/myUploads';
 import { getApiErrorMessage, getApiErrorStatus, getBlobErrorMessage } from '@/utils/errorMessage';
 import { useT, type MessageKey } from '@/i18n';
 
@@ -108,7 +108,8 @@ const Tools: React.FC = () => {
   const [packageFile, setPackageFile] = useState<File | null>(null);
   /** t161：我的上传（待审批状态）面板 + PENDING 提示 */
   const [myUploadsOpen, setMyUploadsOpen] = useState(false);
-  const [pendingNotice, setPendingNotice] = useState<{ fileName: string; purgeAfter?: string | null } | null>(null);
+  /** t164：改为数组 —— 连续多次 PENDING 上传各自保留一条，互不覆盖（t163 只看到 1 次的问题） */
+  const [pendingNotices, setPendingNotices] = useState<Array<{ requestId: string; fileName: string; purgeAfter?: string | null }>>([]);
   const [creating, setCreating] = useState(false);
 
   // 版本
@@ -149,6 +150,11 @@ const Tools: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [params.page, params.page_size, params.search]);
+
+  // t164：清理历史版本用过的 localStorage 键（只删不写；登记已改为内存优先）
+  useEffect(() => {
+    cleanupLegacyUploadKeys();
+  }, []);
 
   // 版本列表的「创建人」列：后端只返回 createdBy（UUID），这里拉一次用户目录做映射
   useEffect(() => {
@@ -193,6 +199,8 @@ const Tools: React.FC = () => {
       return;
     }
     setCreating(true);
+    /** t164：上传失败时才保留弹窗与已选文件；成功路径必须走完公共收尾（清 fileList + 刷新列表） */
+    let failedOnUpload = false;
     try {
       const created: any = await createTool({
         name: values.name,
@@ -216,15 +224,17 @@ const Tools: React.FC = () => {
           });
           const result = extractSubmitUpload(res);
           if (result.status === 'PENDING' && result.requestId) {
-            rememberMyUpload({
+            const record = {
               requestId: result.requestId,
               fileName: result.fileName || packageFile.name,
               fileSize: result.fileSize ?? packageFile.size,
               targetType: result.targetType || 'TOOL',
               requestedAt: new Date().toISOString(),
               purgeAfter: result.purgeAfter ?? null,
-            });
-            setPendingNotice({ fileName: result.fileName || packageFile.name, purgeAfter: result.purgeAfter ?? null });
+            };
+            // t164：先写内存登记（不依赖 localStorage），再追加页面内持久提示
+            rememberMyUpload(record);
+            setPendingNotices((prev) => [record, ...prev.filter((item) => item.requestId !== record.requestId)]);
             message.info(t('upload.pendingNoticeTitle'));
           } else {
             message.success(t('feedback.tool.createdWithPackage'));
@@ -236,14 +246,20 @@ const Tools: React.FC = () => {
           else if (status === 400) message.error(t('upload.invalidType'));
           else if (status === 403) message.error(t('upload.forbidden'));
           else message.error(t('upload.uploadFailed'));
-          setCreating(false);
-          return; // 保留弹窗与已选文件，用户可直接重试
+          failedOnUpload = true;
         }
       } else {
         message.success(t('feedback.tool.createdWithoutPackage'));
       }
+
+      if (failedOnUpload) {
+        // 只有「上传失败」才保留弹窗 + 已选文件，让用户直接重试
+        return;
+      }
+      // 公共收尾：清掉 antd fileList（避免与下一次上传串台）+ 关闭弹窗 + 刷新列表
+      setPackageFile(null);
       setIsCreateOpen(false);
-      fetchData();
+      await Promise.resolve(fetchData());
     } catch {
       // 400/409 由拦截器提示
     } finally {
@@ -567,35 +583,50 @@ const Tools: React.FC = () => {
       }
       data-testid="tools-page"
     >
-      {/* t161：超门限上传的待审提示（PENDING 的记录不会出现在下面的业务列表里） */}
-      {pendingNotice ? (
-        <Alert
-          type="warning"
-          showIcon
-          style={{ marginBottom: 16 }}
-          data-testid="upload-pending-notice"
-          message={t('upload.pendingNoticeTitle')}
-          description={
-            pendingNotice.purgeAfter
-              ? t('upload.pendingNoticeBody', {
-                  purgeAfter: formatDateTime(pendingNotice.purgeAfter, '-'),
-                })
-              : t('upload.pendingNoticeBodyNoDate')
-          }
-          action={
-            <Space direction="vertical" size={4}>
-              <Button size="small" onClick={() => setMyUploadsOpen(true)} data-testid="upload-pending-notice-open">
-                {t('upload.viewStatus')}
-              </Button>
-              <Button size="small" type="text" onClick={() => setPendingNotice(null)}>
-                {t('common.close')}
-              </Button>
-            </Space>
-          }
-          closable
-          onClose={() => setPendingNotice(null)}
-        />
-      ) : null}
+      {/* t161/t164：超门限上传的待审提示（PENDING 的记录不会出现在下面的业务列表里）
+          用数组渲染 —— 连续多次 PENDING 上传各自一条，直到用户主动关闭或刷新页面 */}
+      <div data-testid="upload-pending-notice-list">
+        {pendingNotices.map((notice) => (
+          <Alert
+            key={notice.requestId}
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            data-testid="upload-pending-notice"
+            message={t('upload.pendingNoticeTitle')}
+            description={
+              <span data-testid="upload-pending-notice-file">
+                {notice.fileName}
+                {' · '}
+                {notice.purgeAfter
+                  ? t('upload.pendingNoticeBody', { purgeAfter: formatDateTime(notice.purgeAfter, '-') })
+                  : t('upload.pendingNoticeBodyNoDate')}
+              </span>
+            }
+            action={
+              <Space direction="vertical" size={4}>
+                <Button size="small" onClick={() => setMyUploadsOpen(true)} data-testid="upload-pending-notice-open">
+                  {t('upload.viewStatus')}
+                </Button>
+                <Button
+                  size="small"
+                  type="text"
+                  onClick={() =>
+                    setPendingNotices((prev) => prev.filter((item) => item.requestId !== notice.requestId))
+                  }
+                  data-testid={`upload-pending-notice-close-${notice.requestId}`}
+                >
+                  {t('common.close')}
+                </Button>
+              </Space>
+            }
+            closable
+            onClose={() =>
+              setPendingNotices((prev) => prev.filter((item) => item.requestId !== notice.requestId))
+            }
+          />
+        ))}
+      </div>
       <div style={{ marginBottom: 16 }}>
         <Input
           allowClear
@@ -898,6 +929,8 @@ const describeVersionError = (error: unknown, fallback: string, t: (key: Message
 };
 
 export default Tools;
+
+
 
 
 
