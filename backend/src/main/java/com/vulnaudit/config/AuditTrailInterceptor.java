@@ -113,7 +113,11 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
             "DELETE /api/v1/admin/tag-definitions/{id}",
             // t154：项目批量添加/移除由服务层各写 1 条审计（含数量与失败数）
             "POST /api/v1/projects/{projectId}/assets",
-            "DELETE /api/v1/projects/{projectId}/assets"
+            "DELETE /api/v1/projects/{projectId}/assets",
+            // t160：上传审批三个写端点由服务层各写 1 条审计
+            "POST /api/v1/uploads/pending",
+            "POST /api/v1/admin/upload-approvals/{id}/approve",
+            "POST /api/v1/admin/upload-approvals/{id}/reject"
     };
 
     private final AuditLogService auditLogService;

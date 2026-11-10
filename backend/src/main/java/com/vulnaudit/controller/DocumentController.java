@@ -94,18 +94,22 @@ public class DocumentController {
     }
 
     @GetMapping
-    @Operation(summary = "分页查询文档列表", description = "支持按关键词、分类、资产筛选")
+    @Operation(summary = "分页查询文档列表",
+            description = "支持按关键词、分类、资产、任务筛选；t162 新增 status=DRAFT|PUBLISHED|all（**数据库过滤**，非法 400）")
     public ResponseEntity<ApiResponse<PageResponse<Document>>> listDocuments(
             @Parameter(description = "页码") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size,
             @Parameter(description = "搜索关键词") @RequestParam(required = false) String keyword,
             @Parameter(description = "分类") @RequestParam(required = false) String category,
             @Parameter(description = "资产ID") @RequestParam(required = false) UUID assetId,
-            @Parameter(description = "任务ID") @RequestParam(required = false) UUID taskId) {
-        
-        log.info("分页查询文档: page={}, size={}, keyword={}, category={}, assetId={}, taskId={}", page, size, keyword, category, assetId, taskId);
-        
-        PageResponse<Document> result = documentService.findAll(page, size, keyword, category, assetId, taskId);
+            @Parameter(description = "任务ID") @RequestParam(required = false) UUID taskId,
+            @Parameter(description = "状态：DRAFT/PUBLISHED/all（t162，数据库过滤，非法 400）")
+            @RequestParam(required = false) String status) {
+
+        log.info("分页查询文档: page={}, size={}, keyword={}, category={}, assetId={}, taskId={}, status={}",
+                page, size, keyword, category, assetId, taskId, status);
+
+        PageResponse<Document> result = documentService.findAll(page, size, keyword, category, assetId, taskId, status);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

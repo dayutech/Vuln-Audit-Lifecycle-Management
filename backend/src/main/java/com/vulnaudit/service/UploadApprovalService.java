@@ -1,0 +1,43 @@
+package com.vulnaudit.service;
+
+import com.vulnaudit.dto.PageResponse;
+import com.vulnaudit.dto.UploadApprovalItem;
+import com.vulnaudit.dto.UploadPendingResponse;
+import jakarta.annotation.Nullable;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.UUID;
+
+/**
+ * 大文件上传审批（t160）
+ *
+ * <p>门限可配：`app.upload.approval-threshold-bytes`（默认 20MB）。超门限 → 只写临时区 + PENDING 记录；
+ * 未超门限 → 直接落业务表（保持既有体验，返回 `status=DIRECT`）。
+ *
+ * <p>硬约束：PENDING/REJECTED 的文件**不写业务表**，因此不会出现在任何列表/下载/统计里；
+ * 拒绝立即删临时文件，过期（`purge_after`）由 {@link #purgeExpired()} 清理。
+ */
+public interface UploadApprovalService {
+
+    /** 提交上传（超门限走审批） */
+    UploadPendingResponse submit(MultipartFile file, String targetType, @Nullable String name,
+                                 @Nullable String description, @Nullable UUID operatorId);
+
+    /** 申请人查自己的请求 */
+    UploadApprovalItem findOwn(UUID id, UUID operatorId);
+
+    /** 管理端分页列表（status 可空 = 全部） */
+    PageResponse<UploadApprovalItem> list(@Nullable String status, int page, int size);
+
+    /** 管理员批准：把临时文件移入正式存储 + 创建业务记录，返回目标实体 id */
+    UploadApprovalItem approve(UUID id, @Nullable UUID reviewerId);
+
+    /** 管理员拒绝：删除临时文件 + 标记 REJECTED */
+    UploadApprovalItem reject(UUID id, @Nullable String note, @Nullable UUID reviewerId);
+
+    /** 过期清理：PENDING 且 purge_after 已过 → EXPIRED + 删文件；返回清理条数 */
+    int purgeExpired();
+
+    /** 门限（字节），供文档/测试断言 */
+    long approvalThresholdBytes();
+}

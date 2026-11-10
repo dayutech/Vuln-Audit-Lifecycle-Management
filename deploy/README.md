@@ -4639,3 +4639,173 @@ cd backend && mvn -B test -Dtest=ApprovalHistoryTest   # 11/11
 2. **`api_json GET` 必须带 payload**（t147 已记，本轮又踩一次）：GET 用 `request GET`，否则 `$4: unbound`。
 3. **清理脚本用错表名会整体中断**：访问申请表是 **`asset_access`**（不是 `asset_access_requests`）；`mariadb < file` 遇错即停，表现为「sql_exit=1 但无任何输出」。
 4. **重复添加无法在 UI 复现**：资产一旦挂靠就不再出现在可选列表，`skipped` 语义只能在 API/冒烟层验证（UI 侧改为断言「已挂靠资产不再出现」）。
+
+## 70. 第五十二轮（大文件上传需管理员审批：临时区 + 状态机 + 清理，t160）
+
+### 70.1 语义（一句话）
+
+超过门限的文件**不进业务库**：只写临时区 + 一条 PENDING 审批记录；管理员批准才移入正式存储并创建业务记录，
+**拒绝立即删临时文件**，超过 `purge_after` 未处理的由定时任务标记 EXPIRED 并删文件。
+因此 PENDING/REJECTED 的文件**不可能**出现在任何列表、下载、统计里（不是靠过滤隐藏，而是根本没写）。
+
+### 70.2 配置（`app.upload.*`）
+
+| 配置项 | 默认 | 说明 |
+|---|---|---|
+| `app.upload.approval-threshold-bytes` | `20971520`（20MB） | **超过**该值走审批；≤ 则直传（保持既有体验） |
+| `app.upload.max-bytes` | `524288000`（500MB） | 单文件硬上限，超过 → **413**（不受审批保护） |
+| `app.upload.pending-dir` | `./uploads/pending` | 临时区目录（PENDING 文件只在这里） |
+| `app.upload.approved-dir` | `./uploads/approved` | 正式区目录（批准后才移入） |
+| `app.upload.purge-days` | `7` | `purge_after = now + purge-days` |
+| `app.upload.purge-cron` | `0 17 * * * *` | 过期清理频率（每小时第 17 分） |
+
+### 70.3 状态机
+
+```
+         超门限提交
+            │
+            ▼
+        ┌────────┐  管理员批准   ┌──────────┐
+        │PENDING │ ───────────▶ │ APPROVED │  文件移入正式区 + 业务记录（target_id）
+        └────────┘              └──────────┘
+            │      管理员拒绝
+            ├──────────────────▶  REJECTED   立即删除临时文件
+            │      purge_after 到期（定时任务）
+            └──────────────────▶  EXPIRED    删除临时文件
+```
+
+`PENDING` 才能被批准/拒绝；已处理再操作 → **409**（不重复处理、不重复审计）。
+
+### 70.4 接口
+
+| 角色 | 方法/路径 | 说明 |
+|---|---|---|
+| 申请人 | `POST /api/v1/uploads/pending`（multipart：`file`、`targetType`、`name?`、`description?`） | 超门限 → `201 {requestId, status:"PENDING", purgeAfter}`；未超 → `201 {status:"DIRECT", targetId}`；超上限 → **413**；非法 `targetType` → 400 |
+| 申请人 | `GET /api/v1/uploads/pending/{id}` | 只能看自己的（他人 → **404**，不泄露存在性） |
+| 管理员 | `GET /api/v1/admin/upload-approvals?status=PENDING&page=&size=` | 分页，`status` 可空（全部） |
+| 管理员 | `POST /api/v1/admin/upload-approvals/{id}/approve` | 移入正式区 + 创建业务记录，返回 `{status:"APPROVED", targetId}` |
+| 管理员 | `POST /api/v1/admin/upload-approvals/{id}/reject` body `{note?}` | 删临时文件 + `{status:"REJECTED", reviewNote}` |
+
+审计：提交 / 批准 / 拒绝各 **1 条**（`SUBMIT_UPLOAD_APPROVAL` / `APPROVE_UPLOAD` / `REJECT_UPLOAD`），
+三个端点已进 `AuditTrailInterceptor.SKIP_ENDPOINTS`。
+
+### 70.5 安全约束
+
+1. **临时区不可按路径访问**：没有任何「按 storage_key 下载」的端点；文件只能经 approve 进入正式区并由业务实体下载。
+2. **文件名净化**：去目录部分（`../../etc/passwd.zip` → `passwd.zip`）、去 `..`、去控制字符、裁剪到 200 字符；
+   落盘名再加 UUID 前缀，**展示名与磁盘名分离**。
+3. **路径解析**：只取 `storage_key` 的**文件名部分**再拼到临时区目录下，`normalize()` 后落盘 → 无法穿越。
+4. **大小上限**：`max-bytes` 之上直接 413（错误码 `PAYLOAD_TOO_LARGE`，i18n key `error.payload_too_large`）。
+5. **权限**：管理端三个端点 `hasRole('ADMIN')`；申请人查询带 `requested_by` 过滤。
+
+### 70.6 前端调用方式
+
+| 场景 | 调用 |
+|---|---|
+| 工具/组件库上传 | `POST /api/v1/uploads/pending`（FormData：file/targetType/name?/description?） |
+| 返回 `status="DIRECT"` | 直传成功，用 `targetId` 刷新列表即可（与旧体验一致） |
+| 返回 `status="PENDING"` | 提示「已提交，等待管理员批准」，用 `requestId` 轮询 `GET /api/v1/uploads/pending/{id}` |
+| 管理端审批页 | `GET /api/v1/admin/upload-approvals?status=PENDING` 列表；批准/拒绝分别调 approve / reject |
+| 展示 | 列表项含 `fileName/fileSize/requester{id,username}/requestedAt/purgeAfter/pendingFilePresent` |
+
+> 前端**不要**在上传后立刻把该文件塞进业务列表——它还没被批准；以 `pendingFilePresent` 与 `status` 为准。
+
+### 70.7 验证（`UploadApprovalTest` 14 例）
+
+```bash
+cd backend && mvn -B test -Dtest=UploadApprovalTest   # 14/14
+```
+
+门限被压到 1KB、目录指到 `target/test-uploads/*`（不污染仓库）。覆盖：超门限 → PENDING 且**业务表零记录**、
+临时文件存在、有 `purgeAfter`；PENDING 不在 `GET /tools` 中且无 `targetId`；未超门限 → DIRECT + 业务记录立即存在；
+批准 → 临时文件消失、正式区有文件、`targetId` 可查、状态 APPROVED；拒绝 → 临时文件删除、REJECTED、业务表不变；
+重复审批 → 409；文件名穿越被净化且落盘仍在临时区；超上限 413、非法 targetType 400；
+非 ADMIN 列表/批准/拒绝 403（且仍 PENDING）；申请人只能查自己的（他人 404）；
+过期清理 → EXPIRED + 文件删除；审计各 1 条；管理端按 status 过滤；门限值与配置一致。
+
+### 70.8 已知边界
+
+1. 业务记录创建目前只实现 **TOOL**（`target_type` 的其他取值会正常走审批但 `target_id` 为 null，需按业务补建）。
+2. 批准是「移动文件 + 建记录」的本地事务；若对象存储在远端（S3/OSS），需要改成「两阶段 + 补偿」。
+3. 过期清理是**单实例定时任务**；多副本需分布式锁，否则多个实例同时清理（`deleteIfExists` 幂等，但会有重复日志）。
+4. 直传分支（≤门限）**写死**在 `target_type=TOOL` 上创建 `tools` 记录；其他类型直传需要补对应业务写入。
+
+
+## 71. 第五十三轮（知识库/文档附件：独立附件模型替代正文 base64，t162）
+
+### 71.1 为什么换掉 base64 方案
+
+t159 前端只能把附件塞进正文（`<!--owl-attachment:{...}-->`），受 `content TEXT(64KB)` 限制，
+**二进制实际只能 ≤40KB**，PDF/PPT/压缩包根本传不上去。本轮换成**独立附件模型**：文件落磁盘、DB 存元数据，
+单附件上限 **50MB**，下载走带归属校验的接口。
+
+### 71.2 数据（V33，幂等 + manual-ddl 等价段）
+
+```sql
+CREATE TABLE IF NOT EXISTS document_attachments (
+  id, owner_type(KNOWLEDGE|DOCUMENT), owner_id, file_name, stored_name,
+  content_type, file_size, storage_path, uploaded_by, uploaded_at, deleted_at,
+  created_at, updated_at
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE INDEX idx_document_attachments_owner ON document_attachments (owner_type, owner_id);
+CREATE INDEX idx_document_attachments_deleted ON document_attachments (deleted_at);
+```
+
+存储：`app.attachments.dir`（默认 `./uploads/attachments`）下 `{owner_type}/{owner_id}/{uuid}_{原文件名}`；
+**展示名与磁盘名分离**。
+
+### 71.3 接口
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/v1/knowledge/{id}/attachments` | multipart `file`；≤50MB（`app.attachments.max-bytes`），超限 **413**；权限：`canWriteKnowledgeTags` |
+| GET | `/api/v1/knowledge/{id}/attachments` | 列表：`fileName/fileSize/contentType/uploadedAt/uploadedBy/uploaderName`（uploaderName 一次批量解析） |
+| GET | `/api/v1/knowledge/{id}/attachments/{attachmentId}/download` | 文件流；`Content-Disposition` 同时给 ASCII 回退与 **RFC 5987** `filename*=UTF-8''…`；**归属不符 → 404** |
+| DELETE | `/api/v1/knowledge/{id}/attachments/{attachmentId}` | 软删（`deleted_at`）+ 删物理文件；之后列表不含、下载 404 |
+| POST/GET/DELETE | `/api/v1/documents/{id}/attachments[...]` | 同构；权限 `canWriteDocument` |
+
+**没有按 `storage_path` 直读的端点** —— 这是刻意的：防路径穿越与越权读。
+
+### 71.4 列表 `status` 参数（知识库 / 文档）
+
+```
+GET /api/v1/knowledge?status=DRAFT|PUBLISHED|all&page=&size=&keyword=&category=
+GET /api/v1/documents?status=DRAFT|PUBLISHED|all&page=&size=&keyword=&category=&assetId=&taskId=
+```
+
+- 大小写不敏感；**非法值 → 400**（`StatusFilter.normalize`），空/`all` = 不过滤；
+- **在数据库过滤**（Specification 谓词 + `lower(status)=?`），不是当前页过滤 —— 所以 `totalElements/totalPages` 跨页正确；
+- 这修掉了 t159 的遗留问题：前端原来只能对当前页筛「草稿/已发布」，翻页后结果就是错的。**前端可以把「当前页过滤」改成传 `status` 参数。**
+
+### 71.5 前端可以移除 base64 方案了（替换点）
+
+| 位置 | 现在 | 改成 |
+|---|---|---|
+| `utils/attachments.ts#buildAttachmentBlock` | 把文件编码成 base64 块塞进正文 | **删除**；上传改用 `POST /{knowledge\|documents}/{id}/attachments`（先建记录拿 id，再传附件） |
+| `utils/attachments.ts#downloadRecordFile` | 从正文解析 base64 还 Blob | **删除**；改用 `GET .../attachments/{attachmentId}/download`（后端已给正确的中文 `Content-Disposition`，浏览器直接下载即可） |
+| 详情页附件展示 | 解析正文块 | `GET .../attachments` 列表渲染（含 `uploaderName`/`uploadedAt`） |
+| 上传页 `/knowledge/upload`、`/documents/upload` | 超 40KB 拦下 | 可以放到 **50MB**；流程：先建草稿记录 → 传附件 → 跳详情 |
+| 列表页状态筛选 | 当前页本地过滤 | 传 `status=DRAFT/PUBLISHED`（服务端过滤，翻页正确） |
+
+> 旧的正文 base64 块**不做迁移**：历史正文里的块仍能被前端解析显示（保留兼容），新上传一律走附件端点。
+
+### 71.6 验证（`DocumentAttachmentTest` 15 例）
+
+```bash
+cd backend && mvn -B test -Dtest=DocumentAttachmentTest   # 15/15
+```
+
+上传+列表（元数据完整、uploaderName、落盘目录）；下载中文名 `filename*=UTF-8''…` 且内容长度一致；
+删除（软删 + 物理文件删除 + 列表不含 + 下载 404）；**跨实体下载 404**；超上限 413、空文件 400；
+文件名穿越净化（`../../etc/evil.pdf` → `evil.pdf`）；非作者/非管理层上传 403；
+文档附件全链路（上传/列表/下载/删除）；**uploaderName 查询数与附件条数无关**（服务层 1 条 vs 5 条相等，
+测量前 `flush+clear` 避免 auto-flush 把 INSERT 计入）；知识库 `status=DRAFT` 跨页 total 正确（7 草稿 + 1 已发布）；
+文档 `status=PUBLISHED`/`all` 与非法 400；V33 脚本守卫（建表/两索引/collation/软删统计/manual-ddl 等价）；
+未登录 401；归属隔离（ownerType 不串）；下载/删除不存在附件 404。
+
+### 71.7 已知边界
+
+1. 附件**不写审计**（只读/薄写操作，任务未要求）；如需审计在 service 加 `AuditLogService.log` 即可。
+2. 删除是「软删 DB + 立即删物理文件」；若删除文件失败只 WARN（DB 已标删），需靠运维巡检清理孤儿文件。
+3. 历史 base64 正文块不迁移（保持可读）；新能力只走附件端点。
+4. 单附件 50MB 是应用层限制；nginx 的 `client_max_body_size` 需同步放大，否则 413 会先被网关拦下。

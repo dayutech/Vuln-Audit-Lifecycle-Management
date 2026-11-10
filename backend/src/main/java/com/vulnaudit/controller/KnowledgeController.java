@@ -71,16 +71,20 @@ public class KnowledgeController {
     }
 
     @GetMapping
-    @Operation(summary = "分页查询知识文章列表", description = "支持按关键词、分类筛选")
+    @Operation(summary = "分页查询知识文章列表",
+            description = "支持按关键词、分类筛选；t162 新增 status=DRAFT|PUBLISHED|all（**数据库过滤**，非法 400）")
     public ResponseEntity<ApiResponse<PageResponse<KnowledgeArticle>>> listArticles(
             @Parameter(description = "页码") @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "每页大小") @RequestParam(defaultValue = "10") int size,
             @Parameter(description = "搜索关键词") @RequestParam(required = false) String keyword,
-            @Parameter(description = "分类") @RequestParam(required = false) String category) {
-        
-        log.info("分页查询知识文章: page={}, size={}, keyword={}, category={}", page, size, keyword, category);
-        
-        PageResponse<KnowledgeArticle> result = knowledgeService.findAll(page, size, keyword, category);
+            @Parameter(description = "分类") @RequestParam(required = false) String category,
+            @Parameter(description = "状态：DRAFT/PUBLISHED/all（t162，数据库过滤，非法 400）")
+            @RequestParam(required = false) String status) {
+
+        log.info("分页查询知识文章: page={}, size={}, keyword={}, category={}, status={}",
+                page, size, keyword, category, status);
+
+        PageResponse<KnowledgeArticle> result = knowledgeService.findAll(page, size, keyword, category, status);
         return ResponseEntity.ok(ApiResponse.success(result));
     }
 

@@ -2153,3 +2153,53 @@ Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试
 **顺带修复**：admin 的 2FA 为历史遗留开启状态，导致部署后首轮登录 202；已复位并清恢复码（README §68.4）。
 
 **已知边界（新增）**：① 重复添加的 `skipped` 只能在 API/冒烟层验证（UI 中已挂靠资产不再出现在候选列表）；② `asset_access` 保留 70 条历史申请（引用基线资产的冒烟历史），不影响页面与统计。
+### 2.41 大文件上传需管理员审批（t160）
+
+**语义**：超过门限的文件**不进业务库**——只写临时区 + 一条 `PENDING` 审批记录；管理员批准才移入正式存储并创建业务记录；
+**拒绝立即删除临时文件**；超过 `purge_after`（默认 7 天）未处理由定时任务标 `EXPIRED` 并删文件。
+因此 PENDING/REJECTED 期间文件不可能出现在任何列表/下载/统计中（不是靠过滤隐藏，而是根本没写）。
+
+**数据**：V32 `upload_approval_requests`（`target_type/target_id/file_name/file_size/content_type/storage_key/status/requested_*/reviewed_*/review_note/purge_after`，显式
+`COLLATE utf8mb4_unicode_ci`，三个索引：status、requested_by、(status, purge_after)）+ `manual-ddl.sql` 等价段（含 2 条校验 SQL）。
+另新增错误码 `PAYLOAD_TOO_LARGE(413)` 与 i18n `error.payload_too_large`。
+
+**配置**：`app.upload.approval-threshold-bytes`（默认 20MB）、`max-bytes`（默认 500MB → 413）、
+`pending-dir`/`approved-dir`、`purge-days`（7）、`purge-cron`（每小时）。
+
+**接口**：`POST /api/v1/uploads/pending`（超门限 → `{requestId,status:"PENDING",purgeAfter}`；未超 → `{status:"DIRECT",targetId}`；
+超上限 413；非法 targetType 400）、`GET /api/v1/uploads/pending/{id}`（只能看自己，他人 404）、
+`GET/POST /api/v1/admin/upload-approvals[/{id}/approve|/reject]`（ADMIN；PENDING 才能处理，重复处理 409）。
+
+**安全**：无「按 storage_key 下载」端点；文件名净化（去目录/`..`/控制字符）+ 落盘 UUID 前缀（展示名与磁盘名分离）；
+`storage_key` 只取文件名部分再拼临时区目录并 `normalize()`；管理端 `hasRole('ADMIN')`。
+
+**验证**：`UploadApprovalTest` **14/14**（门限压到 1KB、目录指到 `target/test-uploads/*`）：
+超门限 PENDING + **业务表零记录** + 临时文件存在；PENDING 不在 `GET /tools` 且无 targetId；未超门限 DIRECT + 记录立即可见；
+批准 → 临时文件消失/正式区有文件/targetId 可查；拒绝 → 文件删除 + REJECTED + 业务表不变；重复审批 409；
+文件名穿越净化且落盘仍在临时区；413 与 400；非 ADMIN 403 且仍 PENDING；申请人隔离（他人 404）；
+过期清理 EXPIRED + 删文件；审计各 1 条；管理端按 status 过滤；门限与配置一致。
+关联回归：`ToolControllerTest/ToolLibraryTest` 一起跑 **21/21**。
+配置、状态机、安全约束与前端调用方式见 README §70。
+
+### 2.42 知识库/文档附件 + 列表 status 筛选（t162）
+
+**背景**：t159 前端只能用「正文内 base64 附件块」（受 `content TEXT(64KB)` 限制，二进制实际 ≤40KB，PDF/PPT 传不上去）；
+列表也无 `status` 参数，前端状态筛选只能对当前页过滤，翻页即错。
+
+**实现**：
+- **V33** `document_attachments`（`owner_type/owner_id/file_name/stored_name/content_type/file_size/storage_path/uploaded_*/deleted_at`，
+  显式 `COLLATE utf8mb4_unicode_ci`，索引 `(owner_type, owner_id)` 与 `deleted_at`）+ `manual-ddl` 等价段（含 2 条校验 SQL）；
+- 端点对 `knowledge`/`documents` 各一套：上传（≤50MB，超限 **413**，`app.attachments.max-bytes`）、列表（`uploaderName` 一次批量）、
+  下载（`Content-Disposition` 同时给 ASCII 回退与 **RFC 5987** `filename*=UTF-8''…`）、删除（软删 + 删物理文件）；
+  **无按 `storage_path` 直读的端点**，下载必须带 `{ownerId}/{attachmentId}` 并做归属校验（不符 → 404）；
+  权限沿用 `canWriteKnowledgeTags` / `canWriteDocument`；
+- 列表 `status=DRAFT|PUBLISHED|all`（`StatusFilter` 白名单，非法 400）**在数据库过滤**（Specification 谓词），
+  因此 `totalElements/totalPages` 跨页正确。
+
+**踩坑记档（值得复用）**：「查询数不随条数增长」的断言最初直接量 HTTP/服务调用，结果 1 条 = 2 次、5 条 = 10 次，
+差点误判成 N+1。真因是**测试方法本身在一个事务里**，测量窗口内的 SELECT 触发 **auto-flush**，把 INSERT 也计入
+`prepareStatementCount`。修正：测量前先 `entityManager.flush(); entityManager.clear();`，再对比 1 条与 5 条的增量（现在相等）。
+
+**验证**：`DocumentAttachmentTest` **15/15**（上传/列表/下载中文名/删除/跨实体 404/413/400/文件名净化/403/
+文档全链路/查询数无关/知识库 status 跨页 total=7/文档 status 与非法 400/V33 脚本守卫/401/ownerType 隔离/不存在 404）。
+前端替换点（删 `buildAttachmentBlock`/`downloadRecordFile`）见 README §71.5。

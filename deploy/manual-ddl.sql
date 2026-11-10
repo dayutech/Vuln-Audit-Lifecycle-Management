@@ -863,3 +863,79 @@ SELECT COUNT(*) AS deliverables_total,
        SUM(CASE WHEN uploaded_by IS NULL THEN 1 ELSE 0 END) AS deliverables_without_uploader,
        SUM(CASE WHEN remark IS NULL THEN 1 ELSE 0 END) AS deliverables_without_remark
   FROM asset_deliverables;
+
+-- =============================================================================
+-- V32：大文件上传需管理员审批（t160）
+-- 与 backend/src/main/resources/db/migration/V32__upload_approval_requests.sql 等价
+-- =============================================================================
+-- 幂等：CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS。
+-- ⚠ 排序规则（t134 硬规则）：新表显式 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci。
+-- 语义：PENDING/REJECTED 期间文件只在临时区，业务表无记录 → 不进任何列表/下载/统计；
+--       拒绝立即删文件；过期（purge_after，默认 +7 天）由定时任务标 EXPIRED 并删文件。
+
+CREATE TABLE IF NOT EXISTS upload_approval_requests (
+    id            VARCHAR(36)  NOT NULL PRIMARY KEY,
+    target_type   VARCHAR(20)  NOT NULL,
+    target_id     VARCHAR(36)  NULL,
+    file_name     VARCHAR(300) NOT NULL,
+    file_size     BIGINT       NULL,
+    content_type  VARCHAR(200) NULL,
+    storage_key   VARCHAR(1000) NULL,
+    status        VARCHAR(20)  NOT NULL,
+    requested_by  VARCHAR(36)  NULL,
+    requested_at  DATETIME(6)  NULL,
+    reviewed_by   VARCHAR(36)  NULL,
+    reviewed_at   DATETIME(6)  NULL,
+    review_note   TEXT         NULL,
+    purge_after   DATETIME(6)  NULL,
+    created_at    DATETIME(6)  NOT NULL,
+    updated_at    DATETIME(6)  NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX IF NOT EXISTS idx_upload_approval_status ON upload_approval_requests (status);
+CREATE INDEX IF NOT EXISTS idx_upload_approval_requester ON upload_approval_requests (requested_by);
+CREATE INDEX IF NOT EXISTS idx_upload_approval_purge ON upload_approval_requests (status, purge_after);
+
+-- 校验：总量 / 待办 / 已批准 / 已关闭 / 待办却缺 storage_key（异常项应为 0）
+SELECT COUNT(*) AS total_requests,
+       SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) AS pending_requests,
+       SUM(CASE WHEN status = 'APPROVED' THEN 1 ELSE 0 END) AS approved_requests,
+       SUM(CASE WHEN status IN ('REJECTED','EXPIRED') THEN 1 ELSE 0 END) AS closed_requests
+  FROM upload_approval_requests;
+SELECT COUNT(*) AS pending_without_storage FROM upload_approval_requests
+ WHERE status = 'PENDING' AND storage_key IS NULL;
+
+-- =============================================================================
+-- V33：知识库 / 文档附件（t162）
+-- 与 backend/src/main/resources/db/migration/V33__document_attachments.sql 等价
+-- =============================================================================
+-- 幂等：CREATE TABLE IF NOT EXISTS / CREATE INDEX IF NOT EXISTS。
+-- ⚠ 排序规则（t134 硬规则）：新表显式 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci。
+-- 语义：附件独立成行 + 文件落盘（UUID 前缀）；**没有按 storage_path 直接下载的端点**，
+--       下载必须经 /{knowledge|documents}/{id}/attachments/{attachmentId}/download 并做归属校验。
+
+CREATE TABLE IF NOT EXISTS document_attachments (
+    id            VARCHAR(36)   NOT NULL PRIMARY KEY,
+    owner_type    VARCHAR(20)   NOT NULL,
+    owner_id      VARCHAR(36)   NOT NULL,
+    file_name     VARCHAR(300)  NOT NULL,
+    stored_name   VARCHAR(400)  NOT NULL,
+    content_type  VARCHAR(200)  NULL,
+    file_size     BIGINT        NULL,
+    storage_path  VARCHAR(1000) NOT NULL,
+    uploaded_by   VARCHAR(36)   NULL,
+    uploaded_at   DATETIME(6)   NULL,
+    deleted_at    DATETIME(6)   NULL,
+    created_at    DATETIME(6)   NOT NULL,
+    updated_at    DATETIME(6)   NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX IF NOT EXISTS idx_document_attachments_owner ON document_attachments (owner_type, owner_id);
+CREATE INDEX IF NOT EXISTS idx_document_attachments_deleted ON document_attachments (deleted_at);
+
+-- 校验：总量 / 活动与软删 / 按归属类型分布
+SELECT COUNT(*) AS attachments_total,
+       SUM(CASE WHEN deleted_at IS NULL THEN 1 ELSE 0 END) AS active_attachments,
+       SUM(CASE WHEN deleted_at IS NOT NULL THEN 1 ELSE 0 END) AS deleted_attachments
+  FROM document_attachments;
+SELECT owner_type, COUNT(*) AS cnt FROM document_attachments GROUP BY owner_type;

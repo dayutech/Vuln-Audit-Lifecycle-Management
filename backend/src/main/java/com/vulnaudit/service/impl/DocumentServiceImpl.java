@@ -60,21 +60,29 @@ public class DocumentServiceImpl implements DocumentService {
 
     @Override
     public PageResponse<Document> findAll(int page, int size, @Nullable String keyword, @Nullable String category, @Nullable UUID assetId, @Nullable UUID taskId) {
+        return findAll(page, size, keyword, category, assetId, taskId, null);
+    }
+
+    @Override
+    public PageResponse<Document> findAll(int page, int size, @Nullable String keyword, @Nullable String category,
+                                          @Nullable UUID assetId, @Nullable UUID taskId, @Nullable String status) {
+        // t162：status 白名单（DRAFT/PUBLISHED/all，非法 400），且**在数据库过滤**（内存过滤会让 total 错）
+        String normalizedStatus = com.vulnaudit.util.StatusFilter.normalize(status);
         Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
-        
+
         Specification<Document> spec = (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
-            
+
             if (StringUtils.hasText(keyword)) {
                 jakarta.persistence.criteria.Predicate titleLike = cb.like(root.get("title"), "%" + keyword + "%");
                 jakarta.persistence.criteria.Predicate contentLike = cb.like(root.get("content"), "%" + keyword + "%");
                 predicates.add(cb.or(titleLike, contentLike));
             }
-            
+
             if (StringUtils.hasText(category)) {
                 predicates.add(cb.equal(root.get("category"), category));
             }
-            
+
             if (assetId != null) {
                 predicates.add(cb.equal(root.get("assetId"), assetId));
             }
@@ -82,7 +90,12 @@ public class DocumentServiceImpl implements DocumentService {
             if (taskId != null) {
                 predicates.add(cb.equal(root.get("taskId"), taskId));
             }
-            
+
+            if (normalizedStatus != null) {
+                predicates.add(cb.equal(cb.lower(root.get("status")),
+                        normalizedStatus.toLowerCase(java.util.Locale.ROOT)));
+            }
+
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         };
         

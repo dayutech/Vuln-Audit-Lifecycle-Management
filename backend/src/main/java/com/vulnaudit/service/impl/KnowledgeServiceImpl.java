@@ -57,21 +57,34 @@ public class KnowledgeServiceImpl implements KnowledgeService {
 
     @Override
     public PageResponse<KnowledgeArticle> findAll(int page, int size, @Nullable String keyword, @Nullable String category) {
+        return findAll(page, size, keyword, category, null);
+    }
+
+    @Override
+    public PageResponse<KnowledgeArticle> findAll(int page, int size, @Nullable String keyword,
+                                                  @Nullable String category, @Nullable String status) {
+        // t162：status 白名单（DRAFT/PUBLISHED/all，非法 400），且**在数据库过滤**（内存过滤会让 total 错）
+        String normalizedStatus = com.vulnaudit.util.StatusFilter.normalize(status);
         Pageable pageable = PageRequest.of(Paging.page(page), Paging.size(size), Sort.by("createdAt").descending());
-        
+
         Specification<KnowledgeArticle> spec = (root, query, cb) -> {
             List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
-            
+
             if (StringUtils.hasText(keyword)) {
                 jakarta.persistence.criteria.Predicate titleLike = cb.like(root.get("title"), "%" + keyword + "%");
                 jakarta.persistence.criteria.Predicate contentLike = cb.like(root.get("content"), "%" + keyword + "%");
                 predicates.add(cb.or(titleLike, contentLike));
             }
-            
+
             if (StringUtils.hasText(category)) {
                 predicates.add(cb.equal(root.get("category"), category));
             }
-            
+
+            if (normalizedStatus != null) {
+                predicates.add(cb.equal(cb.lower(root.get("status")),
+                        normalizedStatus.toLowerCase(java.util.Locale.ROOT)));
+            }
+
             return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
         };
         

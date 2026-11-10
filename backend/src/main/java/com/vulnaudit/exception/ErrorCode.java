@@ -61,6 +61,11 @@ public enum ErrorCode {
     VALIDATION_ERROR(422, "参数校验失败"),
 
     /**
+     * 文件过大（t160：超上传上限）
+     */
+    PAYLOAD_TOO_LARGE(413, "文件过大"),
+
+    /**
      * 服务器内部错误
      */
     INTERNAL_ERROR(500, "服务器内部错误"),
@@ -376,6 +381,7 @@ public enum ErrorCode {
             case FORBIDDEN -> "error.forbidden";
             case NOT_FOUND -> "error.not_found";
             case CONFLICT -> "error.conflict";
+            case PAYLOAD_TOO_LARGE -> "error.payload_too_large";
             case INTERNAL_ERROR -> "error.internal";
             case VALIDATION_ERROR -> "error.validation";
             case DATA_DUPLICATE -> "error.data.duplicate";

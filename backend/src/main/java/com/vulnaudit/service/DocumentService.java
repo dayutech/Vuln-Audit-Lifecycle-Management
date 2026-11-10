@@ -22,6 +22,12 @@ public interface DocumentService {
     @Nonnull
     PageResponse<Document> findAll(int page, int size, @Nullable String keyword, @Nullable String category, @Nullable UUID assetId, @Nullable UUID taskId);
 
+    /**
+     * 分页查询（t162：支持 status 过滤，DRAFT/PUBLISHED/all，**数据库过滤**）
+     */
+    PageResponse<Document> findAll(int page, int size, @Nullable String keyword, @Nullable String category,
+                                   @Nullable UUID assetId, @Nullable UUID taskId, @Nullable String status);
+
     @Nonnull
     List<Document> findByAssetId(@Nullable UUID assetId);
 

@@ -22,6 +22,12 @@ public interface KnowledgeService {
     @Nonnull
     PageResponse<KnowledgeArticle> findAll(int page, int size, @Nullable String keyword, @Nullable String category);
 
+    /**
+     * 分页查询（t162：支持 status 过滤，DRAFT/PUBLISHED/all，**数据库过滤**）
+     */
+    PageResponse<KnowledgeArticle> findAll(int page, int size, @Nullable String keyword,
+                                           @Nullable String category, @Nullable String status);
+
     @Nonnull
     List<KnowledgeArticle> findByAuthorId(@Nullable UUID authorId);
 
