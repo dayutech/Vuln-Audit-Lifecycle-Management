@@ -7,8 +7,11 @@ import Customers from '@/pages/customers/index';
 import CustomerDetail from '@/pages/customers/Detail';
 import CustomerForm from '@/pages/customers/CustomerForm';
 import Assets from '@/pages/assets/index';
+import AssetEditorPage from '@/pages/assets/AssetEditorPage';
 import AssetDetail from '@/pages/assets/Detail';
 import Vulnerabilities from '@/pages/vulnerabilities/index';
+import VulnerabilityEditorPage from '@/pages/vulnerabilities/VulnerabilityEditorPage';
+import VulnerabilityDetailPage from '@/pages/vulnerabilities/VulnerabilityDetailPage';
 import Teams from '@/pages/teams/index';
 import Roles from '@/pages/roles/index';
 import Users from '@/pages/users/index';
@@ -126,6 +129,9 @@ const router = createBrowserRouter([
         path: '/assets',
         element: <Assets />,
       },
+      // t168：资产新建 / 编辑统一为整页（原弹框已移除）
+      { path: '/assets/new', element: <AssetEditorPage /> },
+      { path: '/assets/:id/edit', element: <AssetEditorPage /> },
       {
         path: '/assets/:id',
         element: <AssetDetail />,
@@ -139,13 +145,15 @@ const router = createBrowserRouter([
         path: '/vulnerabilities',
         element: <Vulnerabilities />,
       },
+      // t168：漏洞详情与编辑统一为整页（原 Drawer / 弹框已移除）
+      { path: '/vulnerabilities/new', element: <VulnerabilityEditorPage /> },
       {
         path: '/vulnerabilities/:id',
-        element: <Vulnerabilities />,
+        element: <VulnerabilityDetailPage />,
       },
       {
         path: '/vulnerabilities/:id/edit',
-        element: <Vulnerabilities />,
+        element: <VulnerabilityEditorPage />,
       },
       {
         path: '/tasks',
@@ -257,6 +265,7 @@ const router = createBrowserRouter([
 ]);
 
 export default router;
+
 
 
 

@@ -22,6 +22,7 @@ import { tagZh } from './domains/tagMessages';
 import { assetFileZh } from './domains/assetFileMessages';
 import { approvalCenterZh } from './domains/approvalCenterMessages';
 import { knowledgeDocZh } from './domains/knowledgeDocMessages';
+import { assetVulnPagesZh } from './domains/assetVulnPagesMessages';
 import { registrationReviewZh } from './domains/registrationReviewMessages';
 import { customerPageZh } from './domains/customerPageMessages';
 import { layoutZh } from './domains/layoutMessages';
@@ -43,6 +44,7 @@ export const zhCN = {
   ...assetFileZh,
   ...approvalCenterZh,
   ...knowledgeDocZh,
+  ...assetVulnPagesZh,
   ...registrationReviewZh,
   ...customerPageZh,
   ...layoutZh,
@@ -1069,6 +1071,7 @@ export const zhCN = {
 
 export type MessageKey = keyof typeof zhCN;
 export type MessageCatalog = Record<MessageKey, string>;
+
 
 
 

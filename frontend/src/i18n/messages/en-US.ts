@@ -2,6 +2,7 @@ import type { MessageCatalog } from './zh-CN';
 import { assetEn } from './domains/assetMessages';
 import { approvalCenterEn } from './domains/approvalCenterMessages';
 import { knowledgeDocEn } from './domains/knowledgeDocMessages';
+import { assetVulnPagesEn } from './domains/assetVulnPagesMessages';
 import { vulnEn } from './domains/vulnMessages';
 import { projectEn } from './domains/projectMessages';
 import { appEn } from './domains/appMessages';
@@ -31,6 +32,7 @@ export const enUS: MessageCatalog = {
   ...assetEn,
   ...approvalCenterEn,
   ...knowledgeDocEn,
+  ...assetVulnPagesEn,
   ...vulnEn,
   ...projectEn,
   ...appEn,
@@ -1060,6 +1062,7 @@ export const enUS: MessageCatalog = {
   'impersonation.expired': 'Impersonation ended (expired); your admin account was restored',
   'impersonation.needRelogin': 'The original admin credentials are gone — please sign in again',
 };
+
 
 
 
