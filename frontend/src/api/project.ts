@@ -116,6 +116,108 @@ export const getProjectAssets = (
   } as any);
 };
 
+/* ==================== 项目侧批量资产操作（t154，t155 前端接入） ==================== */
+
+/** 可选资产条目（后端 t154 AvailableAssetItem） */
+export interface AvailableAssetItem {
+  id: string;
+  code: string;
+  name: string;
+  targetType?: string | null;
+  status?: string | null;
+  /** 当前挂靠总数（0 = 孤儿资产，前端可提示） */
+  linkCount: number;
+}
+
+/** 批量添加结果（后端 t154 BulkAddResult） */
+export interface BulkAddAssetsResult {
+  added: number;
+  skipped: number;
+  failed: Array<{ assetId?: string | null; code?: string | null; reason?: string | null }>;
+}
+
+export type ProjectAssetLinkType = 'TARGET' | 'SHARED' | 'REFERENCE';
+
+export const PROJECT_ASSET_LINK_TYPES: ProjectAssetLinkType[] = ['TARGET', 'SHARED', 'REFERENCE'];
+
+/**
+ * `GET /projects/{projectId}/available-assets` —— 未挂靠本项目且调用者可见的资产（分页）。
+ *
+ * 注意：这是**唯一**的可选资产数据源；不要用 `GET /assets` 全量再前端过滤
+ * （会把不可见资产也带出来，且 linkCount 口径不一致）。
+ */
+export const getProjectAvailableAssets = (
+  projectId: string,
+  params: { keyword?: string; page?: number; size?: number } = {},
+): Promise<any> => {
+  return request.get(`/projects/${projectId}/available-assets`, {
+    params: {
+      keyword: params.keyword || undefined,
+      page: params.page ?? 0,
+      size: params.size ?? 10,
+    },
+    silent: true,
+  } as any);
+};
+
+export const extractAvailableAssetPage = (res: any): { items: AvailableAssetItem[]; total: number } => {
+  const payload = payloadOf(res);
+  const items = (payload?.content || payload?.items || (Array.isArray(payload) ? payload : [])) as AvailableAssetItem[];
+  return {
+    items: Array.isArray(items) ? items : [],
+    total: payload?.totalElements ?? payload?.total ?? (Array.isArray(items) ? items.length : 0),
+  };
+};
+
+/**
+ * `POST /projects/{projectId}/assets` —— 批量添加（1–100 个）。
+ *
+ * 后端口径：**不整体失败** —— 不存在/已软删/无权限进 `failed`，已挂靠同期次进 `skipped`，
+ * 其余照常写库。因此必须把汇总展示给用户，而不是只弹「成功」。
+ *
+ * 硬规则（README §68.3）：**禁止**循环调 `POST /assets/{id}/project-links` ——
+ * 那种做法失败会「删一半」，也拿不到 skipped/failed 汇总。
+ */
+export const bulkAddProjectAssets = (
+  projectId: string,
+  body: { assetIds: string[]; phaseId?: string | null; linkType?: ProjectAssetLinkType },
+): Promise<any> => {
+  return request.post(`/projects/${projectId}/assets`, {
+    assetIds: body.assetIds,
+    phaseId: body.phaseId || null,
+    linkType: body.linkType || 'TARGET',
+  });
+};
+
+export const extractBulkAddResult = (res: any): BulkAddAssetsResult => {
+  const payload = payloadOf(res);
+  const failed = Array.isArray(payload?.failed) ? payload.failed : [];
+  return {
+    added: Number(payload?.added ?? 0),
+    skipped: Number(payload?.skipped ?? 0),
+    failed: failed.map((item: any) => ({
+      assetId: item?.assetId ?? null,
+      code: item?.code ?? null,
+      reason: item?.reason ?? null,
+    })),
+  };
+};
+
+/**
+ * `DELETE /projects/{projectId}/assets` —— 批量移除。
+ *
+ * 后端口径：**先全量校验后执行** —— 任一资产移除后会变成「零挂靠」→ 409 且**一条都不删**，
+ * 因此收到 409 时清单必须保持不变，只展示后端消息（含资产编号）。
+ */
+export const bulkRemoveProjectAssets = (projectId: string, assetIds: string[]): Promise<any> => {
+  return request.delete(`/projects/${projectId}/assets`, { data: { assetIds } } as any);
+};
+
+export const extractBulkRemoveCount = (res: any): number => {
+  const payload = payloadOf(res);
+  return Number(payload?.removed ?? 0);
+};
+
 /* ==================== 解包 ==================== */
 
 const payloadOf = (res: any) => res?.data ?? res ?? {};

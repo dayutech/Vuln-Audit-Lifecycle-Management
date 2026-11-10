@@ -25,6 +25,8 @@ import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageHeader from '@/components/layout/PageHeader';
+import AddProjectAssetsModal from './AddProjectAssetsModal';
+import { linkTypeKey } from './projectAssetMeta';
 import { useT } from '@/i18n';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
 import { useUserStore } from '@/store/userStore';
@@ -40,6 +42,8 @@ import {
   extractProjectAssets,
   extractProjectDetail,
   getProjectAssets,
+  bulkRemoveProjectAssets,
+  extractBulkRemoveCount,
   getProjectDetail,
   getProjectPhases,
   updateProjectPhase,
@@ -95,6 +99,13 @@ const ProjectDetail: React.FC = () => {
   const [assetsUnavailable, setAssetsUnavailable] = useState(false);
   const [phaseFilter, setPhaseFilter] = useState<string>('ALL');
   const [statusChanging, setStatusChanging] = useState(false);
+
+  /** t155：批量添加/移除资产 */
+  const [addAssetsOpen, setAddAssetsOpen] = useState(false);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
+  /** 表格行 key（linkId）选择态：antd 需要它来勾选行，提交时再映射成 assetId */
+  const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
+  const [removing, setRemoving] = useState(false);
 
   const [phaseModalOpen, setPhaseModalOpen] = useState(false);
   const [editingPhase, setEditingPhase] = useState<PhaseVO | null>(null);
@@ -170,11 +181,65 @@ const ProjectDetail: React.FC = () => {
     return counts;
   }, [assets]);
 
+  /** 行 key（linkId / assetId 兜底）→ 资产 id */
+  const assetRowAssetId = useCallback(
+    (key: string): string | undefined => {
+      const rowKeyOf = (link: ProjectAssetLinkVO) => link.linkId ?? link.assetId ?? link.asset?.id ?? '';
+      const hit = assets.find((link) => rowKeyOf(link) === key);
+      return hit ? (hit.assetId ?? hit.asset?.id ?? undefined) : undefined;
+    },
+    [assets],
+  );
+
   const filteredAssets = useMemo(() => {
     if (phaseFilter === 'ALL') return assets;
     if (phaseFilter === 'UNPHASED') return assets.filter((link) => !link.phaseId);
     return assets.filter((link) => link.phaseId === phaseFilter);
   }, [assets, phaseFilter]);
+
+  /**
+   * t155：批量移除（走 `DELETE /projects/{id}/assets`）。
+   *
+   * 后端口径是「先全量校验后执行」：任一资产移除后会变成零挂靠 → **409 且一条都不删**。
+   * 因此收到 409 时只展示后端消息（含资产编号），**不乐观更新清单**。
+   */
+  const handleRemoveAssets = () => {
+    if (!project) return;
+    if (selectedAssetIds.length === 0) {
+      message.warning(t('projectAsset.removeNone'));
+      return;
+    }
+    Modal.confirm({
+      title: t('projectAsset.removeTitle'),
+      content: t('projectAsset.removeContent'),
+      okText: t('common.confirm'),
+      okButtonProps: { danger: true },
+      cancelText: t('common.cancel'),
+      onOk: async () => {
+        setRemoving(true);
+        try {
+          const res = await bulkRemoveProjectAssets(project.id, selectedAssetIds);
+          const removed = extractBulkRemoveCount(res);
+          message.success(t('projectAsset.removed', { count: removed }));
+          setSelectedAssetIds([]);
+          await loadAssets();
+        } catch (error: any) {
+          const status = error?.response?.status;
+          if (status === 409) {
+            // 后端消息里带资产编号清单；原样展示，清单保持不变
+            const backendMessage = error?.response?.data?.message ?? '';
+            message.error(t('projectAsset.removeBlocked', { codes: backendMessage || '-' }), 8);
+          } else if (status === 403) {
+            message.error(t('projectAsset.forbidden'));
+          } else {
+            message.error(t('projectAsset.removeFailed'));
+          }
+        } finally {
+          setRemoving(false);
+        }
+      },
+    });
+  };
 
   const handleStatusChange = (target: string) => {
     if (!project) return;
@@ -432,14 +497,22 @@ const ProjectDetail: React.FC = () => {
       render: (_: unknown, record) => record.assetStatus ?? record.status ?? record.asset?.status ?? '-',
     },
     {
-      title: t('project.detail.colLinkType'),
+      title: t('projectAsset.colLinkType'),
       key: 'linkType',
+      width: 140,
+      render: (_: unknown, record) => <Tag color="blue">{t(linkTypeKey(record.linkType))}</Tag>,
+    },
+    {
+      // t155：期次列独立出来（原来期次信息挤在「挂靠类型」列里，看不出挂靠类型）
+      title: t('projectAsset.colPhase'),
+      key: 'phase',
       width: 150,
-      render: (_: unknown, record) => {
-        if (record.linkType) return <Tag>{record.linkType}</Tag>;
-        if (record.phaseId) return <Tag color="blue">{record.phaseName ?? record.phaseNo ?? t('project.detail.unphased')}</Tag>;
-        return <Tag color="default">{t('project.detail.unphased')}</Tag>;
-      },
+      render: (_: unknown, record) =>
+        record.phaseId ? (
+          <Tag color="geekblue">{record.phaseName ?? `${t('phase.no')} ${record.phaseNo ?? '-'}`}</Tag>
+        ) : (
+          <Tag color="default">{t('project.detail.unphased')}</Tag>
+        ),
     },
     {
       title: t('project.colAction'),
@@ -636,9 +709,10 @@ const ProjectDetail: React.FC = () => {
 
         <Card
           size="small"
+          data-testid="project-assets-card"
           title={t('project.detail.assetSection')}
           extra={
-            <Space>
+            <Space wrap>
               <Select
                 size="small"
                 style={{ width: 220 }}
@@ -649,9 +723,35 @@ const ProjectDetail: React.FC = () => {
               <Typography.Text type="secondary">
                 {t('project.detail.assetTotal', { count: filteredAssets.length })}
               </Typography.Text>
+              {writable ? (
+                <>
+                  <Button
+                    size="small"
+                    type="primary"
+                    icon={<PlusOutlined />}
+                    onClick={() => setAddAssetsOpen(true)}
+                    data-testid="project-asset-add-open"
+                  >
+                    {t('projectAsset.addOpen')}
+                  </Button>
+                  <Button
+                    size="small"
+                    danger
+                    loading={removing}
+                    disabled={selectedAssetIds.length === 0}
+                    onClick={handleRemoveAssets}
+                    data-testid="project-asset-remove"
+                  >
+                    {t('projectAsset.remove', { count: selectedAssetIds.length })}
+                  </Button>
+                </>
+              ) : null}
             </Space>
           }
         >
+          {!writable ? (
+            <Alert type="info" showIcon style={{ marginBottom: 12 }} message={t('projectAsset.readonlyHint')} />
+          ) : null}
           {assetsUnavailable ? (
             <Alert type="info" showIcon message={t('project.detail.assetsUnavailable')} />
           ) : (
@@ -661,11 +761,46 @@ const ProjectDetail: React.FC = () => {
               loading={assetsLoading}
               columns={assetColumns}
               dataSource={filteredAssets}
+              scroll={{ x: 'max-content' }}
               pagination={{ pageSize: 10, hideOnSinglePage: true }}
               locale={{ emptyText: <AppEmpty description={t('project.detail.emptyAssets')} /> }}
+              /* t155：批量选择（仅可写用户；关闭态项目也不允许再改挂靠） */
+              rowSelection={
+                writable && !closed
+                  ? {
+                      selectedRowKeys: selectedRowKeys,
+                      preserveSelectedRowKeys: true,
+                      // 行 key 是 linkId，但批量接口要的是 assetId —— 这里做一次映射
+                      onChange: (keys) => {
+                        const assetIds = (keys as string[])
+                          .map((key) => assetRowAssetId(key))
+                          .filter((assetId): assetId is string => Boolean(assetId));
+                        setSelectedRowKeys(keys as string[]);
+                        setSelectedAssetIds(Array.from(new Set(assetIds)));
+                      },
+                      getCheckboxProps: (record) => ({
+                        disabled: !(record.assetId ?? record.asset?.id),
+                      }),
+                    }
+                  : undefined
+              }
             />
           )}
         </Card>
+
+        {/* t155：批量添加资产（含 CSV 导入） */}
+        {writable ? (
+          <AddProjectAssetsModal
+            open={addAssetsOpen}
+            projectId={project.id}
+            isPhased={isPhased}
+            phases={phases}
+            onClose={() => setAddAssetsOpen(false)}
+            onChanged={() => {
+              void loadAssets();
+            }}
+          />
+        ) : null}
 
         <Modal
           title={editingPhase ? t('phase.editTitle') : t('phase.createTitle')}
@@ -711,6 +846,10 @@ const ProjectDetail: React.FC = () => {
 const phasePhaseStatus = (phase: PhaseVO): string => phaseStatusFallback(phase.status);
 
 export default ProjectDetail;
+
+
+
+
 
 
 

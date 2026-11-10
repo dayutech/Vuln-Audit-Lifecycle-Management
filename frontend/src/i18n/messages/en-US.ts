@@ -1,5 +1,6 @@
 import type { MessageCatalog } from './zh-CN';
 import { assetEn } from './domains/assetMessages';
+import { approvalCenterEn } from './domains/approvalCenterMessages';
 import { vulnEn } from './domains/vulnMessages';
 import { projectEn } from './domains/projectMessages';
 import { appEn } from './domains/appMessages';
@@ -14,6 +15,7 @@ import { assetFileEn } from './domains/assetFileMessages';
 import { registrationReviewEn } from './domains/registrationReviewMessages';
 import { customerPageEn } from './domains/customerPageMessages';
 import { layoutEn } from './domains/layoutMessages';
+import { projectAssetEn } from './domains/projectAssetMessages';
 
 /**
  * English copy.
@@ -25,6 +27,7 @@ import { layoutEn } from './domains/layoutMessages';
  */
 export const enUS: MessageCatalog = {
   ...assetEn,
+  ...approvalCenterEn,
   ...vulnEn,
   ...projectEn,
   ...appEn,
@@ -39,6 +42,7 @@ export const enUS: MessageCatalog = {
   ...registrationReviewEn,
   ...customerPageEn,
   ...layoutEn,
+  ...projectAssetEn,
   /* ==================== common ==================== */
   'common.appName': 'Vulnerability Audit Lifecycle Management',
   'common.loading': 'Loading…',
@@ -1051,6 +1055,9 @@ export const enUS: MessageCatalog = {
   'impersonation.expired': 'Impersonation ended (expired); your admin account was restored',
   'impersonation.needRelogin': 'The original admin credentials are gone — please sign in again',
 };
+
+
+
 
 
 

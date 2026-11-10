@@ -20,9 +20,11 @@ import { ssoZh } from './domains/ssoMessages';
 import { twoFactorZh } from './domains/twoFactorMessages';
 import { tagZh } from './domains/tagMessages';
 import { assetFileZh } from './domains/assetFileMessages';
+import { approvalCenterZh } from './domains/approvalCenterMessages';
 import { registrationReviewZh } from './domains/registrationReviewMessages';
 import { customerPageZh } from './domains/customerPageMessages';
 import { layoutZh } from './domains/layoutMessages';
+import { projectAssetZh } from './domains/projectAssetMessages';
 
 export const zhCN = {
   ...assetZh,
@@ -37,9 +39,11 @@ export const zhCN = {
   ...twoFactorZh,
   ...tagZh,
   ...assetFileZh,
+  ...approvalCenterZh,
   ...registrationReviewZh,
   ...customerPageZh,
   ...layoutZh,
+  ...projectAssetZh,
   /* ==================== 通用 ==================== */
   'common.appName': '漏洞审计生命周期管理系统',
   'common.loading': '加载中…',
@@ -1060,6 +1064,9 @@ export const zhCN = {
 
 export type MessageKey = keyof typeof zhCN;
 export type MessageCatalog = Record<MessageKey, string>;
+
+
+
 
 
 

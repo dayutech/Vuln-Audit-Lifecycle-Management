@@ -166,8 +166,9 @@ const BasicLayout: React.FC = () => {
                 { key: '/customers', icon: <BankOutlined />, label: t('menu.customers') },
                 { key: '/projects', icon: <ProjectOutlined />, label: t('menu.projects') },
                 { key: '/assets', icon: <AppstoreOutlined />, label: t('menu.assets') },
-                { key: '/vulnerabilities', icon: <SafetyCertificateOutlined />, label: t('menu.vulnerabilities') },
+                // t153（用户需求 11）：安全审计任务排在全局漏洞视图**之前**
                 { key: '/tasks', icon: <CheckSquareOutlined />, label: t('menu.tasks') },
+                { key: '/vulnerabilities', icon: <SafetyCertificateOutlined />, label: t('menu.vulnerabilities') },
                 { key: '/approvals', icon: <AuditOutlined />, label: t('menu.approvals') },
       ],
     },
@@ -387,6 +388,7 @@ const BasicLayout: React.FC = () => {
 };
 
 export default BasicLayout;
+
 
 
 

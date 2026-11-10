@@ -389,6 +389,67 @@ export const getMyAccessApprovalRequests = (params?: { page?: number; page_size?
   });
 };
 
+/** 审批历史视角（t156）：reviewer=我审批过的（默认），requester=我申请的 */
+export type ApprovalHistoryAs = 'reviewer' | 'requester';
+/** 审批历史状态筛选：approved / rejected / all */
+export type ApprovalHistoryStatus = 'approved' | 'rejected' | 'all';
+
+export interface ApprovalHistoryQuery {
+  as?: ApprovalHistoryAs;
+  status?: ApprovalHistoryStatus;
+  page?: number;
+  page_size?: number;
+  assetId?: string;
+  keyword?: string;
+}
+
+/** 审批历史条目（后端 t156 `ApprovalHistoryItem`，只含**已处理**记录） */
+export interface ApprovalHistoryItemVO {
+  id: string;
+  assetId: string;
+  assetCode?: string | null;
+  assetName?: string | null;
+  assetDeleted?: boolean;
+  applicant?: { id?: string | null; username?: string | null } | null;
+  status: 'approved' | 'rejected' | string;
+  requestedAt?: string | null;
+  reviewedAt?: string | null;
+  reviewer?: { id?: string | null; username?: string | null } | null;
+  reviewNote?: string | null;
+  scope?: {
+    canViewDocuments?: boolean;
+    canViewEnvironments?: boolean;
+    canViewFiles?: boolean;
+    allowedFileTypes?: string | null;
+  } | null;
+}
+
+/**
+ * 我的审批历史（t156）：`GET /assets/my/access-approval-history`。
+ *
+ * 默认 `as=reviewer`、`status=all`、`reviewedAt desc`；`as`/`status` 传非法值后端 400
+ * （前端只用上面的字面量联合类型，正常路径不会触发）。
+ */
+export const getAccessApprovalHistory = (params: ApprovalHistoryQuery = {}): Promise<any> => {
+  return request.get('/assets/my/access-approval-history', {
+    params: {
+      as: params.as ?? 'reviewer',
+      status: params.status ?? 'all',
+      page: Math.max((params.page ?? 1) - 1, 0),
+      size: params.page_size ?? 20,
+      assetId: params.assetId || undefined,
+      keyword: params.keyword?.trim() ? params.keyword.trim() : undefined,
+    },
+  });
+};
+
+/** 审批历史计数（t156）：`{approved, rejected}`，给角标用，避免全量拉取 */
+export const getAccessApprovalHistoryCount = (
+  as: ApprovalHistoryAs = 'reviewer',
+): Promise<{ approved: number; rejected: number }> => {
+  return request.get('/assets/my/access-approval-history/count', { params: { as } });
+};
+
 /** 审批访问申请 */
 export const reviewAssetAccessRequest = (requestId: string, approved: boolean, reviewNote?: string): Promise<AssetAccessVO> => {
   return request.post(`/assets/access-requests/${requestId}/review`, { approved, reviewNote });
