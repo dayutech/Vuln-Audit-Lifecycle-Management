@@ -2070,3 +2070,21 @@ Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试
 **排查记档**：自动化首轮报「页签空白」属脚本误判（页签文案为「资产文件」「交付物管理」、行选择器应取 `.ant-table-row`、须按 `aria-hidden` 取当前面板），**页面与接口契约均正常**，未以修改断言的方式绕过。
 
 **已知边界**：① 前端在拿到分页信封后仍保留「本地降级模式」文案（`筛选对已加载的数据生效`），属 t149 双模式设计；② 上传人下拉选项来自当前页（后端无聚合端点），跨页选择受限；③ `version`/`uploader` 两列后端排序白名单未包含，前端仅做页内排序。
+### 2.37 附件列表排序白名单补「版本列 / 上传人列」（t151）
+
+**背景**：t149/t150 报告的小缺口——`sort` 白名单没有 `assetVersionId`/`uploadedBy`，前端这两列只能页内本地排序，误传还会 400。
+
+**实现**（`AttachmentListSupport`）：
+- 文件列表：`assetVersionId`/`version` → **`version`（文件版本号整数）**；`uploadedBy`/`uploaderId` → `uploadedBy`（UUID）；
+- 交付物列表：`assetVersionId` → `assetVersionId`（**该表没有版本号列**，只能按所属版本 UUID，确定性但不可读）；
+  `uploadedBy`/`uploaderId` → `uploadedBy`；
+- 一律 `Pageable` + `Sort`（数据库排序，无内存排序）；非法字段/方向 → 400，消息带**完整**可选值列表。
+
+**口径说明（已写进 README §66.3）**：文件「版本列」按**版本号**而非 UUID 排序（UUID 无业务含义、null 会乱序）；
+「上传人列」按 **UUID** 排序，跨页稳定但**不是**姓名拼音序（按名排序需改原生 SQL 破坏 Specification 分页，或把用户拉进内存排序——两者都不做）。
+
+**验证**：`AssetFileMetaTest` **24/24**（原 20 + 新 4）：
+`sortByAssetVersionIdAcrossPages`（25 条 / size=20 → 第 2 页首行版本 **21**）、
+`sortByUploadedByAcrossPages`（3 上传人 / size=1 → 第 2 页为 UUID 序居中者，含 `uploaderId` 别名）、
+`sortErrorMessageListsAllOptions`（逐个断言白名单键出现在 400 消息里）、`deliverableNewSortKeysWork`。
+前端可直接传 `sort=assetVersionId,asc` / `sort=uploadedBy,desc`，去掉这两列的页内排序降级。

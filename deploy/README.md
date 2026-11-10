@@ -4245,8 +4245,23 @@ GET /api/v1/assets/{assetId}/deliverables
 | `name` | `name` | 文件名 |
 | `size`、`fileSize` | 同 | 文件大小 |
 | `category` | `type`、`deliverableType` | 分类 / 交付物类型 |
+| `assetVersionId`、`version`（t151） | `assetVersionId`（t151） | 见下方「版本列」口径 |
+| `uploadedBy`、`uploaderId`（t151） | 同（t151） | 见下方「上传人列」口径 |
 
-方向 `asc`/`desc`（默认 `desc`）；写成 `sort=name` 等价 `name,desc`；未知字段 → 400 并提示可选值。
+方向 `asc`/`desc`（默认 `desc`）；写成 `sort=name` 等价 `name,desc`；未知字段/未知方向 → 400，
+**错误消息里带完整可选值列表**（前端可据此对齐，见用例 `sortErrorMessageListsAllOptions`）。
+
+**版本列（`assetVersionId`）口径 —— 文件与交付物不同，必须分开看**：
+
+- **文件**：`assetVersionId`（及别名 `version`）映射到 **`asset_files.version`（文件自身版本号，整数）**。
+  刻意**不**按 `asset_version_id`（UUID）排——UUID 排序无业务含义且 null 会乱序；
+  按版本号排 = 前端「版本」列意义上的升/降序。
+- **交付物**：`asset_deliverables` **没有版本号列**，`assetVersionId` 只能映射到 `asset_version_id`（UUID），
+  结果**确定性但不可读**；交付物要业务可读排序请用 `type`/`name`/`uploadedAt`。
+
+**上传人列（`uploadedBy`）口径**：映射到 **`uploaded_by`（UUID）**，跨页稳定、可复现。
+**不是**「显示名拼音/字母序」——显示名在 `users` 表，按名排序要么改用原生 SQL 破坏 Specification 分页，
+要么把用户拉进内存排序（违反「禁止内存排序」）。若产品坚持按姓名字典序，需要另做「用户 + 附件」聚合端点。
 
 ### 66.4 性能
 
@@ -4395,3 +4410,17 @@ V31 脚本守卫（两表 remark、两个排序索引、uploaded_by 覆盖率校
 - 临时开关（dev-mode / IP / 重置 / 锁定阈值）全部移除并重启复核：发码响应无 `devCode`、锁定仍 6 次触发 **429 + Retry-After 900**。
 - 临时库 `vuln_audit_verify_*`/`vuln_audit_clone_*` 全部 DROP，`vulnapp` 临时授权已 REVOKE。
 - 数据终态：`customers=1 projects=1 phases=0 assets=3 links=3`、`orphan_assets=0`、`tag_definitions=3(builtin)`、`asset_tags=0`、`files=4`（示例资产原有附件）、`deliverables=0`、`users=12`、`requests=0`、`codes=0`、`rm_tokens=0`。
+### 66.8 t151 增补：排序白名单支持「版本列」与「上传人列」
+
+t149/t150 报告的两个小缺口（前端这两列只能页内本地排序、误传会 400）已修：
+
+| 字段 | 文件列表映射 | 交付物列表映射 | 说明 |
+|---|---|---|---|
+| `assetVersionId`、`version` | `version`（文件版本号，整数） | `assetVersionId`（UUID） | 文件按版本号；交付物**没有版本号列**，只能按所属版本 UUID |
+| `uploadedBy`、`uploaderId` | `uploadedBy`（UUID） | 同 | 跨页稳定；**不是**姓名拼音序 |
+
+- 全部走 `Pageable`+`Sort`（数据库排序），无内存排序；
+- 非法字段/方向仍是 **400**，消息里带**完整**可选值列表（用例 `sortErrorMessageListsAllOptions` 逐项断言）；
+- 跨页正确性用例：`sortByAssetVersionIdAcrossPages`（25 条、size=20 → 第 2 页首行版本 **21**）、
+  `sortByUploadedByAcrossPages`（3 个上传人、size=1 → 第 2 页为 UUID 排序居中者）；
+- **前端可以去掉这两列的「页内排序」降级**，直接传 `sort=assetVersionId,asc` / `sort=uploadedBy,desc`。

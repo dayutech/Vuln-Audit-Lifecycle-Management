@@ -124,7 +124,20 @@ public class AttachmentListSupport {
         return names;
     }
 
-    /** 文件列表的排序白名单（别名 → 实体属性） */
+    /**
+     * 文件列表的排序白名单（别名 → 实体属性）
+     *
+     * <p>t151 新增两项（前端「版本」列与「上传人」列的跨页排序）：
+     * <ul>
+     *   <li>{@code assetVersionId} / {@code version} → **{@code version}**（文件自身版本号，整数，业务可读）。
+     *       这里刻意**不**按 {@code asset_version_id}（UUID）排：UUID 排序无业务含义，且 null 会乱序；
+     *       按版本号排等价于「版本列升/降序」，与前端预期一致。</li>
+     *   <li>{@code uploadedBy} / {@code uploaderId} → **{@code uploadedBy}**（上传人 UUID）。
+     *       选 id 而不是「显示名」：显示名在 `users` 表，跨表按名排序要么走原生 SQL 破坏 Specification 分页，
+     *       要么把用户全表拉进内存排序（要求 3 明确禁止内存排序）。id 排序跨页稳定、可复现；
+     *       注意它**不是**拼音/字母序，前端若要「按人名字典序」需另做聚合端点。</li>
+     * </ul>
+     */
     public static Map<String, String> fileSortWhitelist() {
         Map<String, String> whitelist = new java.util.LinkedHashMap<>();
         whitelist.put("uploadedAt", "createdAt");
@@ -133,10 +146,24 @@ public class AttachmentListSupport {
         whitelist.put("size", "fileSize");
         whitelist.put("fileSize", "fileSize");
         whitelist.put("category", "category");
+        whitelist.put("assetVersionId", "version");
+        whitelist.put("version", "version");
+        whitelist.put("uploadedBy", "uploadedBy");
+        whitelist.put("uploaderId", "uploadedBy");
         return whitelist;
     }
 
-    /** 交付物列表的排序白名单（别名 → 实体属性） */
+    /**
+     * 交付物列表的排序白名单（别名 → 实体属性）
+     *
+     * <p>t151 新增两项：
+     * <ul>
+     *   <li>{@code assetVersionId} → **{@code assetVersionId}**：交付物表**没有版本号字段**（`asset_deliverables`
+     *       只有 `asset_version_id`），所以这里只能按所属资产版本的 **UUID** 排序。它是确定性的（跨页稳定），
+     *       但业务上不等于「版本号升序」—— 交付物按版本可读排序请用 {@code type}/{@code name}。</li>
+     *   <li>{@code uploadedBy} / {@code uploaderId} → {@code uploadedBy}（同文件列表口径）。</li>
+     * </ul>
+     */
     public static Map<String, String> deliverableSortWhitelist() {
         Map<String, String> whitelist = new java.util.LinkedHashMap<>();
         whitelist.put("uploadedAt", "createdAt");
@@ -146,6 +173,9 @@ public class AttachmentListSupport {
         whitelist.put("fileSize", "fileSize");
         whitelist.put("type", "deliverableType");
         whitelist.put("deliverableType", "deliverableType");
+        whitelist.put("assetVersionId", "assetVersionId");
+        whitelist.put("uploadedBy", "uploadedBy");
+        whitelist.put("uploaderId", "uploadedBy");
         return whitelist;
     }
 }

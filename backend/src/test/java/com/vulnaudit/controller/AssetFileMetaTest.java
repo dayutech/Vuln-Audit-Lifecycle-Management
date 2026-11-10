@@ -114,13 +114,19 @@ public class AssetFileMetaTest extends BaseTest {
     }
 
     private AssetFile legacyFile(String name, String category, UUID uploadedBy, LocalDateTime createdAt) {
+        return legacyFile(name, category, uploadedBy, createdAt, 1);
+    }
+
+    /** t151：可指定文件版本号，用于「版本列」排序用例 */
+    private AssetFile legacyFile(String name, String category, UUID uploadedBy, LocalDateTime createdAt,
+                                 int version) {
         AssetFile file = assetFileRepository.save(Objects.requireNonNull(AssetFile.builder()
                 .assetId(asset.getId())
                 .name(name)
                 .category(category)
                 .filePath("./uploads/assets/legacy/" + name)
                 .fileSize(100L)
-                .version(1)
+                .version(version)
                 .status("active")
                 .uploadedBy(uploadedBy)
                 .build()));
@@ -278,6 +284,99 @@ public class AssetFileMetaTest extends BaseTest {
         mockMvc.perform(get("/api/v1/assets/" + asset.getId() + "/deliverables")
                         .param("sort", "unknown,asc").header("Authorization", adminToken))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("排序：非法字段 400 的消息里带**完整**可选值列表（t151）")
+    void sortErrorMessageListsAllOptions() throws Exception {
+        String body = mockMvc.perform(get("/api/v1/assets/" + asset.getId() + "/files")
+                        .param("sort", "passwordHash,desc").header("Authorization", adminToken))
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+
+        // 前端要能据此对齐，故逐个断言白名单里每个键都出现在消息里
+        for (String option : java.util.List.of("uploadedAt", "createdAt", "name", "size", "fileSize",
+                "category", "assetVersionId", "version", "uploadedBy", "uploaderId")) {
+            assertTrue(body.contains(option), "错误消息应含可选值 " + option + "，实际: " + body);
+        }
+
+        String deliverableBody = mockMvc.perform(get("/api/v1/assets/" + asset.getId() + "/deliverables")
+                        .param("sort", "nope,asc").header("Authorization", adminToken))
+                .andExpect(status().isBadRequest())
+                .andReturn().getResponse().getContentAsString();
+        for (String option : java.util.List.of("uploadedAt", "name", "size", "type", "deliverableType",
+                "assetVersionId", "uploadedBy", "uploaderId")) {
+            assertTrue(deliverableBody.contains(option),
+                    "交付物错误消息应含可选值 " + option + "，实际: " + deliverableBody);
+        }
+    }
+
+    @Test
+    @DisplayName("排序 t151：assetVersionId,asc 按文件版本号排序，且第 2 页首行正确（跨页）")
+    void sortByAssetVersionIdAcrossPages() throws Exception {
+        // 25 条、版本号 1..25 打乱写入，分页后第 2 页首行应为版本 21
+        for (int i = 25; i >= 1; i--) {
+            legacyFile("ver-" + i + ".txt", "document", uploaderId, LocalDateTime.now().minusMinutes(i), i);
+        }
+
+        JsonNode page0 = listFiles("?allVersions=true&sort=assetVersionId,asc&size=20&page=0");
+        JsonNode page1 = listFiles("?allVersions=true&sort=assetVersionId,asc&size=20&page=1");
+
+        assertEquals(25, page0.path("totalElements").asInt());
+        assertEquals(1, page0.path("content").get(0).path("version").asInt(),
+                "第 1 页首行应是版本 1（按版本号而非 UUID 排序）");
+        assertEquals(20, page0.path("content").size());
+        assertEquals(5, page1.path("content").size());
+        assertEquals(21, page1.path("content").get(0).path("version").asInt(),
+                "第 2 页首行应是版本 21（证明排序在数据库层、跨页有效）");
+
+        // 别名 version 等价
+        JsonNode byAlias = listFiles("?allVersions=true&sort=version,asc&size=20&page=1");
+        assertEquals(21, byAlias.path("content").get(0).path("version").asInt());
+    }
+
+    @Test
+    @DisplayName("排序 t151：uploadedBy,desc 生效且第 2 页首行正确（跨页，size=1）")
+    void sortByUploadedByAcrossPages() throws Exception {
+        // 三个上传人，各一页；desc 时第 2 页应是「UUID 居中」的那个人
+        java.util.List<UUID> uploaders = java.util.List.of(uploaderId, engineerUserId, leaderUserId);
+        for (int i = 0; i < uploaders.size(); i++) {
+            legacyFile("by-" + i + ".txt", "document", uploaders.get(i), LocalDateTime.now().minusMinutes(i));
+        }
+        java.util.List<UUID> sortedDesc = new java.util.ArrayList<>(uploaders);
+        sortedDesc.sort(java.util.Comparator.comparing(UUID::toString).reversed());
+
+        JsonNode page0 = listFiles("?allVersions=true&sort=uploadedBy,desc&size=1&page=0");
+        JsonNode page1 = listFiles("?allVersions=true&sort=uploadedBy,desc&size=1&page=1");
+
+        assertEquals(3, page0.path("totalElements").asInt());
+        assertEquals(sortedDesc.get(0).toString(), page0.path("content").get(0).path("uploadedBy").asText());
+        assertEquals(sortedDesc.get(1).toString(), page1.path("content").get(0).path("uploadedBy").asText(),
+                "第 2 页应是 UUID 排序的后一位（排序在数据库层，不是页内排序）");
+
+        // 别名 uploaderId 等价
+        JsonNode byAlias = listFiles("?allVersions=true&sort=uploaderId,desc&size=1&page=1");
+        assertEquals(sortedDesc.get(1).toString(), byAlias.path("content").get(0).path("uploadedBy").asText());
+    }
+
+    @Test
+    @DisplayName("排序 t151：交付物 assetVersionId / uploadedBy 也可服务端排序")
+    void deliverableNewSortKeysWork() throws Exception {
+        uploadDeliverable("d-1.py", "POC脚本", null);
+        uploadDeliverable("d-2.py", "POC脚本", null);
+
+        String body = mockMvc.perform(get("/api/v1/assets/" + asset.getId() + "/deliverables")
+                        .param("allVersions", "true").param("sort", "uploadedBy,asc")
+                        .header("Authorization", adminToken))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertEquals(2, objectMapper.readTree(body).path("data").path("totalElements").asInt());
+
+        // assetVersionId 对交付物是 UUID 列，仅要求不 400 且结果稳定
+        mockMvc.perform(get("/api/v1/assets/" + asset.getId() + "/deliverables")
+                        .param("allVersions", "true").param("sort", "assetVersionId,desc")
+                        .header("Authorization", adminToken))
+                .andExpect(status().isOk());
     }
 
     // ------------------------------------------------------------------ 三、筛选
