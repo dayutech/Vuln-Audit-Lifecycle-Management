@@ -37,6 +37,8 @@ export const assetVulnPagesZh = {
   'vuln.detail.edit': '编辑',
   'vuln.detail.backToList': '返回列表',
   'vuln.detail.loadFailed': '加载漏洞详情失败',
+  'vuln.list.redirectOpen': '已跳转到漏洞详情页',
+  'vuln.list.redirectNew': '已跳转到新建漏洞页',
 };
 
 export const assetVulnPagesEn: Record<keyof typeof assetVulnPagesZh, string> = {
@@ -70,4 +72,7 @@ export const assetVulnPagesEn: Record<keyof typeof assetVulnPagesZh, string> = {
   'vuln.detail.edit': 'Edit',
   'vuln.detail.backToList': 'Back to list',
   'vuln.detail.loadFailed': 'Failed to load the vulnerability',
+  'vuln.list.redirectOpen': 'Opening the vulnerability detail page',
+  'vuln.list.redirectNew': 'Opening the new vulnerability page',
 };
+

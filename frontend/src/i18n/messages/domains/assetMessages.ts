@@ -15,6 +15,7 @@ export const assetZh = {
   'asset.list.tagsEmpty': '无标签',
   'asset.list.tagsMore': '+{count}',
   'asset.list.new': '新建资产',
+  'asset.list.legacyNewRedirect': '新建资产已改为独立页面，正在跳转…',
   'asset.list.searchPlaceholder': '搜索资产名称/编码',
   'asset.list.deleteContent': '确定要删除该资产吗？此操作不可恢复。',
   'asset.list.deleteSuccess': '删除成功',
@@ -499,6 +500,7 @@ export const assetEn: Record<keyof typeof assetZh, string> = {
   'asset.list.tagsEmpty': 'No tags',
   'asset.list.tagsMore': '+{count}',
   'asset.list.new': 'New asset',
+  'asset.list.legacyNewRedirect': 'Creating an asset now uses its own page — redirecting…',
   'asset.list.searchPlaceholder': 'Search by name / code',
   'asset.list.deleteContent': 'Delete this asset? This cannot be undone.',
   'asset.list.deleteSuccess': 'Deleted',
@@ -970,5 +972,6 @@ export const assetEn: Record<keyof typeof assetZh, string> = {
 
   /* ---------- Asset groups ---------- */
 };
+
 
 
