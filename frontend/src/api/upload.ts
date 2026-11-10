@@ -25,6 +25,10 @@ export interface UploadApprovalItem {
   targetType?: string | null;
   targetId?: string | null;
   fileName?: string | null;
+  /** t165：用户填写的显示名（批准后作为业务记录名） */
+  displayName?: string | null;
+  /** t165：用户填写的描述 */
+  description?: string | null;
   fileSize?: number | null;
   contentType?: string | null;
   status?: UploadApprovalStatus | string | null;
@@ -68,7 +72,11 @@ export const submitPendingUpload = (
   const formData = new FormData();
   formData.append('file', params.file, params.fileName);
   formData.append('targetType', params.targetType);
-  if (params.name) formData.append('name', params.name);
+  if (params.name) {
+    // t165 契约：displayName 为规范字段；同时带 name 兼容旧后端（多余参数会被忽略）
+    formData.append('displayName', params.name);
+    formData.append('name', params.name);
+  }
   if (params.description) formData.append('description', params.description);
 
   return request.post('/uploads/pending', formData, {
@@ -140,3 +148,34 @@ export const approveUpload = (id: string): Promise<any> => {
 export const rejectUpload = (id: string, note?: string): Promise<any> => {
   return request.post(`/admin/upload-approvals/${id}/reject`, { note: note || null }, { silent: true } as any);
 };
+
+/* ==================== t166/t167：我的上传（服务端为准） ==================== */
+
+/**
+ * `GET /uploads/my`：**只含自己提交的**请求（后端按 requested_by 过滤）。
+ *
+ * 这是「我的上传」的唯一数据源（t167 起彻底取代前端 localStorage 登记）：
+ * 换设备 / 清缓存 / 隐私模式都不影响，历史始终完整。
+ */
+export const listMyUploadsRemote = (
+  params: { status?: string; keyword?: string; page?: number; size?: number } = {},
+): Promise<any> => {
+  return request.get('/uploads/my', {
+    params: {
+      status: params.status && params.status !== 'all' ? params.status : undefined,
+      keyword: params.keyword?.trim() ? params.keyword.trim() : undefined,
+      page: params.page ?? 0,
+      size: params.size ?? 20,
+    },
+    silent: true,
+  } as any);
+};
+
+/** `DELETE /uploads/my/{id}`：仅本人 PENDING → 撤下（删临时文件 + 标记 CANCELLED）；他人 403、非 PENDING 409 */
+export const withdrawMyUpload = (id: string): Promise<any> => {
+  return request.delete(`/uploads/my/${id}`, { silent: true } as any);
+};
+
+export const MY_UPLOAD_STATUSES = ['all', 'PENDING', 'APPROVED', 'REJECTED', 'CANCELLED', 'EXPIRED'] as const;
+
+

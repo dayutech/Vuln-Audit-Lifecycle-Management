@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   Button,
@@ -50,7 +50,7 @@ import { formatDateTime } from '@/utils/datetime';
 import { saveBlobAsFile } from '@/utils/download';
 import MyUploadsModal from '@/components/upload/MyUploadsModal';
 import { extractSubmitUpload, submitPendingUpload } from '@/api/upload';
-import { cleanupLegacyUploadKeys, rememberMyUpload } from '@/utils/myUploads';
+import { extractUploadApprovalPage, listMyUploadsRemote } from '@/api/upload';
 import { getApiErrorMessage, getApiErrorStatus, getBlobErrorMessage } from '@/utils/errorMessage';
 import { useT, type MessageKey } from '@/i18n';
 
@@ -151,10 +151,43 @@ const Tools: React.FC = () => {
     fetchData();
   }, [params.page, params.page_size, params.search]);
 
-  // t164：清理历史版本用过的 localStorage 键（只删不写；登记已改为内存优先）
+  /**
+   * t167：清理历史版本的本地登记键（只删不写）——「我的上传」已改走
+   * GET /uploads/my，localStorage 登记整体退役。
+   */
   useEffect(() => {
-    cleanupLegacyUploadKeys();
+    ['upload.pending.registry.v1', 'owl_my_uploads'].forEach((key) => {
+      try {
+        window.localStorage.removeItem(key);
+      } catch {
+        /* 隐私模式下忽略 */
+      }
+    });
   }, []);
+
+  /**
+   * t167：页面挂载/上传后，用**服务端**的 PENDING 请求恢复页面内提示。
+   *
+   * 这样「清缓存 / 换设备 / 刷新页面」后提示依旧在（t164 靠本地登记，刷新即丢）。
+   */
+  const restorePendingNotices = useCallback(async () => {
+    try {
+      const res = await listMyUploadsRemote({ status: 'PENDING', page: 0, size: 20 });
+      const parsed = extractUploadApprovalPage(res);
+      const restored = parsed.items.map((item) => ({
+        requestId: item.id,
+        fileName: item.displayName || item.fileName || '-',
+        purgeAfter: item.purgeAfter ?? null,
+      }));
+      setPendingNotices(restored);
+    } catch {
+      // 提示恢复失败不影响主流程（列表与上传照常）
+    }
+  }, []);
+
+  useEffect(() => {
+    void restorePendingNotices();
+  }, [restorePendingNotices]);
 
   // 版本列表的「创建人」列：后端只返回 createdBy（UUID），这里拉一次用户目录做映射
   useEffect(() => {
@@ -227,15 +260,12 @@ const Tools: React.FC = () => {
             const record = {
               requestId: result.requestId,
               fileName: result.fileName || packageFile.name,
-              fileSize: result.fileSize ?? packageFile.size,
-              targetType: result.targetType || 'TOOL',
-              requestedAt: new Date().toISOString(),
               purgeAfter: result.purgeAfter ?? null,
             };
-            // t164：先写内存登记（不依赖 localStorage），再追加页面内持久提示
-            rememberMyUpload(record);
+            // t167：不再写任何本地登记 —— 提示来自**服务端返回**，列表由 `GET /uploads/my` 兜底
             setPendingNotices((prev) => [record, ...prev.filter((item) => item.requestId !== record.requestId)]);
             message.info(t('upload.pendingNoticeTitle'));
+            void restorePendingNotices();
           } else {
             message.success(t('feedback.tool.createdWithPackage'));
           }
@@ -654,7 +684,11 @@ const Tools: React.FC = () => {
       />
 
       {/* t161：我的上传（大文件待审批状态） */}
-      <MyUploadsModal open={myUploadsOpen} onClose={() => setMyUploadsOpen(false)} />
+      <MyUploadsModal
+        open={myUploadsOpen}
+        onClose={() => setMyUploadsOpen(false)}
+        onChanged={() => void restorePendingNotices()}
+      />
 
       {/* 新建工具 */}
       <Modal
@@ -929,6 +963,9 @@ const describeVersionError = (error: unknown, fallback: string, t: (key: Message
 };
 
 export default Tools;
+
+
+
 
 
 
