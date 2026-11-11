@@ -370,6 +370,8 @@ const Assets: React.FC = () => {
         title: t('asset.list.colAction'),
         key: 'action',
         width: 230,
+        // t176：1680 宽下操作列会被挤出视口（编辑链接 x≈1959），固定到右侧保证可点
+        fixed: 'right' as const,
         render: (_: unknown, record: AssetVO) => (
           <Space size="middle">
             <a onClick={() => navigate(`/assets/${record.id}`)} data-testid={`asset-open-${record.id}`}>
@@ -548,4 +550,5 @@ const Assets: React.FC = () => {
 };
 
 export default Assets;
+
 

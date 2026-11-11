@@ -53,6 +53,8 @@ const MyUploadsModal: React.FC<MyUploadsModalProps> = ({ open, onClose, onChange
   const [loadError, setLoadError] = useState<string | null>(null);
   const [withdrawingId, setWithdrawingId] = useState<string | null>(null);
   const retriedRef = useRef(false);
+  /** t176：首开时先 loading，避免「0 行空表」闪烁；首次响应后才允许渲染空态 */
+  const [loadedOnce, setLoadedOnce] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -85,11 +87,15 @@ const MyUploadsModal: React.FC<MyUploadsModalProps> = ({ open, onClose, onChange
       }
     } finally {
       setLoading(false);
+      setLoadedOnce(true);
     }
   }, [status, keyword, page, t]);
 
   useEffect(() => {
     if (!open) return undefined;
+    // 同步置 loading：首帧就显示骨架，而不是空态
+    setLoading(true);
+    setLoadedOnce(false);
     const timer = window.setTimeout(() => {
       void load();
     }, 0);
@@ -330,12 +336,13 @@ const MyUploadsModal: React.FC<MyUploadsModalProps> = ({ open, onClose, onChange
       <Table<UploadApprovalItem>
         size="small"
         rowKey="id"
-        loading={loading}
+        loading={loading || !loadedOnce}
         dataSource={items}
         columns={columns}
         scroll={{ x: 'max-content' }}
         data-testid="my-uploads-table"
-        locale={{ emptyText: t('upload.myUploadsEmpty') }}
+        // t176：首载完成前不渲染空态文案，避免「0 行」闪一下
+        locale={{ emptyText: loadedOnce ? t('upload.myUploadsEmpty') : '' }}
         pagination={{
           current: page,
           pageSize: PAGE_SIZE,
@@ -350,5 +357,7 @@ const MyUploadsModal: React.FC<MyUploadsModalProps> = ({ open, onClose, onChange
 };
 
 export default MyUploadsModal;
+
+
 
 
