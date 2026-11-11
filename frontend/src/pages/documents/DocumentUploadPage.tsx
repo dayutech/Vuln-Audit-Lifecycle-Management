@@ -7,14 +7,12 @@ import { FormGroup, PageFormShell } from '@/components/layout/PageFormShell';
 import { createDocument } from '@/api/document';
 import {
   ATTACHMENT_ACCEPT,
-  BINARY_ATTACHMENT_MAX_BYTES,
-  TEXT_ATTACHMENT_MAX_BYTES,
-  buildAttachmentBlock,
+  ATTACHMENT_MAX_BYTES,
   extensionOf,
   isAllowedAttachment,
-  readTextFile,
   titleFromFileName,
 } from '@/utils/attachments';
+import { uploadAttachment } from '@/api/attachment';
 import { getApiErrorMessage } from '@/utils/errorMessage';
 import { useT } from '@/i18n';
 
@@ -42,10 +40,8 @@ const DocumentUploadPage: React.FC = () => {
       setFile(null);
       return;
     }
-    const isText = ['md', 'txt'].includes(extensionOf(picked.name));
-    const limit = isText ? TEXT_ATTACHMENT_MAX_BYTES : BINARY_ATTACHMENT_MAX_BYTES;
-    if (picked.size > limit) {
-      setError(t('documents.upload.tooLarge', { name: picked.name, limit: Math.round(limit / 1024) }));
+    if (picked.size > ATTACHMENT_MAX_BYTES) {
+      setError(t('docAttachment.tooLarge', { name: picked.name, limit: 50 }));
       setFile(null);
       return;
     }
@@ -61,19 +57,28 @@ const DocumentUploadPage: React.FC = () => {
       }
       const values = await form.validateFields();
       setSubmitting(true);
-      const isText = ['md', 'txt'].includes(extensionOf(file.name));
-      const text = isText ? await readTextFile(file) : '';
-      const block = await buildAttachmentBlock(file);
-      const content = `${isText ? text : `# ${values.title}\n\n`}${block}`;
+      // t174：先建草稿记录，再把文件作为**真实附件**上传（不再 base64 塞正文）
       const res: any = await createDocument({
         title: values.title.trim(),
         category: values.category,
         summary: values.summary?.trim(),
-        content,
+        content: t('docAttachment.draftPlaceholder', { name: file.name }),
       });
       const created = res?.data ? res.data : res;
+      if (!created?.id) {
+        message.warning(t('documents.upload.createdNoAttach'));
+        navigate('/documents');
+        return;
+      }
+      try {
+        await uploadAttachment('documents', created.id, file);
+      } catch (uploadError) {
+        message.warning(t('documents.upload.partialFailed'));
+        navigate(`/documents/${created.id}`);
+        return;
+      }
       message.success(t('documents.upload.created'));
-      navigate(created?.id ? `/documents/${created.id}` : '/documents');
+      navigate(`/documents/${created.id}`);
     } catch (submitError: any) {
       if (Array.isArray(submitError?.errorFields)) return;
       message.error(getApiErrorMessage(submitError, t('documents.upload.failed')));
@@ -99,7 +104,7 @@ const DocumentUploadPage: React.FC = () => {
           hint={t('documents.upload.hint')}
           testId="document-upload-form"
         >
-          <Form form={form} layout="vertical">
+          <Form form={form} layout="vertical" initialValues={{ category: 'vulnerability' }}>
             <FormGroup title={t('documents.upload.file')}>
               <Dragger
                 accept={ATTACHMENT_ACCEPT}
@@ -132,14 +137,14 @@ const DocumentUploadPage: React.FC = () => {
                 label={t('documents.form.title')}
                 rules={[{ required: true, message: t('documents.form.titleRequired') }]}
               >
-                <Input maxLength={500} placeholder={t('documents.upload.titleFromFile')} />
+                <Input maxLength={500} placeholder={t('documents.upload.titleFromFile')} data-testid="documents-upload-title" />
               </Form.Item>
               <Form.Item
                 name="category"
                 label={t('documents.form.category')}
                 rules={[{ required: true, message: t('documents.form.categoryRequired') }]}
               >
-                <Select placeholder={t('documents.form.categoryPlaceholder')}>
+                <Select placeholder={t('documents.form.categoryPlaceholder')} data-testid="documents-upload-category">
                   <Option value="guide">{t('documents.form.categoryGuide')}</Option>
                   <Option value="report">{t('documents.form.categoryReport')}</Option>
                   <Option value="policy">{t('documents.form.categoryPolicy')}</Option>
@@ -158,4 +163,7 @@ const DocumentUploadPage: React.FC = () => {
 };
 
 export default DocumentUploadPage;
+
+
+
 

@@ -25,6 +25,8 @@ export const getDocumentList = (params: DocumentQueryParams): Promise<any> => {
       category: params.category,
       assetId: params.asset_id,
       taskId: params.task_id,
+      // t174：状态筛选走服务端（DRAFT|PUBLISHED|all），数据库过滤、跨页 total 正确
+      status: params.status,
     },
   });
 };
@@ -101,3 +103,4 @@ export const extractDocumentTags = (res: any): DocumentTagVO[] => {
     (item: any) => item && typeof item === 'object' && typeof item.tag === 'string' && item.tag.length > 0,
   );
 };
+

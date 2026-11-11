@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Descriptions, Modal, Spin, Table, Tag, Typography, message } from 'antd';
-import { DownloadOutlined, EditOutlined, HistoryOutlined, SendOutlined, StopOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Descriptions, Modal, Spin, Table, Tag, Typography, message } from 'antd';
+import { EditOutlined, HistoryOutlined, SendOutlined, StopOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageHeader from '@/components/layout/PageHeader';
 import { getDocumentDetail, getDocumentVersions, publishDocument, unpublishDocument } from '@/api/document';
 import { renderRichContent } from '@/pages/knowledge/richContent';
-import { downloadRecordFile, parseAttachment, stripAttachment } from '@/utils/attachments';
+import { hasLegacyAttachment, stripAttachment } from '@/utils/attachments';
+import AttachmentPanel from '@/components/attachments/AttachmentPanel';
+import { canWriteDocumentTags } from '@/utils/accessRoles';
+import { getMyAccessProfile } from '@/api/permission';
 import { getApiErrorMessage } from '@/utils/errorMessage';
 import { formatDateTime } from '@/utils/datetime';
 import { useT } from '@/i18n';
@@ -22,6 +25,9 @@ const DocumentDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [doc, setDoc] = useState<DocumentVO | null>(null);
   const [loading, setLoading] = useState(false);
+  /** t174：附件上传/删除沿用「文档写权限」判定（作者或管理角色），未放宽 */
+  const [accessProfile, setAccessProfile] = useState<any>(null);
+  const [accessLoaded, setAccessLoaded] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [versions, setVersions] = useState<any[]>([]);
   const [versionsLoading, setVersionsLoading] = useState(false);
@@ -77,8 +83,18 @@ const DocumentDetailPage: React.FC = () => {
     }
   };
 
-  const attachment = useMemo(() => parseAttachment(doc?.content), [doc?.content]);
+  // t174：正文与附件分区；旧格式（t159 base64）只提示，不转换
   const content = useMemo(() => stripAttachment(doc?.content), [doc?.content]);
+  useEffect(() => {
+    getMyAccessProfile()
+      .then((res: any) => setAccessProfile(res?.data ?? res))
+      .catch(() => setAccessProfile(null))
+      .finally(() => setAccessLoaded(true));
+  }, []);
+
+  const attachmentWritable = accessLoaded && canWriteDocumentTags(accessProfile, (doc as any)?.authorId ?? (doc as any)?.author_id);
+
+  const legacyAttachment = useMemo(() => hasLegacyAttachment(doc?.content), [doc?.content]);
   const published = (doc?.status ?? '').toLowerCase() !== 'draft';
 
   return (
@@ -117,20 +133,23 @@ const DocumentDetailPage: React.FC = () => {
               <Descriptions.Item label={t('documents.colVersionLabel')}>v{doc?.version ?? 1}</Descriptions.Item>
             </Descriptions>
             {doc?.summary ? <Typography.Paragraph type="secondary">{doc.summary}</Typography.Paragraph> : null}
-            {attachment ? (
-              <Button
-                icon={<DownloadOutlined />}
+            {legacyAttachment ? (
+              <Alert
+                type="warning"
+                showIcon
                 style={{ marginBottom: 12 }}
-                onClick={() => downloadRecordFile(doc?.content, doc?.title ?? 'document')}
-                data-testid="document-detail-attachment"
-              >
-                {t('documents.upload.download')} · {attachment.name}
-              </Button>
+                message={t('docAttachment.legacyNotice')}
+                data-testid="document-legacy-attachment"
+              />
             ) : null}
             <div
               data-testid="document-detail-content"
               dangerouslySetInnerHTML={{ __html: renderRichContent(content, t('documents.emptyContent')) }}
             />
+            {/* t174：附件区（真实端点，正文与附件分区） */}
+            <Card size="small" style={{ marginTop: 16 }}>
+              <AttachmentPanel ownerType="documents" ownerId={String(id ?? '')} canWrite={attachmentWritable} />
+            </Card>
           </Card>
         </Spin>
       </div>
@@ -166,5 +185,8 @@ const DocumentDetailPage: React.FC = () => {
 };
 
 export default DocumentDetailPage;
+
+
+
 
 

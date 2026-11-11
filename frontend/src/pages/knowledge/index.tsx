@@ -93,7 +93,8 @@ const Knowledge: React.FC = () => {
   const [keyword, setKeyword] = useState('');
   /** t159：状态筛选（当前页过滤；后端 /knowledge 暂不支持 status 参数） */
   const [statusOnly, setStatusOnly] = useState('');
-  const [params, setParams] = useState({ page: 1, page_size: 10, search: '' });
+  /** t174：状态筛选走服务端 status，故 params 需要带上它 */
+  const [params, setParams] = useState<{ page: number; page_size: number; search: string; status?: string }>({ page: 1, page_size: 10, search: '' });
 
   // 搜索态
   const [searchKeyword, setSearchKeyword] = useState<string | null>(null);
@@ -167,7 +168,8 @@ const Knowledge: React.FC = () => {
     if (searchKeyword === null) {
       fetchData();
     }
-  }, [params.page, params.page_size, params.search, searchKeyword]);
+    // t174：状态是服务端筛选参数，必须进依赖，否则改动 status 不会重新拉取
+  }, [params.page, params.page_size, params.search, params.status, searchKeyword]);
 
   const authorName = (article: KnowledgeArticleVO) => {
     const id = article.authorId;
@@ -422,17 +424,22 @@ const Knowledge: React.FC = () => {
             >
               {t('knowledge.advancedFilter')}
             </Button>
-            {/* t159（需求 4）：状态筛选（后端列表暂无 status 参数，先按当前页过滤并说明） */}
+            {/* t174：状态筛选走服务端 status 参数（t162 已支持，跨页 total 正确） */}
             <Select
               allowClear
               placeholder={t('knowledge.filterStatus')}
               style={{ width: 150 }}
               value={statusOnly || undefined}
-              onChange={(value) => setStatusOnly(value ?? '')}
+              onChange={(value) => {
+                const next = (value ?? '').toUpperCase();
+                setStatusOnly(next);
+                // 服务端筛选：透传 status 并重置到第 1 页（否则会停在不存在的页码）
+                setParams((prev) => ({ ...prev, status: next || undefined, page: 1 }));
+              }}
               data-testid="knowledge-filter-status"
               options={[
-                { value: 'draft', label: t('knowledge.status.draft') },
-                { value: 'published', label: t('knowledge.status.published') },
+                { value: 'DRAFT', label: t('knowledge.status.draft') },
+                { value: 'PUBLISHED', label: t('knowledge.status.published') },
               ]}
             />
           </Space>
@@ -449,7 +456,7 @@ const Knowledge: React.FC = () => {
 
           <Table
             columns={columns}
-            dataSource={statusOnly ? data.filter((item) => (item.status ?? '').toLowerCase() === statusOnly) : data}
+            dataSource={data}
             rowKey="id"
             loading={loading}
             pagination={
@@ -542,6 +549,9 @@ const Knowledge: React.FC = () => {
 };
 
 export default Knowledge;
+
+
+
 
 
 

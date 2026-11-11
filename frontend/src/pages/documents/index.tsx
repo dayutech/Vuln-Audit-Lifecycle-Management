@@ -43,7 +43,7 @@ const Documents: React.FC = () => {
   const [data, setData] = useState<DocumentVO[]>([]);
   const [loading, setLoading] = useState(false);
   const [total, setTotal] = useState(0);
-  const [params, setParams] = useState({ page: 1, page_size: 10, search: '' });
+  const [params, setParams] = useState<{ page: number; page_size: number; search: string; status?: string }>({ page: 1, page_size: 10, search: '' });
   const [searchText, setSearchText] = useState('');
   /** t159：状态筛选（草稿/已发布） */
   const [statusFilter, setStatusFilter] = useState('');
@@ -155,7 +155,8 @@ const Documents: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, [params.page, params.page_size, params.search]);
+    // t174：状态是服务端筛选参数，必须进依赖
+  }, [params.page, params.page_size, params.search, params.status]);
 
   useEffect(() => {
     const search = new URLSearchParams(location.search).get('search') || '';
@@ -290,24 +291,29 @@ const Documents: React.FC = () => {
           onChange={(e) => setSearchText(e.target.value)}
           onPressEnter={() => setParams((prev) => ({ ...prev, search: searchText.trim(), page: 1 }))}
         />
-        {/* t159（需求 4）：状态筛选，草稿/已发布一眼可辨 */}
+        {/* t174：状态筛选改为**服务端**（t162 支持 `status=DRAFT|PUBLISHED`，数据库过滤、跨页正确） */}
         <Select
           allowClear
           placeholder={t('documents.filterStatus')}
           style={{ width: 160, marginLeft: 12 }}
           value={statusFilter || undefined}
-          onChange={(value) => setStatusFilter(value ?? '')}
+          onChange={(value) => {
+            const next = (value ?? '').toUpperCase();
+            setStatusFilter(next);
+            // 透传 status 并重置到第 1 页，避免停在不存在的页码
+            setParams((prev) => ({ ...prev, status: next || undefined, page: 1 }));
+          }}
           data-testid="document-filter-status"
           options={[
-            { value: 'draft', label: t('documents.status.draft') },
-            { value: 'published', label: t('documents.status.published') },
+            { value: 'DRAFT', label: t('documents.status.draft') },
+            { value: 'PUBLISHED', label: t('documents.status.published') },
           ]}
         />
       </div>
       <div ref={tableWrapRef}>
         <Table 
           columns={columns} 
-          dataSource={statusFilter ? data.filter((item) => item.status === statusFilter) : data}
+          dataSource={data}
           rowKey="id"
           loading={loading}
           onRow={(record) => (
@@ -370,6 +376,9 @@ const Documents: React.FC = () => {
 };
 
 export default Documents;
+
+
+
 
 
 

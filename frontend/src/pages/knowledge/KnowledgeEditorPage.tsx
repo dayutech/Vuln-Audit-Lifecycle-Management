@@ -6,7 +6,7 @@ import PageHeader from '@/components/layout/PageHeader';
 import { PageFormShell, FormGroup } from '@/components/layout/PageFormShell';
 import { createKnowledge, getKnowledgeDetail, updateKnowledge } from '@/api/knowledge';
 import { renderRichContent } from '@/pages/knowledge/richContent';
-import { downloadRecordFile, parseAttachment, stripAttachment } from '@/utils/attachments';
+import { hasLegacyAttachment, stripAttachment } from '@/utils/attachments';
 import { getApiErrorMessage } from '@/utils/errorMessage';
 import { useT, type MessageKey } from '@/i18n';
 import type { KnowledgeArticleVO } from '@/types/knowledge';
@@ -138,7 +138,8 @@ const KnowledgeEditorPage: React.FC = () => {
     }
   };
 
-  const attachment = useMemo(() => parseAttachment(content), [content]);
+  // t174：附件已改为详情页的独立分区（真实端点），编辑器只提示旧格式
+  const legacyAttachment = useMemo(() => hasLegacyAttachment(content), [content]);
 
   return (
     <>
@@ -223,17 +224,13 @@ const KnowledgeEditorPage: React.FC = () => {
             </FormGroup>
 
             <FormGroup title={t('knowledge.form.content')}>
-              {attachment ? (
+              {legacyAttachment ? (
                 <Alert
-                  type="info"
+                  type="warning"
                   showIcon
                   style={{ marginBottom: 12 }}
-                  message={t('knowledge.upload.attachmentAttached', { name: attachment.name })}
-                  action={
-                    <Button size="small" onClick={() => downloadRecordFile(content, 'knowledge')} data-testid="knowledge-attachment-download">
-                      {t('knowledge.upload.download')}
-                    </Button>
-                  }
+                  message={t('docAttachment.legacyNotice')}
+                  data-testid="legacy-attachment-notice"
                 />
               ) : null}
               <Tabs
@@ -278,5 +275,6 @@ const KnowledgeEditorPage: React.FC = () => {
 
 export { CATEGORY_KEYS };
 export default KnowledgeEditorPage;
+
 
 

@@ -6,7 +6,7 @@ import PageHeader from '@/components/layout/PageHeader';
 import { FormGroup, PageFormShell } from '@/components/layout/PageFormShell';
 import { createDocument, getDocumentDetail, publishDocument, updateDocument } from '@/api/document';
 import { renderRichContent } from '@/pages/knowledge/richContent';
-import { downloadRecordFile, parseAttachment, stripAttachment } from '@/utils/attachments';
+import { hasLegacyAttachment, stripAttachment } from '@/utils/attachments';
 import { getApiErrorMessage } from '@/utils/errorMessage';
 import { useT } from '@/i18n';
 import type { DocumentVO } from '@/types/document';
@@ -133,7 +133,8 @@ const DocumentEditorPage: React.FC = () => {
     }
   };
 
-  const attachment = useMemo(() => parseAttachment(content), [content]);
+  // t174：附件已改为详情页的独立分区（真实端点），编辑器只提示旧格式
+  const legacyAttachment = useMemo(() => hasLegacyAttachment(content), [content]);
 
   return (
     <>
@@ -223,17 +224,13 @@ const DocumentEditorPage: React.FC = () => {
             </FormGroup>
 
             <FormGroup title={t('documents.form.content')}>
-              {attachment ? (
+              {legacyAttachment ? (
                 <Alert
-                  type="info"
+                  type="warning"
                   showIcon
                   style={{ marginBottom: 12 }}
-                  message={t('documents.upload.attachmentAttached', { name: attachment.name })}
-                  action={
-                    <Button size="small" onClick={() => downloadRecordFile(content, 'document')} data-testid="document-attachment-download">
-                      {t('documents.upload.download')}
-                    </Button>
-                  }
+                  message={t('docAttachment.legacyNotice')}
+                  data-testid="legacy-attachment-notice"
                 />
               ) : null}
               <Tabs
@@ -277,5 +274,6 @@ const DocumentEditorPage: React.FC = () => {
 };
 
 export default DocumentEditorPage;
+
 
 

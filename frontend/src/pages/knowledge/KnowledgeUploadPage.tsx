@@ -7,28 +7,25 @@ import { PageFormShell, FormGroup } from '@/components/layout/PageFormShell';
 import { createKnowledge } from '@/api/knowledge';
 import {
   ATTACHMENT_ACCEPT,
-  BINARY_ATTACHMENT_MAX_BYTES,
-  TEXT_ATTACHMENT_MAX_BYTES,
-  buildAttachmentBlock,
+  ATTACHMENT_MAX_BYTES,
   extensionOf,
   isAllowedAttachment,
-  readTextFile,
   titleFromFileName,
 } from '@/utils/attachments';
+import { uploadAttachment } from '@/api/attachment';
 import { getApiErrorMessage } from '@/utils/errorMessage';
 import { useT } from '@/i18n';
 
 /**
- * 知识库手动上传（t159，需求 15）：**整页**表单，不是弹框。
+ * 知识库手动上传（t159 需求 15；t174 改为真实附件端点）。
  *
- * ## 实现口径（不新增后端依赖）
- * 后端 `KnowledgeArticle` 没有附件字段/附件表，也没有「上传即建记录」的端点。这里：
- * 1. `.md`/`.txt` → 文件文本作为正文；
- * 2. 其他类型（及文本原件）→ 以 base64 附件块随正文保存（下载时前端还原成 Blob），
- *    受 `content` 为 TEXT(64 KB) 限制，**二进制附件上限 40 KB**、文本上限 60 KB，超限直接拦下并提示。
- * 详见 `utils/attachments.ts` 顶部说明；后端补附件端点后只需替换该模块的两个函数。
- */
-const { Option } = Select;
+ * ## 现在的实现（t174）
+ * 1. 先用表单字段创建**草稿记录**（标题/分类/摘要/标签）；
+ * 2. 再用 POST /api/v1/knowledge/{id}/attachments 把文件作为**真实附件**上传（≤50 MB，超限 413）；
+ * 3. 跳转详情页，附件在独立分区里可下载/删除。
+ *
+ * t159 的 base64 塞正文方案已删除（受 content TEXT(64KB) 限制，实际传不了 PDF/PPT/压缩包）。
+ */const { Option } = Select;
 const { Dragger } = Upload;
 
 const KnowledgeUploadPage: React.FC = () => {
@@ -46,10 +43,8 @@ const KnowledgeUploadPage: React.FC = () => {
       setFile(null);
       return;
     }
-    const isText = ['md', 'txt'].includes(extensionOf(picked.name));
-    const limit = isText ? TEXT_ATTACHMENT_MAX_BYTES : BINARY_ATTACHMENT_MAX_BYTES;
-    if (picked.size > limit) {
-      setError(t('knowledge.upload.tooLarge', { name: picked.name, limit: Math.round(limit / 1024) }));
+    if (picked.size > ATTACHMENT_MAX_BYTES) {
+      setError(t('docAttachment.tooLarge', { name: picked.name, limit: 50 }));
       setFile(null);
       return;
     }
@@ -65,21 +60,30 @@ const KnowledgeUploadPage: React.FC = () => {
       }
       const values = await form.validateFields();
       setSubmitting(true);
-      const isText = ['md', 'txt'].includes(extensionOf(file.name));
-      const text = isText ? await readTextFile(file) : '';
-      const block = await buildAttachmentBlock(file);
-      const content = `${isText ? text : `# ${values.title}\n\n`}${block}`;
+      // t174：先建草稿记录，再把文件作为**真实附件**上传（不再 base64 塞正文）
       const res: any = await createKnowledge({
         title: values.title.trim(),
         category: values.category,
         summary: values.summary?.trim(),
         tags: values.tags ?? [],
-        content,
+        content: t('docAttachment.draftPlaceholder', { name: file.name }),
         status: 'draft',
       });
       const created = res?.data ? res.data : res;
+      if (!created?.id) {
+        message.warning(t('knowledge.upload.createdNoAttach'));
+        navigate('/knowledge');
+        return;
+      }
+      try {
+        await uploadAttachment('knowledge', created.id, file);
+      } catch (uploadError) {
+        message.warning(t('knowledge.upload.partialFailed'));
+        navigate(`/knowledge/${created.id}`);
+        return;
+      }
       message.success(t('knowledge.upload.created'));
-      navigate(created?.id ? `/knowledge/${created.id}` : '/knowledge');
+      navigate(`/knowledge/${created.id}`);
     } catch (submitError: any) {
       if (Array.isArray(submitError?.errorFields)) return;
       message.error(getApiErrorMessage(submitError, t('knowledge.upload.failed')));
@@ -105,7 +109,7 @@ const KnowledgeUploadPage: React.FC = () => {
           hint={t('knowledge.upload.hint')}
           testId="knowledge-upload-form"
         >
-          <Form form={form} layout="vertical">
+          <Form form={form} layout="vertical" initialValues={{ category: 'vulnerability' }}>
             <FormGroup title={t('knowledge.upload.file')}>
               <Dragger
                 accept={ATTACHMENT_ACCEPT}
@@ -138,14 +142,14 @@ const KnowledgeUploadPage: React.FC = () => {
                 label={t('knowledge.form.title')}
                 rules={[{ required: true, message: t('knowledge.form.titleRequired') }]}
               >
-                <Input maxLength={500} placeholder={t('knowledge.upload.titleFromFile')} />
+                <Input maxLength={500} placeholder={t('knowledge.upload.titleFromFile')} data-testid="knowledge-upload-title" />
               </Form.Item>
               <Form.Item
                 name="category"
                 label={t('knowledge.form.category')}
                 rules={[{ required: true, message: t('knowledge.form.categoryRequired') }]}
               >
-                <Select placeholder={t('knowledge.form.categoryPlaceholder')}>
+                <Select placeholder={t('knowledge.form.categoryPlaceholder')} data-testid="knowledge-upload-category">
                   <Option value="vulnerability">{t('knowledge.category.vulnerability')}</Option>
                   <Option value="methodology">{t('knowledge.category.methodology')}</Option>
                   <Option value="experience">{t('knowledge.category.experience')}</Option>
@@ -167,4 +171,8 @@ const KnowledgeUploadPage: React.FC = () => {
 };
 
 export default KnowledgeUploadPage;
+
+
+
+
 

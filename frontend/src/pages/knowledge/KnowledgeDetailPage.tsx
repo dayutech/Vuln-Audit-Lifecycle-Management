@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Button, Card, Descriptions, Input, Space, Spin, Tag, Typography, message } from 'antd';
-import { DownloadOutlined, EditOutlined, SendOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Descriptions, Input, Space, Spin, Tag, Typography, message } from 'antd';
+import { EditOutlined, SendOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageHeader from '@/components/layout/PageHeader';
 import { addKnowledgeComment, getKnowledgeDetail } from '@/api/knowledge';
 import { renderRichContent } from '@/pages/knowledge/richContent';
-import { downloadRecordFile, parseAttachment, stripAttachment } from '@/utils/attachments';
+import { hasLegacyAttachment, stripAttachment } from '@/utils/attachments';
+import { canWriteKnowledgeTags } from '@/utils/accessRoles';
+import AttachmentPanel from '@/components/attachments/AttachmentPanel';
+import { getMyAccessProfile } from '@/api/permission';
 import { getApiErrorMessage } from '@/utils/errorMessage';
 import { formatDateTime } from '@/utils/datetime';
 import { useT, type MessageKey } from '@/i18n';
@@ -31,6 +34,9 @@ const KnowledgeDetailPage: React.FC = () => {
   /** t159：评论从列表页的弹框移到详情页内联（列表页已无编辑/详情弹框） */
   const [comment, setComment] = useState('');
   const [commentSubmitting, setCommentSubmitting] = useState(false);
+  /** t174：附件上传/删除沿用「知识库写权限」判定（作者或管理角色），未放宽 */
+  const [accessProfile, setAccessProfile] = useState<any>(null);
+  const [accessLoaded, setAccessLoaded] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -65,8 +71,18 @@ const KnowledgeDetailPage: React.FC = () => {
     }
   };
 
-  const attachment = useMemo(() => parseAttachment(article?.content), [article?.content]);
+  // t174：正文与附件分区；旧格式（t159 base64）只做提示，不转换
   const content = useMemo(() => stripAttachment(article?.content), [article?.content]);
+  useEffect(() => {
+    getMyAccessProfile()
+      .then((res: any) => setAccessProfile(res?.data ?? res))
+      .catch(() => setAccessProfile(null))
+      .finally(() => setAccessLoaded(true));
+  }, []);
+
+  const attachmentWritable = accessLoaded && canWriteKnowledgeTags(accessProfile, article?.authorId);
+
+  const legacyAttachment = useMemo(() => hasLegacyAttachment(article?.content), [article?.content]);
   const tags = (article?.tags ?? '').split(',').map((tag) => tag.trim()).filter(Boolean);
   const published = (article?.status ?? '').toLowerCase() === 'published';
 
@@ -119,21 +135,25 @@ const KnowledgeDetailPage: React.FC = () => {
             {article?.summary ? (
               <Typography.Paragraph type="secondary">{article.summary}</Typography.Paragraph>
             ) : null}
-            {attachment ? (
-              <Button
-                icon={<DownloadOutlined />}
+            {legacyAttachment ? (
+              <Alert
+                type="warning"
+                showIcon
                 style={{ marginBottom: 12 }}
-                onClick={() => downloadRecordFile(article?.content, article?.title ?? 'knowledge')}
-                data-testid="knowledge-detail-attachment"
-              >
-                {t('knowledge.upload.download')} · {attachment.name}
-              </Button>
+                message={t('docAttachment.legacyNotice')}
+                data-testid="knowledge-legacy-attachment"
+              />
             ) : null}
             <div
               className="knowledge-content"
               data-testid="knowledge-detail-content"
               dangerouslySetInnerHTML={{ __html: renderRichContent(content, t('knowledge.emptyContent')) }}
             />
+
+            {/* t174：附件区（真实端点，正文与附件分区） */}
+            <Card size="small" style={{ marginTop: 16 }}>
+              <AttachmentPanel ownerType="knowledge" ownerId={String(id ?? '')} canWrite={attachmentWritable} />
+            </Card>
 
             {/* t159：评论从列表页的弹框移到详情页内联（列表页已无编辑/详情弹框） */}
             <div style={{ marginTop: 24 }} data-testid="knowledge-comment-box">
@@ -166,6 +186,9 @@ const KnowledgeDetailPage: React.FC = () => {
 };
 
 export default KnowledgeDetailPage;
+
+
+
 
 
 
