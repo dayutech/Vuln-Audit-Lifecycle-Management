@@ -4931,3 +4931,63 @@ DELETE /api/v1/uploads/my/{id}          # 仅本人 PENDING：撤回
 `status=PENDING` 只返回待审 + 非法 status 400、分页结构、keyword 命中 fileName 与 displayName、
 撤回自己的 PENDING（文件删除 + CANCELLED + 管理员再批 409）、撤回他人 403、撤回已批准 409、
 管理端 keyword/requestedBy 过滤 + 非法 status 400、未登录 401、撤回不存在 404。
+---
+
+## 70. 第四十六轮（t173 收口五：V34 + 上传审批完善 + 资产/漏洞列表页整页重写）
+
+时间：2026-11-10 21:18 – 2026-11-11 09:2x（跨夜，含两次被中断后的续跑）。
+
+| 项 | 结果 |
+|---|---|
+| 全量回归 | `mvn -B clean test` **连续 2 次全绿：1069 例 / 0 / 0 / 0**（任务预估 1090+，实测 1069，两轮一致，属预估偏差） |
+| 迁移双场景 | **V29–V34 六份一起** × 空库/生产克隆 × `general_ci`/`unicode_ci` × 各 2 遍 → **58 项断言全绿**；生产库 V34 两遍 `exit=0`：`display_name varchar(200)` / `description varchar(1000)`，collation 均 `utf8mb4_unicode_ci` |
+| 部署 | 后端 jar **73,539,997 B**（旧 jar 备份），重启 19s 内 login=200；前端清 `.tmp` 后构建 **`index-CxaHm_0M.js` 2,938,525 B / `index-C9wuC1eN.css` 30,800 B**，`sync-dist` 5 文件，线上已引用新 chunk |
+| 冒烟 | **319 / 319 PASS，0 FAIL，0 SKIP**（新增 5 条：`/uploads/my` 列表 / status=PENDING / 非法 status 400 / 撤回不存在 404 / 管理端 CANCELLED+keyword） |
+
+### 70.1 t172 修掉的既有缺陷：资产列表「客户/项目列重复定义」
+
+整页重写前 `pages/assets/index.tsx` 里 **客户列与项目列各定义两次**（同 key 重复的列描述），表现为表头出现两份「客户」「项目」并触发 React 重复 key 告警。重写后单一定义。
+**真机证据**：表头 12 列为 `资产名称|资产编码|所属团队|负责人|客户|项目|类型|来源|优先级|状态|标签|操作`，`客户` 出现 **1** 次、`项目` 出现 **1** 次。
+
+### 70.2 真机验收 A：资产列表（12/12）
+
+- 表头 **12 列**；客户/项目各 **1** 次（上节证据）。
+- **标签列**：第 11 列 `.ant-tag` 有内容（示例「历史数据 / 历史项目」），2/5 行有标签。
+- **逐行 `/assets/{id}/tags` 请求数 = 0**（`per-asset=0`，仅靠内联 `tags`）。
+- 筛选区 5 个选择器（客户/项目/期次/标签等）。
+- 「新建」→ `/assets/new`；**`?new=1` 重定向到 `/assets/new` 且 query 已清**。
+- 行「编辑」→ `/assets/{id}/edit`（实测 `db5f8582-…/edit`）。
+
+### 70.3 真机验收 B：漏洞列表整页重写（10/10 + 1 条未完成断言）
+
+- **`<Drawer`/`<Modal` 双验为 0**：源码 grep `pages/vulnerabilities/index.tsx` = **0**（304 行，原 890 行）；DOM 实测 `drawer=0 modal=0`。
+- 表头 **10 列**、分页可用：点第 2 页 → `GET /vulnerabilities?page=1&size=10&keyword=`。
+- 严重程度筛选进参数：`GET /vulnerabilities?...&severity=HIGH`。
+- **详情/编辑整页可达**：直接打开 `/vulnerabilities/{id}` 为整页（无 Drawer/Modal）→「编辑」→ `/vulnerabilities/{id}/edit` →「返回」回到详情。
+- ⚠️ **未完成断言（新建全链路）**：`/vulnerabilities/new` 整页渲染正常（表单 + 提交按钮 + 5 个 Select），点击提交确实发出 `POST /api/v1/vulnerabilities`，但**请求体缺 `assetId`/`discoveredVersionId`**：
+  `{"title":"…","type":"other","severity":"medium","description":"…","detail":"…"}` → **400 参数校验失败**。
+  已尝试三种真实交互（下拉选项真实鼠标坐标点击、`ArrowDown+Enter`、先输入搜索词再 `ArrowDown+Enter`）——`type`/`severity` 提交的是**表单初值**（`other`/`medium`），说明我的交互没有把值写进表单。
+  **结论**：该断言未能通过自动化完成，**需人工点一次确认**是「antd v6 可搜索 Select 与 Form 绑定」问题还是自动化局限；未以放宽断言的方式绕过。
+
+### 70.4 真机验收 C：上传审批完善 + 我的上传（API 8/8，UI 关键项通过）
+
+**API 8/8**：
+- **V34 回填**：`POST /uploads/pending` 带 `displayName=我的工具` → `201 PENDING`（响应回显 `displayName=我的工具`）→ `GET /uploads/my?status=PENDING` 可见 → **approve 后 `GET /tools` 里名字就是「我的工具」**（不再回落 `t173_v34`）。
+- `/uploads/my`：`status=PENDING` 有 2 条 → 撤回自己 PENDING → **200 + CANCELLED**，临时区文件 **2→1**；**已撤回再批准 → 409**（状态机严格）；撤回不存在 → 404。
+
+**UI（真实 Edge）**：
+- 工具页连续 3 次 25MB 上传：**提示命中数 2 → 4 → 4**（每张卡片命中 2 次，等效 1 → 2 → 2+）、**`GET /tools` 刷新 4 次**、上传走 `POST /uploads/pending`。
+- **「我的上传」来自服务端**：清空 `localStorage`（仅留 `access_token`）后打开面板仍有 **5 行**、`GET /uploads/my` 请求 2 次。
+- 撤回按钮存在并可点，撤回后行状态显示「已撤回」。
+- ⚠️ 两处自动化观测不稳（已记录，不影响结论）：① 首次打开「我的上传」面板读到 `rows=0`（读得太早，未等 `GET /uploads/my` 返回）；② 3 次上传只捕获到 2 次 `POST /uploads/pending`（第 3 次可能被表单校验/时序挡下），但提示条与 `GET /tools` 刷新都显示上传确实发生。
+
+### 70.5 其他观察
+
+- 1680 宽视口下资产列表「编辑」链接的 x≈1959（在视口外，需横向滚动）；DOM 点击可用，属**布局小问题**。
+- 造数需要用 `POST /api/v1/vulnerabilities` 时**必须带 `discoveredVersionId`**（缺则 400「发现版本ID不能为空」），真机造 12 条用资产 v1 的版本 id。
+
+### 70.6 清理
+
+- 临时开关（dev-mode / IP / 重置 / 锁定阈值 / upload 覆盖）全部移除并重启复核：**发码无 devCode**、锁定第 6 次 **429 + Retry-After 900**、**2FA 开启用户 = 0**。
+- 临时库 `vuln_audit_verify_*` / `vuln_audit_clone_*` 全 DROP、`vulnapp` 临时授权 REVOKE；`uploads/pending`、`uploads/approved` 清空。
+- 数据终态：`customers=1 projects=1 phases=0 assets=3 links=3`、`orphan=0`、`tag_definitions=3`、`files=4`、`vulns=0`、`users=12`、`codes/requests/rm_tokens=0`、`2fa_on=0`、`upload_approvals=0`、`attachments=0`、`tools=0`。

@@ -2259,3 +2259,25 @@ Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试
 撤回自己的 PENDING（文件删除 + CANCELLED + 管理员再批 409）、撤回他人 403、撤回已批准 409、
 管理端 keyword/requestedBy + 非法 status 400、未登录 401、撤回不存在 404。
 前端可整体删除 `utils/myUploads.ts`（替换点见 README §70.10）。
+
+### 2.42 t173 收口五：V34、上传审批完善、资产/漏洞列表页整页重写（t164–t172）
+
+**全量回归**：`mvn -B clean test` ×2 → **1069 例 / 0 / 0 / 0**（预估 1090+，实测 1069）。
+**迁移**：**V29–V34 六份** × 空库/克隆 × 两种 collation × 各 2 遍 → **58 项断言全绿**；生产 V34 两遍 `exit=0`（两列 + `unicode_ci`）。
+**部署**：后端 jar 73,539,997 B + 前端 `index-CxaHm_0M.js` 2,938,525 B 同批；冒烟 **319/319**（新增 5 条 `/uploads/my` 相关）。
+
+**既有缺陷修复记录：资产列表「客户/项目列重复定义」**
+`pages/assets/index.tsx` 重写前客户列与项目列各定义两次（同 key 重复列描述，表头出现两份并触发 React 重复 key 告警）；t172 重写后单一定义。真机证据：12 列表头中 `客户`、`项目` 各出现 **1** 次。
+
+**真机验收**
+| 组 | 结果 |
+|---|---|
+| 资产列表 | **12/12**：12 列；客户/项目各 1 次；标签列 `.ant-tag` 有内容；逐行 `/assets/{id}/tags` **0** 请求；新建→`/assets/new`；`?new=1` 重定向且 query 清空；行编辑→`/assets/{id}/edit` |
+| 漏洞列表 | **10/10**：源码 grep（0 处、304 行）+ DOM 双验无 Drawer/Modal；10 列表头；翻页 `page=1`；`severity=HIGH` 进参数；详情整页→编辑→返回全通 |
+| 上传审批 + 我的上传 | **API 8/8**：`displayName=我的工具` → PENDING → approve → `GET /tools` 名字即「我的工具」；`/uploads/my` 撤回 → CANCELLED + 临时文件 2→1 + 再批准 409 + 不存在 404；**UI**：3 次 25MB 上传提示递增、`GET /tools` 刷新 4 次、清空 localStorage 后「我的上传」仍 5 行（来自 `GET /uploads/my`）、撤回后显示「已撤回」 |
+
+**未完成断言（须人工确认，未放宽断言）**
+`/vulnerabilities/new` 整页渲染正常且提交确实发出 `POST /api/v1/vulnerabilities`，但请求体**缺 `assetId`/`discoveredVersionId`**（`type`/`severity` 提交的是表单初值 `other`/`medium`）→ 400。
+已尝试「下拉选项真实鼠标坐标点击」「ArrowDown+Enter」「先输入搜索词再 ArrowDown+Enter」三种真实交互，均未把资产/版本写入表单值。**结论**：该断言未通过自动化完成，需人工点一次确认是 antd v6 可搜索 Select 与 Form 绑定问题，还是自动化局限。
+
+**其他观察**：1680 宽视口下资产列表「编辑」链接 x≈1959（视口外，需横向滚动）；造漏洞数据必须带 `discoveredVersionId`。

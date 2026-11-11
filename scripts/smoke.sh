@@ -2405,6 +2405,19 @@ fi
   request GET '/api/v1/documents?status=PUBLISHED&page=0&size=2' "$ADMIN_TOKEN"
   judge "documents/status=PUBLISHED-200" 200 '"totalElements"' "数据库过滤"
 
+  # ---- 我的上传（t166）----
+  request GET '/api/v1/uploads/my?status=all&page=0&size=10' "$ADMIN_TOKEN"
+  judge "uploads/my-列表-200" 200 '"content"' "GET /uploads/my"
+  request GET '/api/v1/uploads/my?status=PENDING&page=0&size=10' "$ADMIN_TOKEN"
+  judge "uploads/my-审核中-200" 200 '' "status=PENDING"
+  request GET '/api/v1/uploads/my?status=bogus' "$ADMIN_TOKEN"
+  judge "uploads/my-非法status-400" 400 '' "白名单含 CANCELLED"
+  RAND_UP="$(python3 -c 'import uuid;print(uuid.uuid4())')"
+  request DELETE "/api/v1/uploads/my/${RAND_UP}" "$ADMIN_TOKEN"
+  judge "uploads/my-撤回不存在-404" 404 '' "DELETE /uploads/my/{未知id}"
+  request GET "/api/v1/admin/upload-approvals?status=CANCELLED&keyword=x&page=0&size=5" "$ADMIN_TOKEN"
+  judge "upload-approvals-CANCELLED-200" 200 '"content"' "管理端支持 CANCELLED/keyword"
+
   printf '\n==== 冒烟汇总 ====\n'
 printf 'TOTAL=%d  PASS=%d  FAIL=%d  SKIP=%d\n' "$TOTAL" "$PASSED" "$FAILED" "$SKIPPED"
 if [ "$FAILED" -gt 0 ]; then

@@ -403,3 +403,15 @@ PASS  E-k 工具版本全链路 | v1=201 v2=201 hasFile=2 versionNo=2,1 下载=2
 - 前端真机：/knowledge/new 与 /documents/new 整页（modal=0）；上传页「生成知识条目」→POST /knowledge→/knowledge/{id} 草稿；工具页 25MB→POST /uploads/pending；管理员审批页 PENDING 行可见且可拒绝；非管理员 403 且无菜单入口。
 - 发现记录（未改代码）：① PENDING 丢失 name/description（V32 无列）→ 批准后工具名回退文件名；② 工具页 PENDING toast/面板 3 次仅 1 次稳定观察到，localStorage 我的上传两次为空，需人工确认；③ PENDING 分支早退导致元数据行不即时刷新；④ 清理陈旧 backend/uploads 656 个历史文件。
 - 清理：临时开关与 APP_UPLOAD_MAX_BYTES 覆盖全部移除并重启复核（无 devCode、锁定 429+900、2FA 开启用户 0）；临时库 0、临时授权回收；uploads/pending 与 approved 清空；终态 customers=1 projects=1 assets=3 links=3、orphan=0、tag_definitions=3、users=12、codes/requests/rm_tokens=0。
+########## 二十三、t173 收口五（V34 + 上传审批完善 + 列表页重写，前后端同批，2026-11-11 09:2x） ##########
+- 全量回归：mvn -B clean test 连续 2 次 → 1069 例 / Failures 0 / Errors 0 / Skipped 0（预估 1090+，实测 1069）。
+- 迁移双场景：V29–V34 六份 × 空库/克隆 × general_ci/unicode_ci × 各 2 遍 → 58 项断言全绿；生产 V34 两遍 exit=0（display_name varchar(200) / description varchar(1000)，collation unicode_ci）。
+- 部署：后端 jar 73,539,997 B（重启 19s login=200）+ 前端 index-CxaHm_0M.js 2,938,525 B / index-C9wuC1eN.css，sync-dist 5 文件，线上已引用新 chunk。
+- 冒烟：TOTAL=319 PASS=319 FAIL=0 SKIP=0（新增 5 条：/uploads/my 列表、status=PENDING、非法 status 400、撤回不存在 404、管理端 CANCELLED+keyword）。
+- 真机 A（资产列表）12/12：12 列；客户/项目各出现 1 次（t172 修的重复 key）；标签列 .ant-tag 有内容；逐行 /assets/{id}/tags 请求 0；新建→/assets/new；?new=1 重定向且 query 清空；行编辑→/assets/{id}/edit。
+- 真机 B（漏洞列表）10/10：源码 grep 与 DOM 双验 Drawer/Modal=0（304 行，原 890）；10 列表头；翻页 page=1；severity=HIGH 进参数；详情整页→编辑→返回全通。
+  ⚠ 未完成：/vulnerabilities/new 提交的 POST 缺 assetId/discoveredVersionId（body 显示 type/severity 为初值 other/medium）→ 400；三种真实交互均未写入表单值，需人工确认（未放宽断言）。
+- 真机 C（上传审批 + 我的上传）API 8/8：displayName=我的工具 → PENDING → approve → GET /tools 名字为「我的工具」；/uploads/my 撤回 200+CANCELLED、临时文件 2→1、再批准 409、撤回不存在 404。
+  真机 C UI：3 次 25MB 上传提示递增、GET /tools 刷新 4 次、POST /uploads/pending 走通；清空 localStorage（仅留 token）后「我的上传」5 行且 /uploads/my 请求 2 次（服务端数据）；撤回后状态「已撤回」。
+- 其他观察：1680 宽下资产列表「编辑」链接 x≈1959 在视口外（需横向滚动）；造漏洞必须带 discoveredVersionId。
+- 清理：临时开关与 upload 覆盖全移除并重启复核（无 devCode、锁定 429+900、2FA 开启用户 0）；临时库 0、授权回收、uploads/pending|approved 清空；终态 customers=1 projects=1 assets=3 links=3、orphan=0、tag_definitions=3、vulns=0、users=12、codes/requests/rm_tokens=0、upload_approvals=0、attachments=0、tools=0。
