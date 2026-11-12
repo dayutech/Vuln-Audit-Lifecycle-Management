@@ -30,6 +30,7 @@ import FormDefinitionEditorPage from '@/pages/admin/FormDefinitionEditorPage';
 import FormNewPage from '@/pages/forms/FormNewPage';
 import FormDetailPage from '@/pages/forms/FormDetailPage';
 import FormMinePage from '@/pages/forms/FormMinePage';
+import FormAssignedPage from '@/pages/forms/FormAssignedPage';
 import Tasks from '@/pages/tasks/index';
 import Approvals from '@/pages/approvals/index';
 import ApprovalScopes from '@/pages/approval-scopes/index';
@@ -200,6 +201,7 @@ const router = createBrowserRouter([
       { path: '/admin/form-definitions/:id/edit', element: <FormDefinitionEditorPage /> },
       { path: '/forms/new', element: <FormNewPage /> },
       { path: '/forms/mine', element: <FormMinePage /> },
+      { path: '/forms/assigned', element: <FormAssignedPage /> },
       { path: '/forms/:id', element: <FormDetailPage /> },
       {
         path: '/teams',
@@ -277,6 +279,7 @@ const router = createBrowserRouter([
 ]);
 
 export default router;
+
 
 
 

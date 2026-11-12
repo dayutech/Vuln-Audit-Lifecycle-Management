@@ -4,6 +4,7 @@ import { PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/layout/PageHeader';
 import { FORM_STATUSES, listMyFormSubmissions, type FormSubmissionSummaryVO } from '@/api/forms';
+import FormExportButton from '@/components/forms/FormExportButton';
 import { getApiErrorMessage } from '@/utils/errorMessage';
 import { formatDateTime } from '@/utils/datetime';
 import { useT } from '@/i18n';
@@ -104,7 +105,8 @@ const FormMinePage: React.FC = () => {
         fallbackTo="/dashboard"
         extra={
           <Space>
-            <Button icon={<ReloadOutlined />} onClick={() => void load()} />
+            <Button icon={<ReloadOutlined />} onClick={() => void load()} data-testid="form-mine-refresh" />
+            <FormExportButton params={{ status: params.status }} fallbackName="my-forms" testIdPrefix="form-export" />
             <Button
               type="primary"
               icon={<PlusOutlined />}
@@ -152,3 +154,4 @@ const FormMinePage: React.FC = () => {
 };
 
 export default FormMinePage;
+

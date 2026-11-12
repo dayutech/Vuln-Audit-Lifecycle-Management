@@ -1,4 +1,7 @@
+import axios from 'axios';
+import type { AxiosRequestConfig } from 'axios';
 import request from '@/utils/request';
+import { parseContentDispositionFilename } from '@/utils/download';
 
 /**
  * 自定义填表系统（后端 t178–t181，前端 t182）。
@@ -263,3 +266,115 @@ export const resetEnabledDefinitionsCache = () => {
   enabledDefinitionsCache.value = null;
 };
 
+// ==================== 5B：填写 / 提交 / 覆盖 / 确认退回 / 待我处理 / 导出 ====================
+
+export interface FormValueInput {
+  fieldId: string;
+  filledValue?: string | null;
+}
+
+export interface FormOverrideInput {
+  fieldId: string;
+  overrideValue?: string | null;
+}
+
+/** 填写（草稿不校验必填）：PUT /forms/submissions/{id}/values */
+export const putFormValues = async (id: string, values: FormValueInput[]): Promise<FormSubmissionVO> => {
+  const res: any = await request.put(`/forms/submissions/${id}/values`, { values }, { silent: true });
+  return unwrap(res);
+};
+
+/** 提交（后端必填缺失 → 400 且 data 里带字段 label 列表）：POST /forms/submissions/{id}/submit */
+export const submitForm = async (id: string): Promise<FormSubmissionVO> => {
+  const res: any = await request.post(`/forms/submissions/${id}/submit`, undefined, { silent: true });
+  return unwrap(res);
+};
+
+/**
+ * 覆盖值（**只影响导出，不改业务数据**）：PUT /forms/submissions/{id}/overrides
+ *
+ * 仅 SUBMITTED 之后可写；`overrideValue: null` 表示清除覆盖。
+ */
+export const putFormOverrides = async (id: string, values: FormOverrideInput[]): Promise<FormSubmissionVO> => {
+  const res: any = await request.put(`/forms/submissions/${id}/overrides`, { values }, { silent: true });
+  return unwrap(res);
+};
+
+/** 确认：POST /forms/submissions/{id}/confirm */
+export const confirmForm = async (id: string): Promise<FormSubmissionVO> => {
+  const res: any = await request.post(`/forms/submissions/${id}/confirm`, undefined, { silent: true });
+  return unwrap(res);
+};
+
+/** 退回（原因必填，≤2000）：POST /forms/submissions/{id}/return */
+export const returnForm = async (id: string, note: string): Promise<FormSubmissionVO> => {
+  const res: any = await request.post(`/forms/submissions/${id}/return`, { note }, { silent: true });
+  return unwrap(res);
+};
+
+/** 待我处理：GET /forms/submissions/assigned */
+export const listAssignedFormSubmissions = async (params: {
+  status?: string;
+  page?: number;
+  size?: number;
+}): Promise<PageEnvelope<FormSubmissionSummaryVO>> => {
+  const res: any = await request.get('/forms/submissions/assigned', { params, silent: true });
+  const payload = unwrap(res) ?? {};
+  return { content: payload.content ?? [], totalElements: payload.totalElements ?? 0, totalPages: payload.totalPages };
+};
+
+export interface FormExportParams {
+  definitionId?: string;
+  status?: string;
+  from?: string;
+  to?: string;
+  format: 'csv' | 'xlsx';
+}
+
+/**
+ * 导出（批量）：GET /forms/submissions/export?format=csv|xlsx → blob。
+ *
+ * 走独立 axios 而不是共享 request 实例 —— 需要读取 `Content-Disposition`
+ * 的 RFC 5987 中文文件名（共享实例只返回 data）。鉴权头照旧。
+ */
+export const exportFormSubmissions = async (
+  params: FormExportParams,
+): Promise<{ blob: Blob; fileName?: string }> => {
+  const token = localStorage.getItem('access_token');
+  const response = await axios.get<Blob>('/api/v1/forms/submissions/export', {
+    params: {
+      definitionId: params.definitionId || undefined,
+      status: params.status && params.status !== 'ALL' ? params.status : undefined,
+      from: params.from || undefined,
+      to: params.to || undefined,
+      format: params.format,
+    },
+    responseType: 'blob',
+    silent: true,
+    timeout: 120000,
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  } as AxiosRequestConfig);
+  const disposition = (response.headers?.['content-disposition'] as string | undefined) ?? undefined;
+  return { blob: response.data, fileName: parseContentDispositionFilename(disposition) };
+};
+
+/** 导出单条：GET /forms/submissions/{id}/export?format= */
+export const exportFormSubmission = async (
+  id: string,
+  format: 'csv' | 'xlsx',
+): Promise<{ blob: Blob; fileName?: string }> => {
+  const token = localStorage.getItem('access_token');
+  const response = await axios.get<Blob>(`/api/v1/forms/submissions/${id}/export`, {
+    params: { format },
+    responseType: 'blob',
+    silent: true,
+    timeout: 120000,
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  } as AxiosRequestConfig);
+  const disposition = (response.headers?.['content-disposition'] as string | undefined) ?? undefined;
+  return { blob: response.data, fileName: parseContentDispositionFilename(disposition) };
+};
+
+/** 字段是否支持在详情直接填写（FILE 交给附件区） */
+export const isInlineEditableFieldType = (fieldType?: string | null): boolean =>
+  Boolean(fieldType) && fieldType !== 'FILE';

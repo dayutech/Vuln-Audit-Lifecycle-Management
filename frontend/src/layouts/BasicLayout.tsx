@@ -181,6 +181,7 @@ const BasicLayout: React.FC = () => {
                 { key: '/documents', icon: <FileTextOutlined />, label: t('menu.documents') },
                 { key: '/tools', icon: <ToolOutlined />, label: t('menu.tools') },
                 // t182：自定义填表系统（生成 / 我发起的）
+                { key: '/forms/assigned', icon: <FormOutlined />, label: t('menu.formsAssigned') },
                 { key: '/forms/mine', icon: <FormOutlined />, label: t('menu.formsMine') },
                 { key: '/forms/new', icon: <FormOutlined />, label: t('menu.formsNew') },
       ],
@@ -395,6 +396,7 @@ const BasicLayout: React.FC = () => {
 };
 
 export default BasicLayout;
+
 
 
 
