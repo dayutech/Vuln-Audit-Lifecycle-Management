@@ -2348,3 +2348,25 @@ Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试
 **验证**：`FormFillFlowTest` **18/18**；三套表单测试回归 **52/52**。
 关键用例：填写后 `sourceValue` 不变；给 `ASSET.NAME` 设覆盖后 `asset.name` 仍是原值；清除覆盖后 effective 回落。
 规则与优先级见 README §72.9。
+
+### 2.48 填表系统 4/5：导出 CSV + XLSX（t181）
+
+**实现**：
+- `pom.xml` 引入 `org.apache.poi:poi-ooxml:5.2.5`（仅服务端；**体积约 30MB**，只影响后端 jar）；
+- `GET /forms/submissions/export`（ADMIN/PROJECT_LEADER 全量；其他角色仅「与我相关」）+ `GET /{id}/export`（同详情权限）；
+  过滤 definitionId/status/from/to；**单次上限 5000 行**（可配置，超限 400）；空结果只出表头；
+- CSV **UTF-8 BOM** + RFC 5987 中文文件名；XLSX 用 **SXSSF 流式写**（内存窗口 100 行）；
+- 列：11 固定列 + 动态字段列（模板字段按 sort_order + 实例级字段，**按 fieldId 归并**，重名补 ` (2)`）；
+- 单元格值统一走 `FormValues.effectiveValue`（override ?? filled ?? source），**不加覆盖标记**（导出即最终值，已说明取舍）；
+  NUMBER 字段在 XLSX 里是数值单元格；空值 CSG 空串 / XLSX 空单元格；
+- 审计 `EXPORT_FORM_SUBMISSIONS`（format/rows/过滤条件/scope），两端点入 `SKIP_ENDPOINTS`。
+
+**顺手修掉一个 t179 的真缺陷**：实例级字段 `field_key` 原为 `instance_1`，而唯一键是 `(definition_id, field_key)` ——
+**同一模板的第二个实例再加字段就 409**（导出测试用两实例时暴露）。改为 `instance_{seq}_{submissionId 前 8 位}`，
+并在 `FormSubmissionTest` 同步断言前缀。
+
+**验证**：`FormExportTest` **13/13**；四套表单测试回归 **65/65**。
+
+**踩坑记档**：① 权限矩阵测试原以为 `leaderToken` 是 PROJECT_LEADER，实际 BaseTest 里是 **TEAM_LEADER**（必须仍收窄），
+补了一个真 PROJECT_LEADER 用户夹具才能覆盖「管理层全量」分支；② 列名重复问题——按 fieldId 归并后两列同名，
+加序号解决（与任务字面「首次 label」有偏差，已记录）。

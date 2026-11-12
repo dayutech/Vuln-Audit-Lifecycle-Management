@@ -19,6 +19,9 @@ public interface FormValueRepository extends JpaRepository<FormValue, UUID> {
 
     List<FormValue> findBySubmissionId(UUID submissionId);
 
+    /** t181：批量取多个实例的值（导出用） */
+    List<FormValue> findBySubmissionIdIn(Collection<UUID> submissionIds);
+
     /** t179：批量统计每个实例「已填写」的字段数（列表页进度 N/M，避免 N+1） */
     @Query("select v.submissionId, count(v) from FormValue v where v.submissionId in :ids "
             + "and v.filledValue is not null and v.filledValue <> '' group by v.submissionId")

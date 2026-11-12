@@ -5217,3 +5217,57 @@ cd backend && mvn -B test -Dtest='FormFillFlowTest,FormSubmissionTest,FormDefini
 已提交再填 409、覆盖时机 409、覆盖后 `filledValue` 不变且 `effectiveValue` 取覆盖、清除覆盖回落、
 **覆盖后资产名不变**、被指派人改覆盖 403、确认权限与状态、退回 note 必填 + 退回后可重交、确认人权限、
 assigned 只含自己（含 RETURNED + note）、四类审计计数、未登录 401、优先级三态。
+
+### 72.10 t181 增补：导出 CSV + XLSX（第 4/5 块）
+
+### 72.10.1 依赖
+
+`org.apache.poi:poi-ooxml:5.2.5`（**仅服务端**）。体积影响：poi + poi-ooxml + poi-ooxml-lite + xmlbeans +
+commons-compress/io/collections4/curvesapi/commons-math3 合计约 **30MB**，只进后端 jar；前端与 API 响应不受影响。
+XLSX 用 **SXSSF 流式写**（内存窗口 100 行），5000 行也不会把堆撑爆。
+
+### 72.10.2 接口
+
+| 方法 | 路径 | 权限 |
+|---|---|---|
+| GET | `/api/v1/forms/submissions/export?definitionId=&status=&from=&to=&format=csv\|xlsx` | **ADMIN / PROJECT_LEADER → 全部**；其他角色 → 仅「与我相关」（我发起 / 指派给我 / 我是确认人） |
+| GET | `/api/v1/forms/submissions/{id}/export?format=csv\|xlsx` | 同详情（发起人 / 被指派人 / 确认人 / ADMIN；其他人 **404**） |
+
+- 过滤：`definitionId`（可空=全部模板）、`status`（白名单，非法 **400**）、`from`/`to` 按 `createdAt` **闭区间**（ISO 日期，`from>to` → 400）；
+- **单次上限 5000 行**（`app.forms.export.max-rows`，可配置）：超出 → **400** 并提示缩小范围（多取 1 行判定，不做两次查询）；
+- 空结果也导出（只有表头），前端不用特判；
+- 响应头：CSV `text/csv; charset=UTF-8` + **UTF-8 BOM**；XLSX 标准 OOXML MIME；
+  两者 `Content-Disposition` 都给 ASCII 回退 + **RFC 5987** `filename*=UTF-8''…`（中文文件名不乱码）。
+
+### 72.10.3 列结构与取值口径
+
+固定前置 11 列：`表单ID`、`模板名称`、`主体类型`、`主体名称`、`状态`、`发起人`、`被指派人`、`确认人`、`创建时间`、`提交时间`、`确认时间`。
+
+动态列：模板字段（按 `sort_order`）+ **实例级字段**。**按 `fieldId` 归并**——不同实例的实例级字段是不同字段（fieldId 不同），
+各自一列；列名用字段 `label`，**重名时补序号**（`现场说明`、`现场说明 (2)`），否则 Excel 里两个同名表头无法定位。
+（原任务的「以首次出现的 label 为列名」在重名场景会导致两列同名，这里加序号是刻意的偏差，已在报告记录。）
+
+**单元格值 = `effectiveValue` = `override ?? filled ?? source`**，复用 `service/FormValues.effectiveValue`（与详情/必填校验同一口径）。
+**不加「是否覆盖」标记**：导出即最终值（选择「不加标记」，理由：导出面向归档/上报，标注列会污染表结构；
+需要留痕时看 `form_value.override_value` 或审计日志）。空值 → CSV 空串 / XLSX 空单元格。
+
+XLSX 数值类型：`fieldType=NUMBER` 且能解析的写**数值单元格**；其它一律字符串；固定列（含时间）统一文本格式，
+避免长 UUID 变科学计数法。
+
+### 72.10.4 审计
+
+`EXPORT_FORM_SUBMISSIONS`（details 含 `format` / `rows` / `definitionId` / `status` / `from` / `to` / `scope=ALL|MINE`），
+两个导出端点已进 `SKIP_ENDPOINTS`，不会与拦截器的通用审计重复。
+
+### 72.10.5 验证（`FormExportTest` 13 例）
+
+```bash
+cd backend && mvn -B test -Dtest=FormExportTest                    # 13/13
+cd backend && mvn -B test -Dtest='FormExportTest,FormFillFlowTest,FormSubmissionTest,FormDefinitionTest'  # 65/65
+```
+覆盖：CSV 首三字节 BOM、表头固定列 + 动态列顺序、effectiveValue 三态优先级、**覆盖导出生效但 `asset.name` 不变**、
+实例字段按 fieldId 归并 + 重名补序号、空值空串、XLSX 被 POI 读回（中文表头 / 数值单元格 / 空单元格 / 行数）、
+权限矩阵（工程师仅自己、TEAM_LEADER 仍收窄、**PROJECT_LEADER 与 ADMIN 拿全部**）、单条导出他人 404 + 中文文件名、
+超限 400、`status`/`format` 非法 400、from/to 过滤与 from>to 400、审计 2 次各 1 条、未登录 401、空结果只有表头。
+
+> 测试里把 `app.forms.export.max-rows` 覆盖成 3，用 4 条数据验证 400，不必造 5001 条。

@@ -130,7 +130,10 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
             "POST /api/v1/forms/submissions/{id}/submit",
             "PUT /api/v1/forms/submissions/{id}/overrides",
             "POST /api/v1/forms/submissions/{id}/confirm",
-            "POST /api/v1/forms/submissions/{id}/return"
+            "POST /api/v1/forms/submissions/{id}/return",
+            // t181：导出手工写 1 条审计（含行数与过滤条件）
+            "GET /api/v1/forms/submissions/export",
+            "GET /api/v1/forms/submissions/{id}/export"
     };
 
     private final AuditLogService auditLogService;

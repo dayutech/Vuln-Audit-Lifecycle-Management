@@ -347,7 +347,7 @@ public class FormSubmissionTest extends BaseTest {
                         .contentType(APPLICATION_JSON)
                         .content("{\"label\":\"现场照片说明\",\"fieldType\":\"TEXTAREA\",\"required\":true}"))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.fieldKey").value("instance_1"))
+                .andExpect(jsonPath("$.data.fieldKey").value(org.hamcrest.Matchers.startsWith("instance_1_")))
                 .andExpect(jsonPath("$.data.sortOrder").value(3))
                 .andExpect(jsonPath("$.data.instanceField").value(true))
                 .andExpect(jsonPath("$.data.sourceType").value(org.hamcrest.Matchers.nullValue()));

@@ -21,6 +21,8 @@
         <java.version>17</java.version>
         <jjwt.version>0.13.0</jjwt.version>
         <h2.version>2.4.240</h2.version>
+        <!-- t181：POI 仅用于服务端 XLSX 导出（加约 30MB 依赖：poi/poi-ooxml/xmlbeans/commons-compress） -->
+        <poi.version>5.2.5</poi.version>
         <springdoc.version>2.8.16</springdoc.version>
     </properties>
 
@@ -127,6 +129,14 @@
             <artifactId>h2</artifactId>
             <version>${h2.version}</version>
             <scope>test</scope>
+        </dependency>
+
+        <!-- Apache POI（t181）：填表系统 XLSX 导出。体积影响：poi-ooxml 及传递依赖（poi、xmlbeans、
+             commons-compress 等）合计约 30MB，只进后端 jar，前端不受影响 -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>${poi.version}</version>
         </dependency>
 
         <!-- SpringDoc OpenAPI: 提供Swagger UI和OpenAPI 3.0文档支持 -->

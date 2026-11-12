@@ -238,10 +238,13 @@ public class FormSubmissionServiceImpl implements FormSubmissionService {
         int sortOrder = templateFieldCount(submission.getDefinitionId())
                 + (int) fieldRepository.countBySubmissionIdAndDeletedAtIsNull(submissionId);
         long seq = fieldRepository.countBySubmissionId(submissionId) + 1;
+        // 注意：uk_form_field_key 是 (definition_id, field_key) 唯一 —— 同一模板的多个实例不能都用 instance_1，
+        // 所以 key 带上实例 id 短码（可读 + 不撞唯一键）
+        String instanceKey = "instance_" + seq + "_" + submissionId.toString().substring(0, 8);
         FormField field = fieldRepository.save(Objects.requireNonNull(FormField.builder()
                 .definitionId(submission.getDefinitionId())
                 .submissionId(submissionId)
-                .fieldKey("instance_" + seq)
+                .fieldKey(instanceKey)
                 .label(request.label().trim())
                 .fieldType(type.name())
                 .required(request.required() != null && request.required())

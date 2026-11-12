@@ -52,6 +52,13 @@ public interface FormFieldRepository extends JpaRepository<FormField, UUID> {
     /** 实例级 field_key 生成用：该实例已用的 key 数 */
     long countBySubmissionId(UUID submissionId);
 
+    /** t181：批量取多个模板的模板字段（导出用，避免逐模板查询） */
+    List<FormField> findByDefinitionIdInAndSubmissionIdIsNullAndDeletedAtIsNullOrderBySortOrderAsc(
+            Collection<UUID> definitionIds);
+
+    /** t181：批量取多个实例的实例级字段（导出用） */
+    List<FormField> findBySubmissionIdInAndDeletedAtIsNullOrderBySortOrderAsc(Collection<UUID> submissionIds);
+
     /** t179：批量统计模板字段数（列表页 fieldCount，避免 N+1） */
     @Query("select f.definitionId, count(f) from FormField f where f.deletedAt is null "
             + "and f.submissionId is null and f.definitionId in :ids group by f.definitionId")
