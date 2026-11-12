@@ -5271,3 +5271,85 @@ cd backend && mvn -B test -Dtest='FormExportTest,FormFillFlowTest,FormSubmission
 超限 400、`status`/`format` 非法 400、from/to 过滤与 from>to 400、审计 2 次各 1 条、未登录 401、空结果只有表头。
 
 > 测试里把 `app.forms.export.max-rows` 覆盖成 3，用 4 条数据验证 400，不必造 5001 条。
+
+---
+
+## 73. 部署迁移记录：新目标主机 192.168.188.226（t184）
+
+原部署主机 `192.168.188.200` 已按要求清理（服务/配置/数据全部移除）。当前生产部署位于 **`192.168.188.226`**，
+下文 23–72 节中出现的 `192.168.188.200` 均按本节映射到 `.226`。
+
+### 73.1 主机与组件
+
+| 项 | 值 |
+|---|---|
+| 主机 | `192.168.188.226`（主机名 `leopc`），Ubuntu 24.04 LTS，32 vCPU / 62 GB / 98 GB 盘 |
+| 账号 | `ssh leo@192.168.188.226`（sudo 同密码） |
+| JDK | OpenJDK **17.0.21**（系统自带，`/usr/bin/java`） |
+| 数据库 | MariaDB **10.11.14**，库 `vuln_audit`（`utf8mb4_unicode_ci`），账号 `vulnapp` |
+| Web | nginx 1.24.0，站点 `/etc/nginx/sites-available/vuln-audit`，监听 **8089** → 反代 `127.0.0.1:8088` |
+| 后端 | systemd **user** 单元 `vuln-audit-backend`（lingering 已开启），jar 位于 `~/apps/vuln-audit/backend/target/` |
+| 前端 | `/var/www/vuln-audit`（构建产物 `dist/` 同步） |
+| 访问 | **http://192.168.188.226:8089** |
+| 管理员 | `admin` / `admin`（BCrypt 落库，已绑定 `admin` 角色） |
+
+### 73.2 首次部署步骤（可复现）
+
+```bash
+# 1) 依赖（JDK17 已自带）
+sudo apt-get update && sudo apt-get install -y nginx mariadb-server
+
+# 2) 数据库与账号（密码自行替换）
+sudo mariadb -e "CREATE DATABASE IF NOT EXISTS vuln_audit CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+                 CREATE USER IF NOT EXISTS 'vulnapp'@'localhost' IDENTIFIED BY '<DB_PASS>';
+                 GRANT ALL PRIVILEGES ON vuln_audit.* TO 'vulnapp'@'localhost'; FLUSH PRIVILEGES;"
+
+# 3) 目录
+mkdir -p ~/apps/vuln-audit/{backend/target,deploy,uploads/{pending,approved},logs}
+
+# 4) 上传构建产物（本地 mvn -DskipTests package 与 npm run build 之后）
+scp backend/target/vuln-audit-backend-1.0.0-SNAPSHOT.jar leo@192.168.188.226:~/apps/vuln-audit/backend/target/
+tar -czf dist.tar.gz -C frontend/dist . && scp dist.tar.gz leo@192.168.188.226:/tmp/
+
+# 5) backend.env（600 权限，含 DB_* 与 APP_TOTP_SECRET_KEY）
+#    APP_TOTP_SECRET_KEY=$(openssl rand -base64 32) —— 不配置则 2FA init/confirm 返回 503
+
+# 6) systemd user 单元 + lingering
+cp deploy/vuln-audit-backend.service ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now vuln-audit-backend
+sudo loginctl enable-linger leo
+
+# 7) nginx（注意：配置必须先写成普通文件再 sudo cp，见 73.3）
+sudo cp nginx-site.conf /etc/nginx/sites-available/vuln-audit
+sudo ln -sf /etc/nginx/sites-available/vuln-audit /etc/nginx/sites-enabled/vuln-audit
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl reload nginx
+
+# 8) 前端静态站点
+sudo mkdir -p /var/www/vuln-audit
+sudo rsync -a --delete --chown=root:root --chmod=D755,F644 /tmp/distnew/ /var/www/vuln-audit/
+```
+
+### 73.3 本轮新踩的两个坑（务必遵守）
+
+1. **`sudo -S` 会抢走 stdin**：`sed 's/x/y/' file | sudo -S tee /etc/nginx/sites-available/vuln-audit` 会把**密码**当输入、
+   配置内容全部丢弃 → 生成**空配置**；而 `nginx -t` 对空文件是**通过**的，表现为「配置测试成功但 8089 不监听」。
+   → 正确做法：先用普通用户写临时文件，再 `sudo cp /tmp/site.conf /etc/nginx/...`。
+2. **`users` 表有 NOT NULL 且无默认值的列**：直接 `INSERT INTO users` 会报
+   `Field 'two_factor_enabled' doesn't have a default value`；`user_roles.assigned_by` 同样非空。
+   → 建管理员时显式给 `two_factor_enabled=0`，并在 `user_roles` 里填 `assigned_by`（可填自身 id）。
+3. 附注：全新库由 JPA `ddl-auto: update` 自动建表（本机 73 张表），`deploy/manual-ddl.sql` 用于补齐
+   索引/唯一键/`IF NOT EXISTS` 保障对象与后续迁移（V18–V36）在**已有库**上的等价比对。
+
+### 73.4 部署后验收（本轮实测）
+
+```
+冒烟：TOTAL=317 / PASS=300 / FAIL=0 / SKIP=17（SKIP 为前置条件不足，非缺陷）
+登录：admin/admin → 200，响应含 loginTheme=pencil、roles=ROLE_ADMIN
+核心接口：/users/me/preferences、/assets、/customers、/industry-types、/project-types、
+          /knowledge、/documents、/tags、/auth/sso/providers、/users/me/2fa 均 200
+数据：teams=1 / assets=3 / asset_project_links=3 / customers=6 / projects=5
+```
+
+> 说明：`GET /users/me` 返回 400「参数格式错误: id」是既有行为（该路径未单独映射，前端实际使用
+> `/users/me/preferences`、`/users/me/permissions`、`/users/me/2fa` 等子路径），不是部署缺陷。
