@@ -1,6 +1,8 @@
 package com.vulnaudit.controller;
 
 import com.vulnaudit.dto.ApiResponse;
+import com.vulnaudit.dto.FormFillRequests;
+import com.vulnaudit.dto.FormFillResultVO;
 import com.vulnaudit.dto.FormSubmissionCreatedVO;
 import com.vulnaudit.dto.FormSubmissionRequests;
 import com.vulnaudit.dto.FormSubmissionSummaryVO;
@@ -88,5 +90,63 @@ public class FormSubmissionController {
     @Operation(summary = "表单详情", description = "发起人/被指派人/确认人/ADMIN 可读；其他人 404（不泄露存在性）")
     public ApiResponse<FormSubmissionVO> detail(@PathVariable UUID id, Authentication authentication) {
         return ApiResponse.success(formSubmissionService.detail(id, authentication));
+    }
+    // ------------------------------------------------------------------ t180 填写 / 覆盖 / 确认退回
+
+    @PutMapping("/api/v1/forms/submissions/{id}/values")
+    @Operation(summary = "保存填写值（被指派人）",
+            description = "不校验必填（保存草稿）；校验 NUMBER/DATE/SELECT/CHECKBOX 格式；**请求里的 sourceValue 会被忽略**（快照不可写）")
+    public ApiResponse<FormFillResultVO> fillValues(@PathVariable UUID id,
+                                                    @Valid @RequestBody FormFillRequests.FillValues request,
+                                                    Authentication authentication) {
+        return ApiResponse.success(formSubmissionService.fillValues(id, request, authentication));
+    }
+
+    @PostMapping("/api/v1/forms/submissions/{id}/submit")
+    @Operation(summary = "提交表单", description = "校验必填（override ?? filled ?? source）；ASSIGNED/DRAFT/RETURNED → SUBMITTED；重复提交 409")
+    public ApiResponse<FormSubmissionVO> submit(@PathVariable UUID id, Authentication authentication) {
+        return ApiResponse.success(formSubmissionService.submit(id, authentication));
+    }
+
+    @PutMapping("/api/v1/forms/submissions/{id}/overrides")
+    @Operation(summary = "设置修改覆盖（只影响导出）",
+            description = "发起人/确认人/ADMIN；仅 SUBMITTED（或已确认）后可设；overrideValue=null 表示清除覆盖；**不改填写值、不改业务库**")
+    public ApiResponse<FormFillResultVO> setOverrides(@PathVariable UUID id,
+                                                      @Valid @RequestBody FormFillRequests.OverrideValues request,
+                                                      Authentication authentication) {
+        return ApiResponse.success(formSubmissionService.setOverrides(id, request, authentication));
+    }
+
+    @PostMapping("/api/v1/forms/submissions/{id}/confirm")
+    @Operation(summary = "确认表单", description = "仅确认人或 ADMIN；SUBMITTED → CONFIRMED")
+    public ApiResponse<FormSubmissionVO> confirm(@PathVariable UUID id, Authentication authentication) {
+        return ApiResponse.success(formSubmissionService.confirm(id, authentication));
+    }
+
+    @PostMapping("/api/v1/forms/submissions/{id}/return")
+    @Operation(summary = "退回表单", description = "仅确认人或 ADMIN；SUBMITTED → RETURNED；note 必填（≤2000）")
+    public ApiResponse<FormSubmissionVO> returnSubmission(@PathVariable UUID id,
+                                                         @Valid @RequestBody FormFillRequests.ReturnRequest request,
+                                                         Authentication authentication) {
+        return ApiResponse.success(formSubmissionService.returnSubmission(id, request, authentication));
+    }
+
+    @PostMapping("/api/v1/forms/submissions/{id}/confirmers")
+    @Operation(summary = "设置确认人（第一期单人）", description = "仅发起人或 ADMIN；已确认后不可改")
+    public ApiResponse<FormSubmissionVO> setConfirmer(@PathVariable UUID id,
+                                                      @Valid @RequestBody FormFillRequests.SetConfirmer request,
+                                                      Authentication authentication) {
+        return ApiResponse.success(formSubmissionService.setConfirmer(id, request, authentication));
+    }
+
+    @GetMapping("/api/v1/forms/submissions/assigned")
+    @Operation(summary = "待我处理", description = "assignedTo = 当前用户（含 RETURNED）；分页；status 可空 = 全部")
+    public ApiResponse<PageResponse<FormSubmissionSummaryVO>> assigned(
+            @Parameter(description = "状态：DRAFT/ASSIGNED/SUBMITTED/CONFIRMED/RETURNED/all")
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            Authentication authentication) {
+        return ApiResponse.success(formSubmissionService.findAssigned(authentication, status, page, size));
     }
 }

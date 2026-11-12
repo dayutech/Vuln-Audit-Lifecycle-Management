@@ -5144,3 +5144,76 @@ DELETE /api/v1/forms/submissions/{id}/fields/{fieldId}
 3. 字段级指派仍只有列（`form_value.assigned_to`），本块不读不写。
 4. 主体被删除后，表单仍可读，`subjectName` 为 null（正文靠快照，不依赖业务库）。
 5. `resolve()` 对未知主体类型返回 null（不抛异常）；枚举覆盖的 13 个来源全部实现。
+
+### 72.9 t180 增补：填写 / 修改覆盖 / 确认退回 / 待我处理（第 3/5 块）
+
+### 72.9.1 生效值优先级（全系统唯一口径）
+
+```
+effectiveValue = overrideValue ?? filledValue ?? sourceValue
+```
+
+**唯一实现**：`service/FormValues.effectiveValue(...)`。详情、导出、必填校验都必须走它 —— 三处各写一套必然漂移。
+空串按「没有值」处理（否则前端清空输入框会挡住必填校验）。既没填、没有覆盖、也没有快照 → `null`（不是空串）。
+
+### 72.9.2 填写（被指派人）
+
+```
+PUT /api/v1/forms/submissions/{id}/values   { values:[{fieldId, filledValue}] }
+POST /api/v1/forms/submissions/{id}/submit
+```
+
+- **谁能填**：`ASSIGNED` 时**只有被指派人**（ADMIN 也不代填）；`DRAFT`/`RETURNED` 时发起人或被指派人；
+- **什么时候不能填**：`SUBMITTED`（等确认，需确认人退回）/`CONFIRMED` → **409**；
+- **字段归属**：必须属于该实例（模板字段 + 本实例的实例级字段），否则 **400**；
+- **`sourceValue` 不可写**：请求 DTO 里根本没有这个字段，Jackson 忽略未知字段 → 外部带 `sourceValue` 会被**静默忽略**，
+  库里快照保持不变（有用例断言「篡改快照」请求无效）；
+- **类型校验**：NUMBER 必须可解析数字、DATE 必须 ISO（`yyyy-MM-dd`）、SELECT 必须在 options 内、CHECKBOX 只能是 `true`/`false`；
+  其它类型不限制；空值一律放行；
+- **必填只在提交时校验**（保存草稿不校验，这是前后端体验的关键）；
+- 提交：`ASSIGNED | DRAFT | RETURNED → SUBMITTED` 并写 `submittedAt`；重复提交 → **409**；必填缺失 → **400 且消息里列出字段 label**。
+
+### 72.9.3 修改覆盖（**只影响导出**）
+
+```
+PUT /api/v1/forms/submissions/{id}/overrides   { values:[{fieldId, overrideValue}] }
+```
+
+- **权限**：发起人 / ADMIN / 已设确认人（被指派人**不能**改覆盖，避免自己给自己改分）；
+- **时机**：只有 `SUBMITTED`（或已 `CONFIRMED`）之后可设；`DRAFT/ASSIGNED/RETURNED` → **409**（那时应该直接改 `filledValue`）；
+- **语义**：只写 `form_value.override_value`；**不改 `filledValue`**、**不改业务库**；
+  `overrideValue = null` 表示清除覆盖 → `effectiveValue` 回落到 `filledValue ?? sourceValue`；
+- 为什么这么设计：填表是记录/申报，业务库是事实源。覆盖是「报表口径修正」，要留痕但不能篡改事实（有用例：
+  给 `ASSET.NAME` 设覆盖值后，`asset.name` 仍是原值）。
+
+### 72.9.4 确认 / 退回 / 确认人（第一期单人）
+
+| 方法 | 路径 | 规则 |
+|---|---|---|
+| POST | `/confirmers` `{confirmerId}` | 仅发起人/ADMIN；已 `CONFIRMED` → 409 |
+| POST | `/confirm` | 仅确认人或 ADMIN；须 `SUBMITTED` → `CONFIRMED`（写 `confirmedAt`）；否则 409 |
+| POST | `/return` `{note}` | 同上权限；`SUBMITTED → RETURNED`；**note 必填**（≤2000）；退回后可再编辑并重新提交 |
+
+### 72.9.5 待我处理
+
+```
+GET /api/v1/forms/submissions/assigned?status=&page=&size=
+```
+`assignedTo = 当前用户`（含 `RETURNED`），列表项同 `mine`，并带 `note`（= 最近一次退回原因）。
+
+### 72.9.6 审计
+
+`SUBMIT_FORM_SUBMISSION` / `OVERRIDE_FORM_VALUES` / `CONFIRM_FORM_SUBMISSION` / `RETURN_FORM_SUBMISSION`
+各 1 条，端点已进 `AuditTrailInterceptor.SKIP_ENDPOINTS`。
+
+### 72.9.7 验证（`FormFillFlowTest` 18 例）
+
+```bash
+cd backend && mvn -B test -Dtest=FormFillFlowTest          # 18/18
+cd backend && mvn -B test -Dtest='FormFillFlowTest,FormSubmissionTest,FormDefinitionTest'  # 52/52
+```
+覆盖：权限（非被指派人 403、ADMIN 不代填）、填写落库 + **快照不变**、请求带 `sourceValue` 被忽略、
+字段越界 400、四类类型校验、必填只在提交时校验（400 带 label）、重复提交 409、未指派时发起人自填自交、
+已提交再填 409、覆盖时机 409、覆盖后 `filledValue` 不变且 `effectiveValue` 取覆盖、清除覆盖回落、
+**覆盖后资产名不变**、被指派人改覆盖 403、确认权限与状态、退回 note 必填 + 退回后可重交、确认人权限、
+assigned 只含自己（含 RETURNED + note）、四类审计计数、未登录 401、优先级三态。

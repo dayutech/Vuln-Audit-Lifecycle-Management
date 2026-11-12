@@ -4,6 +4,8 @@ import com.vulnaudit.dto.FormSubmissionCreatedVO;
 import com.vulnaudit.dto.FormSubmissionRequests;
 import com.vulnaudit.dto.FormSubmissionSummaryVO;
 import com.vulnaudit.dto.FormSubmissionVO;
+import com.vulnaudit.dto.FormFillRequests;
+import com.vulnaudit.dto.FormFillResultVO;
 import com.vulnaudit.dto.FormValueVO;
 import com.vulnaudit.dto.PageResponse;
 import jakarta.annotation.Nullable;
@@ -45,4 +47,38 @@ public interface FormSubmissionService {
 
     /** 详情（发起人 / 被指派人 / 确认人 / ADMIN；其他人 404） */
     FormSubmissionVO detail(UUID id, Authentication authentication);
+
+    // ------------------------------------------------------------------ t180 填写 / 覆盖 / 确认退回
+
+    /**
+     * 保存填写值（**不校验必填**，草稿保存用；校验放在 submit）
+     *
+     * <p>权限：`assignedTo == 当前用户`（ASSIGNED）；或未指派/退回且自己是发起人。
+     * 类型校验按 `fieldType`（NUMBER/DATE/SELECT/CHECKBOX 会校验）；**请求里的 sourceValue 被忽略**。
+     */
+    FormFillResultVO fillValues(UUID id, FormFillRequests.FillValues request, Authentication authentication);
+
+    /** 提交：校验必填（`override ?? filled ?? source`）→ ASSIGNED/DRAFT/RETURNED → SUBMITTED */
+    FormSubmissionVO submit(UUID id, Authentication authentication);
+
+    /**
+     * 修改覆盖（**只影响导出/展示，不改 filledValue，也不改业务库**）
+     *
+     * <p>权限：发起人 / ADMIN / 已设确认人；仅 `SUBMITTED`（或已 CONFIRMED）之后可设，否则 409；
+     * `overrideValue = null` 表示清除覆盖（回落到 filledValue/sourceValue）。
+     */
+    FormFillResultVO setOverrides(UUID id, FormFillRequests.OverrideValues request, Authentication authentication);
+
+    /** 确认：仅确认人或 ADMIN；SUBMITTED → CONFIRMED（写 confirmedAt） */
+    FormSubmissionVO confirm(UUID id, Authentication authentication);
+
+    /** 退回：仅确认人或 ADMIN；SUBMITTED → RETURNED；note 必填 */
+    FormSubmissionVO returnSubmission(UUID id, FormFillRequests.ReturnRequest request, Authentication authentication);
+
+    /** 设置确认人（第一期单人）：发起人或 ADMIN */
+    FormSubmissionVO setConfirmer(UUID id, FormFillRequests.SetConfirmer request, Authentication authentication);
+
+    /** 待我处理：`assignedTo == 当前用户`（含 RETURNED），分页，字段同 mine */
+    PageResponse<FormSubmissionSummaryVO> findAssigned(Authentication authentication, @Nullable String status,
+                                                       int page, int size);
 }

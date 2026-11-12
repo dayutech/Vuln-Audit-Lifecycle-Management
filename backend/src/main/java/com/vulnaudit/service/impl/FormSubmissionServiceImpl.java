@@ -1,5 +1,7 @@
 package com.vulnaudit.service.impl;
 
+import com.vulnaudit.dto.FormFillRequests;
+import com.vulnaudit.dto.FormFillResultVO;
 import com.vulnaudit.dto.FormSubmissionCreatedVO;
 import com.vulnaudit.dto.FormSubmissionRequests;
 import com.vulnaudit.dto.FormSubmissionSummaryVO;
@@ -34,6 +36,7 @@ import com.vulnaudit.security.RoleAuthority;
 import com.vulnaudit.service.AccessGuard;
 import com.vulnaudit.service.AuditLogService;
 import com.vulnaudit.service.FormSubmissionService;
+import com.vulnaudit.service.FormValues;
 import jakarta.annotation.Nullable;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,6 +51,7 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -83,6 +87,7 @@ public class FormSubmissionServiceImpl implements FormSubmissionService {
     private final AccessGuard accessGuard;
     private final CurrentUserProvider currentUserProvider;
     private final AuditLogService auditLogService;
+    private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
     // ------------------------------------------------------------------ 生成实例
 
@@ -289,36 +294,43 @@ public class FormSubmissionServiceImpl implements FormSubmissionService {
         PageRequest pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<FormSubmission> result = submissionRepository.findMine(operatorId, normalizedStatus, pageable);
 
-        List<FormSubmission> rows = result.getContent();
+        return PageResponse.<FormSubmissionSummaryVO>builder()
+                .content(summaries(result.getContent()))
+                .totalElements(result.getTotalElements())
+                .totalPages(result.getTotalPages())
+                .currentPage(safePage)
+                .pageSize(safeSize)
+                .build();
+    }
+
+    /** 列表项批量装配（mine 与 assigned 共用）：模板名/主体名/指派对象/进度，全部批量取，无 N+1 */
+    private List<FormSubmissionSummaryVO> summaries(List<FormSubmission> rows) {
+        if (rows.isEmpty()) {
+            return List.of();
+        }
         Map<UUID, String> names = new HashMap<>();
         Map<UUID, String> definitionNames = new HashMap<>();
-        // 模板字段数按 definitionId 统计，实例级字段数按 submissionId 统计 —— 两张表分别存，
-        // 否则 definitionId 与 submissionId 混在一个 Map 里必然查不到（踩过一次）
         Map<UUID, Integer> templateFieldCounts = new HashMap<>();
         Map<UUID, Integer> instanceFieldCounts = new HashMap<>();
         Map<UUID, Integer> filledCounts = new HashMap<>();
-        if (!rows.isEmpty()) {
-            List<UUID> ids = rows.stream().map(FormSubmission::getId).toList();
-            List<UUID> definitionIds = rows.stream().map(FormSubmission::getDefinitionId).distinct().toList();
-            List<UUID> userIds = new ArrayList<>();
-            rows.forEach(row -> {
-                if (row.getAssignedTo() != null) {
-                    userIds.add(row.getAssignedTo());
-                }
-            });
+        List<UUID> ids = rows.stream().map(FormSubmission::getId).toList();
+        List<UUID> definitionIds = rows.stream().map(FormSubmission::getDefinitionId).distinct().toList();
+        List<UUID> userIds = rows.stream().map(FormSubmission::getAssignedTo)
+                .filter(Objects::nonNull).distinct().toList();
+        if (!userIds.isEmpty()) {
             userRepository.findAllById(userIds).forEach(user -> names.put(user.getId(), displayName(user)));
-            definitionRepository.findAllById(definitionIds)
-                    .forEach(definition -> definitionNames.put(definition.getId(), definition.getName()));
-            fieldRepository.countTemplateFieldsByDefinitionIds(definitionIds)
-                    .forEach(row -> templateFieldCounts.put((UUID) row[0], ((Number) row[1]).intValue()));
-            fieldRepository.countInstanceFieldsBySubmissionIds(ids)
-                    .forEach(row -> instanceFieldCounts.put((UUID) row[0], ((Number) row[1]).intValue()));
-            formValueRepository.countFilledBySubmissionIds(ids)
-                    .forEach(row -> filledCounts.put((UUID) row[0], ((Number) row[1]).intValue()));
         }
+        definitionRepository.findAllById(definitionIds)
+                .forEach(definition -> definitionNames.put(definition.getId(), definition.getName()));
+        fieldRepository.countTemplateFieldsByDefinitionIds(definitionIds)
+                .forEach(row -> templateFieldCounts.put((UUID) row[0], ((Number) row[1]).intValue()));
+        fieldRepository.countInstanceFieldsBySubmissionIds(ids)
+                .forEach(row -> instanceFieldCounts.put((UUID) row[0], ((Number) row[1]).intValue()));
+        formValueRepository.countFilledBySubmissionIds(ids)
+                .forEach(row -> filledCounts.put((UUID) row[0], ((Number) row[1]).intValue()));
         Map<String, String> subjectNames = subjectNames(rows);
 
-        List<FormSubmissionSummaryVO> content = rows.stream()
+        return rows.stream()
                 .map(row -> new FormSubmissionSummaryVO(
                         row.getId(),
                         definitionNames.get(row.getDefinitionId()),
@@ -330,19 +342,13 @@ public class FormSubmissionServiceImpl implements FormSubmissionService {
                         row.getAssignedTo(),
                         row.getAssignedTo() == null ? null : names.get(row.getAssignedTo()),
                         filledCounts.getOrDefault(row.getId(), 0),
+                        // 模板字段数按 definitionId，实例字段数按 submissionId —— 两张表分别统计再相加
                         templateFieldCounts.getOrDefault(row.getDefinitionId(), 0)
                                 + instanceFieldCounts.getOrDefault(row.getId(), 0),
+                        row.getNote(),
                         row.getCreatedAt()))
                 .toList();
-        return PageResponse.<FormSubmissionSummaryVO>builder()
-                .content(content)
-                .totalElements(result.getTotalElements())
-                .totalPages(result.getTotalPages())
-                .currentPage(safePage)
-                .pageSize(safeSize)
-                .build();
     }
-
     @Override
     public FormSubmissionVO detail(UUID id, Authentication authentication) {
         FormSubmission submission = requireReadable(id, authentication);
@@ -464,6 +470,313 @@ public class FormSubmissionServiceImpl implements FormSubmissionService {
                 .toList();
     }
 
+
+    // ------------------------------------------------------------------ t180 填写 / 覆盖 / 确认退回
+
+    @Override
+    @Transactional
+    public FormFillResultVO fillValues(UUID id, FormFillRequests.FillValues request, Authentication authentication) {
+        UUID operatorId = requireOperator(authentication);
+        FormSubmission submission = requireSubmission(id);
+        requireFillable(submission, operatorId);
+
+        Map<UUID, FormField> fields = fieldsOf(submission);
+        Map<UUID, FormValue> valueByField = new HashMap<>();
+        formValueRepository.findBySubmissionId(submission.getId())
+                .forEach(value -> valueByField.put(value.getFieldId(), value));
+
+        int updated = 0;
+        Map<String, String> effective = new LinkedHashMap<>();
+        for (FormFillRequests.ValueItem item : request.values()) {
+            FormField field = fields.get(item.fieldId());
+            if (field == null) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "字段不属于该表单实例: " + item.fieldId());
+            }
+            // 注意：请求里没有 sourceValue —— 快照不可写（带了也会被 Jackson 忽略）
+            String normalized = item.filledValue() == null || item.filledValue().isBlank()
+                    ? null : item.filledValue().trim();
+            validateFieldValue(field, normalized);
+            FormValue value = valueByField.computeIfAbsent(field.getId(), key ->
+                    formValueRepository.save(Objects.requireNonNull(FormValue.builder()
+                            .submissionId(submission.getId()).fieldId(field.getId()).build())));
+            value.setFilledValue(normalized);
+            value.setUpdatedBy(operatorId);
+            formValueRepository.save(value);
+            effective.put(field.getFieldKey(), FormValues.effectiveValue(value));
+            updated++;
+        }
+        log.info("表单填写: submission={}, by={}, fields={}, status={}",
+                id, operatorId, updated, submission.getStatus());
+        return new FormFillResultVO(id, submission.getStatus(), updated, List.of(), effective);
+    }
+
+    @Override
+    @Transactional
+    public FormSubmissionVO submit(UUID id, Authentication authentication) {
+        UUID operatorId = requireOperator(authentication);
+        FormSubmission submission = requireSubmission(id);
+        requireFillable(submission, operatorId);
+        String status = submission.getStatus();
+        if (FormSubmissionStatus.SUBMITTED.name().equals(status)
+                || FormSubmissionStatus.CONFIRMED.name().equals(status)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "表单已提交/已确认，不能重复提交（当前状态：" + status + "）");
+        }
+
+        // 必填校验：effective = override ?? filled ?? source
+        List<String> missing = new ArrayList<>();
+        Map<UUID, FormField> fields = fieldsOf(submission);
+        for (FormValue value : formValueRepository.findBySubmissionId(submission.getId())) {
+            FormField field = fields.get(value.getFieldId());
+            if (field != null && field.isRequired() && !FormValues.hasText(FormValues.effectiveValue(value))) {
+                missing.add(field.getLabel());
+            }
+        }
+        if (!missing.isEmpty()) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST,
+                    "以下必填字段尚未填写: " + String.join("、", missing));
+        }
+
+        submission.setStatus(FormSubmissionStatus.SUBMITTED.name());
+        submission.setSubmittedAt(LocalDateTime.now());
+        submissionRepository.save(submission);
+        auditLogService.log(operatorId, "SUBMIT_FORM_SUBMISSION", "form_submission", submission.getId(),
+                "提交表单: title=" + submission.getTitle());
+        return detail(id, authentication);
+    }
+
+    @Override
+    @Transactional
+    public FormFillResultVO setOverrides(UUID id, FormFillRequests.OverrideValues request,
+                                         Authentication authentication) {
+        UUID operatorId = requireOperator(authentication);
+        FormSubmission submission = requireSubmission(id);
+        requireOverrideAuthority(submission, operatorId, authentication);
+        String status = submission.getStatus();
+        if (FormSubmissionStatus.DRAFT.name().equals(status) || FormSubmissionStatus.ASSIGNED.name().equals(status)
+                || FormSubmissionStatus.RETURNED.name().equals(status)) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "表单尚未提交（当前状态：" + status + "），请直接修改填写值而不是设置覆盖");
+        }
+
+        Map<UUID, FormField> fields = fieldsOf(submission);
+        Map<UUID, FormValue> valueByField = new HashMap<>();
+        formValueRepository.findBySubmissionId(submission.getId())
+                .forEach(value -> valueByField.put(value.getFieldId(), value));
+
+        int updated = 0;
+        Map<String, String> effective = new LinkedHashMap<>();
+        for (FormFillRequests.OverrideItem item : request.values()) {
+            FormField field = fields.get(item.fieldId());
+            if (field == null) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "字段不属于该表单实例: " + item.fieldId());
+            }
+            FormValue value = valueByField.get(field.getId());
+            if (value == null) {
+                throw new BusinessException(ErrorCode.BAD_REQUEST, "该字段没有表单值记录: " + item.fieldId());
+            }
+            // null = 清除覆盖（回落到 filledValue / sourceValue）；**不动 filledValue、不动业务库**
+            value.setOverrideValue(item.overrideValue() == null ? null : item.overrideValue().trim());
+            value.setUpdatedBy(operatorId);
+            formValueRepository.save(value);
+            effective.put(field.getFieldKey(), FormValues.effectiveValue(value));
+            updated++;
+        }
+        auditLogService.log(operatorId, "OVERRIDE_FORM_VALUES", "form_submission", submission.getId(),
+                "设置覆盖值: fields=" + updated + "（只影响导出，不改填写值与业务库）");
+        return new FormFillResultVO(id, submission.getStatus(), updated, List.of(), effective);
+    }
+
+    @Override
+    @Transactional
+    public FormSubmissionVO confirm(UUID id, Authentication authentication) {
+        UUID operatorId = requireOperator(authentication);
+        FormSubmission submission = requireSubmission(id);
+        requireConfirmAuthority(submission, operatorId, authentication);
+        if (!FormSubmissionStatus.SUBMITTED.name().equals(submission.getStatus())) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "只有已提交（SUBMITTED）的表单可以确认，当前状态：" + submission.getStatus());
+        }
+        submission.setStatus(FormSubmissionStatus.CONFIRMED.name());
+        submission.setConfirmedBy(operatorId);
+        submission.setConfirmedAt(LocalDateTime.now());
+        submissionRepository.save(submission);
+        auditLogService.log(operatorId, "CONFIRM_FORM_SUBMISSION", "form_submission", submission.getId(),
+                "确认表单: title=" + submission.getTitle());
+        return detail(id, authentication);
+    }
+
+    @Override
+    @Transactional
+    public FormSubmissionVO returnSubmission(UUID id, FormFillRequests.ReturnRequest request,
+                                             Authentication authentication) {
+        UUID operatorId = requireOperator(authentication);
+        FormSubmission submission = requireSubmission(id);
+        requireConfirmAuthority(submission, operatorId, authentication);
+        if (!FormSubmissionStatus.SUBMITTED.name().equals(submission.getStatus())) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "只有已提交（SUBMITTED）的表单可以退回，当前状态：" + submission.getStatus());
+        }
+        if (request == null || !StringUtils.hasText(request.note())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "退回必须填写说明（note）");
+        }
+        String note = request.note().trim();
+        if (note.length() > 2000) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "退回说明不能超过 2000 个字符");
+        }
+        submission.setStatus(FormSubmissionStatus.RETURNED.name());
+        submission.setNote(note);
+        submissionRepository.save(submission);
+        auditLogService.log(operatorId, "RETURN_FORM_SUBMISSION", "form_submission", submission.getId(),
+                "退回表单: note=" + note);
+        return detail(id, authentication);
+    }
+
+    @Override
+    @Transactional
+    public FormSubmissionVO setConfirmer(UUID id, FormFillRequests.SetConfirmer request,
+                                         Authentication authentication) {
+        UUID operatorId = requireOperator(authentication);
+        FormSubmission submission = requireSubmission(id);
+        if (!operatorId.equals(submission.getCreatedBy()) && !isAdmin(authentication)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "只有发起人或管理员可以设置确认人");
+        }
+        if (FormSubmissionStatus.CONFIRMED.name().equals(submission.getStatus())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "表单已确认，不能再改确认人");
+        }
+        User confirmer = userRepository.findById(request.confirmerId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "确认人不存在"));
+        if (confirmer.getStatus() != null && !"active".equalsIgnoreCase(confirmer.getStatus())) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "确认人不可用（状态：" + confirmer.getStatus() + "）");
+        }
+        submission.setConfirmedBy(confirmer.getId());
+        submissionRepository.save(submission);
+        log.info("设置表单确认人: submission={}, confirmer={}", id, confirmer.getUsername());
+        return detail(id, authentication);
+    }
+
+    @Override
+    public PageResponse<FormSubmissionSummaryVO> findAssigned(Authentication authentication, @Nullable String status,
+                                                              int page, int size) {
+        UUID operatorId = requireOperator(authentication);
+        String normalizedStatus = normalizeStatus(status);
+        int safePage = Math.max(page, 0);
+        int safeSize = size <= 0 ? 20 : Math.min(size, 100);
+        PageRequest pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<FormSubmission> result = submissionRepository.findAssigned(operatorId, normalizedStatus, pageable);
+        return new PageResponse<>(summaries(result.getContent()), result.getTotalElements(),
+                result.getTotalPages(), safePage, safeSize);
+    }
+
+    // ------------------------------------------------------------------ 内部：填表权限与值校验
+
+    /** 可填写者：ASSIGNED 时必须是被指派人；DRAFT/RETURNED 时发起人或被指派人（ADMIN 不代填） */
+    private void requireFillable(FormSubmission submission, UUID operatorId) {
+        String status = submission.getStatus();
+        if (FormSubmissionStatus.CONFIRMED.name().equals(status)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "表单已确认，不能再修改");
+        }
+        if (FormSubmissionStatus.SUBMITTED.name().equals(status)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "表单已提交，等待确认；如需修改请让确认人退回");
+        }
+        boolean isAssignee = operatorId.equals(submission.getAssignedTo());
+        boolean isCreator = operatorId.equals(submission.getCreatedBy());
+        if (FormSubmissionStatus.ASSIGNED.name().equals(status)) {
+            if (!isAssignee) {
+                throw new BusinessException(ErrorCode.FORBIDDEN, "只有被指派人可以填写该表单");
+            }
+            return;
+        }
+        if (isCreator || isAssignee) {
+            return;
+        }
+        throw new BusinessException(ErrorCode.FORBIDDEN, "无权填写该表单");
+    }
+
+    private void requireOverrideAuthority(FormSubmission submission, UUID operatorId, Authentication authentication) {
+        boolean isCreator = operatorId.equals(submission.getCreatedBy());
+        boolean isConfirmer = operatorId.equals(submission.getConfirmedBy());
+        if (!isCreator && !isConfirmer && !isAdmin(authentication)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "只有发起人、确认人或管理员可以设置覆盖值");
+        }
+    }
+
+    private void requireConfirmAuthority(FormSubmission submission, UUID operatorId, Authentication authentication) {
+        if (!operatorId.equals(submission.getConfirmedBy()) && !isAdmin(authentication)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "只有确认人或管理员可以确认/退回该表单");
+        }
+    }
+
+    /** 实例的全部字段（模板字段 + 实例字段），key = fieldId */
+    private Map<UUID, FormField> fieldsOf(FormSubmission submission) {
+        Map<UUID, FormField> map = new HashMap<>();
+        fieldRepository.findFieldsForSubmission(submission.getId(), submission.getDefinitionId())
+                .forEach(field -> map.put(field.getId(), field));
+        return map;
+    }
+
+    /** 类型校验（空值放行，必填在 submit 时校验） */
+    private void validateFieldValue(FormField field, @Nullable String value) {
+        if (!StringUtils.hasText(value)) {
+            return;
+        }
+        FormFieldType type;
+        try {
+            type = FormFieldType.require(field.getFieldType());
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST, "字段类型不合法: " + field.getFieldType());
+        }
+        switch (type) {
+            case NUMBER -> {
+                try {
+                    new java.math.BigDecimal(value);
+                } catch (NumberFormatException ex) {
+                    throw new BusinessException(ErrorCode.BAD_REQUEST,
+                            "字段「" + field.getLabel() + "」必须是数字: " + value);
+                }
+            }
+            case DATE -> {
+                try {
+                    java.time.LocalDate.parse(value);
+                } catch (java.time.format.DateTimeParseException ex) {
+                    throw new BusinessException(ErrorCode.BAD_REQUEST,
+                            "字段「" + field.getLabel() + "」必须是 ISO 日期（yyyy-MM-dd）: " + value);
+                }
+            }
+            case SELECT -> {
+                if (!optionsOf(field).contains(value)) {
+                    throw new BusinessException(ErrorCode.BAD_REQUEST,
+                            "字段「" + field.getLabel() + "」的值不在可选范围内: " + value);
+                }
+            }
+            case CHECKBOX -> {
+                String lower = value.toLowerCase(Locale.ROOT);
+                if (!"true".equals(lower) && !"false".equals(lower)) {
+                    throw new BusinessException(ErrorCode.BAD_REQUEST,
+                            "字段「" + field.getLabel() + "」只能是 true/false: " + value);
+                }
+            }
+            default -> {
+                // TEXT/TEXTAREA/FILE 不做格式限制
+            }
+        }
+    }
+
+    /** SELECT 的 options 是 JSON 数组字符串（模板侧已保证非空），这里解析出选项文本 */
+    private List<String> optionsOf(FormField field) {
+        if (!StringUtils.hasText(field.getOptions())) {
+            return List.of();
+        }
+        List<String> result = new ArrayList<>();
+        try {
+            var node = objectMapper.readTree(field.getOptions());
+            if (node.isArray()) {
+                node.forEach(item -> result.add(item.asText()));
+            }
+        } catch (Exception ex) {
+            log.warn("字段 options 不是合法 JSON，按空选项处理: field={}", field.getFieldKey());
+        }
+        return result;
+    }
     // ------------------------------------------------------------------ 内部：通用
 
     private UUID requireOperator(Authentication authentication) {
@@ -541,7 +854,9 @@ public class FormSubmissionServiceImpl implements FormSubmissionService {
                 field.getSubmissionId() != null,
                 value == null ? null : value.getSourceValue(),
                 value == null ? null : value.getFilledValue(),
-                value == null ? null : value.getOverrideValue());
+                value == null ? null : value.getOverrideValue(),
+                // t180：生效值 = override ?? filled ?? source（导出/展示统一口径）
+                FormValues.effectiveValue(value));
     }
 
 

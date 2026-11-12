@@ -20,4 +20,10 @@ public interface FormSubmissionRepository extends JpaRepository<FormSubmission, 
     @Query("select s from FormSubmission s where s.createdBy = :userId "
             + "and (:status is null or s.status = :status)")
     Page<FormSubmission> findMine(@Param("userId") UUID userId, @Param("status") String status, Pageable pageable);
+
+    /** t180：待我处理（assignedTo = 我，含 RETURNED），按 createdAt 倒序 */
+    @Query("select s from FormSubmission s where s.assignedTo = :userId "
+            + "and (:status is null or s.status = :status)")
+    Page<FormSubmission> findAssigned(@Param("userId") UUID userId, @Param("status") String status,
+                                      Pageable pageable);
 }

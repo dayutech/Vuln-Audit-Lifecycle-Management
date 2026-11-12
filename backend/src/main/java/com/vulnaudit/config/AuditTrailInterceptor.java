@@ -125,7 +125,12 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
             "POST /api/v1/admin/form-definitions/{id}/fields",
             "PUT /api/v1/admin/form-definitions/{id}/fields/{fieldId}",
             "DELETE /api/v1/admin/form-definitions/{id}/fields/{fieldId}",
-            "PUT /api/v1/admin/form-definitions/{id}/fields/reorder"
+            "PUT /api/v1/admin/form-definitions/{id}/fields/reorder",
+            // t180：填表流程各写 1 条审计
+            "POST /api/v1/forms/submissions/{id}/submit",
+            "PUT /api/v1/forms/submissions/{id}/overrides",
+            "POST /api/v1/forms/submissions/{id}/confirm",
+            "POST /api/v1/forms/submissions/{id}/return"
     };
 
     private final AuditLogService auditLogService;

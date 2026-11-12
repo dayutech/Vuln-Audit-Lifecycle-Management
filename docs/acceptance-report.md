@@ -2328,3 +2328,23 @@ Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试
 **验证**：`FormSubmissionTest` **17/17**；`FormSubmissionTest,FormDefinitionTest` 回归 **34/34**。
 关键用例：改客户名后重新读详情，`sourceValue` 仍是旧值（快照与业务库脱钩）。
 契约与「修改不回写库」的机制说明见 README §72.8。
+
+### 2.47 填表系统 3/5：填写 / 修改覆盖 / 确认退回 / 待我处理（t180）
+
+**实现**：
+- 生效值唯一口径 `FormValues.effectiveValue = override ?? filled ?? source`（详情、导出、必填校验共用；空串视为无值）；
+- `PUT /forms/submissions/{id}/values`：仅被指派人（ASSIGNED）或 DRAFT/RETURNED 的发起人/被指派人；ADMIN **不代填**；
+  SUBMITTED/CONFIRMED → 409；字段必须属于实例；NUMBER/DATE/SELECT/CHECKBOX 类型校验；**源快照不可写（请求带 sourceValue 被忽略）**；
+- `POST .../submit`：必填校验（effective）→ 400 带缺失字段 label；`ASSIGNED|DRAFT|RETURNED → SUBMITTED`；重复提交 409；
+- `PUT .../overrides`：发起人/确认人/ADMIN；仅 SUBMITTED 之后；只写 `override_value`，**不改 filledValue、不改业务库**；null 清除覆盖；
+- `POST .../confirm` / `.../return` / `.../confirmers`：确认人（单人）与发起人/ADMIN 的权限与状态机；
+- `GET .../assigned`：待我处理（含 RETURNED + 退回原因 note）；列表项批量装配（与 mine 共用 `summaries`，无 N+1）；
+- 审计四类各 1 条，端点入 `SKIP_ENDPOINTS`。
+
+**踩坑记档**：先写了独立的 `FormFillServiceImpl` + `FormFillService`，结果与 `FormSubmissionService` 的声明打架
+（两个 Bean 实现同一接口 / 循环注入）。改为**把填表方法并入 `FormSubmissionServiceImpl`**，并把 mine 的列表装配抽成
+`summaries(rows)` 供 assigned 复用 —— 少一个 Bean、少一次重复统计。
+
+**验证**：`FormFillFlowTest` **18/18**；三套表单测试回归 **52/52**。
+关键用例：填写后 `sourceValue` 不变；给 `ASSET.NAME` 设覆盖后 `asset.name` 仍是原值；清除覆盖后 effective 回落。
+规则与优先级见 README §72.9。

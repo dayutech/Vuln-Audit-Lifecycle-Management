@@ -5,11 +5,12 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.UUID;
 
 /**
- * 表单字段值视图（t179）——三层取值原样暴露
+ * 表单字段值视图（t179/t180）——三层取值 + 生效值
  *
- * @param sourceValue   生成时从业务库取的快照（**不可修改**；业务后续变化不影响它）
- * @param filledValue   被指派人填写的值
- * @param overrideValue 修改覆盖（只影响导出）
+ * @param sourceValue    生成时从业务库取的快照（**不可修改**；业务后续变化不影响它）
+ * @param filledValue    被指派人填写的值
+ * @param overrideValue  修改覆盖（只影响导出）
+ * @param effectiveValue 生效值 = override ?? filled ?? source（导出/展示统一口径）
  */
 @Schema(description = "表单字段与取值")
 public record FormValueVO(
@@ -26,5 +27,6 @@ public record FormValueVO(
         boolean instanceField,
         String sourceValue,
         String filledValue,
-        String overrideValue) {
+        String overrideValue,
+        String effectiveValue) {
 }
