@@ -5073,3 +5073,74 @@ V35 脚本守卫（四表 + 三个唯一索引 + 四表都显式 collation + 三
 2. 字段级指派只有列（`form_value.assigned_to`），第一期不写不读。
 3. 模板/字段删除都是**软删**；字段软删后其历史 `form_value` 仍保留（导出按需 join）。
 4. 模板 `code` 不可改、编码不复用（含软删行唯一）——历史表单/导出靠它定位口径。
+
+### 72.8 t179 增补：生成实例（库快照）+ 指派 + 发起人加字段
+
+### 72.8.1 V36（补充迁移，两件事一起做）
+
+| 变更 | 原因 |
+|---|---|
+| `form_field.submission_id`（可空） | **实例级字段**（发起人在某个表单里临时加的）。`NULL` = 模板字段；非空 = 只属于该实例。选了 task 的**方案 ①**（加一列），比另建存储改动小且导出能一条 SQL 拉平 |
+| `form_submission.subject_type` / `subject_id` | V35 建表时没落「业务主体」，而生成快照、详情/列表的「主体名」都必须知道挂的是谁。**不能靠标题反解**，所以在同一个迁移里补上（避免再开 V37） |
+
+> 因此模板侧的所有查询都加了 `submission_id IS NULL` 条件（`FormDefinitionServiceImpl` 已同步改），
+> 否则管理员会在模板详情里看到别人实例里的临时字段。
+
+### 72.8.2 生成实例：快照怎么取
+
+```
+POST /api/v1/forms/submissions
+{ definitionId, subjectType: CUSTOMER|PROJECT|ASSET, subjectId, title?, assignedTo? }
+→ 201 { id, definitionId, status, fieldCount, snapshotFilled, snapshotNull, skippedSources[] }
+```
+
+1. 模板必须存在且 `enabled`（否则 400/404）；**主体必须存在、未软删**，且对调用者可见
+   （ASSET 走 `canReadAsset`，越权 → 403；CUSTOMER/PROJECT 沿用列表读口径 → 404）；
+2. 遍历模板字段：`sourceType != null` 的按 `FormFieldSource.resolve(主体)` **当场取值**写进 `source_value`；
+   手填字段 `source_value = null`；
+3. **取不到值不报错**：对象字段为空 → `source_value = null` 并计入 `snapshotNull`；
+   `sourceType` 不在枚举里 → 跳过 + **WARN**（`skippedSources` 回给前端），**绝不 500**；
+4. `assignedTo` 有值 → `status=ASSIGNED` 且写 `assigned_at`；否则 `DRAFT`；
+5. 返回 `snapshotFilled / snapshotNull` 给前端提示「本次从库取到 N 个字段，M 个为空」。
+
+### 72.8.3 「修改不回写库」是由模型保证的（不是靠自觉）
+
+- 服务层对 `customer / project / asset` **只有读**（取快照、取名字），没有任何 setter 调用；
+- `form_value` 三列各有唯一来源：`source_value` 只在生成时写一次，`filled_value` 只能由填写接口写，
+  `override_value` 只能由覆盖接口写（后续块）；**没有任何代码路径把 `form_value` 写回业务表**；
+- 因此业务数据后来改名/改状态，历史表单里的快照**保持原样**（有专门测试用例守这条）。
+
+### 72.8.4 指派
+
+```
+POST /api/v1/forms/submissions/{id}/assign  { assigneeId, note? }
+```
+- 仅**发起人**或 **ADMIN**（其他人 403）；被指派人必须存在且 `status=active`（404/400）；
+- `DRAFT/ASSIGNED/RETURNED` → `ASSIGNED`（刷新 `assigned_at`）；`SUBMITTED/CONFIRMED` → **409**；
+- 审计：`ASSIGN_FORM_SUBMISSION`（每次指派 1 条）。
+
+### 72.8.5 发起人加字段（实例级，不污染模板）
+
+```
+POST   /api/v1/forms/submissions/{id}/fields  { label, fieldType, required?, options? }
+DELETE /api/v1/forms/submissions/{id}/fields/{fieldId}
+```
+- 只允许**手填类型**（接口不接受 `sourceType`，想加库字段只能传非法类型 → 400）；
+- `field_key` 自动生成 `instance_<序号>`，`sort_order` 接在模板字段之后；
+- 仅**发起人**（他人 403）；`DRAFT/ASSIGNED/RETURNED` 才能加，已提交 → 409；
+- 删除：仅**发起人**、仅实例级字段（模板字段经此接口 → 404）、已被填写 → **409**。
+
+### 72.8.6 查询
+
+| 方法 | 路径 | 规则 |
+|---|---|---|
+| GET | `/api/v1/forms/submissions/mine?status=&page=&size=` | **我发起的**；含模板名、主体名、指派对象、进度 `filledCount/fieldCount`（批量两次统计，无 N+1） |
+| GET | `/api/v1/forms/submissions/{id}` | 详情含全部字段与**三层取值**；发起人/被指派人/确认人/ADMIN 可读，**其他人 404**（不泄露存在性） |
+
+### 72.8.7 已知边界（第 2/5 块）
+
+1. `filled_value` 的写入接口（填写/提交）在下一块；本块详情里它一律为 null。
+2. `override_value` 的写入接口在后续块（只影响导出）。
+3. 字段级指派仍只有列（`form_value.assigned_to`），本块不读不写。
+4. 主体被删除后，表单仍可读，`subjectName` 为 null（正文靠快照，不依赖业务库）。
+5. `resolve()` 对未知主体类型返回 null（不抛异常）；枚举覆盖的 13 个来源全部实现。

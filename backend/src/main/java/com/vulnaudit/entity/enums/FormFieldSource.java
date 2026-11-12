@@ -79,12 +79,73 @@ public enum FormFieldSource {
     }
 
     /**
-     * 从业务实体取值（后续块生成快照时使用）
+     * 从业务实体取值（生成实例快照时使用，t179）
      *
-     * <p>本块（第 1/5）**只留接口**：真正的取值依赖业务实体的字段差异与权限/软删口径，
-     * 放在生成实例的块里实现，避免此处过早绑定实体。
+     * <p>规则：对象为 null 或字段为空 → 返回 null（**不抛异常、不阻塞生成**）；
+     * 传入的对象类型与来源主体不匹配 → 返回 null（调用方已记 WARN）。
+     *
+     * @param subject CUSTOMER/PROJECT/ASSET/TEAM/USER 实体实例
+     * @return 取值字符串（`null` 表示该字段在业务库里为空）
      */
     public String resolve(Object subject) {
-        throw new UnsupportedOperationException("FormFieldSource.resolve 在生成实例的块实现（本块仅定义白名单）");
+        if (subject == null) {
+            return null;
+        }
+        // Java 17：用 instanceof 链（pattern switch 需要 --enable-preview）
+        Object value = null;
+        if (subject instanceof com.vulnaudit.entity.Customer customer) {
+            value = customerValue(customer);
+        } else if (subject instanceof com.vulnaudit.entity.Project project) {
+            value = projectValue(project);
+        } else if (subject instanceof com.vulnaudit.entity.Asset asset) {
+            value = assetValue(asset);
+        } else if (subject instanceof com.vulnaudit.entity.Team team) {
+            value = teamValue(team);
+        } else if (subject instanceof com.vulnaudit.entity.User user) {
+            value = userValue(user);
+        }
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private Object customerValue(com.vulnaudit.entity.Customer customer) {
+        return switch (this) {
+            case CUSTOMER_NAME -> customer.getName();
+            case CUSTOMER_CODE -> customer.getCode();
+            case CUSTOMER_INDUSTRY -> customer.getIndustry();
+            default -> null;
+        };
+    }
+
+    private Object projectValue(com.vulnaudit.entity.Project project) {
+        return switch (this) {
+            case PROJECT_NAME -> project.getName();
+            case PROJECT_CODE -> project.getCode();
+            case PROJECT_TYPE -> project.getType();
+            default -> null;
+        };
+    }
+
+    private Object assetValue(com.vulnaudit.entity.Asset asset) {
+        return switch (this) {
+            case ASSET_NAME -> asset.getName();
+            case ASSET_CODE -> asset.getCode();
+            case ASSET_TARGET_TYPE -> asset.getTargetType();
+            case ASSET_PRIORITY -> asset.getPriority();
+            case ASSET_STATUS -> asset.getStatus();
+            default -> null;
+        };
+    }
+
+    private Object teamValue(com.vulnaudit.entity.Team team) {
+        return this == TEAM_NAME ? team.getName() : null;
+    }
+
+    private Object userValue(com.vulnaudit.entity.User user) {
+        if (this != USER_FULL_NAME) {
+            return null;
+        }
+        // 姓名优先，回落到账号（避免「姓名未填」时快照全空）
+        return user.getFullName() != null && !user.getFullName().isBlank()
+                ? user.getFullName() : user.getUsername();
     }
 }

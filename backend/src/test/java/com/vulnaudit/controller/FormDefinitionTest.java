@@ -259,7 +259,7 @@ public class FormDefinitionTest extends BaseTest {
                 .andExpect(jsonPath("$.data.fields[1].fieldKey").value("a"))
                 .andExpect(jsonPath("$.data.fields[2].fieldKey").value("b"));
 
-        var fields = fieldRepository.findByDefinitionIdAndDeletedAtIsNullOrderBySortOrderAscCreatedAtAsc(
+        var fields = fieldRepository.findByDefinitionIdAndSubmissionIdIsNullAndDeletedAtIsNullOrderBySortOrderAscCreatedAtAsc(
                 definition.getId());
         assertEquals(3, fields.size());
         assertEquals(0, fields.get(0).getSortOrder());

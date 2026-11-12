@@ -2307,3 +2307,24 @@ Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试
 三字段按序 + `sourceLabel`、field_key 重复与跨模板同名、SELECT options、类型/source 400、reorder 连续与覆盖校验、
 有数据字段保护、无数据可改可删、403/401、审计条数、跨模板越权 404、enabled 过滤、V35 脚本守卫）。
 契约、三层值语义与边界见 README §72。
+
+### 2.46 填表系统 2/5：生成实例（库快照）+ 指派 + 实例级字段（t179）
+
+**实现**：
+- **V36**：`form_field.submission_id`（实例级字段，方案 ①「加一列」）+ `form_submission.subject_type/subject_id`
+  （V35 没落主体，快照与「主体名」都依赖它，同一迁移里补上，避免再开 V37）；模板侧查询全部加 `submission_id IS NULL`。
+- `FormFieldSource.resolve(subject)` 落地（13 个来源，`instanceof` 链；空值返回 null，不抛）。
+- `POST /forms/submissions`：模板必须启用、主体必须可见（ASSET 走 `canReadAsset`，越权 403）；
+  `sourceType != null` 的字段当场取快照写 `source_value`，手填字段为 null；取空/未实现来源**只计数 + WARN，绝不 500**；
+  有 `assignedTo` → ASSIGNED，否则 DRAFT；返回 `snapshotFilled/snapshotNull/skippedSources`。
+- `POST .../{id}/assign`：发起人或 ADMIN；被指派人须 active；SUBMITTED/CONFIRMED → 409；审计 `ASSIGN_FORM_SUBMISSION`。
+- `POST/DELETE .../{id}/fields`：实例级字段（`instance_N`、sort_order 接续、仅手填类型、仅发起人、已填写 409）。
+- `GET .../mine`（我发起的 + 进度 N/M，批量统计）与 `GET .../{id}`（三层取值；非相关人 404）。
+
+**踩坑记档**：`mine` 的进度一开始显示 `fieldCount=3` 却返回 0——把「按 definitionId 统计的模板字段数」和
+「按 submissionId 统计的实例字段数」塞进了同一个 Map，查的是 submissionId 自然取不到。改成两张 Map 再相加。
+另：`Asset` 夹具必须给 `targetSource`（非空约束），否则插入直接 500。
+
+**验证**：`FormSubmissionTest` **17/17**；`FormSubmissionTest,FormDefinitionTest` 回归 **34/34**。
+关键用例：改客户名后重新读详情，`sourceValue` 仍是旧值（快照与业务库脱钩）。
+契约与「修改不回写库」的机制说明见 README §72.8。

@@ -37,6 +37,14 @@ public class FormSubmission {
     @Column(name = "status", length = 20, nullable = false)
     private String status;
 
+    /** t179：业务主体类型（CUSTOMER/PROJECT/ASSET），快照来源 */
+    @Column(name = "subject_type", length = 20)
+    private String subjectType;
+
+    /** t179：业务主体 id（客户/项目/资产） */
+    @Column(name = "subject_id")
+    private UUID subjectId;
+
     @Column(name = "created_by")
     private UUID createdBy;
 

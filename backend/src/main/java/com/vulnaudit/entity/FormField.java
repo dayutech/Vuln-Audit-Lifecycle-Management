@@ -48,6 +48,12 @@ public class FormField {
     @Builder.Default
     private int sortOrder = 0;
 
+    /**
+     * t179：实例级字段归属（null = 模板字段，所有实例共用；非空 = 只属于该表单实例）
+     */
+    @Column(name = "submission_id")
+    private UUID submissionId;
+
     /** 库字段来源（FormFieldSource 的 code），空 = 手填 */
     @Column(name = "source_type", length = 64)
     private String sourceType;

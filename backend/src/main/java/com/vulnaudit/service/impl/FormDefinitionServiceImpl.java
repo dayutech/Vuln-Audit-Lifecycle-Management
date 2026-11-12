@@ -146,12 +146,12 @@ public class FormDefinitionServiceImpl implements FormDefinitionService {
                                 @Nullable UUID operatorId) {
         FormDefinition definition = requireDefinition(definitionId);
         FormField draft = buildField(definition.getId(), request, null);
-        if (fieldRepository.findByDefinitionIdAndFieldKey(definition.getId(), draft.getFieldKey()).isPresent()) {
+        if (fieldRepository.findByDefinitionIdAndSubmissionIdIsNullAndFieldKey(definition.getId(), draft.getFieldKey()).isPresent()) {
             throw new BusinessException(ErrorCode.CONFLICT, "字段 key 在该模板内已存在: " + draft.getFieldKey());
         }
         if (request.sortOrder() == null) {
             // 未指定则追加到末尾
-            draft.setSortOrder((int) fieldRepository.countByDefinitionIdAndDeletedAtIsNull(definition.getId()));
+            draft.setSortOrder((int) fieldRepository.countByDefinitionIdAndSubmissionIdIsNullAndDeletedAtIsNull(definition.getId()));
         }
         FormField saved = fieldRepository.save(draft);
         audit(operatorId, AUDIT_FIELD, "form_field", saved.getId(),
@@ -180,7 +180,7 @@ public class FormDefinitionServiceImpl implements FormDefinitionService {
 
         if (StringUtils.hasText(request.fieldKey())) {
             String key = request.fieldKey().trim();
-            fieldRepository.findByDefinitionIdAndFieldKey(definition.getId(), key)
+            fieldRepository.findByDefinitionIdAndSubmissionIdIsNullAndFieldKey(definition.getId(), key)
                     .filter(existing -> !existing.getId().equals(field.getId()))
                     .ifPresent(existing -> {
                         throw new BusinessException(ErrorCode.CONFLICT, "字段 key 在该模板内已存在: " + key);
@@ -229,7 +229,7 @@ public class FormDefinitionServiceImpl implements FormDefinitionService {
         if (fieldIds == null || fieldIds.isEmpty()) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "fieldIds 不能为空");
         }
-        List<FormField> existing = fieldRepository.findByDefinitionIdAndDeletedAtIsNull(definition.getId());
+        List<FormField> existing = fieldRepository.findByDefinitionIdAndSubmissionIdIsNullAndDeletedAtIsNull(definition.getId());
         if (existing.size() != fieldIds.size()
                 || !existing.stream().map(FormField::getId).collect(java.util.stream.Collectors.toSet())
                 .containsAll(fieldIds)) {
@@ -254,7 +254,7 @@ public class FormDefinitionServiceImpl implements FormDefinitionService {
     }
 
     private FormField requireField(UUID definitionId, UUID fieldId) {
-        return fieldRepository.findByIdAndDefinitionIdAndDeletedAtIsNull(fieldId, definitionId)
+        return fieldRepository.findByIdAndDefinitionIdAndSubmissionIdIsNullAndDeletedAtIsNull(fieldId, definitionId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "表单字段不存在"));
     }
 
@@ -316,13 +316,13 @@ public class FormDefinitionServiceImpl implements FormDefinitionService {
     }
 
     private List<FormFieldVO> listFieldVOs(UUID definitionId) {
-        return fieldRepository.findByDefinitionIdAndDeletedAtIsNullOrderBySortOrderAscCreatedAtAsc(definitionId)
+        return fieldRepository.findByDefinitionIdAndSubmissionIdIsNullAndDeletedAtIsNullOrderBySortOrderAscCreatedAtAsc(definitionId)
                 .stream().map(this::toFieldVO).toList();
     }
 
     private FormDefinitionVO toVO(FormDefinition definition, @Nullable List<FormFieldVO> fields) {
         long fieldCount = fields != null ? fields.size()
-                : fieldRepository.countByDefinitionIdAndDeletedAtIsNull(definition.getId());
+                : fieldRepository.countByDefinitionIdAndSubmissionIdIsNullAndDeletedAtIsNull(definition.getId());
         return new FormDefinitionVO(definition.getId(), definition.getCode(), definition.getName(),
                 definition.getDescription(), definition.isEnabled(), fieldCount,
                 definition.getCreatedAt(), definition.getUpdatedAt(), fields);

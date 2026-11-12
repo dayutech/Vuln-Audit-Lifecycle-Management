@@ -1040,3 +1040,46 @@ SELECT COUNT(*) AS values_cnt FROM form_value;
 SELECT table_name, table_collation FROM information_schema.tables
  WHERE table_schema = DATABASE()
    AND table_name IN ('form_definition','form_field','form_submission','form_value');
+
+-- =============================================================================
+-- V36：form_field 增加 submission_id（实例级字段，第 2/5 块，t179）
+-- 与 backend/src/main/resources/db/migration/V36__form_field_submission_id.sql 等价
+-- =============================================================================
+-- submission_id IS NULL → 模板字段；非空 → 只属于该表单实例的字段。
+-- 幂等：ADD COLUMN IF NOT EXISTS / CREATE INDEX IF NOT EXISTS。⚠ 显式 COLLATE utf8mb4_unicode_ci。
+
+ALTER TABLE form_field
+    ADD COLUMN IF NOT EXISTS submission_id VARCHAR(36) COLLATE utf8mb4_unicode_ci NULL;
+
+CREATE INDEX IF NOT EXISTS idx_form_field_submission ON form_field (submission_id, sort_order);
+
+SELECT SUM(CASE WHEN submission_id IS NULL THEN 1 ELSE 0 END) AS template_fields,
+       SUM(CASE WHEN submission_id IS NOT NULL THEN 1 ELSE 0 END) AS instance_fields
+  FROM form_field;
+
+-- =============================================================================
+-- V36：实例级字段 + 实例业务主体（第 2/5 块，t179）
+-- 与 backend/src/main/resources/db/migration/V36__form_field_submission_id.sql 等价
+-- =============================================================================
+-- form_field.submission_id IS NULL → 模板字段；非空 → 只属于该表单实例的字段。
+-- form_submission.subject_type / subject_id → 生成表单时挂的业务对象（快照来源 + 详情展示）。
+-- 幂等：ADD COLUMN IF NOT EXISTS / CREATE INDEX IF NOT EXISTS。⚠ 显式 COLLATE utf8mb4_unicode_ci。
+
+ALTER TABLE form_field
+    ADD COLUMN IF NOT EXISTS submission_id VARCHAR(36) COLLATE utf8mb4_unicode_ci NULL;
+
+CREATE INDEX IF NOT EXISTS idx_form_field_submission ON form_field (submission_id, sort_order);
+
+ALTER TABLE form_submission
+    ADD COLUMN IF NOT EXISTS subject_type VARCHAR(20) COLLATE utf8mb4_unicode_ci NULL;
+
+ALTER TABLE form_submission
+    ADD COLUMN IF NOT EXISTS subject_id VARCHAR(36) COLLATE utf8mb4_unicode_ci NULL;
+
+CREATE INDEX IF NOT EXISTS idx_form_submission_subject ON form_submission (subject_type, subject_id);
+
+-- 校验
+SELECT SUM(CASE WHEN submission_id IS NULL THEN 1 ELSE 0 END) AS template_fields,
+       SUM(CASE WHEN submission_id IS NOT NULL THEN 1 ELSE 0 END) AS instance_fields
+  FROM form_field;
+SELECT COUNT(*) AS submissions_with_subject FROM form_submission WHERE subject_id IS NOT NULL;
