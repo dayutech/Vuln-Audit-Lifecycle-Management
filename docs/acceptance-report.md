@@ -2281,3 +2281,29 @@ Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试
 已尝试「下拉选项真实鼠标坐标点击」「ArrowDown+Enter」「先输入搜索词再 ArrowDown+Enter」三种真实交互，均未把资产/版本写入表单值。**结论**：该断言未通过自动化完成，需人工点一次确认是 antd v6 可搜索 Select 与 Form 绑定问题，还是自动化局限。
 
 **其他观察**：1680 宽视口下资产列表「编辑」链接 x≈1959（视口外，需横向滚动）；造漏洞数据必须带 `discoveredVersionId`。
+### 2.45 自定义填表系统 1/5：V35 数据模型 + 模板/字段 CRUD（t178）
+
+**范围**：四张表（`form_definition`/`form_field`/`form_submission`/`form_value`）+ 模板与字段 ADMIN CRUD +
+`FormFieldSource` 白名单枚举。快照生成、填写提交、确认退回、CSV/XLSX 导出、字段级指派逻辑属后续块。
+
+**三层值语义**（本系统核心）：`source_value`（生成时从业务库取的**快照**，不可变）/ `filled_value`（人工填写）/
+`override_value`（修改覆盖，**只影响导出**）。修改不回写业务库 —— 表单是某一时点的记录，回写会让历史失真并与审计口径冲突。
+
+**实现**：
+- **V35** 四表（幂等 + 显式 `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`，
+  唯一索引 `uk_form_definition_code`、`uk_form_field_key(definition_id,field_key)`、`uk_form_value_submission_field`）
+  + manual-ddl 等价段（含 collation 校验）；
+- 枚举 `FormFieldSource`（13 个来源 + 中文 `label` + `resolve(subject)` 仅留接口）与 `FormFieldType`、`FormSubmissionStatus` 白名单；
+- CRUD 规则：code 唯一**含软删行**且创建后不可改（403）；模板软删，被实例引用 → 409（带 N）；
+  `field_key` 同模板唯一；`SELECT` 必须给 options；**已有表单数据的字段禁止改 `field_type`/`field_key` 与删除**（409），
+  但仍可改 label/required/sort_order；reorder 必须覆盖全部字段且 `sort_order` 连续；
+- 审计 `UPDATE_FORM_DEFINITION`/`UPDATE_FORM_FIELD` **每次操作 1 条**（端点入 `SKIP_ENDPOINTS`）。
+
+**踩坑记档**：`migrationScriptGuards` 里数 `COLLATE=utf8mb4_unicode_ci` 出现次数时先得到 5 而非 4 —— 因为文件头部
+注释也写了该串。改为只数建表语句结尾 `) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`，
+避免「注释影响断言」这类脆弱测试。
+
+**验证**：`FormDefinitionTest` **17/17**（CRUD 全链路、code 重复/软删后不可复用、code 不可改 403、引用删除 409 且未软删、
+三字段按序 + `sourceLabel`、field_key 重复与跨模板同名、SELECT options、类型/source 400、reorder 连续与覆盖校验、
+有数据字段保护、无数据可改可删、403/401、审计条数、跨模板越权 404、enabled 过滤、V35 脚本守卫）。
+契约、三层值语义与边界见 README §72。

@@ -4991,3 +4991,85 @@ DELETE /api/v1/uploads/my/{id}          # 仅本人 PENDING：撤回
 - 临时开关（dev-mode / IP / 重置 / 锁定阈值 / upload 覆盖）全部移除并重启复核：**发码无 devCode**、锁定第 6 次 **429 + Retry-After 900**、**2FA 开启用户 = 0**。
 - 临时库 `vuln_audit_verify_*` / `vuln_audit_clone_*` 全 DROP、`vulnapp` 临时授权 REVOKE；`uploads/pending`、`uploads/approved` 清空。
 - 数据终态：`customers=1 projects=1 phases=0 assets=3 links=3`、`orphan=0`、`tag_definitions=3`、`files=4`、`vulns=0`、`users=12`、`codes/requests/rm_tokens=0`、`2fa_on=0`、`upload_approvals=0`、`attachments=0`、`tools=0`。
+
+## 72. 第五十四轮（自定义填表系统 1/5：V35 数据模型 + 模板/字段 CRUD，t178）
+
+### 72.1 这轮做了什么、没做什么
+
+**做了**：四张表的数据模型（V35）+ 模板/字段的 ADMIN CRUD（含全部限制规则与审计）+ `FormFieldSource` 白名单枚举。
+**没做（后续块）**：生成实例时取快照、填写/提交、确认/退回、CSV/XLSX 导出、字段级指派逻辑。
+
+### 72.2 数据模型（四张表，V35）
+
+| 表 | 作用 | 关键列 |
+|---|---|---|
+| `form_definition` | 表单**模板** | `code`（唯一，含软删行，创建后不可改）、`name`、`description`、`enabled`、`deleted_at` |
+| `form_field` | 模板**字段** | `field_key`（同模板唯一）、`label`、`field_type`、`required`、`sort_order`、`source_type`（空=手填）、`options`（SELECT 的 JSON 数组） |
+| `form_submission` | 表单**实例** | `definition_id`、`title`、`status`（DRAFT/ASSIGNED/SUBMITTED/CONFIRMED/RETURNED）、`assigned_to`（**第一期只做表单级指派**）、`confirmed_by`（可选）、三个时间戳 |
+| `form_value` | 实例的**每个字段值** | `source_value` / `filled_value` / `override_value` 三层 + `assigned_to`（字段级指派**预留位**，第一期不使用） |
+
+索引：`uk_form_definition_code`、`uk_form_field_key(definition_id,field_key)`、`uk_form_value_submission_field(submission_id,field_id)`、
+`(status,assigned_to)`、`(created_by)`、`(definition_id,sort_order)`；四表全部显式
+`ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`。
+
+### 72.3 三层值语义（本系统最关键的设计）
+
+| 列 | 谁写 | 可变性 | 用途 |
+|---|---|---|---|
+| `source_value` | 系统（生成实例时从业务库取） | **生成后不可变**（快照） | 记录「当时的」客户名/资产状态等，业务后续改名不影响历史表单 |
+| `filled_value` | 填表人 | 可改（提交前） | 人工填写的内容 |
+| `override_value` | 有权限的修改人 | 可改 | **只影响导出**的覆盖值 |
+
+**为什么修改不回写业务库**：表单是「某一时点的一次记录/申报」。回写会让历史失真（原来填的是 A，后来业务被改成 B，
+历史表单就"篡改"了），也和审计口径冲突（谁在什么时候填的、填的是什么必须可追溯）。
+需要更新业务数据的场景，走各业务模块自己的编辑流程并留审计。
+
+### 72.4 `source_type` 白名单（`FormFieldSource`，单一事实来源）
+
+`CUSTOMER.NAME|CODE|INDUSTRY`、`PROJECT.NAME|CODE|TYPE`、`ASSET.NAME|CODE|TARGET_TYPE|PRIORITY|STATUS`、
+`TEAM.NAME`、`USER.FULL_NAME`。枚举同时提供 `label`（中文显示名，前端下拉直接用）与 `resolve(subject)`
+（**本块只留接口**：真正的取值依赖业务实体字段与软删/权限口径，放到生成实例的块实现）。
+
+- `source_type` **非空 = 库字段**（生成时快照）；为空 = 手填字段；
+- 前端可用 `GET /admin/form-definitions/{id}` 返回的 `sourceLabel` 直接显示「来源：客户名称」。
+
+### 72.5 接口（全部 `hasRole('ADMIN')`）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/v1/admin/form-definitions?keyword=&enabled=&page=&size=` | 分页，含 `fieldCount` |
+| POST | `/api/v1/admin/form-definitions` | `{code,name,description?,enabled?}` → **201**；code 重复（**含软删行**）→ 409 |
+| GET | `/api/v1/admin/form-definitions/{id}` | 含 `fields[]`（按 `sort_order`） |
+| PUT | `/api/v1/admin/form-definitions/{id}` | 改 name/description/enabled；**改 code → 403** |
+| DELETE | `/api/v1/admin/form-definitions/{id}` | 软删；已被实例引用 → 409（带引用数「N 个表单实例」） |
+| POST | `.../{id}/fields` | 新增字段；`field_key` 同模板唯一 → 409 |
+| PUT | `.../{id}/fields/{fieldId}` | 更新；**已有表单数据时禁止改 `field_type`/`field_key`** → 409 |
+| DELETE | `.../{id}/fields/{fieldId}` | 软删；已有数据 → 409 |
+| PUT | `.../{id}/fields/reorder` | `{fieldIds:[...]}` 必须正好覆盖全部字段 → `sort_order` 连续 0..n-1 |
+
+字段校验：`field_type` ∈ TEXT/TEXTAREA/NUMBER/DATE/SELECT/CHECKBOX/FILE（非法 400，消息带可选值）；
+`source_type` 白名单（非法 400）；**`SELECT` 必须给非空 `options`（JSON 数组）**，其它类型忽略 options。
+
+审计：`UPDATE_FORM_DEFINITION`（模板增/改/删）与 `UPDATE_FORM_FIELD`（字段增/改/删/重排）**每次操作恰好 1 条**，
+端点已进 `AuditTrailInterceptor.SKIP_ENDPOINTS`。
+
+### 72.6 验证（`FormDefinitionTest` 17 例）
+
+```bash
+cd backend && mvn -B test -Dtest=FormDefinitionTest   # 17/17
+```
+
+覆盖：模板 CRUD 全链路（创建 201/详情/改名/列表 keyword/软删后列表不含+详情 404）；code 重复 409 **且软删后仍不可复用**；
+改 code 403（传原值 200）；被实例引用删除 409 且**未软删**；三个字段按序返回（库字段带 `sourceLabel`、手填 `sourceType=null`、SELECT 带 options）；
+`field_key` 同模板重复 409 而跨模板可同名；SELECT 缺 options 400 而非 SELECT 的 options 被忽略；
+非法 `field_type`/`source_type` 400（消息含关键字）；reorder 生效且 `sort_order` 连续、覆盖不全 400；
+**已有表单数据的字段禁止改类型/删除（409）但可改 label**、无数据时可改类型并删除；
+非 ADMIN 403、未登录 401；审计条数（模板 2 条 + 字段 3 条）；跨模板越权访问字段 404；列表 `enabled` 过滤；
+V35 脚本守卫（四表 + 三个唯一索引 + 四表都显式 collation + 三层值列 + manual-ddl 等价段）。
+
+### 72.7 已知边界（第 1/5 块）
+
+1. `FormFieldSource.resolve(subject)` 只留接口，调用会抛 `UnsupportedOperationException`（生成实例的块实现）。
+2. 字段级指派只有列（`form_value.assigned_to`），第一期不写不读。
+3. 模板/字段删除都是**软删**；字段软删后其历史 `form_value` 仍保留（导出按需 join）。
+4. 模板 `code` 不可改、编码不复用（含软删行唯一）——历史表单/导出靠它定位口径。

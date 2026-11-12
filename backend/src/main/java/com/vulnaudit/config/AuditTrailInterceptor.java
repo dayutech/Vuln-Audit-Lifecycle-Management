@@ -117,7 +117,15 @@ public class AuditTrailInterceptor implements HandlerInterceptor {
             // t160：上传审批三个写端点由服务层各写 1 条审计
             "POST /api/v1/uploads/pending",
             "POST /api/v1/admin/upload-approvals/{id}/approve",
-            "POST /api/v1/admin/upload-approvals/{id}/reject"
+            "POST /api/v1/admin/upload-approvals/{id}/reject",
+            // t178：表单模板/字段由服务层各写 1 条审计
+            "POST /api/v1/admin/form-definitions",
+            "PUT /api/v1/admin/form-definitions/{id}",
+            "DELETE /api/v1/admin/form-definitions/{id}",
+            "POST /api/v1/admin/form-definitions/{id}/fields",
+            "PUT /api/v1/admin/form-definitions/{id}/fields/{fieldId}",
+            "DELETE /api/v1/admin/form-definitions/{id}/fields/{fieldId}",
+            "PUT /api/v1/admin/form-definitions/{id}/fields/reorder"
     };
 
     private final AuditLogService auditLogService;
