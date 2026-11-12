@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Layout, Menu, Dropdown, Avatar, Badge, Button, Drawer } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { MenuOutlined, TagsOutlined, EyeOutlined, BankOutlined, ProjectOutlined, UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, SettingOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined, AuditOutlined, FileSearchOutlined, CloudUploadOutlined, BgColorsOutlined, ControlOutlined, LinkOutlined } from '@ant-design/icons';
+import { MenuOutlined, TagsOutlined, EyeOutlined, BankOutlined, ProjectOutlined, UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, SettingOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined, AuditOutlined, FileSearchOutlined, CloudUploadOutlined, BgColorsOutlined, ControlOutlined, LinkOutlined , FormOutlined } from '@ant-design/icons';
 import { useUserStore } from '@/store/userStore';
 import { getCurrentUser, logout } from '@/api/auth';
 import { getUnreadNotificationCount } from '@/api/notification';
@@ -180,6 +180,9 @@ const BasicLayout: React.FC = () => {
                 { key: '/knowledge', icon: <ReadOutlined />, label: t('menu.knowledge') },
                 { key: '/documents', icon: <FileTextOutlined />, label: t('menu.documents') },
                 { key: '/tools', icon: <ToolOutlined />, label: t('menu.tools') },
+                // t182：自定义填表系统（生成 / 我发起的）
+                { key: '/forms/mine', icon: <FormOutlined />, label: t('menu.formsMine') },
+                { key: '/forms/new', icon: <FormOutlined />, label: t('menu.formsNew') },
       ],
     },
     {
@@ -206,6 +209,8 @@ const BasicLayout: React.FC = () => {
         ...(isAdmin ? [{ key: '/admin/tags', icon: <TagsOutlined />, label: t('menu.tags') }] : []),
         // 大文件上传审批（t161）：仅管理员（后端 /admin/upload-approvals 只放行 ADMIN）
         ...(isAdmin ? [{ key: '/admin/upload-approvals', icon: <CloudUploadOutlined />, label: t('menu.uploadApprovals') }] : []),
+        // 表单模板（t182）：仅管理员（后端 /admin/form-definitions 只放行 ADMIN）
+        ...(isAdmin ? [{ key: '/admin/form-definitions', icon: <FormOutlined />, label: t('menu.formDefinitions') }] : []),
         // 注册审批（t114）：仅管理层（admin / project_leader，与后端 hasAnyRole 一致）+ 待审批角标
         ...(managerEligible === false
           ? []
@@ -390,6 +395,8 @@ const BasicLayout: React.FC = () => {
 };
 
 export default BasicLayout;
+
+
 
 
 

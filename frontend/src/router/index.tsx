@@ -25,6 +25,11 @@ import Knowledge from '@/pages/knowledge/index';
 import KnowledgeEditorPage from '@/pages/knowledge/KnowledgeEditorPage';
 import KnowledgeDetailPage from '@/pages/knowledge/KnowledgeDetailPage';
 import KnowledgeUploadPage from '@/pages/knowledge/KnowledgeUploadPage';
+import FormDefinitionsPage from '@/pages/admin/FormDefinitionsPage';
+import FormDefinitionEditorPage from '@/pages/admin/FormDefinitionEditorPage';
+import FormNewPage from '@/pages/forms/FormNewPage';
+import FormDetailPage from '@/pages/forms/FormDetailPage';
+import FormMinePage from '@/pages/forms/FormMinePage';
 import Tasks from '@/pages/tasks/index';
 import Approvals from '@/pages/approvals/index';
 import ApprovalScopes from '@/pages/approval-scopes/index';
@@ -189,6 +194,13 @@ const router = createBrowserRouter([
       { path: '/knowledge/upload', element: <KnowledgeUploadPage /> },
       { path: '/knowledge/:id/edit', element: <KnowledgeEditorPage /> },
       { path: '/knowledge/:id', element: <KnowledgeDetailPage /> },
+      // t182：自定义填表系统（5A）——模板管理（ADMIN）/ 生成 / 详情 / 我发起的
+      { path: '/admin/form-definitions', element: <FormDefinitionsPage /> },
+      { path: '/admin/form-definitions/new', element: <FormDefinitionEditorPage /> },
+      { path: '/admin/form-definitions/:id/edit', element: <FormDefinitionEditorPage /> },
+      { path: '/forms/new', element: <FormNewPage /> },
+      { path: '/forms/mine', element: <FormMinePage /> },
+      { path: '/forms/:id', element: <FormDetailPage /> },
       {
         path: '/teams',
         element: <Teams />,
@@ -265,6 +277,7 @@ const router = createBrowserRouter([
 ]);
 
 export default router;
+
 
 
 
