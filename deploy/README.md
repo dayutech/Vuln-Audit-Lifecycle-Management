@@ -5353,3 +5353,33 @@ sudo rsync -a --delete --chown=root:root --chmod=D755,F644 /tmp/distnew/ /var/ww
 
 > 说明：`GET /users/me` 返回 400「参数格式错误: id」是既有行为（该路径未单独映射，前端实际使用
 > `/users/me/preferences`、`/users/me/permissions`、`/users/me/2fa` 等子路径），不是部署缺陷。
+
+### 73.5 冒烟执行注意：自身会触发 IP 锁定
+
+`scripts/smoke.sh` 内含「错误密码 → 期望 401」等用例，连续几次后会命中 **IP 层锁定（默认 5 次/15 分钟 → 429 + Retry-After）**，
+导致后续 `admin` 登录拿不到 token，出现**整批 SKIP/FAIL 的连锁假失败**（现象：`auth/登录-admin` FAIL、大量「缺少 admin token」）。
+
+正确跑法（跑完必须恢复）：
+
+```bash
+APP=~/apps/vuln-audit
+cp $APP/deploy/backend.env /tmp/backend.env.bak
+cat >> $APP/deploy/backend.env <<'EOF'
+APP_LOGIN_LOCKOUT_IP_MAX_FAILURES=1000
+APP_LOGIN_LOCKOUT_ACCOUNT_MAX_FAILURES=1000
+APP_LOGIN_LOCKOUT_IP_LOCK_MINUTES=0
+APP_LOGIN_LOCKOUT_ACCOUNT_LOCK_MINUTES=0
+EOF
+systemctl --user restart vuln-audit-backend
+# 等后端就绪（对 /api/v1/auth/login 发 GET 应返回 405 而不是 502）
+BASE_URL=http://127.0.0.1:8089 ADMIN_USER=admin ADMIN_PASS=admin SMOKE_PROVISION=1 bash scripts/smoke.sh
+
+# 恢复默认并重启复核
+cp /tmp/backend.env.bak $APP/deploy/backend.env && rm -f /tmp/backend.env.bak
+systemctl --user restart vuln-audit-backend
+```
+
+> 另一条等价的规避方式：从**另一台机器**跑冒烟（`BASE_URL=http://192.168.188.226:8089`），
+> 因为 nginx 已把 `X-Forwarded-For` 固定为 `$remote_addr`，锁定键按真实客户端 IP 计算，不会影响服务器本机的 127.0.0.1。
+
+本轮（t184）实测：放宽后 **TOTAL=336 / PASS=319 / FAIL=0 / SKIP=17**；恢复默认后再次触发 5 次错误密码即回到 **429 + Retry-After 900**，证明锁定未被永久放宽。
