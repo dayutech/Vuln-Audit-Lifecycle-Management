@@ -2370,3 +2370,121 @@ Java 侧 `GroupToTagMigrator` 与 SQL 同语义（H2 不跑迁移脚本，测试
 **踩坑记档**：① 权限矩阵测试原以为 `leaderToken` 是 PROJECT_LEADER，实际 BaseTest 里是 **TEAM_LEADER**（必须仍收窄），
 补了一个真 PROJECT_LEADER 用户夹具才能覆盖「管理层全量」分支；② 列名重复问题——按 fieldId 归并后两列同名，
 加序号解决（与任务字面「首次 label」有偏差，已记录）。
+
+---
+
+# 第三部分：最终交付验收（19 条用户需求的逐条对照）
+
+> 本节是**最终交付基线**，替代此前各轮的中间结论。验收对象为 19 条用户需求（需求编号见下）。
+> 基线：后端全量回归 **1134 例 × 2 轮全绿**、冒烟 **336 条 / 319 通过 / 0 失败 / 17 跳过**、
+> 线上 `http://192.168.188.226:8089`（前端 `index-DUp2j7CB.js`，后端 jar 88 MB，迁移 V1–V36）。
+
+## 9. 需求逐条对照表
+
+| # | 用户需求 | 实现位置（主要） | 证据 |
+|---|---|---|---|
+| 1 | 登录失败优先锁 IP；锁定期内该账户从其他 IP 再错密码则锁账户 + 短信/邮件告警 + OTP 解锁 | `security/LoginLockoutTracker`、`AuthUnlockController`、`AdminUserController#unlock` | `LoginLockoutTest` 16/16；冒烟 `锁定 5×401 → 429 + Retry-After:900`；真机 `/unlock` 页走通 |
+| 2 | 双因子开关（禁用/可自开/管理员强制），密钥随机且满足复杂度 | `util/TotpUtils`、`security/SecretCipher`、`TwoFactorServiceImpl`、`TwoFactorEnforcementInterceptor` | `TwoFactorAuthTest` 15/15、`RememberMeTest` 14/14；真机 init→confirm(10 恢复码)→两步登录 202→200；V26 列宽 128 |
+| 3 | 注册页不要一长溜，可并排 | `pages/Register.tsx` + `components/auth/SendCodeRow` | 纵向行 8→6、卡片高 928→828px；密码/确认密码两列、手机与发码同行 |
+| 4 | remember-me | `RememberMeServiceImpl`、`AuthController#refresh`、`owl_rm` cookie | `RememberMeTest` 14/14；真机 `owl_rm` 66B + `/auth/refresh` 200 且轮换 |
+| 5 | 绑定微信且管理员启用后，登录页要有微信扫码入口 | `components/sso/WechatQrModal.tsx`、`SsoButtons` | E2E 25/25；≥768px 弹二维码（白底静区），<768px 直跳；未配置显示提示 |
+| 6 | 忘记密码渠道切换按钮配色与主题不统一 | `pages/ForgotPassword.tsx` `.auth-segment` | 由主题派生配色；8 套主题下一致 |
+| 7 | 自定义填表系统（选字段取库数据→指派确认人→导出 csv/xlsx；修改不回写库；发起人加字段；被指派人只见自己数据） | V35/V36 四表、`FormDefinitionService`、`FormSubmissionService`、`FormExportService`、前端 5 套页面 | `FormDefinitionTest` 17、`FormSubmissionTest` 17、`FormFillFlowTest` 18、`FormExportTest` 13；冒烟 15 条；**真机：改资产名后快照不变；覆盖生效但 `asset.name` 未变** |
+| 8 | 客户编码 `CUST-`+7 位随机大写；行业按国标枚举且可检索；行业类型管理员可增删改（内置不可改）；客户详情独立页 | `CustomerServiceImpl#resolveCode`、`industry_types`(V27/V28)、`AdminIndustryTypeController`、前端 `/customers/:id` | `CustomerCodeIndustryTest` 14/14、`MetaTypeAdminTest` 20/20；真机 `CUST-WUINPAH`、检索「软件」命中 I65 |
+| 9 | 项目编码 `PRJ-YYYY-MM-DD-`+6 位随机；创建项目时客户下拉为空（缺陷）；客户/项目查看编辑形式统一；抽屉改独立页；项目详情可增删资产（含批量）；项目/客户/资产删除改标记删除 | `ProjectServiceImpl#resolveCode`、`pages/assets|customers|projects` 统一 PageHeader、`ProjectBulkAssetsTest`、`@SQLRestriction` 软删除 | `ProjectCodeTest` 12/12、`ProjectBulkAssetsTest` 14/14、`SoftDeleteTest` 16/16；真机 `PRJ-2026-11-12-BZJXSE`、批量加 2 → `added:2`、移除唯一挂靠 → 409 且清单不变 |
+| 10 | 资产：分组并入资产中心并用标签实现；标签管理员统一管理；清理 tab 重复同名标签；去掉版本筛选框；上传改弹框填版本/分类/描述；文件列表支持筛选与排序；加客户/项目时自动打标签；产品概览默认只读+修改按钮；所属项目页签不允许解绑；交付物上传对齐资产文件 | V30 标签迁移、`AssetTagSystemTest`、`FileUploadModal`、`useTableSort`、`FileFilterBar`、`AttachmentPanel` | `AssetTagSystemTest` 18/18、`AssetTagsBatchTest` 11/11、`AssetFileMetaTest` 24/24；真机标签列渲染且逐行 `/assets/{id}/tags` 请求 0；产品概览只读时输入控件 0 |
+| 11 | 安全审计任务菜单排到全局漏洞视图上方 | `layouts/BasicLayout.tsx` `menuItems` | 真机索引 tasks=4 < vulnerabilities=5；7 项逐一点击高亮正确 |
+| 12 | 审批中心要分类留存 | `pages/approvals/index.tsx` + `access-approval-history`(t156) | `ApprovalHistoryTest` 11/11；真机清空 localStorage 后历史仍在（来自后端） |
+| 13 | 知识库发布改整页编辑 | `/knowledge/new|:id|:id/edit` | 列表页 `<Modal` 计数 0；未保存离开二次确认 |
+| 14 | 规范与文档编辑改单独页面 | `/documents/new|:id|:id/edit` | 编辑弹框移除（仅保留版本历史/删除确认） |
+| 15 | 知识库与规范支持手动上传 | `document_attachments`(V33)、`AttachmentPanel` | `DocumentAttachmentTest` 15/15；真机 5MB PDF 上传→列表→下载（RFC 5987 中文名）→删除后 404 |
+| 16 | 工具与组件库大文件上传需管理员批准（未批准不持久化，拒绝即删） | V32 `upload_approval_requests`、`UploadApprovalService`、`/admin/upload-approvals` | `UploadApprovalTest` 30/30；真机 50MB→PENDING（`/tools` 无记录）→approve 出现→reject 临时文件消失；`displayName` 回填为「我的工具」 |
+| 17 | 登录后左上角品牌分两行、左对齐、logo 再放大 | `components/brand/OwlMark`、`LoginBrand`、`BasicLayout` | 1440→37.4px / 1920→40px / 375→27px；两行文案与左对齐 |
+| 18 | 登出后出现「未认证，请先登录」弹框是错误 | `utils/session.ts`（登出窗口期抑制 401 toast）、`request.ts` | 登出不触发 401 提示；`session.ts` 机制有单测/回归覆盖 |
+| 19 | SSO 只显示 logo，不要额外按钮 | `components/sso/SsoButtons.tsx` | 纯 logo（44px）按钮，无文字按钮；无 provider 时整块不渲染 |
+
+## 10. 失败任务与交付映射（看板 failed ≠ 工作未做）
+
+平台限制：运行中的团队**不能逐条删除任务**（`edit_plan` 的 `remove_task` 仅在编排期可用；且历史任务 `t1` 的 assignee 已被移除成员，
+导致 `edit_plan` 整批校验失败），因此失败记录保留，但**其产出与替代关系如下**：
+
+| 失败任务 | 原因 | 实际交付 | 承接者 |
+|---|---|---|---|
+| t124 | 额度不足 | 2FA + remember-me 服务层 | → **t135**（completed，15/15 + 14/14） |
+| t125 | 额度不足 | 2FA HTTP 层部分 | → **t135** |
+| t126 | 依赖失败任务（永久 pending） | remember-me 已并入 t135 | 无（作废） |
+| t128 | 依赖失败任务（永久 pending） | 2FA 收尾已由 t135 完成 | 无（作废） |
+| t161 | 服务端 503 | 上传审批前端全部文件 | 已随 `9779e53` 提交，后由 t164/t167 完善 |
+| t168 | 遗留代码量超预期（诚实回退） | 3 个整页 + 5 条路由（`158bb9b`） | 拆为 t171 + t172 |
+| t169 | 同 t168（两次） | 无（已回退） | → **t171** 整页重写 |
+| t170 | 被 t168 阻塞（永久 pending） | 无 | → **t172**（898→551 行，`cf52b41`） |
+| t171 | E2E 探针误判 | 890→304 行整页重写（`cf52b41`） | 无需重派；重跑 **16/16 PASS**（evidence_note 追加） |
+| t172 | 服务端 503 | 同上（工作已提交） | 已完成 |
+| t173 | 1 项验收未过（漏洞新建全链路） | 部署 + 回归 + 5 组验收全绿（`e4d65ca`） | → **t175 → t176**（根因：api 层读 snake_case 而 payload 为 camelCase） |
+| t175 | 依赖失败的 t173（永久 pending） | 无 | → **t176**（12/12，`7d6f37d`） |
+| t182 | 请求超时 | 5A 全部页面（`cfe5d06`） | 重试后 completed |
+| t183 | 请求超时 ×2 | 5B 全部页面（`b23fb93`） | 由 captain 验证 build/tsc/eslint 后提交 |
+
+**结论**：上表所有失败任务的目标均有**已提交且已验证**的产出，无遗留功能空洞。
+
+## 11. 迁移与数据库结论
+
+| 迁移 | 内容 | 验证 |
+|---|---|---|
+| V29 | 客户/项目/资产软删除（`deleted_at`/`deleted_by` + 索引） | 空库+克隆 × 两种 collation × 各 2 遍；生产执行 2 遍 |
+| V30 | 资产分组 → 标签体系（`tag_definitions` + 迁移水位） | 同上；**修复 collation 缺陷**（分组名 JOIN 未加 COLLATE） |
+| V31 | 附件元数据（`remark` + 排序索引） | 同上（`uploaded_by` 列本就存在，未做虚假回填） |
+| V32 | 大文件上传审批（`upload_approval_requests`） | 同上 |
+| V33 | 知识库/文档附件（`document_attachments`） | 同上 |
+| V34 | `upload_approval_requests` 补 `display_name`/`description` | 同上 |
+| V35 | 填表系统四表（definition/field/submission/value） | 本机 JPA 建表 + 226 实库建表，四表与列齐备 |
+| V36 | `form_field.submission_id`、`form_submission.subject_type/subject_id` | 226 实库校验列存在 |
+
+**collation 硬规则**（三次教训）：迁移中所有新建表显式 `DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`；
+所有**列与列的比较**（JOIN/WHERE）显式 `COLLATE utf8mb4_unicode_ci`。否则在默认 `general_ci` 的实例上
+会抛 `ERROR 1267 Illegal mix of collations` 并**中断迁移**（V27/V28/V30 均踩过，均在默认 `unicode_ci` 的生产库上"侥幸不炸"）。
+
+## 12. 运行基线（最终）
+
+| 项 | 数值 |
+|---|---|
+| 后端全量回归 | **1134 例**，Failures 0 / Errors 0 / Skipped 0，**连续两轮一致**（24 / 23 分钟） |
+| 冒烟 | **336 条**：PASS 319 / FAIL 0 / SKIP 17（SKIP 为前置条件不足或接口按设计未开放） |
+| 测试类 / 迁移 | **107** 个测试类（`backend/src/test` 共 645 个源文件）/ **迁移 V1–V36（36 个）** |
+| 提交 | **188** 个提交，`remote == local` |
+| 线上 | `http://192.168.188.226:8089`；后端 jar 88 MB（含 POI）；前端 `index-DUp2j7CB.js` |
+| 数据结构 | `customers=6 / projects=5 / assets=3 / links=3 / teams=1 / industry_types=22 / project_types=5 / tag_definitions=3 / users=12+` |
+
+## 13. 已知限制（真实边界，均不影响验收结论）
+
+1. **JDK**：目标 `java.version=17`；本地/宿主编译使用 JDK 17（构建脚本已固定 `JAVA_HOME`），服务器为 OpenJDK 17.0.21。
+2. **SSO**：需管理员在系统设置填入各 provider 的真实 `client_id`/`client_secret`；未配置时按「未配置」提示，不假装可用。
+3. **微信桌面扫码**：授权回调落在手机浏览器，桌面端无法自动感知——需刷新页面（真正的「桌面扫码-移动确认」需后端 device code 轮询，未实现）。
+4. **短信/邮件网关**：默认 `LoggingVerificationCodeSender` 只记 WARN（不打印明文验证码）；`dev-mode` 仅开发态回传 `devCode`，生产为 `false`。
+5. **CSV 导入候选上限**：项目资产批量导入在前端按 `available-assets` 分页匹配，最多 500 个候选；彻底解决需后端 `?codes=` 精确查询。
+6. **字段级指派**：`form_value.assigned_to` 已预留列，第一期只实现表单级指派。
+7. **上传审批**：目前仅 `TOOL` 会在批准后创建业务记录（COMPONENT/KNOWLEDGE/DOCUMENT 类型仅登记审批）。
+8. **附件排序**：交付物「版本」列只能按 `asset_version_id`（UUID）排序，故前端**不提供该列排序**；上传人列按账号 UUID 排序（表头已注明"按账号排序"）。
+9. **评审导出**：表单导出上限 5000 行（可配置），超限返回 400。
+10. **审计导出**：仅 ADMIN / PROJECT_LEADER。
+11. **冒烟与锁定**：冒烟脚本自带"错误密码"用例会命中 IP 锁定（5 次/15 分钟），须按 §73.5 临时放宽后跑并恢复。
+12. **`GET /users/me`**：该路径返回 400（未单独映射，属既有行为）；前端实际使用 `/users/me/preferences`、`/users/me/permissions`、`/users/me/2fa`、`/users/me/sso-bindings`。
+
+## 14. 复核命令（任选三项即可复现结论）
+
+```bash
+# 1) 后端全量回归（两轮，约 24 分钟/轮）
+cd backend && JAVA_HOME=<jdk17> mvn -B clean test     # 期望 Tests run: 1134, Failures 0, Errors 0, Skipped 0
+
+# 2) 线上冒烟（336 条；先按 README §73.5 放宽 IP 锁定，跑完恢复）
+BASE_URL=http://192.168.188.226:8089 ADMIN_USER=admin ADMIN_PASS=admin bash scripts/smoke.sh
+
+# 3) 填表系统核心语义（快照不变 + 覆盖不回写）
+#    以资产生成表单 → 改资产名 → 详情里 sourceValue 仍是旧值
+#    提交后设覆盖 → effectiveValue 取覆盖值，而 GET /assets/{id} 的 name 未变
+```
+
+---
+
+**验收结论**：19 条用户需求**全部实现**；后端 1134 例 × 2 轮全绿、冒烟 336 条 0 失败、线上 226 主机真机验证通过；
+所有历史失败任务的目标均有已提交且已验证的产出。**建议通过验收。**
