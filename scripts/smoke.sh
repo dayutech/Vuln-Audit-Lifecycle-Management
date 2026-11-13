@@ -2418,6 +2418,95 @@ fi
   request GET "/api/v1/admin/upload-approvals?status=CANCELLED&keyword=x&page=0&size=5" "$ADMIN_TOKEN"
   judge "upload-approvals-CANCELLED-200" 200 '"content"' "管理端支持 CANCELLED/keyword"
 
+# ---------------------------------------------------------------- 73) 自定义填表系统（t178–t183）
+if [ -n "$ADMIN_TOKEN" ]; then
+  FC="$(python3 -c 'import uuid;print("SMOKE_"+uuid.uuid4().hex[:8].upper())' 2>/dev/null || echo "SMOKE_$$")"
+  request GET '/api/v1/admin/form-definitions?page=0&size=5' "$ADMIN_TOKEN"
+  judge_ok "form/模板列表" '"content"' "GET /admin/form-definitions"
+
+  api_json POST '/api/v1/admin/form-definitions' "$ADMIN_TOKEN" \
+    "{\"code\":\"$FC\",\"name\":\"冒烟模板\",\"description\":\"smoke\"}"
+  judge "form/建模板-201" 201 '"id"' "code=$FC"
+  DEF_ID="$(jfirst id)"
+
+  api_json POST "/api/v1/admin/form-definitions/$DEF_ID/fields" "$ADMIN_TOKEN" \
+    '{"fieldKey":"asset_name","label":"资产名称","fieldType":"TEXT","required":true,"sourceType":"ASSET.NAME"}'
+  judge "form/建库字段-201" 201 '"sourceType"' "ASSET.NAME 生成时快照"
+  F_LIB="$(jfirst id)"
+
+  api_json POST "/api/v1/admin/form-definitions/$DEF_ID/fields" "$ADMIN_TOKEN" \
+    '{"fieldKey":"scene","label":"现场说明","fieldType":"TEXTAREA","required":true}'
+  judge "form/建手填字段-201" 201 '"fieldType"' "TEXTAREA"
+  F_TXT="$(jfirst id)"
+
+  api_json POST "/api/v1/admin/form-definitions/$DEF_ID/fields" "$ADMIN_TOKEN" \
+    '{"fieldKey":"risk","label":"风险等级","fieldType":"SELECT","required":true}'
+  judge "form/SELECT缺options-400" 400 '' "SELECT 必须给 options"
+
+  api_json POST "/api/v1/admin/form-definitions/$DEF_ID/fields" "$ADMIN_TOKEN" \
+    '{"fieldKey":"risk","label":"风险等级","fieldType":"SELECT","required":true,"options":"[\"高\",\"中\",\"低\"]"}'
+  judge "form/建SELECT字段-201" 201 '"fieldType"' "options 为 JSON 字符串"
+  F_SEL="$(jfirst id)"
+
+  request GET '/api/v1/assets?page=0&size=1' "$ADMIN_TOKEN"
+  A_ID="$(jfirst id)"
+  if [ -n "$A_ID" ]; then
+    api_json POST '/api/v1/forms/submissions' "$ADMIN_TOKEN" \
+      "{\"definitionId\":\"$DEF_ID\",\"subjectType\":\"ASSET\",\"subjectId\":\"$A_ID\",\"title\":\"冒烟表单\"}"
+    judge "form/生成实例-201" 201 '"snapshotFilled"' "库字段当场快照"
+    SUB_ID="$(jfirst id)"
+
+    request GET "/api/v1/forms/submissions/$SUB_ID" "$ADMIN_TOKEN"
+    judge_ok "form/详情含三层字段" '"effectiveValue"' "sourceValue/filledValue/overrideValue"
+
+    api_json POST "/api/v1/forms/submissions/$SUB_ID/submit" "$ADMIN_TOKEN" '{}'
+    judge "form/缺必填提交-400" 400 '' "必填只在提交时校验"
+
+    api_json PUT "/api/v1/forms/submissions/$SUB_ID/values" "$ADMIN_TOKEN" \
+      "{\"values\":[{\"fieldId\":\"$F_TXT\",\"filledValue\":\"现场正常\"},{\"fieldId\":\"$F_SEL\",\"filledValue\":\"高\"}]}"
+    judge_ok "form/填写-200" '' "PUT /values"
+
+    api_json POST "/api/v1/forms/submissions/$SUB_ID/submit" "$ADMIN_TOKEN" '{}'
+    judge_ok "form/提交成功" '"status"' "进入 SUBMITTED"
+
+    api_json PUT "/api/v1/forms/submissions/$SUB_ID/overrides" "$ADMIN_TOKEN" \
+      "{\"values\":[{\"fieldId\":\"$F_LIB\",\"overrideValue\":\"覆盖值-冒烟\"}]}"
+    judge_ok "form/覆盖-200" '"effectiveValues"' "响应回报 effectiveValues（覆盖生效）"
+
+    download "/api/v1/forms/submissions/$SUB_ID/export?format=csv" "$ADMIN_TOKEN" "$TMPD/form.csv"
+    judge_ok "form/导出CSV-200" '' "text/csv"
+    if [ "$(bom_of "$TMPD/form.csv")" = "efbbbf" ]; then
+      pass "form/CSV带BOM" "-" "Excel 中文不乱码"
+    else
+      fail "form/CSV带BOM" "-" "缺失 UTF-8 BOM"
+    fi
+
+    download "/api/v1/forms/submissions/$SUB_ID/export?format=xlsx" "$ADMIN_TOKEN" "$TMPD/form.xlsx"
+    judge_ok "form/导出XLSX-200" '' "application/vnd.openxmlformats"
+    if [ "$(head -c 2 "$TMPD/form.xlsx" 2>/dev/null)" = "PK" ]; then
+      pass "form/XLSX为zip容器" "-" "POI 可读"
+    else
+      fail "form/XLSX为zip容器" "-" "不是 zip 魔数"
+    fi
+
+    request GET '/api/v1/forms/submissions/mine?page=0&size=5' "$ADMIN_TOKEN"
+    judge_ok "form/我发起的列表" '"content"' "GET /forms/submissions/mine"
+    request GET '/api/v1/forms/submissions/assigned?page=0&size=5' "$ADMIN_TOKEN"
+    judge_ok "form/待我处理列表" '"content"' "GET /forms/submissions/assigned"
+  else
+    skip "form/生成实例-201" "-" "无可用资产，跳过"
+  fi
+
+  if [ -n "$ENGINEER_TOKEN" ]; then
+    request GET '/api/v1/admin/form-definitions?page=0&size=5' "$ENGINEER_TOKEN"
+    judge "form/非ADMIN访问管理接口-403" 403 '' "仅 ADMIN"
+  else
+    skip "form/非ADMIN访问管理接口-403" "-" "无工程师 token"
+  fi
+else
+  skip "form/模板列表" "-" "无 admin token"
+fi
+
   printf '\n==== 冒烟汇总 ====\n'
 printf 'TOTAL=%d  PASS=%d  FAIL=%d  SKIP=%d\n' "$TOTAL" "$PASSED" "$FAILED" "$SKIPPED"
 if [ "$FAILED" -gt 0 ]; then
