@@ -266,11 +266,8 @@ public class AssetDeliverableController {
     }
 
     private String resolveUploadFileName(MultipartFile file) {
-        String originalFilename = file.getOriginalFilename();
-        if (originalFilename == null || originalFilename.isBlank()) {
-            return "unnamed-file";
-        }
-        return originalFilename;
+        // t188：客户端提交的原始文件名可能带 `../`（路径穿越，CWE-22）
+        return com.vulnaudit.util.FileNameSanitizer.sanitize(file.getOriginalFilename(), "unnamed-file");
     }
 
     private String calculateSha256(Path path) {

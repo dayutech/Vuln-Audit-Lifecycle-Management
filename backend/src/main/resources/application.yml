@@ -1,5 +1,9 @@
 server:
-  port: 8080
+  # t188：默认只监听回环。生产形态是 nginx 同机反代（127.0.0.1:8088），
+  # 此前监听 0.0.0.0 让局域网可直接绕过 nginx 访问后端（可伪造 X-Forwarded-For 绕过登录锁定）。
+  # 确需对外暴露时显式设置 SERVER_ADDRESS=0.0.0.0，并同时配置 app.security.trusted-proxies。
+  port: ${SERVER_PORT:8080}
+  address: ${SERVER_ADDRESS:127.0.0.1}
   servlet:
     encoding:
       charset: UTF-8
@@ -21,7 +25,9 @@ spring:
   datasource:
     url: jdbc:mariadb://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:vuln_audit}?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8mb4&characterSetResults=utf8mb4&connectionCollation=utf8mb4_unicode_ci
     username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:fC9qCCCATi56ZIb3MDdpeZQFoTfp2y2p}
+    # t188：不再内置数据库口令默认值（公开仓库里的默认口令等于没有口令）。
+    # 未设置 DB_PASSWORD 时启动会因占位符无法解析而失败，属预期行为。
+    password: ${DB_PASSWORD}
     driver-class-name: org.mariadb.jdbc.Driver
     hikari:
       minimum-idle: 5
@@ -34,7 +40,8 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    show-sql: true
+    # t188：生产不打印 SQL（SQL + 绑定参数会进日志，含口令散列/密钥密文等敏感值）
+    show-sql: ${JPA_SHOW_SQL:false}
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MariaDBDialect
@@ -72,12 +79,15 @@ jwt:
   prefix: "Bearer "
 
 logging:
+  # t188：默认 INFO。此前默认 com.vulnaudit=DEBUG + hibernate SQL=DEBUG + BasicBinder=TRACE，
+  # 生产会把每条 SQL 与全部绑定参数（口令散列、TOTP 密文、token 片段等）写进日志。
+  # 排查问题时用 LOG_LEVEL_* 环境变量临时打开。
   level:
     root: INFO
-    com.vulnaudit: DEBUG
-    org.springframework.security: DEBUG
-    org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    com.vulnaudit: ${LOG_LEVEL_APP:INFO}
+    org.springframework.security: ${LOG_LEVEL_SECURITY:WARN}
+    org.hibernate.SQL: ${LOG_LEVEL_SQL:WARN}
+    org.hibernate.type.descriptor.sql.BasicBinder: ${LOG_LEVEL_SQL_PARAMS:WARN}
 
 springdoc:
   api-docs:
@@ -94,6 +104,10 @@ springdoc:
 app:
   # 管理员模拟视角（t90）：生产可置 enabled=false 整体关闭；ttl 默认 2 小时
   security:
+    # t188：受信反向代理白名单。只有来自这些地址的请求，其 X-Forwarded-For 才会被采信
+    # （登录锁定、验证码限流都以客户端 IP 为键，伪造转发头可绕过）。
+    # 生产形态「nginx 与后端同机」只需回环；若经跳板/容器网络反代，按实际网段追加，如 10.0.0.0/8。
+    trusted-proxies: ${APP_TRUSTED_PROXIES:127.0.0.1,::1,0:0:0:0:0:0:0:1}
     impersonation:
       enabled: ${APP_IMPERSONATION_ENABLED:true}
       ttl-seconds: ${APP_IMPERSONATION_TTL_SECONDS:7200}

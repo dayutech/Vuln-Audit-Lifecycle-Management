@@ -211,6 +211,7 @@ public class User {
      * Base64 后 80 字符，加 {@code v1:} 前缀实为 <b>83 字符</b>；原设计写死 64 会触发
      * {@code Value too long for column "totp_secret"}（H2/MariaDB 同），因此列宽取 128 留余量。
      */
+    @JsonIgnore
     @Column(name = "totp_secret", length = 128)
     private String totpSecret;
 

@@ -2,6 +2,7 @@ package com.vulnaudit.controller;
 
 import com.vulnaudit.dto.ApiResponse;
 import com.vulnaudit.dto.UnlockSendCodeResponse;
+import com.vulnaudit.security.ClientIpResolver;
 import com.vulnaudit.service.AccountUnlockService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -29,6 +30,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthUnlockController {
 
     private final AccountUnlockService accountUnlockService;
+    /** 客户端 IP 解析（受信代理才采信 X-Forwarded-For，防锁定/限流绕过） */
+    private final ClientIpResolver clientIpResolver;
 
     @PostMapping("/send-code")
     @Operation(summary = "发送解锁验证码",
@@ -49,12 +52,9 @@ public class AuthUnlockController {
         return ApiResponse.success(null, "账户已解锁，请使用新密码或原密码重新登录");
     }
 
+    /** 取真实客户端 IP（t188）：委托 {@link ClientIpResolver}，非受信对端不采信转发头 */
     private String resolveClientIp(jakarta.servlet.http.HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
+        return clientIpResolver.resolve(request);
     }
 
     /** 发送解锁验证码请求体 */

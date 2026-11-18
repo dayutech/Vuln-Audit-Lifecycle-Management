@@ -40,10 +40,15 @@ public class JwtUtils {
     /**
      * 初始化密钥
      * 在Bean创建后自动调用，将配置的字符串密钥转换为SecretKey对象
+     *
+     * <p>t188：启动时先做密钥合规校验（{@link JwtSecretGuard}）。仓库里 {@code jwt.secret}
+     * 的默认值是公开的占位符，漏配 {@code JWT_SECRET} 时应用曾会「静默」用公开密钥签名，
+     * 任何人都能伪造 admin token。这里改为 <b>不合规就起不来</b>，宁可部署失败也不带病对外。
      */
     @PostConstruct
     public void init() {
-        this.secretKey = Keys.hmacShaKeyFor(jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8));
+        JwtSecretGuard.validate(jwtProperties.getSecret());
+        this.secretKey = Keys.hmacShaKeyFor(jwtProperties.getSecret().trim().getBytes(StandardCharsets.UTF_8));
     }
 
     /**

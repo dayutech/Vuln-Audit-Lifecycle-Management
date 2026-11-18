@@ -5,6 +5,7 @@ import com.vulnaudit.dto.RegisterRequest;
 import com.vulnaudit.dto.RegistrationRequestVO;
 import com.vulnaudit.dto.SendCodeRequest;
 import com.vulnaudit.dto.SendCodeResponse;
+import com.vulnaudit.security.ClientIpResolver;
 import com.vulnaudit.service.RegistrationService;
 import com.vulnaudit.service.VerificationCodeService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -38,6 +39,8 @@ public class AuthRegistrationController {
 
     private final VerificationCodeService verificationCodeService;
     private final RegistrationService registrationService;
+    /** 客户端 IP 解析（受信代理才采信 X-Forwarded-For，防锁定/限流绕过） */
+    private final ClientIpResolver clientIpResolver;
 
     @PostMapping("/register/send-code")
     @Operation(summary = "发送注册验证码",
@@ -61,12 +64,8 @@ public class AuthRegistrationController {
                 .body(ApiResponse.success(vo, "注册申请已提交，请等待管理员审批"));
     }
 
-    /** 取真实客户端 IP：反向代理场景优先取 X-Forwarded-For 首个地址 */
+    /** 取真实客户端 IP（t188）：委托 {@link ClientIpResolver}，非受信对端不采信转发头 */
     private String resolveClientIp(jakarta.servlet.http.HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
+        return clientIpResolver.resolve(request);
     }
 }

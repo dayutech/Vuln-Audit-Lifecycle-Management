@@ -24,6 +24,7 @@ import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -355,6 +356,23 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NoHandlerFoundException.class)
     public ResponseEntity<ApiResponse<Void>> handleNoHandlerFoundException(NoHandlerFoundException e) {
         log.warn("资源未找到: {}", e.getRequestURL());
+        return ResponseEntity
+                .status(HttpStatus.NOT_FOUND)
+                .body(ApiResponse.error(messageResolver.resolveForErrorCode(ErrorCode.NOT_FOUND, null)));
+    }
+
+    /**
+     * 处理「路径没有任何映射、且静态资源也不存在」的 404。
+     *
+     * <p>t188：Spring 6.2 起，未匹配到 Controller 的请求会落到静态资源处理器并抛
+     * {@link NoResourceFoundException}，它<b>不是</b> {@link NoHandlerFoundException}，
+     * 于是被兜底的 {@link #handleException(Exception)} 当成系统异常返回 **500**，
+     * 并在日志里刷 ERROR + 整段堆栈（实测：任意拼错的 API 路径都是 500）。
+     * 这里显式映射为 404，既符合 HTTP 语义，也避免错误日志被探测流量刷屏。
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiResponse<Void>> handleNoResourceFoundException(NoResourceFoundException e) {
+        log.warn("接口或资源不存在: {}", e.getResourcePath());
         return ResponseEntity
                 .status(HttpStatus.NOT_FOUND)
                 .body(ApiResponse.error(messageResolver.resolveForErrorCode(ErrorCode.NOT_FOUND, null)));

@@ -4,6 +4,7 @@ import com.vulnaudit.dto.ApiResponse;
 import com.vulnaudit.dto.PasswordResetConfirmRequest;
 import com.vulnaudit.dto.PasswordResetSendCodeRequest;
 import com.vulnaudit.dto.PasswordResetSendCodeResponse;
+import com.vulnaudit.security.ClientIpResolver;
 import com.vulnaudit.service.PasswordResetService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -34,6 +35,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthPasswordResetController {
 
     private final PasswordResetService passwordResetService;
+    /** 客户端 IP 解析（受信代理才采信 X-Forwarded-For，防锁定/限流绕过） */
+    private final ClientIpResolver clientIpResolver;
 
     @PostMapping("/send-code")
     @Operation(summary = "发送重置密码验证码",
@@ -58,12 +61,8 @@ public class AuthPasswordResetController {
         return ApiResponse.success(null, "密码已重置，请使用新密码登录");
     }
 
-    /** 取真实客户端 IP：反向代理场景优先取 X-Forwarded-For 首个地址 */
+    /** 取真实客户端 IP（t188）：委托 {@link ClientIpResolver}，非受信对端不采信转发头 */
     private String resolveClientIp(jakarta.servlet.http.HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
+        return clientIpResolver.resolve(request);
     }
 }

@@ -8,6 +8,7 @@ import com.vulnaudit.dto.LoginResponse;
 import com.vulnaudit.entity.User;
 import com.vulnaudit.entity.enums.LoginTheme;
 import com.vulnaudit.exception.TooManyRequestsException;
+import com.vulnaudit.security.ClientIpResolver;
 import com.vulnaudit.security.JwtUtils;
 import com.vulnaudit.security.RoleAuthority;
 import com.vulnaudit.service.LoginAttemptService;
@@ -58,6 +59,8 @@ public class AuthController {
     private final com.vulnaudit.service.TwoFactorService twoFactorService;
     /** remember-me 长效令牌（t124）：登录下发、刷新轮换、登出撤销 */
     private final com.vulnaudit.service.RememberMeService rememberMeService;
+    /** 客户端 IP 解析（受信代理才采信 X-Forwarded-For，防锁定/限流绕过） */
+    private final ClientIpResolver clientIpResolver;
 
     /**
      * 登录页主题公开配置（t109）
@@ -95,12 +98,15 @@ public class AuthController {
         return user.getLoginTheme() == null;
     }
 
-    /** 取真实客户端 IP：反向代理场景优先使用 X-Forwarded-For 首个地址 */    private String resolveClientIp(jakarta.servlet.http.HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
+    /**
+     * 取真实客户端 IP（t188）。
+     *
+     * <p>委托给 {@link ClientIpResolver}：只有直连对端是受信反向代理时才采信
+     * {@code X-Forwarded-For}，否则一律用 socket 对端地址——否则客户端伪造转发头即可
+     * 为每次尝试换一个 IP，让「5 次/15 分钟」的锁定形同虚设。
+     */
+    private String resolveClientIp(jakarta.servlet.http.HttpServletRequest request) {
+        return clientIpResolver.resolve(request);
     }
 
     /**

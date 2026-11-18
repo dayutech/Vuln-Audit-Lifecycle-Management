@@ -5,6 +5,7 @@ import com.vulnaudit.dto.SsoAuthorizeResponse;
 import com.vulnaudit.dto.SsoCallbackRequest;
 import com.vulnaudit.dto.SsoCallbackResponse;
 import com.vulnaudit.dto.SsoProviderOption;
+import com.vulnaudit.security.ClientIpResolver;
 import com.vulnaudit.service.SsoService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -32,6 +33,8 @@ import java.util.List;
 public class AuthSsoController {
 
     private final SsoService ssoService;
+    /** 客户端 IP 解析（受信代理才采信 X-Forwarded-For，防锁定/限流绕过） */
+    private final ClientIpResolver clientIpResolver;
 
     @GetMapping("/providers")
     @Operation(summary = "可用的第三方登录方式",
@@ -68,11 +71,8 @@ public class AuthSsoController {
                 "LOGIN".equals(result.status()) ? "登录成功" : "绑定成功"));
     }
 
+    /** 取真实客户端 IP（t188）：委托 {@link ClientIpResolver}，非受信对端不采信转发头 */
     private String resolveClientIp(jakarta.servlet.http.HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (forwarded != null && !forwarded.isBlank()) {
-            return forwarded.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
+        return clientIpResolver.resolve(request);
     }
 }
