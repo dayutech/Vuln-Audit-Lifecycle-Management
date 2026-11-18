@@ -5383,3 +5383,92 @@ systemctl --user restart vuln-audit-backend
 > 因为 nginx 已把 `X-Forwarded-For` 固定为 `$remote_addr`，锁定键按真实客户端 IP 计算，不会影响服务器本机的 127.0.0.1。
 
 本轮（t184）实测：放宽后 **TOTAL=336 / PASS=319 / FAIL=0 / SKIP=17**；恢复默认后再次触发 5 次错误密码即回到 **429 + Retry-After 900**，证明锁定未被永久放宽。
+
+## 74. 安全加固（t188）：必配项、部署步骤与影响面
+
+> 详细缺陷描述与证据见 `docs/security-audit-2026-11.md`。本节只讲**部署侧**要做什么。
+
+### 74.1 新增/变更的必配环境变量
+
+写入 `~/apps/vuln-audit/deploy/backend.env`（权限 600），改完必须重启服务：
+
+| 变量 | 是否必配 | 说明 |
+|---|---|---|
+| `JWT_SECRET` | **必配** | 随机 48 字节 Base64：`openssl rand -base64 48`。缺失、等于仓库默认占位值、或长度 < 32 字符时**应用拒绝启动**（此前会静默使用公开默认密钥，任何人可伪造 admin token） |
+| `DB_PASSWORD` | **必配** | 已删除仓库内硬编码默认值；未配置时启动失败（占位符无法解析） |
+| `SERVER_ADDRESS` | 可选（默认 `127.0.0.1`） | 后端监听地址。默认只监听回环，仅供 nginx 反代；确需直连时显式设 `0.0.0.0` |
+| `APP_TRUSTED_PROXIES` | 可选（默认回环） | 受信反向代理白名单（逗号分隔，支持 `10.0.0.0/8` 网段）。只有来自这些地址的 `X-Forwarded-For` 才会被采信 |
+| `JPA_SHOW_SQL` / `LOG_LEVEL_*` | 可选 | 默认关闭 SQL 日志、应用日志 INFO。排查时临时打开 |
+
+生成并写入 `JWT_SECRET` 的最短路径（在目标机上）：
+
+```bash
+APP=~/apps/vuln-audit
+cp $APP/deploy/backend.env $APP/deploy/backend.env.bak-$(date +%F-%H%M)
+# 若已存在 JWT_SECRET 行则先删除，避免重复
+sed -i '/^JWT_SECRET=/d' $APP/deploy/backend.env
+echo "JWT_SECRET=$(openssl rand -base64 48 | tr -d '\n')" >> $APP/deploy/backend.env
+echo "SERVER_ADDRESS=127.0.0.1" >> $APP/deploy/backend.env
+chmod 600 $APP/deploy/backend.env
+```
+
+> **影响面**：JWT 密钥一变更，**所有存量 token 立即失效**——包括正在使用的管理员会话，
+> 全员需要重新登录一次。请在业务低峰期执行，并提前通知。
+
+### 74.2 nginx 安全响应头
+
+`deploy/nginx-security-headers.conf` 需要部署到 `/etc/nginx/snippets/`，
+站点配置里在 `server{}` 与每个自带 `add_header` 的 `location{}` 内 `include`（见 `deploy/nginx-vuln-audit.conf`）。
+`add_header` 的继承是「全有或全无」，location 内漏掉 include 就会丢掉安全头。
+
+```bash
+# 必须先写普通文件再 sudo cp：sudo -S 会抢走 stdin（见 §73.3）
+sudo mkdir -p /etc/nginx/snippets
+sudo cp /tmp/vuln-audit-security-headers.conf /etc/nginx/snippets/vuln-audit-security-headers.conf
+sudo cp /tmp/nginx-vuln-audit.conf /etc/nginx/sites-available/vuln-audit
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+同时确认 `X-Forwarded-For` 是 `$remote_addr`（**不是** `$proxy_add_x_forwarded_for`）：
+
+```bash
+grep -n 'X-Forwarded-For' /etc/nginx/sites-available/vuln-audit
+# 期望：proxy_set_header X-Forwarded-For   $remote_addr;
+```
+
+### 74.3 升级顺序（在 §5 的「clean test → package → 替换 jar → 重启」之上）
+
+1. 先写 `backend.env`（含 `JWT_SECRET`），此时旧 jar 仍可运行（旧版本不读该变量）；
+2. 再替换 jar（新 jar 启动时会校验密钥，缺配会直接失败——用 `journalctl --user -u vuln-audit-backend -n 50` 看原因）；
+3. 前端 `dist/` 同批同步（本轮改了渲染层，须与后端同批上线）；
+4. nginx 配置与 snippet；
+5. 复验（见 74.4）。
+
+### 74.4 复验命令
+
+```bash
+# ① 用「仓库默认密钥」伪造的 admin token 必须 401（修复前是 200 + 权限清单）
+python3 scripts/qa/forge_default_jwt.py --check http://127.0.0.1:8089
+
+# ② 后端不应再从局域网直连（已绑回环）：从另一台机器执行应连接失败/超时
+curl -s -o /dev/null -w '%{http_code}\n' --max-time 5 http://192.168.188.226:8088/api/v1/auth/login-theme
+
+# ③ 转发头不再影响锁定判定：伪造 IP 连错 5 次后，换一个伪造 IP 仍应 429（而不是回到 401）
+for i in 1 2 3 4 5 6; do
+  curl -s -o /dev/null -w "%{http_code} " -X POST http://192.168.188.226:8089/api/v1/auth/login \
+    -H 'Content-Type: application/json' -H "X-Forwarded-For: 10.9.9.$i" \
+    -d '{"username":"zz_probe_nouser","password":"wrong"}'
+done; echo
+
+# ④ 安全响应头
+curl -sI http://192.168.188.226:8089/ | grep -Ei 'x-content-type|x-frame|referrer-policy'
+
+# ⑤ 正常登录与页面
+curl -s -X POST http://192.168.188.226:8089/api/v1/auth/login \
+  -H 'Content-Type: application/json' -d '{"username":"admin","password":"admin"}' | head -c 120
+```
+
+### 74.5 已知遗留（不影响本轮上线）
+
+- `react-quill` 仍依赖 `quill@1.3.7`（moderate XSS 告警），修它需破坏性降级；渲染侧已由 DOMPurify 兜住。
+- 无全局 API 限流、无 CSP（见 `docs/security-audit-2026-11.md` §5）。
