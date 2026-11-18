@@ -22,6 +22,8 @@ import {
 import { createVulnerability, getVulnerabilityOptions } from '@/api/vulnerability';
 import { describeVulnCreateFailure, isFormValidationError } from '@/pages/vulnerabilities/createError';
 import { toVulnerabilityCreatePayload } from '@/pages/vulnerabilities/createPayload';
+// t188：富文本统一走 knowledge/richContent（DOMPurify 清洗，防存储型 XSS）
+import { renderRichContent } from '@/pages/knowledge/richContent';
 import type { TaskVO, CreateTaskRequest, UpdateTaskStatusRequest, TaskCommentVO, TaskAttachmentVO } from '@/types/task';
 import {
   getAssetList,
@@ -80,83 +82,7 @@ const auditProgressStageOrder = ['env_collect', 'env_setup', 'code_audit'];
 const stageDocCategory = '审计阶段记录';
 
 const getPayload = (res: any) => (res as any)?.data ?? res;
-const containsHtmlTag = (content: string) => /<\/?[a-z][\s\S]*>/i.test(content);
-const escapeHtml = (content: string) =>
-  content
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-
-const renderInlineMarkdown = (text: string) =>
-  escapeHtml(text)
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
-
-const renderMarkdownToHtml = (markdown: string) => {
-  const codeBlocks: string[] = [];
-  const placeholderMarkdown = markdown.replace(/```([\s\S]*?)```/g, (_, block: string) => {
-    const index = codeBlocks.push(block) - 1;
-    return `@@CODE_BLOCK_${index}@@`;
-  });
-  const lines = placeholderMarkdown.replace(/\r\n/g, '\n').split('\n');
-  const htmlParts: string[] = [];
-  let listItems: string[] = [];
-  const flushList = () => {
-    if (listItems.length > 0) {
-      htmlParts.push(`<ul>${listItems.map((item) => `<li>${item}</li>`).join('')}</ul>`);
-      listItems = [];
-    }
-  };
-
-  lines.forEach((raw) => {
-    const line = raw.trimEnd();
-    if (line.startsWith('- ')) {
-      listItems.push(renderInlineMarkdown(line.slice(2).trim()));
-      return;
-    }
-    flushList();
-    if (!line.trim()) {
-      htmlParts.push('<div><br/></div>');
-      return;
-    }
-    if (line.startsWith('### ')) {
-      htmlParts.push(`<h3>${renderInlineMarkdown(line.slice(4).trim())}</h3>`);
-      return;
-    }
-    if (line.startsWith('## ')) {
-      htmlParts.push(`<h2>${renderInlineMarkdown(line.slice(3).trim())}</h2>`);
-      return;
-    }
-    if (line.startsWith('# ')) {
-      htmlParts.push(`<h1>${renderInlineMarkdown(line.slice(2).trim())}</h1>`);
-      return;
-    }
-    htmlParts.push(`<p>${renderInlineMarkdown(line.trim())}</p>`);
-  });
-  flushList();
-
-  let html = htmlParts.join('');
-  codeBlocks.forEach((block, index) => {
-    const codeHtml = `<pre style="padding:12px;background:#f6f8fa;border-radius:6px;overflow:auto;"><code>${escapeHtml(block.trim())}</code></pre>`;
-    html = html.replace(`@@CODE_BLOCK_${index}@@`, codeHtml);
-  });
-  return html;
-};
-
-const renderRichContent = (content: string, emptyText: string) => {
-  const normalized = (content || '').trim();
-  if (!normalized) {
-    return `<p>${emptyText}</p>`;
-  }
-  if (containsHtmlTag(normalized)) {
-    return normalized;
-  }
-  return renderMarkdownToHtml(normalized);
-};
+// t188：富文本渲染统一走 @/pages/knowledge/richContent（内含 DOMPurify 清洗，防存储型 XSS）
 
 const renderListFormItem = (
   name: string,
