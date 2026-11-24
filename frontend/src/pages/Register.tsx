@@ -303,54 +303,53 @@ const Register: React.FC = () => {
                 />
               </Form.Item>
 
-              <div className="auth-grid">
-                <Form.Item
-                  name="password"
-                  label={t('register.password')}
-                  rules={[
-                    { required: true, message: t('register.passwordRequired') },
-                    () => ({
-                      validator: (_, value) =>
-                        !value || evaluatePassword(String(value)).valid
-                          ? Promise.resolve()
-                          : Promise.reject(new Error(t('passwordStrength.rules'))),
-                    }),
-                  ]}
-                >
-                  <Input.Password
-                    prefix={<LockOutlined />}
-                    placeholder={t('register.password')}
-                    autoComplete="new-password"
-                    data-testid="register-password"
-                    onFocus={() => setPasswordFocused(true)}
-                    onBlur={() => setPasswordFocused(false)}
-                  />
-                </Form.Item>
+              {/* t190：密码与确认密码不再并排，改为同一纵列（一上一下） */}
+              <Form.Item
+                name="password"
+                label={t('register.password')}
+                rules={[
+                  { required: true, message: t('register.passwordRequired') },
+                  () => ({
+                    validator: (_, value) =>
+                      !value || evaluatePassword(String(value)).valid
+                        ? Promise.resolve()
+                        : Promise.reject(new Error(t('passwordStrength.rules'))),
+                  }),
+                ]}
+              >
+                <Input.Password
+                  prefix={<LockOutlined />}
+                  placeholder={t('register.password')}
+                  autoComplete="new-password"
+                  data-testid="register-password"
+                  onFocus={() => setPasswordFocused(true)}
+                  onBlur={() => setPasswordFocused(false)}
+                />
+              </Form.Item>
 
-                <Form.Item
-                  name="confirmPassword"
-                  label={t('register.confirmPassword')}
-                  dependencies={['password']}
-                  rules={[
-                    { required: true, message: t('register.confirmRequired') },
-                    ({ getFieldValue }) => ({
-                      validator: (_, value) =>
-                        !value || value === getFieldValue('password')
-                          ? Promise.resolve()
-                          : Promise.reject(new Error(t('register.passwordMismatch'))),
-                    }),
-                  ]}
-                >
-                  <Input.Password
-                    prefix={<LockOutlined />}
-                    placeholder={t('register.confirmPassword')}
-                    autoComplete="new-password"
-                    data-testid="register-confirm-password"
-                    onFocus={() => setPasswordFocused(true)}
-                    onBlur={() => setPasswordFocused(false)}
-                  />
-                </Form.Item>
-              </div>
+              <Form.Item
+                name="confirmPassword"
+                label={t('register.confirmPassword')}
+                dependencies={['password']}
+                rules={[
+                  { required: true, message: t('register.confirmRequired') },
+                  ({ getFieldValue }) => ({
+                    validator: (_, value) =>
+                      !value || value === getFieldValue('password')
+                        ? Promise.resolve()
+                        : Promise.reject(new Error(t('register.passwordMismatch'))),
+                  }),
+                ]}
+              >
+                <Input.Password
+                  prefix={<LockOutlined />}
+                  placeholder={t('register.confirmPassword')}
+                  autoComplete="new-password"
+                  data-testid="register-confirm-password"
+                  onFocus={() => setPasswordFocused(true)}
+                  onBlur={() => setPasswordFocused(false)}
+                />
+              </Form.Item>
 
               <PasswordStrength value={password} />
             </div>
