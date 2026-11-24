@@ -86,7 +86,6 @@ export const twoFactorZh = {
   'login.twoFactor.codeRequired': '请输入动态码或恢复码',
 
   'rememberMe.label': '记住我（30 天）',
-  'rememberMe.hint': '由服务端下发 httpOnly 长效 cookie，浏览器不保存任何长效凭证。',
 } as const;
 
 export const twoFactorEn: Record<keyof typeof twoFactorZh, string> = {
@@ -171,6 +170,5 @@ export const twoFactorEn: Record<keyof typeof twoFactorZh, string> = {
   'login.twoFactor.codeRequired': 'Enter your code or a recovery code',
 
   'rememberMe.label': 'Remember me (30 days)',
-  'rememberMe.hint': 'A long-lived httpOnly cookie is issued by the server; the browser stores no long-term credentials.',
 };
 

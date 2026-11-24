@@ -238,6 +238,11 @@
   color: var(--skin-ink-soft);
 }
 
+/* t189：标题下方没有副标题时补一点间距，避免标题直接贴住第一个字段 */
+.login-card__title--solo {
+  margin-bottom: 16px;
+}
+
 /* ==================== 五、皮肤：表单控件统一按 --skin-* 渲染 ==================== */
 
 .login-card .ant-form-item-label > label {

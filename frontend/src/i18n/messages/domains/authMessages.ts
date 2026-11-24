@@ -29,7 +29,6 @@ export const authZh = {
 
   // ---------- 注册 ----------
   'register.pageTitle': '注册账号',
-  'register.subtitle': '提交后需管理员审批，通过后方可登录',
   /** t122：表单分组标题（账号信息 / 联系方式） */
   'register.groupAccount': '账号信息',
   'register.groupContact': '联系方式',
@@ -48,7 +47,7 @@ export const authZh = {
   'register.phoneInvalid': '手机号格式不正确（需为中国大陆 11 位手机号）',
   'register.smsCode': '短信验证码',
   'register.email': '邮箱（可选）',
-  'register.emailPlaceholder': '用于接收审批结果，可留空',
+  'register.emailPlaceholder': '如 xxx@gmail.com',
   'register.emailInvalid': '邮箱格式不正确',
   'register.emailCode': '邮箱验证码',
   'register.codeRequired': '请输入验证码',
@@ -57,8 +56,9 @@ export const authZh = {
   'register.resendIn': '{seconds}s 后重发',
   'register.codeSent': '验证码已发送',
   'register.emailCodeSent': '邮箱验证码已发送',
-  'register.submit': '提交注册申请',
-  'register.terms': '提交后由管理员审核账号信息',
+    'register.next': '下一步',
+    'register.back': '上一步',
+    'register.submit': '提交注册申请',
   'register.successTitle': '注册申请已提交',
   'register.successDesc': '等待管理员审批，审批通过后即可用该账号登录。',
   'register.resultUsername': '用户名',
@@ -71,7 +71,6 @@ export const authZh = {
 
   // ---------- 忘记密码 ----------
   'forgotPassword.pageTitle': '重置密码',
-  'forgotPassword.subtitle': '通过用户名 + 手机号/邮箱验证码重置密码',
   'forgotPassword.step1': '验证身份',
   'forgotPassword.step2': '设置新密码',
   'forgotPassword.username': '用户名',
@@ -97,7 +96,6 @@ export const authZh = {
   'forgotPassword.confirmPassword': '确认新密码',
   'forgotPassword.submit': '重置密码',
   'forgotPassword.success': '密码已重置，请用新密码登录',
-  'forgotPassword.notice': '为防账号枚举，用户名与手机号/邮箱不匹配时也会提示已发送，但不会真的收到验证码。',
   'forgotPassword.backToLogin': '返回登录',
   'forgotPassword.haveAccount': '想起密码了？',
 
@@ -140,7 +138,6 @@ export const authZh = {
   'passwordStrength.level.good': '良好',
   'passwordStrength.level.strong': '很强',
   'passwordStrength.rules': '至少 8 位，且包含大写、小写、数字、符号中的至少三类',
-  'passwordStrength.valid': '符合要求',
   'passwordStrength.invalid': '还不符合要求',
 
   // ---------- 开发模式 ----------
@@ -163,7 +160,6 @@ export const authEn: Record<keyof typeof authZh, string> = {
   'auth.error.retryAfter': 'Retry in {seconds}s',
 
   'register.pageTitle': 'Create account',
-  'register.subtitle': 'An administrator reviews every application before sign-in',
   'register.groupAccount': 'Account details',
   'register.groupContact': 'Contact details',
   'register.username': 'Username',
@@ -181,7 +177,7 @@ export const authEn: Record<keyof typeof authZh, string> = {
   'register.phoneInvalid': 'Invalid mobile number (11-digit mainland China number)',
   'register.smsCode': 'SMS code',
   'register.email': 'Email (optional)',
-  'register.emailPlaceholder': 'Optional, for notifications',
+  'register.emailPlaceholder': 'e.g. xxx@gmail.com',
   'register.emailInvalid': 'Invalid email address',
   'register.emailCode': 'Email code',
   'register.codeRequired': 'Please enter the verification code',
@@ -190,8 +186,9 @@ export const authEn: Record<keyof typeof authZh, string> = {
   'register.resendIn': 'Resend in {seconds}s',
   'register.codeSent': 'Verification code sent',
   'register.emailCodeSent': 'Email code sent',
-  'register.submit': 'Submit application',
-  'register.terms': 'An administrator will review your details after submission',
+    'register.next': 'Continue',
+    'register.back': 'Back',
+    'register.submit': 'Submit application',
   'register.successTitle': 'Application submitted',
   'register.successDesc': 'An administrator will review it; you can sign in once approved.',
   'register.resultUsername': 'Username',
@@ -203,7 +200,6 @@ export const authEn: Record<keyof typeof authZh, string> = {
   'register.goLogin': 'Sign in',
 
   'forgotPassword.pageTitle': 'Reset password',
-  'forgotPassword.subtitle': 'Reset your password with your username plus an SMS or email code',
   'forgotPassword.step1': 'Verify identity',
   'forgotPassword.step2': 'Set new password',
   'forgotPassword.username': 'Username',
@@ -229,7 +225,6 @@ export const authEn: Record<keyof typeof authZh, string> = {
   'forgotPassword.confirmPassword': 'Confirm new password',
   'forgotPassword.submit': 'Reset password',
   'forgotPassword.success': 'Password reset — sign in with your new password',
-  'forgotPassword.notice': 'To prevent account enumeration we show the same confirmation even when the username and the mobile/email do not match — no code is sent in that case.',
   'forgotPassword.backToLogin': 'Back to sign in',
   'forgotPassword.haveAccount': 'Remembered it?',
 
@@ -270,7 +265,6 @@ export const authEn: Record<keyof typeof authZh, string> = {
   'passwordStrength.level.good': 'Good',
   'passwordStrength.level.strong': 'Strong',
   'passwordStrength.rules': 'At least 8 characters with 3 of: uppercase, lowercase, digits, symbols',
-  'passwordStrength.valid': 'Meets requirements',
   'passwordStrength.invalid': 'Not yet compliant',
 
   'auth.devCode': 'Dev-mode code: {code}',

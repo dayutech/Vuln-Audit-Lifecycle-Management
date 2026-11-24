@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Alert, Button, Form, Input, message } from 'antd';
 import {
   CheckCircleFilled,
@@ -21,15 +21,17 @@ import { evaluatePassword } from '@/utils/passwordPolicy';
 import '@/components/auth/auth.css';
 
 /**
- * 自助注册页（t105，后端 t102）。
+ * 自助注册页（t105，后端 t102；t189 改两步）。
  *
- * 流程：用户名 + 密码 + 确认密码 + **手机号（必填）** + 邮箱（可选）
- *   → 手机号/邮箱各自「获取验证码」（60s 倒计时；429 单独提示）
- *   → `POST /auth/register` 201 → **非跳转**的结果页「等待管理员审批」。
+ * 流程（t189：**先账号、后联系方式**，避免矮屏下一屏塞 8 个字段被裁切）：
+ * 1. **账号信息**：用户名 + 密码 + 确认密码 → 校验通过才允许进入下一步；
+ * 2. **联系方式**：手机号（必填）+ 短信验证码 + 邮箱（可选）+ 邮箱验证码 → `POST /auth/register` 201
+ *    → **非跳转**的结果页「等待管理员审批」。
  *
  * 约定：
- * - 密码强度与后端 `PasswordPolicy` 同口径（≥8 位 + 三类字符），不达标时提交按钮禁用；
- * - dev-mode 下后端返回 `devCode` → 自动填入验证码并在表单下方小字提示（生产无该字段则不显示）；
+ * - 密码强度与后端 `PasswordPolicy` 同口径（≥8 位 + 三类字符）；不达标时**在字段下报错**，
+ *   不再常驻显示规则说明（t189）；
+ * - dev-mode 下后端返回 `devCode` → 自动填入验证码并小字提示（生产无该字段则不显示）；
  * - 错误按状态码分级：400 字段级（`data.data` 映射）/ 409 占用 / 429 限流 / 5xx 与网络；
  * - 视觉完全复用 t101/t108 的登录页外壳（全屏主题 + 左上角品牌 + 主题皮肤）。
  */
@@ -53,12 +55,16 @@ const PHONE_PATTERN = /^1[3-9]\d{9}$/;
 const USERNAME_PATTERN = /^[A-Za-z0-9_]{3,50}$/;
 const CODE_PATTERN = /^\d{6}$/;
 
+/** 两步各自需要校验的字段（两步都在同一 Form 内、只是隐藏其一） */
+const ACCOUNT_FIELDS: (keyof RegisterFormValues)[] = ['username', 'password', 'confirmPassword'];
+
 const Register: React.FC = () => {
   const { t } = useT();
   const navigate = useNavigate();
   const { theme, entry } = useLoginPageTheme();
   const [form] = Form.useForm<RegisterFormValues>();
 
+  const [step, setStep] = useState<1 | 2>(1);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<RegistrationResult | null>(null);
   const [formError, setFormError] = useState<FormErrorState | null>(null);
@@ -70,10 +76,7 @@ const Register: React.FC = () => {
   const emailCooldown = useCooldown(60);
 
   const password = Form.useWatch('password', form) ?? '';
-  const confirmPassword = Form.useWatch('confirmPassword', form) ?? '';
   const email = (Form.useWatch('email', form) ?? '').trim();
-  const strength = useMemo(() => evaluatePassword(password), [password]);
-  const canSubmit = strength.valid && password.length > 0 && password === confirmPassword && !submitting;
 
   const sendSms = async () => {
     const phone = String(form.getFieldValue('phone') ?? '').trim();
@@ -132,6 +135,17 @@ const Register: React.FC = () => {
     }
   };
 
+  /** 第一步 → 第二步：账号三项必须全部通过（用户名格式、密码强度、两次一致） */
+  const goNext = async () => {
+    setFormError(null);
+    try {
+      await form.validateFields(ACCOUNT_FIELDS);
+      setStep(2);
+    } catch {
+      // 校验失败时 antd 已把错误渲染在对应字段下，这里无需额外处理
+    }
+  };
+
   const onFinish = async (values: RegisterFormValues) => {
     setSubmitting(true);
     setFormError(null);
@@ -164,8 +178,13 @@ const Register: React.FC = () => {
           .map(([name, text]) => ({ name: name as keyof RegisterFormValues, errors: [text] }));
         if (fieldData.length > 0) form.setFields(fieldData);
         setFormError({ message: info.message, detail: info.detail });
+        // 后端报的是第 1 步字段（如用户名已被占用）→ 自动退回第 1 步，否则用户看不到错误
+        if (Object.keys(info.fields).some((name) => (ACCOUNT_FIELDS as string[]).includes(name))) {
+          setStep(1);
+        }
       } else if (info.kind === 'conflict') {
         setFormError({ message: t('auth.error.conflict'), detail: info.detail });
+        setStep(1);
       } else if (info.kind === 'rateLimit') {
         setFormError({ message: t('auth.error.rateLimit') });
       } else {
@@ -206,12 +225,26 @@ const Register: React.FC = () => {
     </div>
   ) : null;
 
+  /** 步骤指示：与忘记密码页同一套样式（账号信息 → 联系方式） */
+  const steps = (
+    <div className="auth-steps" data-testid="register-steps" data-step={step}>
+      <span className={['auth-steps__item', step === 1 ? 'is-active' : 'is-done'].join(' ')}>
+        <span className="auth-steps__index">1</span>
+        {t('register.groupAccount')}
+      </span>
+      <span className="auth-steps__sep" />
+      <span className={['auth-steps__item', step === 2 ? 'is-active' : ''].join(' ')}>
+        <span className="auth-steps__index">2</span>
+        {t('register.groupContact')}
+      </span>
+    </div>
+  );
+
   return (
     <AuthShell
       theme={theme}
       entry={entry}
       title={t('register.pageTitle')}
-      subtitle={t('register.subtitle')}
       pageLabel={t('register.pageTitle')}
       passwordFocused={passwordFocused}
       hasError={Boolean(formError)}
@@ -229,6 +262,8 @@ const Register: React.FC = () => {
     >
       {resultView ?? (
         <>
+          {steps}
+
           {formError ? (
             <Alert
               type="error"
@@ -250,10 +285,8 @@ const Register: React.FC = () => {
             autoComplete="off"
             className="auth-dense"
           >
-            {/* ---------- 组 1：账号信息（用户名独占一行；密码 / 确认密码并排） ---------- */}
-            <div className="auth-group" data-testid="register-group-account">
-              <div className="auth-group__title">{t('register.groupAccount')}</div>
-
+            {/* ---------- 第 1 步：账号信息（用户名独占一行；密码 / 确认密码并排） ---------- */}
+            <div className="auth-group" data-testid="register-group-account" hidden={step !== 1}>
               <Form.Item
                 name="username"
                 label={t('register.username')}
@@ -274,7 +307,15 @@ const Register: React.FC = () => {
                 <Form.Item
                   name="password"
                   label={t('register.password')}
-                  rules={[{ required: true, message: t('register.passwordRequired') }]}
+                  rules={[
+                    { required: true, message: t('register.passwordRequired') },
+                    () => ({
+                      validator: (_, value) =>
+                        !value || evaluatePassword(String(value)).valid
+                          ? Promise.resolve()
+                          : Promise.reject(new Error(t('passwordStrength.rules'))),
+                    }),
+                  ]}
                 >
                   <Input.Password
                     prefix={<LockOutlined />}
@@ -314,10 +355,8 @@ const Register: React.FC = () => {
               <PasswordStrength value={password} />
             </div>
 
-            {/* ---------- 组 2：联系方式（接收方 + 发码按钮同行；验证码单独一行） ---------- */}
-            <div className="auth-group" data-testid="register-group-contact">
-              <div className="auth-group__title">{t('register.groupContact')}</div>
-
+            {/* ---------- 第 2 步：联系方式（接收方 + 发码按钮同行；验证码单独一行） ---------- */}
+            <div className="auth-group" data-testid="register-group-contact" hidden={step !== 2}>
               <Form.Item
                 name="phone"
                 label={t('register.phone')}
@@ -411,22 +450,41 @@ const Register: React.FC = () => {
               ) : null}
             </div>
 
-            <Form.Item style={{ marginBottom: 8 }}>
-              <Button
-                type="primary"
-                htmlType="submit"
-                block
-                loading={submitting}
-                disabled={!canSubmit}
-                data-testid="register-submit"
-              >
-                {t('register.submit')}
-              </Button>
-            </Form.Item>
-
-            <p className="login-card__subtitle" style={{ margin: 0, fontSize: 11 }}>
-              {t('register.terms')}
-            </p>
+            {/* ---------- 步骤按钮：第 1 步「下一步」，第 2 步「上一步 + 提交注册申请」 ---------- */}
+            {step === 1 ? (
+              <Form.Item style={{ marginBottom: 0 }}>
+                <Button
+                  type="primary"
+                  block
+                  onClick={() => void goNext()}
+                  data-testid="register-next"
+                >
+                  {t('register.next')}
+                </Button>
+              </Form.Item>
+            ) : (
+              <div style={{ display: 'flex', gap: 8, marginBottom: 0 }}>
+                <Button
+                  block
+                  onClick={() => {
+                    setFormError(null);
+                    setStep(1);
+                  }}
+                  data-testid="register-back"
+                >
+                  {t('register.back')}
+                </Button>
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  block
+                  loading={submitting}
+                  data-testid="register-submit"
+                >
+                  {t('register.submit')}
+                </Button>
+              </div>
+            )}
           </Form>
         </>
       )}
@@ -435,4 +493,3 @@ const Register: React.FC = () => {
 };
 
 export default Register;
-

@@ -82,7 +82,7 @@ const AuthShell: React.FC<AuthShellProps> = ({
           data-testid="auth-card"
           data-skin={theme}
         >
-          <h1 className="login-card__title">{title}</h1>
+          <h1 className={subtitle ? 'login-card__title' : 'login-card__title login-card__title--solo'}>{title}</h1>
           {subtitle ? <p className="login-card__subtitle">{subtitle}</p> : null}
           {children}
           {footer ? <div className="auth-footer">{footer}</div> : null}

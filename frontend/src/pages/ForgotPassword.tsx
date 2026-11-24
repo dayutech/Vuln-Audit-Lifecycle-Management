@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Button, Form, Input, message } from 'antd';
 import { LockOutlined, MailOutlined, MobileOutlined, UserOutlined } from '@ant-design/icons';
 import type { InputRef } from 'antd';
@@ -91,9 +91,6 @@ const ForgotPassword: React.FC = () => {
   }, [presetUsername]);
 
   const newPassword = Form.useWatch('newPassword', form) ?? '';
-  const confirmPassword = Form.useWatch('confirmPassword', form) ?? '';
-  const strength = useMemo(() => evaluatePassword(newPassword), [newPassword]);
-  const canSubmit = strength.valid && newPassword.length > 0 && newPassword === confirmPassword && !submitting;
 
   const validateUsername = (value: string): string | null => {
     if (!value.trim()) return t('forgotPassword.usernameRequired');
@@ -233,7 +230,6 @@ const ForgotPassword: React.FC = () => {
       theme={theme}
       entry={entry}
       title={t('forgotPassword.pageTitle')}
-      subtitle={t('forgotPassword.subtitle')}
       pageLabel={t('forgotPassword.pageTitle')}
       passwordFocused={passwordFocused}
       hasError={Boolean(formError)}
@@ -360,10 +356,6 @@ const ForgotPassword: React.FC = () => {
                 : t('forgotPassword.sendCode')}
             </Button>
           </Form.Item>
-
-          <p className="login-card__subtitle" style={{ margin: 0, fontSize: 11 }} data-testid="forgot-notice">
-            {t('forgotPassword.notice')}
-          </p>
         </div>
       ) : (
         <div data-testid="forgot-step2">
@@ -404,7 +396,15 @@ const ForgotPassword: React.FC = () => {
             <Form.Item
               name="newPassword"
               label={t('forgotPassword.newPassword')}
-              rules={[{ required: true, message: t('register.passwordRequired') }]}
+              rules={[
+                { required: true, message: t('register.passwordRequired') },
+                () => ({
+                  validator: (_, value) =>
+                    !value || evaluatePassword(String(value)).valid
+                      ? Promise.resolve()
+                      : Promise.reject(new Error(t('passwordStrength.rules'))),
+                }),
+              ]}
             >
               <Input.Password
                 prefix={<LockOutlined />}
@@ -448,7 +448,6 @@ const ForgotPassword: React.FC = () => {
                 htmlType="submit"
                 block
                 loading={submitting}
-                disabled={!canSubmit}
                 data-testid="forgot-submit"
               >
                 {t('forgotPassword.submit')}

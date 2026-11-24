@@ -3,11 +3,13 @@ import { useT } from '@/i18n';
 import { evaluatePassword, passwordStrengthLevel } from '@/utils/passwordPolicy';
 
 /**
- * 密码强度提示（t105）—— 与后端 `PasswordPolicy` 同一口径：
+ * 密码强度提示（t105；t189 精简）—— 与后端 `PasswordPolicy` 同一口径：
  * ≥8 位，且「大写 / 小写 / 数字 / 符号」至少三类。
  *
- * 展示：4 段强度条（弱 / 一般 / 良好 / 很强）+ 规则说明；
- * 是否达标由 `evaluatePassword(...).valid` 决定，页面据此禁用提交按钮。
+ * 展示：4 段强度条（弱 / 一般 / 良好 / 很强）+ 等级文字。
+ * **不再常驻显示规则说明**（t189，用户反馈登录/注册卡片上常驻提示词太多）——
+ * 规则改为「校验不通过时的字段错误」按需出现，见 Register / ForgotPassword 的密码校验规则。
+ * 是否达标仍由 `evaluatePassword(...).valid` 决定。
  */
 export interface PasswordStrengthProps {
   value?: string;
@@ -31,16 +33,13 @@ const PasswordStrength: React.FC<PasswordStrengthProps> = ({ value = '' }) => {
           />
         ))}
       </div>
-      <div className="pw-strength__meta">
-        <span className="pw-strength__rules" data-valid={assessment.valid ? 'true' : 'false'}>
-          {assessment.valid ? t('passwordStrength.valid') : t('passwordStrength.rules')}
-        </span>
-        {value ? (
+      {value ? (
+        <div className="pw-strength__meta">
           <span className="pw-strength__level" data-testid="password-strength-level">
             {t('passwordStrength.label')} · {levelText}
           </span>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 };

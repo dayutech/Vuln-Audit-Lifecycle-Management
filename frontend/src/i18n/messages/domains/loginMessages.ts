@@ -11,7 +11,6 @@
  */
 
 export const loginZh = {
-  'login.form.subtitle': '登录后继续',
   'login.form.error': '这次没成功，请检查账号或密码',
   'login.theme.label': '登录主题',
   // 分组标题（t97 的偏好弹窗按分组渲染）
@@ -40,7 +39,6 @@ export const loginZh = {
 } as const;
 
 export const loginEn: Record<keyof typeof loginZh, string> = {
-  'login.form.subtitle': 'Sign in to continue',
   'login.form.error': 'Sign-in failed — check your username or password',
   'login.theme.label': 'Login theme',
   'login.theme.group.character': 'Characters',

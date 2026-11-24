@@ -239,8 +239,7 @@ const Login: React.FC = () => {
           data-skin={theme}
           data-input-variant={skin.inputVariant}
         >
-          <h1 className="login-card__title">{t('login.title')}</h1>
-          <p className="login-card__subtitle">{t('login.form.subtitle')}</p>
+          <h1 className="login-card__title login-card__title--solo">{t('login.title')}</h1>
 
           {hasError ? (
             <Alert
@@ -402,7 +401,6 @@ const Login: React.FC = () => {
               >
                 {t('rememberMe.label')}
               </Checkbox>
-              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{t('rememberMe.hint')}</div>
             </Form.Item>
 
             <Form.Item style={{ marginBottom: 0 }}>

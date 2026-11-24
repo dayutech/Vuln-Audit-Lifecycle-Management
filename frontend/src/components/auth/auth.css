@@ -240,17 +240,6 @@
   white-space: nowrap;
 }
 
-.pw-strength__rules {
-  margin: 0;
-  font-size: 11px;
-  color: var(--skin-ink-soft);
-  line-height: 1.5;
-}
-
-.pw-strength__rules.is-valid {
-  color: #389e0d;
-}
-
 /* ==================== 开发模式验证码提示 ==================== */
 
 .auth-devcode {
