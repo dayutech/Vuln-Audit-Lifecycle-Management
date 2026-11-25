@@ -93,7 +93,7 @@ public class AssetServiceImpl implements AssetService {
         }
         validateStatus(asset.getStatus());
 
-        asset.setCode(generateAssetCode());
+        asset.setCode(resolveCodeForCreate(asset.getCode()));
         log.info("创建资产: code={}, name={}", asset.getCode(), asset.getName());
 
         Asset savedAsset;
@@ -753,12 +753,37 @@ public class AssetServiceImpl implements AssetService {
         }
     }
 
+    /**
+     * t192：创建时的编码解析。
+     *
+     * <p>请求带了编码（新建表单预填的编码）→ 校验未被占用后<b>原样保留</b>，
+     * 这样「表单里显示什么、库里就存什么」；未带（CSV 导入/旧客户端）→ 按规则生成。
+     */
+    private String resolveCodeForCreate(@Nullable String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return generateAssetCode();
+        }
+        String candidate = raw.trim();
+        if (assetRepository.countByCodeIncludingDeleted(candidate) > 0) {
+            throw new BusinessException(ErrorCode.CONFLICT, "资产编号已存在: " + candidate);
+        }
+        return candidate;
+    }
+
+    /** t192：供新建表单预填的资产编码（规则与建库时一致，且保证当前未被占用） */
+    @Override
+    @Transactional(readOnly = true)
+    public String previewCode() {
+        return generateAssetCode();
+    }
+
     private String generateAssetCode() {
         String datePart = LocalDate.now().format(ASSET_CODE_DATE_FORMATTER);
         for (int i = 0; i < 20; i++) {
             String randomPart = UUID.randomUUID().toString().replace("-", "").substring(0, 6).toUpperCase();
             String code = "AST-" + datePart + "-" + randomPart;
-            if (!assetRepository.existsByCode(code)) {
+            // t192：查重含已软删记录（软删资产仍占用唯一键）
+            if (assetRepository.countByCodeIncludingDeleted(code) == 0) {
                 return code;
             }
         }

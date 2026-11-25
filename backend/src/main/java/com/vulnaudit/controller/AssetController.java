@@ -94,6 +94,20 @@ public class AssetController {
                 .body(ApiResponse.success(createdAsset));
     }
 
+    /**
+     * 预览资产编码（t192）：新建表单打开即预填，用户不可手动修改。
+     *
+     * <p>返回 {@code AST-} + {@code yyyyMMdd} + {@code -} + 6 位随机大写字母，且保证当前未被占用
+     * （含已软删行）。创建时把该编码带回，服务端仍会再校验一次唯一性（重复 → 409）。
+     */
+    @GetMapping("/next-code")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER','TEAM_LEADER')")
+    @Operation(summary = "预览资产编码", description = "按 AST-日期-6 位大写字母生成一个未被占用的编码，供新建页预填（只读）")
+    public ResponseEntity<ApiResponse<com.vulnaudit.dto.CodePreviewResponse>> previewAssetCode() {
+        return ResponseEntity.ok(ApiResponse.success(
+                new com.vulnaudit.dto.CodePreviewResponse(assetService.previewCode())));
+    }
+
     @GetMapping("/options")
     @Operation(summary = "获取资产选项", description = "获取资产类型、来源、优先级、状态选项")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getAssetOptions() {

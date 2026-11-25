@@ -417,6 +417,18 @@ public class CustomerServiceImpl implements CustomerService {
             }
             return candidate;
         }
+        return generateUniqueCode();
+    }
+
+    /** t192：生成一个当前未被占用的客户编码（供新建表单打开时预填） */
+    @Override
+    @Transactional(readOnly = true)
+    public String previewCode() {
+        return generateUniqueCode();
+    }
+
+    /** 生成并保证唯一（最多 10 次重试；查重含已软删记录） */
+    private String generateUniqueCode() {
         for (int attempt = 0; attempt < CODE_MAX_ATTEMPTS; attempt++) {
             String candidate = generateCode();
             if (customerRepository.countByCodeIncludingDeleted(candidate) == 0) {

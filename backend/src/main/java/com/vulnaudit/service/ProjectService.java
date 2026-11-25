@@ -76,6 +76,12 @@ public interface ProjectService {
     ProjectResponse create(@Nonnull ProjectRequest request, @Nullable UUID operatorId);
 
     /**
+     * 预览一个未被占用的项目编码（t192）：{@code PRJ-} + yyyy-MM-dd + {@code -} + 6 位随机大写字母。
+     * 供新建表单打开时预填（只读），提交时仍会做格式与唯一性校验。
+     */
+    String previewCode();
+
+    /**
      * 更新项目（含 isPhased 关闭的期次约束）
      *
      * @throws com.vulnaudit.exception.BusinessException 不存在 → 404；编码重复 → 409；有按期次挂靠时关闭分期 → 409

@@ -22,6 +22,12 @@ import java.util.UUID;
 public interface AssetService {
 
     /**
+     * 预览一个未被占用的资产编码（t192）：{@code AST-} + yyyyMMdd + {@code -} + 6 位随机大写字母。
+     * 供新建表单打开时预填（只读）；提交时把该编码带回，服务端再做唯一性校验。
+     */
+    String previewCode();
+
+    /**
      * 批量取资产标签摘要（t145）：assetId -> [{id,name,color,builtin}]
      *
      * <p>实现固定 2 次查询（asset_tags 批量 + tag_definitions 批量），供列表内联与批量端点共用。

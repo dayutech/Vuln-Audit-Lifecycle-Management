@@ -64,6 +64,12 @@ public interface CustomerService {
     CustomerResponse create(@Nonnull CustomerRequest request, @Nullable UUID operatorId);
 
     /**
+     * 预览一个未被占用的客户编码（t192）：{@code CUST-} + 7 位随机大写字母。
+     * 供新建表单打开时预填（只读），提交时仍会做唯一性校验。
+     */
+    String previewCode();
+
+    /**
      * 更新客户
      *
      * @throws com.vulnaudit.exception.BusinessException 不存在 → 404；编码重复 → 409

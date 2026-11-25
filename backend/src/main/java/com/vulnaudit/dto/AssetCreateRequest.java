@@ -13,6 +13,15 @@ import java.util.UUID;
 @Data
 public class AssetCreateRequest {
 
+    /**
+     * 资产编码（t192，可选）。
+     *
+     * <p>新建表单会先调 {@code GET /assets/next-code} 拿到按规则生成、且当前未被占用的编码，
+     * 只读展示并随创建请求带回；为空（CSV 导入 / 旧客户端）时由服务端按规则生成。
+     */
+    @Size(max = 50, message = "validation.asset.code.too_long")
+    private String code;
+
     @NotBlank(message = "validation.asset.name.required")
     @Size(max = 200, message = "validation.asset.name.too_long")
     private String name;

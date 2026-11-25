@@ -137,6 +137,20 @@ public class ProjectController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(created));
     }
 
+    /**
+     * 预览项目编码（t192）：新建表单打开即预填，用户不可手动修改。
+     *
+     * <p>返回 {@code PRJ-} + {@code yyyy-MM-dd} + {@code -} + 6 位随机大写字母，且保证当前未被占用。
+     * 提交时服务端仍会校验格式与唯一性（重复 → 409，概率极低）。
+     */
+    @GetMapping("/next-code")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
+    @Operation(summary = "预览项目编码", description = "按 PRJ-日期-6 位大写字母生成一个未被占用的编码，供新建页预填（只读）")
+    public ResponseEntity<ApiResponse<com.vulnaudit.dto.CodePreviewResponse>> previewProjectCode() {
+        return ResponseEntity.ok(ApiResponse.success(
+                new com.vulnaudit.dto.CodePreviewResponse(projectService.previewCode())));
+    }
+
     @PutMapping("/{id}")
     @PreAuthorize(WRITE_GUARD)
     @Operation(summary = "更新项目", description = "team_leader 仅能改自己担任经理的项目；关闭分期有期次挂靠时 409")

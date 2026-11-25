@@ -113,6 +113,20 @@ public class CustomerController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(created));
     }
 
+    /**
+     * 预览客户编码（t192）：新建表单打开即预填，用户不可手动修改。
+     *
+     * <p>返回 {@code CUST-} + 7 位随机大写字母，且保证当前未被占用（含已软删行）。
+     * 注意：预览不占用编码，提交时服务端仍会做一次唯一性校验（重复 → 409，概率极低）。
+     */
+    @GetMapping("/next-code")
+    @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
+    @Operation(summary = "预览客户编码", description = "按 CUST- + 7 位大写字母生成一个未被占用的编码，供新建页预填（只读）")
+    public ResponseEntity<ApiResponse<com.vulnaudit.dto.CodePreviewResponse>> previewCustomerCode() {
+        return ResponseEntity.ok(ApiResponse.success(
+                new com.vulnaudit.dto.CodePreviewResponse(customerService.previewCode())));
+    }
+
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN','PROJECT_LEADER')")
     @Operation(summary = "更新客户", description = "仅 ADMIN / PROJECT_LEADER；code 冲突 409")

@@ -88,6 +88,7 @@ public class AssetProjectLinkServiceImpl implements AssetProjectLinkService {
         }
 
         Asset asset = Asset.builder()
+                .code(request.getCode())
                 .name(request.getName())
                 .targetType(request.getTargetType())
                 .targetSource(request.getTargetSource())
