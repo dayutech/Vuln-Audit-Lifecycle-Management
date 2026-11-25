@@ -1,15 +1,18 @@
 import request from '@/utils/request';
 
 /**
- * 知识库 / 文档附件（t162 后端，t174 前端接入）。
+ * 知识库 / 文档 / 项目附件（t162 后端，t174/t193 前端接入）。
  *
- * 后端四组端点（knowledge / documents 各一套）：
+ * 后端四组端点（knowledge / documents / projects 各一套）：
  * - `POST   /api/v1/{owner}/{id}/attachments`               multipart `file`（≤50MB，超限 413）
  * - `GET    /api/v1/{owner}/{id}/attachments`               列表（含 uploaderName）
  * - `GET    /api/v1/{owner}/{id}/attachments/{aid}/download` 文件流（中文名走 RFC 5987）
  * - `DELETE /api/v1/{owner}/{id}/attachments/{aid}`          软删 + 删物理文件
+ *
+ * t193：`projects` 复用同一套附件模型（`document_attachments` 的 owner_type=PROJECT），
+ * 用于项目合同 / 补充协议等文件。
  */
-export type AttachmentOwnerType = 'knowledge' | 'documents';
+export type AttachmentOwnerType = 'knowledge' | 'documents' | 'projects';
 
 export interface AttachmentVO {
   id: string;

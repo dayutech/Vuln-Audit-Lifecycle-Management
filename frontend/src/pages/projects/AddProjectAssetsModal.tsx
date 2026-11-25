@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Collapse, Divider, Input, Modal, Select, Space, Table, Tag, Typography, message } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { DownloadOutlined, InboxOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
+import { DownloadOutlined, InboxOutlined, PlusOutlined, SearchOutlined, UploadOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { useT } from '@/i18n';
 import { validateCsvFile } from '@/api/import';
 import {
@@ -31,6 +32,8 @@ import type { PhaseVO } from '@/types/project';
 export interface AddProjectAssetsModalProps {
   open: boolean;
   projectId: string;
+  /** 项目所属客户：用于「新建资产」时预填并锁定客户 */
+  customerId?: string;
   /** 项目是否分期（决定是否显示期次下拉） */
   isPhased: boolean;
   phases: PhaseVO[];
@@ -47,12 +50,14 @@ const IMPORT_LOOKUP_PAGE_SIZE = 100;
 const AddProjectAssetsModal: React.FC<AddProjectAssetsModalProps> = ({
   open,
   projectId,
+  customerId,
   isPhased,
   phases,
   onClose,
   onChanged,
 }) => {
   const { t } = useT();
+  const navigate = useNavigate();
 
   const [keyword, setKeyword] = useState('');
   const [page, setPage] = useState(1);
@@ -280,6 +285,23 @@ const AddProjectAssetsModal: React.FC<AddProjectAssetsModalProps> = ({
       destroyOnHidden
       footer={
         <Space>
+          {/*
+            t193：从项目侧直接创建新资产 —— 预选并锁定「客户 + 项目」，保存后回到本页，
+            与「选择已有资产 / CSV 批量导入」并列；已有资产仍可在上方检索。
+          */}
+          <Button
+            icon={<PlusOutlined />}
+            onClick={() => {
+              const params = new URLSearchParams({ projectId, returnTo: `/projects/${projectId}` });
+              if (customerId) params.set('customerId', customerId);
+              onClose();
+              navigate(`/assets/new?${params.toString()}`);
+            }}
+            disabled={submitting}
+            data-testid="project-asset-create-new"
+          >
+            {t('projectAsset.createNew')}
+          </Button>
           <Button onClick={onClose} disabled={submitting}>
             {t('common.cancel')}
           </Button>

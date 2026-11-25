@@ -12,7 +12,8 @@
  * - **历史数据只读兼容**：`hasLegacyAttachment()` / `stripAttachment()` 仅用于「旧格式附件
  *   （不可下载）」提示与展示清理，不做任何转换、不改写正文。
  */
-export const ATTACHMENT_ACCEPT = '.md,.txt,.pdf,.docx,.xlsx,.pptx,.zip';
+// t193：合同等业务文件常是 .doc / .xls / 扫描件图片，白名单在原有基础上补齐这些常见类型
+export const ATTACHMENT_ACCEPT = '.md,.txt,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.jpg,.jpeg,.png';
 
 /** 与后端一致的单文件上限（50 MB） */
 export const ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;

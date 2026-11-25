@@ -39,6 +39,7 @@ export const customerPageZh = {
   'project.createForbidden': '无权创建项目（仅管理员 / 项目负责人可创建）',
   'project.form.codeHint': '留空则由服务端自动生成（PRJ-日期-6 位字母）',
   'project.form.codePlaceholder': '如 PRJ-2026-11-09-ABCDEF（可留空自动生成）',
+  'project.form.customerLocked': '由客户详情进入，所属客户已锁定，不能改选',
 
 
   // ---------- 项目详情页 ----------
@@ -56,6 +57,11 @@ export const customerPageZh = {
   'projectPage.sectionSchedule': '时间与合同',
   'projectPage.sectionMore': '交付与备注',
   'projectPage.formHint': '带 * 的为必填项；取消将返回上一页',
+  'projectPage.contractSection': '合同附件',
+  'projectPage.contractAdd': '选择合同文件',
+  'projectPage.contractHint': '支持 PDF / Word / 图片等，单份 ≤50MB；创建项目后自动上传，详情页可补传或删除',
+  'projectPage.contractUploaded': '合同附件已上传 {count} 份',
+  'projectPage.contractUploadFailed': '以下合同附件上传失败：{names}（可在项目详情页重试）',
   'projectPage.phases': '期次管理',
   'projectPage.assets': '资产清单',
   'projectPage.status': '状态流转',
@@ -94,6 +100,7 @@ export const customerPageEn: Record<keyof typeof customerPageZh, string> = {
   'project.createForbidden': 'No permission to create projects (admin / project leader only)',
   'project.form.codeHint': 'Leave blank to let the server generate one (PRJ-date-6 letters)',
   'project.form.codePlaceholder': 'e.g. PRJ-2026-11-09-ABCDEF (leave blank to auto-generate)',
+  'project.form.customerLocked': 'Opened from a customer: the customer is locked and cannot be changed',
 
 
   'projectPage.detailTitle': 'Project details',
@@ -110,6 +117,11 @@ export const customerPageEn: Record<keyof typeof customerPageZh, string> = {
   'projectPage.sectionSchedule': 'Schedule & contract',
   'projectPage.sectionMore': 'Delivery & notes',
   'projectPage.formHint': 'Fields marked * are required; Cancel returns to the previous page',
+  'projectPage.contractSection': 'Contract attachments',
+  'projectPage.contractAdd': 'Choose contract files',
+  'projectPage.contractHint': 'PDF / Word / images, up to 50MB each; uploaded right after creation, and can be added/removed on the detail page',
+  'projectPage.contractUploaded': '{count} contract attachment(s) uploaded',
+  'projectPage.contractUploadFailed': 'These contract attachments failed to upload: {names} (retry on the project detail page)',
   'projectPage.phases': 'Phases',
   'projectPage.assets': 'Assets',
   'projectPage.status': 'Status transitions',

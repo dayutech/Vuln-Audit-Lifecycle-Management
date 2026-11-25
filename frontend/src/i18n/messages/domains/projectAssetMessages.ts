@@ -3,6 +3,7 @@
  */
 export const projectAssetZh = {
   'projectAsset.addTitle': '添加资产',
+  'projectAsset.createNew': '新建资产',
   'projectAsset.addOpen': '添加资产',
   'projectAsset.addSubmit': '添加所选（{count}）',
   'projectAsset.selectRequired': '请先勾选要添加的资产',
@@ -54,6 +55,7 @@ export const projectAssetZh = {
 
 export const projectAssetEn: Record<keyof typeof projectAssetZh, string> = {
   'projectAsset.addTitle': 'Add assets',
+  'projectAsset.createNew': 'Create new asset',
   'projectAsset.addOpen': 'Add assets',
   'projectAsset.addSubmit': 'Add selected ({count})',
   'projectAsset.selectRequired': 'Select at least one asset first',

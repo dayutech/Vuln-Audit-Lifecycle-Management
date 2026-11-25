@@ -26,6 +26,7 @@ import dayjs, { type Dayjs } from 'dayjs';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageHeader from '@/components/layout/PageHeader';
 import AddProjectAssetsModal from './AddProjectAssetsModal';
+import AttachmentPanel from '@/components/attachments/AttachmentPanel';
 import { linkTypeKey } from './projectAssetMeta';
 import { useT } from '@/i18n';
 import { useAccessProfile } from '@/hooks/useAccessProfile';
@@ -655,6 +656,16 @@ const ProjectDetail: React.FC = () => {
           />
         </Card>
 
+        <Card
+          className="page-group"
+          size="small"
+          title={t('projectPage.contractSection')}
+          extra={<span style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)' }}>{t('projectPage.contractHint')}</span>}
+        >
+          {/* t193：合同附件（新建时可上传，详情页可补传/下载/删除） */}
+          <AttachmentPanel ownerType="projects" ownerId={project.id} canWrite={writable} />
+        </Card>
+
         {isPhased ? (
           <Row gutter={16}>
             <Col xs={24} lg={15}>
@@ -793,6 +804,7 @@ const ProjectDetail: React.FC = () => {
           <AddProjectAssetsModal
             open={addAssetsOpen}
             projectId={project.id}
+            customerId={project.customerId}
             isPhased={isPhased}
             phases={phases}
             onClose={() => setAddAssetsOpen(false)}

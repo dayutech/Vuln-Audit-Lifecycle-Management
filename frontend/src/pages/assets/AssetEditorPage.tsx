@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Alert, Form, Input, Select, message } from 'antd';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import PageHeader from '@/components/layout/PageHeader';
 import { FormGroup, PageFormShell } from '@/components/layout/PageFormShell';
 import { createAsset, getAssetDetail, getAssetList, getAssetNextCode, updateAsset } from '@/api/asset';
@@ -18,12 +18,26 @@ import type { AssetVO } from '@/types/asset';
  * - `/assets/:id/edit`：编辑基本信息（名称/类型/来源/优先级/状态/所属团队/描述）。
  * 统一 `PageHeader`（返回 + 标题 + 副标题）+ `PageFormShell`（吸底操作条），不再是弹框。
  */
-const { Option } = Select;
 
-const TARGET_TYPES = ['web', 'api', 'mobile', 'host', 'network', 'other'];
-const TARGET_SOURCES = ['customer', 'internal', 'public', 'other'];
-const PRIORITIES = ['critical', 'high', 'medium', 'low'];
-const STATUSES = ['active', 'inactive', 'archived'];
+
+/**
+ * t193：枚举取值必须与后端一致，且**展示本地化文案**而不是英文标识符。
+ *
+ * 此前写的是 `critical / high / medium / low` 与 `active / inactive / archived`，
+ * 而后端只接受 `P0–P3` 与 `active / under_test / suspended / archived`：
+ * 默认值 `medium` 直接导致创建时 400「无效的优先级值」，下拉里也全是英文标识符。
+ */
+const TARGET_TYPES = ['web', 'api', 'mobile', 'host', 'network', 'other'] as const;
+const TARGET_SOURCES = ['customer', 'internal', 'public', 'other'] as const;
+const PRIORITIES = ['P0', 'P1', 'P2', 'P3'] as const;
+const STATUSES = ['active', 'under_test', 'suspended', 'archived'] as const;
+/** 状态值 → 本地化标签（under_test 的词条键是 underTest） */
+const STATUS_LABEL_KEYS = {
+  active: 'asset.status.active',
+  under_test: 'asset.status.underTest',
+  suspended: 'asset.status.suspended',
+  archived: 'asset.status.archived',
+} as const;
 
 interface CustomerOption {
   id: string;
@@ -38,6 +52,7 @@ interface ProjectOption {
 const AssetEditorPage: React.FC = () => {
   const { t } = useT();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [form] = Form.useForm<any>();
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -48,6 +63,16 @@ const AssetEditorPage: React.FC = () => {
 
   const assetId = window.location.pathname.match(/^\/assets\/([^/]+)\/edit$/)?.[1];
   const isEdit = Boolean(assetId);
+
+  /**
+   * t193：支持从项目侧「新建资产」带参进入 ——
+   * `/assets/new?customerId=..&projectId=..&returnTo=/projects/{id}`：
+   * 客户与项目预选并**锁定**（该资产必须挂到来源项目），保存后回到 returnTo。
+   */
+  const presetCustomerId = (searchParams.get('customerId') ?? '').trim() || undefined;
+  const presetProjectId = (searchParams.get('projectId') ?? '').trim() || undefined;
+  const returnTo = (searchParams.get('returnTo') ?? '').trim() || undefined;
+  const presetLocked = !isEdit && Boolean(presetProjectId);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +111,11 @@ const AssetEditorPage: React.FC = () => {
      * t192：新建页打开即向后端要一个按规则生成的资产编码并只读预填，
      * 用户不允许手动设置；预览失败时留空，提交后由服务端兜底生成。
      */
+    // t193：从项目侧进入时预选客户 + 项目（并锁定），首屏即可直接填资产信息保存
+    if (presetCustomerId) {
+      setCustomerId(presetCustomerId);
+      form.setFieldsValue({ customer_id: presetCustomerId, project_id: presetProjectId });
+    }
     let cancelled = false;
     getAssetNextCode()
       .then((code) => {
@@ -97,7 +127,7 @@ const AssetEditorPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [assetId, form]);
+  }, [assetId, form, presetCustomerId, presetProjectId]);
 
   // 编辑态：回填
   useEffect(() => {
@@ -197,7 +227,8 @@ const AssetEditorPage: React.FC = () => {
       } as any);
       const row = (created as any)?.data ?? created;
       message.success(t('asset.form.created'));
-      navigate(row?.id ? `/assets/${row.id}` : '/assets');
+      // t193：从项目侧进入时回到项目详情，否则回资产详情
+      navigate(returnTo ?? (row?.id ? `/assets/${row.id}` : '/assets'));
     } catch (error: any) {
       if (Array.isArray(error?.errorFields)) return;
       const status = getApiErrorStatus(error);
@@ -228,7 +259,7 @@ const AssetEditorPage: React.FC = () => {
           hint={isEdit ? t('asset.form.editHint') : t('asset.projectLink.createRequired')}
           testId="asset-page-form"
         >
-          <Form form={form} layout="vertical" disabled={loading} initialValues={{ priority: 'medium', status: 'active', target_type: 'web', target_source: 'customer' }}>
+          <Form form={form} layout="vertical" disabled={loading} initialValues={{ priority: 'P2', status: 'active', target_type: 'web', target_source: 'customer' }}>
             <FormGroup title={t('asset.form.basicGroup')}>
               {/* t192：资产编码由后端按规则生成并预填，用户不可编辑 */}
               <Form.Item name="code" label={t('asset.list.colCode')}>
@@ -250,6 +281,7 @@ const AssetEditorPage: React.FC = () => {
                       placeholder={t('asset.projectLink.customerPlaceholder')}
                       onChange={(value) => setCustomerId(value)}
                       options={customers.map((c) => ({ value: c.id, label: c.name }))}
+                      disabled={presetLocked}
                       data-testid="asset-form-customer-select"
                     />
                   </Form.Item>
@@ -257,13 +289,13 @@ const AssetEditorPage: React.FC = () => {
                     name="project_id"
                     label={t('asset.projectLink.projectLabel')}
                     rules={[{ required: true, message: t('asset.projectLink.projectPlaceholder') }]}
-                    extra={t('asset.projectLink.createRequired')}
+                    extra={presetLocked ? t('asset.form.projectLocked') : t('asset.projectLink.createRequired')}
                   >
                     <Select
                       showSearch
                       optionFilterProp="label"
                       placeholder={t('asset.projectLink.projectPlaceholder')}
-                      disabled={!customerId}
+                      disabled={!customerId || presetLocked}
                       options={projects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
                       data-testid="asset-form-project-select"
                     />
@@ -282,40 +314,28 @@ const AssetEditorPage: React.FC = () => {
 
             <FormGroup title={t('asset.form.attributeGroup')}>
               <Form.Item name="target_type" label={t('asset.form.targetType')} rules={[{ required: true, message: t('asset.form.targetTypeRequired') }]}>
-                <Select>
-                  {TARGET_TYPES.map((value) => (
-                    <Option key={value} value={value}>
-                      {value}
-                    </Option>
-                  ))}
-                </Select>
+                <Select
+                  options={TARGET_TYPES.map((value) => ({ value, label: t(`asset.targetType.${value}`) }))}
+                  data-testid="asset-form-target-type"
+                />
               </Form.Item>
               <Form.Item name="target_source" label={t('asset.form.targetSource')} rules={[{ required: true, message: t('asset.form.targetSourceRequired') }]}>
-                <Select>
-                  {TARGET_SOURCES.map((value) => (
-                    <Option key={value} value={value}>
-                      {value}
-                    </Option>
-                  ))}
-                </Select>
+                <Select
+                  options={TARGET_SOURCES.map((value) => ({ value, label: t(`asset.targetSource.${value}`) }))}
+                  data-testid="asset-form-target-source"
+                />
               </Form.Item>
               <Form.Item name="priority" label={t('asset.list.colPriority')} rules={[{ required: true, message: t('asset.form.priorityRequired') }]}>
-                <Select>
-                  {PRIORITIES.map((value) => (
-                    <Option key={value} value={value}>
-                      {value}
-                    </Option>
-                  ))}
-                </Select>
+                <Select
+                  options={PRIORITIES.map((value) => ({ value, label: t(`asset.priority.${value}`) }))}
+                  data-testid="asset-form-priority"
+                />
               </Form.Item>
               <Form.Item name="status" label={t('asset.list.colStatus')} rules={[{ required: true, message: t('asset.form.statusRequired') }]}>
-                <Select>
-                  {STATUSES.map((value) => (
-                    <Option key={value} value={value}>
-                      {value}
-                    </Option>
-                  ))}
-                </Select>
+                <Select
+                  options={STATUSES.map((value) => ({ value, label: t(STATUS_LABEL_KEYS[value]) }))}
+                  data-testid="asset-form-status"
+                />
               </Form.Item>
               <Form.Item name="description" label={t('asset.form.description')}>
                 <Input.TextArea rows={4} maxLength={2000} showCount />

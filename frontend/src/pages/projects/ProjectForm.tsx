@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Col, DatePicker, Form, Input, Row, Select, Space, Switch, message } from 'antd';
+import { Alert, Button, Col, DatePicker, Form, Input, Row, Select, Space, Switch, Upload, message } from 'antd';
+import type { UploadFile } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { UploadOutlined } from '@ant-design/icons';
 import { useT } from '@/i18n';
 import PageHeader from '@/components/layout/PageHeader';
 import PageFormShell, { FormGroup } from '@/components/layout/PageFormShell';
@@ -13,6 +15,8 @@ import { useCustomerOptions } from '@/hooks/useCustomerOptions';
 import { canCreateProject, canManageProject } from '@/utils/accessRoles';
 import { getApiErrorMessage } from '@/utils/errorMessage';
 import { createProject, extractProject, getProjectDetail, getProjectNextCode, updateProject } from '@/api/project';
+import { uploadAttachment } from '@/api/attachment';
+import { ATTACHMENT_ACCEPT } from '@/utils/attachments';
 import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT, mergeUserDirectory } from '@/api/user';
 import type { UserDirectoryEntry } from '@/api/user';
 import { PROJECT_TYPE_ORDER, projectTypeKey, type ProjectRequest, type ProjectVO } from '@/types/project';
@@ -56,6 +60,15 @@ const ProjectForm: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [project, setProject] = useState<ProjectVO | null>(null);
   const [users, setUsers] = useState<UserDirectoryEntry[]>([]);
+  /** t193：新建时暂存的合同附件（项目创建成功后再逐个上传，失败只告警不阻塞） */
+  const [contractFiles, setContractFiles] = useState<UploadFile[]>([]);
+
+  /**
+   * t193：从客户详情「新建项目」进来时带 `?customerId=`，此时所属客户**强制绑定且不可修改**
+   * （避免"从客户进来的项目却挂到别的客户"）。
+   */
+  const presetCustomerId = (searchParams.get('customerId') ?? '').trim() || undefined;
+  const customerLocked = !isEdit && Boolean(presetCustomerId);
 
   const customerOptionsState = useCustomerOptions(Boolean(profileLoaded));
 
@@ -114,7 +127,6 @@ const ProjectForm: React.FC = () => {
       void loadProject();
       return;
     }
-    const presetCustomerId = searchParams.get('customerId') ?? undefined;
     form.setFieldsValue({ type: PROJECT_TYPE_ORDER[0], isPhased: false, customerId: presetCustomerId });
     /**
      * t192：新建页打开即向后端要一个按规则生成的编码并只读预填，
@@ -132,7 +144,7 @@ const ProjectForm: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [isEdit, loadProject, form, searchParams]);
+  }, [isEdit, loadProject, form, presetCustomerId]);
 
   const customerOptions = useMemo(
     () =>
@@ -178,6 +190,24 @@ const ProjectForm: React.FC = () => {
       } else {
         const saved = extractProject(await createProject(payload));
         message.success(t('project.created'));
+        // t193：创建成功后把暂存的合同附件逐份上传（失败只告警，不阻塞跳转）
+        if (saved?.id && contractFiles.length > 0) {
+          const failures: string[] = [];
+          for (const item of contractFiles) {
+            const file = item.originFileObj as File | undefined;
+            if (!file) continue;
+            try {
+              await uploadAttachment('projects', saved.id, file);
+            } catch {
+              failures.push(item.name);
+            }
+          }
+          if (failures.length > 0) {
+            message.warning(t('projectPage.contractUploadFailed', { names: failures.join('、') }));
+          } else {
+            message.success(t('projectPage.contractUploaded', { count: contractFiles.length }));
+          }
+        }
         if (saved?.id) navigate(`/projects/${saved.id}`, { replace: true });
         else navigate('/projects', { replace: true });
       }
@@ -281,6 +311,7 @@ const ProjectForm: React.FC = () => {
                     name="customerId"
                     label={t('project.form.customer')}
                     rules={[{ required: true, message: t('project.form.customerRequired') }]}
+                    extra={customerLocked ? t('project.form.customerLocked') : undefined}
                   >
                     <Select
                       showSearch
@@ -288,6 +319,7 @@ const ProjectForm: React.FC = () => {
                       placeholder={t('project.form.customerPlaceholder')}
                       options={customerOptions}
                       loading={customerOptionsState.status === 'loading'}
+                      disabled={customerLocked}
                       notFoundContent={
                         <CustomerSelectEmpty
                           compact
@@ -350,6 +382,26 @@ const ProjectForm: React.FC = () => {
                 <Input.TextArea rows={3} maxLength={1000} data-testid="project-form-description" />
               </Form.Item>
             </FormGroup>
+
+            {/* t193：新建项目可选上传合同附件（创建成功后逐份上传；详情页也可补传/下载/删除） */}
+            {!isEdit ? (
+              <FormGroup title={t('projectPage.contractSection')}>
+                <Upload
+                  accept={ATTACHMENT_ACCEPT}
+                  multiple
+                  beforeUpload={() => false}
+                  fileList={contractFiles}
+                  onChange={({ fileList }) => setContractFiles(fileList)}
+                  onRemove={() => true}
+                  data-testid="project-form-contract-upload"
+                >
+                  <Button icon={<UploadOutlined />}>{t('projectPage.contractAdd')}</Button>
+                </Upload>
+                <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(0,0,0,0.45)' }}>
+                  {t('projectPage.contractHint')}
+                </div>
+              </FormGroup>
+            ) : null}
           </PageFormShell>
         </Form>
       )}
