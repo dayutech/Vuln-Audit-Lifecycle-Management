@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Layout, Menu, Dropdown, Avatar, Badge, Button, Drawer } from 'antd';
+import { Layout, Menu, Dropdown, Avatar, Badge, Button, Drawer, Tooltip } from 'antd';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { MenuOutlined, TagsOutlined, EyeOutlined, BankOutlined, ProjectOutlined, UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, SettingOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined, AuditOutlined, FileSearchOutlined, CloudUploadOutlined, BgColorsOutlined, ControlOutlined, LinkOutlined , FormOutlined } from '@ant-design/icons';
+import { MenuOutlined, EyeOutlined, BankOutlined, ProjectOutlined, UserOutlined, LogoutOutlined, DashboardOutlined, SafetyCertificateOutlined, AppstoreOutlined, TeamOutlined, FileTextOutlined, ToolOutlined, BellOutlined, ReadOutlined, CheckSquareOutlined, AuditOutlined, BgColorsOutlined, ControlOutlined, LinkOutlined , FormOutlined } from '@ant-design/icons';
 import { useUserStore } from '@/store/userStore';
 import { getCurrentUser, logout } from '@/api/auth';
 import { getUnreadNotificationCount } from '@/api/notification';
@@ -156,6 +156,81 @@ const BasicLayout: React.FC = () => {
     }
   };
 
+  /**
+   * 侧边栏菜单（t191：系统与管理重组）。
+   *
+   * 结构约定见 `docs/design/menu-restructure.md`：
+   * - 三个固定分组（核心业务 / 知识与资源 / 系统与管理）仍是 `type: 'group'`；
+   * - 「系统与管理」内部改为 4 个可折叠子菜单 + 1 个独立项（系统消息），
+   *   以后新增功能按「归位规则」进子菜单，不再平铺；
+   * - 子菜单的子项不带图标：父级一个图标已足够区分，同时消除同类功能的重复图标。
+   */
+  type NavLeaf = { key: string; label: React.ReactNode };
+  type NavSubMenu = { key: string; icon: React.ReactNode; label: React.ReactNode; children: NavLeaf[] };
+  type NavTop = NavSubMenu | { key: string; icon: React.ReactNode; label: React.ReactNode };
+
+  /** 可见子项为空时整个子菜单不渲染（角色裁剪后不留空壳） */
+  const buildSubMenu = (key: string, icon: React.ReactNode, label: string, children: NavLeaf[]): NavSubMenu | null =>
+    children.length > 0 ? { key, icon, label, children } : null;
+
+  /** 注册审批入口（管理层可见；带待审批数量角标） */
+  const registrationReviewItem: NavLeaf = {
+    key: '/admin/registration-requests',
+    label: (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} data-testid="menu-registration-review">
+        {t('registrationReview.menu')}
+        {pendingRegistrations !== null && pendingRegistrations > 0 ? (
+          <Badge count={pendingRegistrations} size="small" overflowCount={99} data-testid="menu-registration-badge" />
+        ) : null}
+      </span>
+    ),
+  };
+
+  const orgChildren: NavLeaf[] = [
+    { key: '/teams', label: t('menu.teams') },
+    // 账号管理 / 角色与权限 / 注册审批：普通角色进入只会 403（后端 class-level 为 hasAnyRole ADMIN/PROJECT_LEADER）
+    ...(managerEligible === false ? [] : [{ key: '/users', label: t('menu.users') }]),
+    ...(managerEligible === false ? [] : [{ key: '/roles', label: t('menu.roles') }]),
+    ...(managerEligible === false ? [] : [registrationReviewItem]),
+  ];
+
+  const governanceChildren: NavLeaf[] = [
+    { key: '/approval-scopes', label: t('menu.approvalScopes') },
+    ...(isAdmin ? [{ key: '/admin/upload-approvals', label: t('menu.uploadApprovals') }] : []),
+    ...(managerEligible === false ? [] : [{ key: '/audit-logs', label: t('menu.auditLogs') }]),
+  ];
+
+  const formChildren: NavLeaf[] = [
+    // t191：这 3 项自「知识与资源」移入，与模板管理同属表单生命周期
+    { key: '/forms/assigned', label: t('menu.formsAssigned') },
+    { key: '/forms/mine', label: t('menu.formsMine') },
+    { key: '/forms/new', label: t('menu.formsNew') },
+    ...(isAdmin ? [{ key: '/admin/form-definitions', label: t('menu.formDefinitions') }] : []),
+  ];
+
+  const platformChildren: NavLeaf[] = [
+    ...(isAdmin ? [{ key: '/settings', label: t('menu.settings') }] : []),
+    ...(isAdmin ? [{ key: '/admin/tags', label: t('menu.tags') }] : []),
+    { key: '/import', label: t('menu.import') },
+  ];
+
+  const rawSystemChildren: Array<NavTop | null> = [
+    buildSubMenu('sys.org', <TeamOutlined />, t('menu.groupOrg'), orgChildren),
+    buildSubMenu('sys.governance', <AuditOutlined />, t('menu.groupGovernance'), governanceChildren),
+    buildSubMenu('sys.forms', <FormOutlined />, t('menu.groupForms'), formChildren),
+    buildSubMenu('sys.platform', <ControlOutlined />, t('menu.groupPlatform'), platformChildren),
+    {
+      key: '/notifications',
+      icon: <BellOutlined />,
+      label: (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          {t('menu.notifications')}
+          {unreadCount > 0 && <Badge count={unreadCount} size="small" overflowCount={99} />}
+        </span>
+      ),
+    },
+  ];
+  const systemChildren: NavTop[] = rawSystemChildren.filter((item): item is NavTop => item !== null);
   const menuItems = [
     {
       label: t('menu.groupCore'),
@@ -180,62 +255,13 @@ const BasicLayout: React.FC = () => {
                 { key: '/knowledge', icon: <ReadOutlined />, label: t('menu.knowledge') },
                 { key: '/documents', icon: <FileTextOutlined />, label: t('menu.documents') },
                 { key: '/tools', icon: <ToolOutlined />, label: t('menu.tools') },
-                // t182：自定义填表系统（生成 / 我发起的）
-                { key: '/forms/assigned', icon: <FormOutlined />, label: t('menu.formsAssigned') },
-                { key: '/forms/mine', icon: <FormOutlined />, label: t('menu.formsMine') },
-                { key: '/forms/new', icon: <FormOutlined />, label: t('menu.formsNew') },
       ],
     },
     {
       label: t('menu.groupSystem'),
       key: 'system',
       type: 'group' as const,
-      children: [
-                { key: '/teams', icon: <TeamOutlined />, label: t('menu.teams') },
-                { key: '/approval-scopes', icon: <AuditOutlined />, label: t('menu.approvalScopes') },
-        // 账号管理仅管理层可见（t45：GET /users 收紧为 admin / project_leader）
-        ...(managerEligible === false
-          ? []
-          : [{ key: '/users', icon: <UserOutlined />, label: t('menu.users') }]),
-                { key: '/roles', icon: <SettingOutlined />, label: t('menu.roles') },
-        // 审计日志仅管理层可见（后端 @PreAuthorize 限 admin / project_leader）
-        ...(managerEligible === false
-          ? []
-          : [{ key: '/audit-logs', icon: <FileSearchOutlined />, label: t('menu.auditLogs') }]),
-        // 数据导入：后端 /import/assets、/import/vulnerabilities 仅要求登录，所有角色可用
-                { key: '/import', icon: <CloudUploadOutlined />, label: t('menu.import') },
-        // 系统设置（t110）：仅管理员（后端 /admin/settings/** 也只放行 ADMIN，页面内再兜一次 403）
-        ...(isAdmin ? [{ key: '/settings', icon: <ControlOutlined />, label: t('menu.settings') }] : []),
-        // 标签定义管理（t143）：仅管理员（后端 /admin/tag-definitions 只放行 ADMIN）
-        ...(isAdmin ? [{ key: '/admin/tags', icon: <TagsOutlined />, label: t('menu.tags') }] : []),
-        // 大文件上传审批（t161）：仅管理员（后端 /admin/upload-approvals 只放行 ADMIN）
-        ...(isAdmin ? [{ key: '/admin/upload-approvals', icon: <CloudUploadOutlined />, label: t('menu.uploadApprovals') }] : []),
-        // 表单模板（t182）：仅管理员（后端 /admin/form-definitions 只放行 ADMIN）
-        ...(isAdmin ? [{ key: '/admin/form-definitions', icon: <FormOutlined />, label: t('menu.formDefinitions') }] : []),
-        // 注册审批（t114）：仅管理层（admin / project_leader，与后端 hasAnyRole 一致）+ 待审批角标
-        ...(managerEligible === false
-          ? []
-          : [
-              {
-                key: '/admin/registration-requests',
-                icon: <AuditOutlined />,
-                label: (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} data-testid="menu-registration-review">
-                    {t('registrationReview.menu')}
-                    {pendingRegistrations !== null && pendingRegistrations > 0 ? (
-                      <Badge count={pendingRegistrations} size="small" overflowCount={99} data-testid="menu-registration-badge" />
-                    ) : null}
-                  </span>
-                ),
-              },
-            ]),
-        { key: '/notifications', icon: <BellOutlined />, label: (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {t('menu.notifications')}
-            {unreadCount > 0 && <Badge count={unreadCount} size="small" overflowCount={99} />}
-          </span>
-        ) },
-      ],
+      children: systemChildren,
     },
   ];
 
@@ -287,12 +313,43 @@ const BasicLayout: React.FC = () => {
    * 导致这三个路由匹配不到、selectedKeys 退回 /dashboard（点了不变蓝）。
    */
   const menuKeys = useMemo(() => collectMenuKeys(menuItems as any), [menuItems]);
+  /**
+   * t191：`/forms/{id}` 是表单详情，不属于「生成表单 / 我发起的 / 待我处理」任一项。
+   * 此前它会匹配失败并退回 `/dashboard`（侧栏高亮跑到「安全态势大盘」）；
+   * 现在改为「表单中心保持展开、不选中任何叶子」，语义更诚实。
+   */
+  const isFormDetailPath = useMemo(() => {
+    const path = location.pathname.split('?')[0].split('#')[0];
+    return /^\/forms\/[^/]+$/.test(path) && !['/forms/new', '/forms/mine', '/forms/assigned'].includes(path);
+  }, [location.pathname]);
   const selectedMenuKey = useMemo(
-    () => selectMenuKey(location.pathname, menuKeys),
-    [location.pathname, menuKeys],
+    () => (isFormDetailPath ? '' : selectMenuKey(location.pathname, menuKeys)),
+    [location.pathname, menuKeys, isFormDetailPath],
   );
-  /** 分组恒展开（type: 'group'），这里为将来的 SubMenu 预留父级展开逻辑，当前返回空数组 */
-  const openKeys = useMemo(() => collectOpenKeys(menuItems as any, selectedMenuKey), [menuItems, selectedMenuKey]);
+  /**
+   * 子菜单展开态（t191）。
+   *
+   * - 进入某个子菜单下的页面时，把该子菜单**并入**已展开集合（不关闭用户手动展开的其它子菜单）；
+   * - effect 依赖用「签名串」而不是数组：menuItems 每次渲染都是新数组，
+   *   若直接依赖数组会导致 setState → 重渲染 → 再触发的死循环。
+   */
+  const [openKeys, setOpenKeys] = useState<string[]>([]);
+  const routeOpenKeys = useMemo(
+    () => collectOpenKeys(menuItems as any, selectedMenuKey),
+    [menuItems, selectedMenuKey],
+  );
+  const routeOpenKeysSignature = isFormDetailPath
+    ? 'sys.forms'
+    : routeOpenKeys.join('|');
+  useEffect(() => {
+    if (!routeOpenKeysSignature) return;
+    const next = routeOpenKeysSignature.split('|');
+    setOpenKeys((prev) => {
+      const merged = Array.from(new Set([...prev, ...next]));
+      return merged.length === prev.length ? prev : merged;
+    });
+  }, [routeOpenKeysSignature]);
+  const handleOpenChange = (keys: string[]) => setOpenKeys(keys);
 
   return (
     <Layout className={`basic-layout${isMobile ? ' basic-layout--mobile' : ''}`}>
@@ -320,8 +377,9 @@ const BasicLayout: React.FC = () => {
         <AppBrand collapsed={isMobile ? false : collapsed} />
         <Menu
           theme="dark"
-          selectedKeys={[selectedMenuKey]}
-          {...(openKeys.length > 0 ? { openKeys } : {})}
+          selectedKeys={selectedMenuKey ? [selectedMenuKey] : []}
+          openKeys={openKeys}
+          onOpenChange={handleOpenChange}
           mode="inline"
           items={menuItems}
           onClick={({ key }) => navigate(key)}
@@ -342,6 +400,27 @@ const BasicLayout: React.FC = () => {
             ) : null}
           </div>
           <div className="basic-layout__header-right">
+            {/*
+              t191：顶栏铃铛 + 侧栏「系统消息」是同一份 unreadCount 的两个入口（联动）：
+              任一处标记已读都会通过 notifications:unread-changed 事件同时刷新两边角标。
+            */}
+            <Tooltip title={t('menu.notifications')}>
+              <span
+                className="basic-layout__bell"
+                data-testid="header-notifications-badge"
+                data-count={unreadCount}
+              >
+                <Badge count={unreadCount} size="small" overflowCount={99}>
+                  <Button
+                    type="text"
+                    aria-label={t('menu.notifications')}
+                    data-testid="header-notifications"
+                    icon={<BellOutlined style={{ fontSize: 17 }} />}
+                    onClick={() => navigate('/notifications')}
+                  />
+                </Badge>
+              </span>
+            </Tooltip>
             <LangSwitcher />
             <Dropdown menu={userMenu} placement="bottomRight">
               <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -377,8 +456,9 @@ const BasicLayout: React.FC = () => {
         <Menu
           theme="dark"
           mode="inline"
-          selectedKeys={[selectedMenuKey]}
-          {...(openKeys.length > 0 ? { openKeys } : {})}
+          selectedKeys={selectedMenuKey ? [selectedMenuKey] : []}
+          openKeys={openKeys}
+          onOpenChange={handleOpenChange}
           items={menuItems}
           onClick={({ key }) => {
             navigate(key);
