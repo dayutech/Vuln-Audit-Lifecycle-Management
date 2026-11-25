@@ -30,6 +30,9 @@ public class DocumentAttachment {
     public static final String OWNER_KNOWLEDGE = "KNOWLEDGE";
     public static final String OWNER_DOCUMENT = "DOCUMENT";
 
+    /** t193：项目合同/文档附件（复用同一张表，见 ProjectAttachmentController） */
+    public static final String OWNER_PROJECT = "PROJECT";
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     @Column(name = "id", updatable = false, nullable = false)

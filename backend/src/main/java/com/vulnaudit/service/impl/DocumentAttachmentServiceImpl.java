@@ -161,7 +161,8 @@ public class DocumentAttachmentServiceImpl implements DocumentAttachmentService 
 
     private String normalizeOwnerType(String ownerType) {
         String type = ownerType == null ? "" : ownerType.trim().toUpperCase(Locale.ROOT);
-        if (!DocumentAttachment.OWNER_KNOWLEDGE.equals(type) && !DocumentAttachment.OWNER_DOCUMENT.equals(type)) {
+        if (!DocumentAttachment.OWNER_KNOWLEDGE.equals(type) && !DocumentAttachment.OWNER_DOCUMENT.equals(type)
+                && !DocumentAttachment.OWNER_PROJECT.equals(type)) {
             throw new BusinessException(ErrorCode.BAD_REQUEST, "ownerType 不合法: " + ownerType);
         }
         return type;
