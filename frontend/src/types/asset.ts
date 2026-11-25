@@ -289,6 +289,8 @@ export interface CreateAssetAccessRequest {
 
 
 export interface CreateAssetRequest {
+  /** t192：新建页预览生成、只读展示的资产编码（为空时服务端自动生成） */
+  code?: string;
   name: string;
   target_type: string;
   target_source: string;

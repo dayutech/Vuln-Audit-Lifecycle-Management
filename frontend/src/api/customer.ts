@@ -47,6 +47,15 @@ export const extractCustomerDetail = (res: any): CustomerVO | null => {
   return customer && typeof customer === 'object' && customer.id ? (customer as CustomerVO) : null;
 };
 
+/**
+ * t192：预览客户编码（CUST- + 7 位大写字母，保证当前未被占用）。
+ * 新建页打开即预填、只读展示；用户不允许手动设置编码。
+ */
+export const getCustomerNextCode = async (): Promise<string> => {
+  const res: any = await request.get('/customers/next-code');
+  return String((res?.data ?? res)?.code ?? '');
+};
+
 export const createCustomer = (data: CustomerCreateRequest): Promise<CustomerVO> => {
   return request.post('/customers', data);
 };

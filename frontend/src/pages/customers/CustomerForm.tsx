@@ -9,7 +9,7 @@ import { useAccessProfile } from '@/hooks/useAccessProfile';
 import { useBackNavigation } from '@/hooks/useBackNavigation';
 import { isManagementProfile } from '@/utils/accessRoles';
 import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
-import { createCustomer, extractCustomerDetail, getCustomerDetail, updateCustomer } from '@/api/customer';
+import { createCustomer, extractCustomerDetail, getCustomerDetail, getCustomerNextCode, updateCustomer } from '@/api/customer';
 import { extractIndustryOptions, searchIndustryTypes } from '@/api/industry';
 import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT, mergeUserDirectory } from '@/api/user';
 import type { UserDirectoryEntry } from '@/api/user';
@@ -138,9 +138,24 @@ const CustomerForm: React.FC = () => {
   useEffect(() => {
     if (!isEdit) {
       form.setFieldsValue({ level: 'B' });
-      return;
+      /**
+       * t192：新建页打开即向后端要一个按规则生成的客户编码并只读预填，
+       * 用户不允许手动设置（此前是必填手输）。预览失败时留空，提交后由服务端兜底生成。
+       */
+      let cancelled = false;
+      getCustomerNextCode()
+        .then((code) => {
+          if (!cancelled && code) form.setFieldsValue({ code });
+        })
+        .catch(() => {
+          /* 静默：预览失败不阻塞表单 */
+        });
+      return () => {
+        cancelled = true;
+      };
     }
     void loadCustomer();
+    return undefined;
   }, [isEdit, loadCustomer, form]);
 
   const handleSubmit = async () => {
@@ -237,18 +252,20 @@ const CustomerForm: React.FC = () => {
             onCancel={goBack}
             submitText={isEdit ? t('customerPage.saveSubmit') : t('customerPage.createSubmit')}
             submitDisabled={!canWrite}
-            hint={isEdit ? t('customerPage.codeImmutable') : t('customerPage.codeAutoHint')}
             testId="customer-form-shell"
           >
             <FormGroup title={t('customerPage.sectionBasic')}>
               <Row gutter={16}>
                 <Col xs={24} md={8}>
-                  <Form.Item
-                    name="code"
-                    label={t('customer.fieldCode')}
-                    rules={isEdit ? [] : [{ required: true, message: t('customer.requiredCode') }]}
-                  >
-                    <Input placeholder={t('customer.placeholderCode')} maxLength={50} disabled={isEdit} data-testid="customer-form-code" />
+                  {/* t192：编码由后端按规则生成并预填，用户不可编辑 */}
+                  <Form.Item name="code" label={t('customer.fieldCode')}>
+                    <Input
+                      placeholder={t('customer.placeholderCode')}
+                      maxLength={50}
+                      readOnly
+                      disabled={isEdit}
+                      data-testid="customer-form-code"
+                    />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={16}>
@@ -289,12 +306,21 @@ const CustomerForm: React.FC = () => {
             <FormGroup title={t('customerPage.sectionContact')}>
               <Row gutter={16}>
                 <Col xs={24} md={8}>
-                  <Form.Item name="contactName" label={t('customer.fieldContactName')}>
+                  {/* t192：联系人 / 联系电话改为必填 */}
+                  <Form.Item
+                    name="contactName"
+                    label={t('customer.fieldContactName')}
+                    rules={[{ required: true, message: t('customer.requiredContactName') }]}
+                  >
                     <Input maxLength={100} data-testid="customer-form-contact-name" />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={8}>
-                  <Form.Item name="contactPhone" label={t('customer.fieldContactPhone')}>
+                  <Form.Item
+                    name="contactPhone"
+                    label={t('customer.fieldContactPhone')}
+                    rules={[{ required: true, message: t('customer.requiredContactPhone') }]}
+                  >
                     <Input maxLength={50} data-testid="customer-form-contact-phone" />
                   </Form.Item>
                 </Col>

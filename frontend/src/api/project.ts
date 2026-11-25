@@ -62,6 +62,15 @@ export const getProjectDetail = (id: string): Promise<any> => {
   return request.get(`/projects/${id}`);
 };
 
+/**
+ * t192：预览项目编码（PRJ-日期-6 位大写字母，保证当前未被占用）。
+ * 新建页打开即预填、只读展示；用户不允许手动设置编码。
+ */
+export const getProjectNextCode = async (): Promise<string> => {
+  const res: any = await request.get('/projects/next-code');
+  return String((res?.data ?? res)?.code ?? '');
+};
+
 export const createProject = (data: ProjectRequest): Promise<any> => {
   return request.post('/projects', data, { silent: true } as any);
 };

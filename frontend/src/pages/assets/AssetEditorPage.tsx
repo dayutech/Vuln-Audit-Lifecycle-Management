@@ -3,7 +3,7 @@ import { Alert, Form, Input, Select, message } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '@/components/layout/PageHeader';
 import { FormGroup, PageFormShell } from '@/components/layout/PageFormShell';
-import { createAsset, getAssetDetail, getAssetList, updateAsset } from '@/api/asset';
+import { createAsset, getAssetDetail, getAssetList, getAssetNextCode, updateAsset } from '@/api/asset';
 import { getCustomerList } from '@/api/customer';
 import { getProjectList } from '@/api/project';
 import { getTeamList } from '@/api/team';
@@ -60,7 +60,17 @@ const AssetEditorPage: React.FC = () => {
         if (cancelled) return;
         const cPayload: any = (customerRes as any)?.data ?? customerRes;
         setCustomers((Array.isArray(cPayload?.content) ? cPayload.content : []).map((row: any) => ({ id: row.id, name: row.name })));
-        setTeams(Array.isArray(teamRes) ? (teamRes as any[]) : ((teamRes as any)?.data ?? []));
+        /**
+         * t192 顺带修复：`GET /teams?page=&size=` 返回的是分页对象
+         * `{ content, totalElements, ... }`，此前直接 `setTeams(res.data)` 把**对象**塞进
+         * `teams` 状态，渲染时 `teams.map(...)` 抛 `d.map is not a function`，
+         * 整个 `/assets/new`（含编辑页）被错误边界吃掉，只能看到 "Unexpected Application Error!"。
+         */
+        const tPayload: any = (teamRes as any)?.data ?? teamRes;
+        const teamRows: any[] = Array.isArray(tPayload)
+          ? tPayload
+          : (Array.isArray(tPayload?.content) ? tPayload.content : []);
+        setTeams(teamRows.map((row: any) => ({ id: row.id, name: row.name })));
       } catch {
         // 选项失败不阻断表单
       }
@@ -69,6 +79,25 @@ const AssetEditorPage: React.FC = () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (assetId) return;
+    /**
+     * t192：新建页打开即向后端要一个按规则生成的资产编码并只读预填，
+     * 用户不允许手动设置；预览失败时留空，提交后由服务端兜底生成。
+     */
+    let cancelled = false;
+    getAssetNextCode()
+      .then((code) => {
+        if (!cancelled && code) form.setFieldsValue({ code });
+      })
+      .catch(() => {
+        /* 静默：预览失败不阻塞表单 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [assetId, form]);
 
   // 编辑态：回填
   useEffect(() => {
@@ -89,6 +118,7 @@ const AssetEditorPage: React.FC = () => {
         }
         if (cancelled || !target) return;
         form.setFieldsValue({
+          code: (target as any).code,
           name: target.name,
           target_type: (target as any).targetType ?? target.target_type,
           target_source: (target as any).targetSource ?? target.target_source,
@@ -155,6 +185,7 @@ const AssetEditorPage: React.FC = () => {
         return;
       }
       const created: any = await createAsset({
+        code: values.code || undefined,
         name: values.name,
         target_type: values.target_type,
         target_source: values.target_source,
@@ -199,6 +230,10 @@ const AssetEditorPage: React.FC = () => {
         >
           <Form form={form} layout="vertical" disabled={loading} initialValues={{ priority: 'medium', status: 'active', target_type: 'web', target_source: 'customer' }}>
             <FormGroup title={t('asset.form.basicGroup')}>
+              {/* t192：资产编码由后端按规则生成并预填，用户不可编辑 */}
+              <Form.Item name="code" label={t('asset.list.colCode')}>
+                <Input placeholder={t('asset.form.codePlaceholder')} readOnly data-testid="asset-form-code" />
+              </Form.Item>
               <Form.Item name="name" label={t('asset.list.colName')} rules={[{ required: true, message: t('asset.form.nameRequired') }]}>
                 <Input maxLength={200} data-testid="asset-form-name" />
               </Form.Item>

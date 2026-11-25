@@ -73,6 +73,8 @@ export const getAssetDetail = (id: string): Promise<AssetVO> => {
 
 export const createAsset = (data: CreateAssetRequest): Promise<AssetVO> => {
   return request.post('/assets', {
+    // t192：新建页预览生成的编码，随创建请求带回；为空时服务端自动生成
+    code: data.code || undefined,
     name: data.name,
     targetType: data.target_type,
     targetSource: data.target_source,
@@ -86,6 +88,15 @@ export const createAsset = (data: CreateAssetRequest): Promise<AssetVO> => {
     linkType: data.link_type || undefined,
     remark: data.remark || undefined,
   }, { silent: true } as any);
+};
+
+/**
+ * t192：预览资产编码（AST-yyyyMMdd-6 位大写字母，保证当前未被占用）。
+ * 新建页打开即预填、只读展示；用户不允许手动设置编码。
+ */
+export const getAssetNextCode = async (): Promise<string> => {
+  const res: any = await request.get('/assets/next-code');
+  return String((res?.data ?? res)?.code ?? '');
 };
 
 export const getAssetOptions = (): Promise<AssetOptionsResponse> => {

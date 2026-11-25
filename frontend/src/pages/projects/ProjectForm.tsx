@@ -12,7 +12,7 @@ import { useBackNavigation } from '@/hooks/useBackNavigation';
 import { useCustomerOptions } from '@/hooks/useCustomerOptions';
 import { canCreateProject, canManageProject } from '@/utils/accessRoles';
 import { getApiErrorMessage } from '@/utils/errorMessage';
-import { createProject, extractProject, getProjectDetail, updateProject } from '@/api/project';
+import { createProject, extractProject, getProjectDetail, getProjectNextCode, updateProject } from '@/api/project';
 import { getUserDirectory, USER_DIRECTORY_DEFAULT_LIMIT, mergeUserDirectory } from '@/api/user';
 import type { UserDirectoryEntry } from '@/api/user';
 import { PROJECT_TYPE_ORDER, projectTypeKey, type ProjectRequest, type ProjectVO } from '@/types/project';
@@ -116,6 +116,22 @@ const ProjectForm: React.FC = () => {
     }
     const presetCustomerId = searchParams.get('customerId') ?? undefined;
     form.setFieldsValue({ type: PROJECT_TYPE_ORDER[0], isPhased: false, customerId: presetCustomerId });
+    /**
+     * t192：新建页打开即向后端要一个按规则生成的编码并只读预填，
+     * 用户不允许手动设置（此前是「留空由服务端生成」的可手输字段）。
+     * 预览失败时留空，提交后由服务端兜底生成，不阻塞创建。
+     */
+    let cancelled = false;
+    getProjectNextCode()
+      .then((code) => {
+        if (!cancelled && code) form.setFieldsValue({ code });
+      })
+      .catch(() => {
+        /* 静默：预览失败不阻塞表单，提交时服务端仍会生成 */
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [isEdit, loadProject, form, searchParams]);
 
   const customerOptions = useMemo(
@@ -234,14 +250,19 @@ const ProjectForm: React.FC = () => {
             onSubmit={() => void handleSubmit()}
             onCancel={goBack}
             submitText={isEdit ? t('projectPage.saveSubmit') : t('projectPage.createSubmit')}
-            hint={isEdit ? t('projectPage.codeImmutable') : t('projectPage.formHint')}
             testId="project-form-shell"
           >
             <FormGroup title={t('projectPage.sectionBasic')}>
               <Row gutter={16}>
                 <Col xs={24} md={8}>
-                  <Form.Item name="code" label={t('project.form.code')} extra={t('project.form.codeHint')}>
-                    <Input placeholder={t('project.form.codePlaceholder')} maxLength={50} data-testid="project-form-code" />
+                  {/* t192：编码由后端按规则生成并预填，用户不可编辑 */}
+                  <Form.Item name="code" label={t('project.form.code')}>
+                    <Input
+                      placeholder={t('project.form.codePlaceholder')}
+                      maxLength={50}
+                      readOnly
+                      data-testid="project-form-code"
+                    />
                   </Form.Item>
                 </Col>
                 <Col xs={24} md={16}>
