@@ -2,13 +2,9 @@ package com.vulnaudit.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.vulnaudit.entity.Asset;
-import com.vulnaudit.entity.AssetGroup;
-import com.vulnaudit.entity.AssetGroupRelation;
 import com.vulnaudit.entity.Customer;
 import com.vulnaudit.entity.Project;
 import com.vulnaudit.entity.TagDefinition;
-import com.vulnaudit.repository.AssetGroupRelationRepository;
-import com.vulnaudit.repository.AssetGroupRepository;
 import com.vulnaudit.repository.AssetRepository;
 import com.vulnaudit.repository.AssetTagRepository;
 import com.vulnaudit.repository.AuditLogRepository;
@@ -16,7 +12,6 @@ import com.vulnaudit.repository.CustomerRepository;
 import com.vulnaudit.repository.ProjectRepository;
 import com.vulnaudit.repository.TagDefinitionRepository;
 import com.vulnaudit.service.TagDefinitionService;
-import com.vulnaudit.service.impl.GroupToTagMigrator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -57,10 +52,6 @@ public class AssetTagSystemTest extends BaseTest {
     @Autowired
     private AssetTagRepository assetTagRepository;
     @Autowired
-    private AssetGroupRepository groupRepository;
-    @Autowired
-    private AssetGroupRelationRepository relationRepository;
-    @Autowired
     private AssetRepository assetRepository;
     @Autowired
     private CustomerRepository customerRepository;
@@ -70,8 +61,6 @@ public class AssetTagSystemTest extends BaseTest {
     private AuditLogRepository auditLogRepository;
     @Autowired
     private TagDefinitionService tagDefinitionService;
-    @Autowired
-    private GroupToTagMigrator migrator;
 
     private UUID teamId;
 
@@ -141,59 +130,6 @@ public class AssetTagSystemTest extends BaseTest {
     }
 
     // ------------------------------------------------------------------ 一、分组 → 标签迁移
-
-    @Test
-    @DisplayName("迁移：分组生成同名标签定义，关系转成资产标签，migrated_at 落库")
-    void migratesGroupsToTags() {
-        Asset asset = createAssetEntity("迁移资产");
-        AssetGroup group = groupRepository.save(Objects.requireNonNull(AssetGroup.builder()
-                .name("历史分组A").type("self").build()));
-        relationRepository.save(Objects.requireNonNull(AssetGroupRelation.builder()
-                .assetId(asset.getId()).groupId(group.getId()).build()));
-
-        GroupToTagMigrator.Result result = migrator.migrateOnce();
-
-        assertEquals(1, result.definitionsCreated(), "应新建 1 条标签定义");
-        assertEquals(1, result.linksCreated(), "应新建 1 条资产标签");
-        assertTrue(tagDefinitionRepository.findByName("历史分组A").isPresent());
-        assertFalse(tagDefinitionRepository.findByName("历史分组A").orElseThrow().isBuiltin(),
-                "分组迁移出的标签是自定义标签（builtin=false）");
-        assertTrue(assetHasTag(asset.getId(), "历史分组A"), "资产应保留分组对应的标签");
-        assertNotNull(groupRepository.findById(group.getId()).orElseThrow().getMigratedAt(), "应写迁移水位");
-    }
-
-    @Test
-    @DisplayName("迁移：重复执行幂等（不重复建定义/关联，不重复标记）")
-    void migrationIsIdempotent() {
-        Asset asset = createAssetEntity("迁移幂等资产");
-        AssetGroup group = groupRepository.save(Objects.requireNonNull(AssetGroup.builder()
-                .name("历史分组B").type("self").build()));
-        relationRepository.save(Objects.requireNonNull(AssetGroupRelation.builder()
-                .assetId(asset.getId()).groupId(group.getId()).build()));
-
-        migrator.migrateOnce();
-        GroupToTagMigrator.Result second = migrator.migrateOnce();
-
-        assertEquals(0, second.definitionsCreated(), "第二次不应再建定义");
-        assertEquals(0, second.linksCreated(), "第二次不应再建关联");
-        assertEquals(0, second.groupsMarked(), "第二次没有待迁移分组");
-        assertEquals(1, tagDefinitionRepository.countByName("历史分组B"));
-        assertEquals(1, assetTagRepository.findByAssetId(asset.getId()).stream()
-                .filter(t -> "历史分组B".equals(t.getTag())).count(), "同一资产同一标签只有一行");
-    }
-
-    @Test
-    @DisplayName("迁移：已软删的分组不迁移")
-    void softDeletedGroupSkipped() {
-        AssetGroup group = groupRepository.save(Objects.requireNonNull(AssetGroup.builder()
-                .name("已删分组C").type("self").deletedAt(java.time.LocalDateTime.now()).build()));
-
-        GroupToTagMigrator.Result result = migrator.migrateOnce();
-
-        assertEquals(0, result.groupsMarked());
-        assertTrue(tagDefinitionRepository.findByName("已删分组C").isEmpty(), "软删分组不应生成标签");
-        assertNotNull(groupRepository.findById(group.getId()).orElseThrow().getDeletedAt());
-    }
 
     @Test
     @DisplayName("迁移脚本：V30 具备幂等守卫（建表/唯一索引/NOT EXISTS/迁移水位）")
@@ -488,24 +424,6 @@ public class AssetTagSystemTest extends BaseTest {
                 .filter(t -> customerName.equals(t.getTag())).count(), "客户名标签只应有一行");
         assertTrue(assetHasTag(asset.getId(), project1.path("name").asText()));
         assertTrue(assetHasTag(asset.getId(), project2.path("name").asText()));
-    }
-
-    @Test
-    @DisplayName("迁移 + 自动标签不冲突：迁移出的标签与自动标签同表同口径")
-    void migratedAndAutoTagsCoexist() {
-        Asset asset = createAssetEntity("共存资产");
-        AssetGroup group = groupRepository.save(Objects.requireNonNull(AssetGroup.builder()
-                .name("共存分组").type("self").build()));
-        relationRepository.save(Objects.requireNonNull(AssetGroupRelation.builder()
-                .assetId(asset.getId()).groupId(group.getId()).build()));
-
-        migrator.migrateOnce();
-        int added = tagDefinitionService.applyTags(asset.getId(),
-                java.util.List.of("共存分组", "自动补充标签"), adminUserId);
-
-        assertEquals(1, added, "已有标签不重复添加，只加新的那条");
-        assertTrue(assetHasTag(asset.getId(), "共存分组"));
-        assertTrue(assetHasTag(asset.getId(), "自动补充标签"));
     }
 
     @Test

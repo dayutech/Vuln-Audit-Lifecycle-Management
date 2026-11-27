@@ -2,14 +2,12 @@ package com.vulnaudit.controller;
 
 import com.vulnaudit.entity.Asset;
 import com.vulnaudit.entity.AssetAccess;
-import com.vulnaudit.entity.AssetGroup;
 import com.vulnaudit.entity.AssetTag;
 import com.vulnaudit.entity.Customer;
 import com.vulnaudit.entity.Project;
 import com.vulnaudit.entity.AssetVersion;
 import com.vulnaudit.entity.Team;
 import com.vulnaudit.repository.AssetAccessRepository;
-import com.vulnaudit.repository.AssetGroupRepository;
 import com.vulnaudit.repository.AssetRepository;
 import com.vulnaudit.repository.AssetTagRepository;
 import com.vulnaudit.repository.AssetVersionRepository;
@@ -40,7 +38,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *       {@code canWriteAsset}（写 ⊂ 读）；</li>
  *   <li>{@code GET /assets/{id}/access-requests}：{@code canReadAsset} <b>且</b> 仅负责人/管理层/审批人可见明细；</li>
  *   <li>{@code DELETE /assets/{assetId}/tags/{tagId}}：{@code canWriteAsset}；</li>
- *   <li>分组写（创建/改/删/组内加减）：角色门槛 ADMIN/PROJECT_LEADER/TEAM_LEADER，<b>查询保持全员开放</b>。</li>
  * </ol>
  */
 @DisplayName("资产域鉴权测试")
@@ -54,9 +51,6 @@ public class AssetDomainAuthorizationTest extends BaseTest {
 
     @Autowired
     private AssetTagRepository assetTagRepository;
-
-    @Autowired
-    private AssetGroupRepository assetGroupRepository;
 
     @Autowired
     private AssetAccessRepository assetAccessRepository;
@@ -79,7 +73,6 @@ public class AssetDomainAuthorizationTest extends BaseTest {
     private AssetVersion adminVersion;
     private AssetTag engineerTag;
     private AssetTag adminTag;
-    private AssetGroup group;
     private Project project;
 
     @BeforeEach
@@ -182,12 +175,6 @@ public class AssetDomainAuthorizationTest extends BaseTest {
                 .createdBy(adminUserId)
                 .build()));
 
-        group = assetGroupRepository.save(Objects.requireNonNull(AssetGroup.builder()
-                .name("t49-分组_" + suffix)
-                .type("project")
-                .description("资产域授权用例")
-                .build()));
-
         // 工程师是「管理员资产」申请的审批人：仍不能越过读范围看到明细（AND 语义）
         assetAccessRepository.save(Objects.requireNonNull(AssetAccess.builder()
                 .assetId(adminAsset.getId())
@@ -241,24 +228,6 @@ public class AssetDomainAuthorizationTest extends BaseTest {
                         .header("Authorization", engineerToken))
                 .andExpect(status().isForbidden());
 
-        // 6) 分组写
-        mockMvc.perform(post("/api/v1/asset-groups").header("Authorization", engineerToken)
-                        .contentType(APPLICATION_JSON)
-                        .content("{\"name\":\"越权分组\",\"type\":\"project\"}"))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(put("/api/v1/asset-groups/" + group.getId()).header("Authorization", engineerToken)
-                        .contentType(APPLICATION_JSON)
-                        .content("{\"name\":\"越权改分组\",\"type\":\"project\"}"))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(delete("/api/v1/asset-groups/" + group.getId()).header("Authorization", engineerToken))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(post("/api/v1/asset-groups/" + group.getId() + "/assets")
-                        .header("Authorization", engineerToken)
-                        .param("assetId", engineerAsset.getId().toString()))
-                .andExpect(status().isForbidden());
-        mockMvc.perform(delete("/api/v1/asset-groups/" + group.getId() + "/assets/" + engineerAsset.getId())
-                        .header("Authorization", engineerToken))
-                .andExpect(status().isForbidden());
     }
 
     // ------------------------------------------------------------------ 团队长：团队归属
@@ -304,11 +273,6 @@ public class AssetDomainAuthorizationTest extends BaseTest {
                         .header("Authorization", leaderToken))
                 .andExpect(status().isForbidden());
 
-        // 分组写：team_leader 允许
-        mockMvc.perform(post("/api/v1/asset-groups").header("Authorization", leaderToken)
-                        .contentType(APPLICATION_JSON)
-                        .content("{\"name\":\"小组长分组-" + UUID.randomUUID() + "\",\"type\":\"project\"}"))
-                .andExpect(status().isCreated());
     }
 
     // ------------------------------------------------------------------ 负责人可写自己的资产
@@ -368,44 +332,10 @@ public class AssetDomainAuthorizationTest extends BaseTest {
                         .header("Authorization", adminToken))
                 .andExpect(status().isOk());
 
-        mockMvc.perform(post("/api/v1/asset-groups").header("Authorization", adminToken)
-                        .contentType(APPLICATION_JSON)
-                        .content("{\"name\":\"管理员分组-" + UUID.randomUUID() + "\",\"type\":\"project\"}"))
-                .andExpect(status().isCreated());
-        mockMvc.perform(put("/api/v1/asset-groups/" + group.getId()).header("Authorization", adminToken)
-                        .contentType(APPLICATION_JSON)
-                        .content("{\"name\":\"管理员改名-" + UUID.randomUUID() + "\",\"type\":\"project\"}"))
-                .andExpect(status().isOk());
-        mockMvc.perform(post("/api/v1/asset-groups/" + group.getId() + "/assets")
-                        .header("Authorization", adminToken)
-                        .param("assetId", engineerAsset.getId().toString()))
-                .andExpect(status().isOk());
-        mockMvc.perform(delete("/api/v1/asset-groups/" + group.getId() + "/assets/" + engineerAsset.getId())
-                        .header("Authorization", adminToken))
-                .andExpect(status().isOk());
-        mockMvc.perform(delete("/api/v1/asset-groups/" + group.getId()).header("Authorization", adminToken))
-                .andExpect(status().isOk());
     }
 
     // ------------------------------------------------------------------ 查询不受影响
 
-    @Test
-    @DisplayName("分组查询对工程师仍 200（前端分组页依赖）")
-    void groupQueries_stillOpenForEngineer() throws Exception {
-        mockMvc.perform(get("/api/v1/asset-groups").header("Authorization", engineerToken))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.content").isArray());
-
-        mockMvc.perform(get("/api/v1/asset-groups/" + group.getId()).header("Authorization", engineerToken))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(get("/api/v1/asset-groups/" + group.getId() + "/assets")
-                        .header("Authorization", engineerToken))
-                .andExpect(status().isOk());
-
-        mockMvc.perform(get("/api/v1/asset-groups/type/project").header("Authorization", engineerToken))
-                .andExpect(status().isOk());
-    }
 
     @Test
     @DisplayName("访问申请明细：审批人身份不越过读范围（AND 语义）")

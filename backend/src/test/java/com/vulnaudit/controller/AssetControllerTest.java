@@ -4,10 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.vulnaudit.dto.AssetCreateRequest;
 import com.vulnaudit.dto.AssetUpdateRequest;
 import com.vulnaudit.entity.Asset;
-import com.vulnaudit.entity.AssetGroup;
 import com.vulnaudit.entity.Team;
 import com.vulnaudit.entity.User;
-import com.vulnaudit.repository.AssetGroupRepository;
 import com.vulnaudit.repository.AssetRepository;
 import com.vulnaudit.repository.TeamRepository;
 import com.vulnaudit.repository.UserRepository;
@@ -38,9 +36,6 @@ public class AssetControllerTest extends BaseTest {
     private AssetRepository assetRepository;
 
     @Autowired
-    private AssetGroupRepository assetGroupRepository;
-
-    @Autowired
     private TeamRepository teamRepository;
 
     @Autowired
@@ -56,7 +51,6 @@ public class AssetControllerTest extends BaseTest {
     private com.vulnaudit.repository.ProjectRepository projectRepository;
 
     private Asset testAsset;
-    private AssetGroup testGroup;
     private Team testTeam;
     private User testUser;
     private Customer customer;
@@ -107,14 +101,6 @@ public class AssetControllerTest extends BaseTest {
                 .teamId(testTeam.getId())
                 .build();
         testAsset = assetRepository.save(Objects.requireNonNull(testAsset));
-
-        // 创建测试分组
-        testGroup = AssetGroup.builder()
-                .name("测试分组_" + uniqueSuffix)
-                .type("test")
-                .description("用于测试的分组")
-                .build();
-        testGroup = assetGroupRepository.save(Objects.requireNonNull(testGroup));
 
         // t69：创建资产必须带 projectId（硬约束），故夹具建「客户 + 项目」
         customer = customerRepository.save(Objects.requireNonNull(Customer.builder()
