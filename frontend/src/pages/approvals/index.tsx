@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge, Button, Card, Descriptions, Empty, Input, Modal, Segmented, Space, Table, Tabs, Tag, Tooltip, message } from 'antd';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   getAccessApprovalHistory,
   getAccessApprovalHistoryCount,
@@ -13,6 +13,8 @@ import type { UserDirectoryEntry } from '@/api/user';
 import type { AssetAccessVO } from '@/types/asset';
 import { getApiErrorMessage, getApiErrorStatus } from '@/utils/errorMessage';
 import { useT } from '@/i18n';
+import UploadApprovals from '@/pages/admin/UploadApprovals';
+import { useAccessProfile } from '@/hooks/useAccessProfile';
 import type { MessageKey } from '@/i18n/messages/zh-CN';
 
 /**
@@ -28,6 +30,8 @@ import type { MessageKey } from '@/i18n/messages/zh-CN';
  * 视角：`as=reviewer`（我审批过的，默认） / `as=requester`（我申请且已被处理的）。
  */
 type ApprovalTab = 'pending' | 'approved' | 'rejected';
+/** t194：合并后的两个审批域 */
+type ApprovalMode = 'access' | 'upload';
 
 /** t153 遗留的本地留存键，t157 起不再使用（只清理一次） */
 const LEGACY_DECISION_STORE_KEY = 'owl_approval_decisions_v1';
@@ -459,9 +463,42 @@ const Approvals: React.FC = () => {
   const emptyText = activeTab === 'pending' ? t('approvals.emptyPending') : t('approvals.emptyRecords');
 
   const isHistoryTab = activeTab !== 'pending';
+  const [searchParams] = useSearchParams();
+  const { profile, loaded: profileLoaded } = useAccessProfile();
+  const isAdmin = profileLoaded && (profile?.roles ?? []).some((role) => String(role).toLowerCase() === 'admin');
+
+  /**
+   * t194：审批中心与「上传审批」合并为一页（都在「系统与管理 → 审批与合规」下）。
+   * 顶部分段切换：访问审批（默认，全员）/ 上传审批（仅 ADMIN）。
+   * 旧地址 `/admin/upload-approvals` 仍会带 `?mode=upload` 跳进来，保持历史链接可用。
+   */
+  const [mode, setMode] = useState<ApprovalMode>(() =>
+    searchParams.get('mode') === 'upload' ? 'upload' : 'access',
+  );
+  useEffect(() => {
+    if (searchParams.get('mode') === 'upload' && isAdmin) setMode('upload');
+  }, [searchParams, isAdmin]);
+
+  const modeOptions = [
+    { label: t('approvals.modeAccess'), value: 'access' as ApprovalMode },
+    ...(isAdmin ? [{ label: t('approvals.modeUpload'), value: 'upload' as ApprovalMode }] : []),
+  ];
 
   return (
-    <Card
+    <div className="page">
+      {modeOptions.length > 1 ? (
+        <Segmented
+          style={{ marginBottom: 16 }}
+          value={mode}
+          onChange={(value) => setMode(value as ApprovalMode)}
+          options={modeOptions}
+          data-testid="approval-mode-switch"
+        />
+      ) : null}
+      {mode === 'upload' && isAdmin ? (
+        <UploadApprovals embedded />
+      ) : (
+      <Card
       title={t('approvals.title')}
       extra={
         <Button onClick={refreshAll} data-testid="approval-refresh">
@@ -578,6 +615,8 @@ const Approvals: React.FC = () => {
         ) : null}
       </Modal>
     </Card>
+      )}
+    </div>
   );
 };
 

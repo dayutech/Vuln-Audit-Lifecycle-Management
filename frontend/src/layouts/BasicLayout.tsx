@@ -195,8 +195,9 @@ const BasicLayout: React.FC = () => {
   ];
 
   const governanceChildren: NavLeaf[] = [
+    // t194：审批中心（资产访问审批）与上传审批合并为一页，统一挂在「审批与合规」下
+    { key: '/approvals', label: t('menu.approvals') },
     { key: '/approval-scopes', label: t('menu.approvalScopes') },
-    ...(isAdmin ? [{ key: '/admin/upload-approvals', label: t('menu.uploadApprovals') }] : []),
     ...(managerEligible === false ? [] : [{ key: '/audit-logs', label: t('menu.auditLogs') }]),
   ];
 
@@ -244,7 +245,6 @@ const BasicLayout: React.FC = () => {
                 // t153（用户需求 11）：安全审计任务排在全局漏洞视图**之前**
                 { key: '/tasks', icon: <CheckSquareOutlined />, label: t('menu.tasks') },
                 { key: '/vulnerabilities', icon: <SafetyCertificateOutlined />, label: t('menu.vulnerabilities') },
-                { key: '/approvals', icon: <AuditOutlined />, label: t('menu.approvals') },
       ],
     },
     {

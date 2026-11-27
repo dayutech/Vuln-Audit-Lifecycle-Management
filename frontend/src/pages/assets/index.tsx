@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Table, Button, Space, Input, Tag, Card, Modal, Select, Tooltip, Switch, message } from 'antd';
+import { Table, Button, Space, Input, Tag, Card, Modal, Select, Tooltip, Switch, message } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -515,16 +515,6 @@ const Assets: React.FC = () => {
           </Space>
         ) : null}
       </Space>
-
-      {/* 分组已并入标签（t141/t143） */}
-      <Alert
-        type="info"
-        showIcon
-        closable
-        style={{ marginBottom: 12 }}
-        message={t('asset.list.groupMergedNotice')}
-        data-testid="asset-groups-merged-notice"
-      />
 
       {showDeleted && isAdmin ? (
         <SoftDeletedTable kind="assets" keyword={params.search} onRestored={() => void fetchData()} />

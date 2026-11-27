@@ -310,6 +310,8 @@ export const zhCN = {
   'users.emptyRoles': '该用户暂无角色',
   'users.deleteTitle': '确认删除',
   'users.removeRoleTitle': '移除角色',
+  'approvals.modeAccess': '访问审批',
+  'approvals.modeUpload': '上传审批',
   'approvals.title': '审批中心',
   'approvals.colAssetId': '资产ID',
   'approvals.colApplicantId': '申请人ID',

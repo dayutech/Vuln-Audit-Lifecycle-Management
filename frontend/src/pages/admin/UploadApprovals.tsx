@@ -35,7 +35,12 @@ const STATUS_COLORS: Record<string, string> = {
   EXPIRED: 'default',
 };
 
-const UploadApprovals: React.FC = () => {
+interface UploadApprovalsProps {
+  /** t194：并入「审批中心」后不再渲染自己的页面头（由外层统一） */
+  embedded?: boolean;
+}
+
+const UploadApprovals: React.FC<UploadApprovalsProps> = ({ embedded = false }) => {
   const { t } = useT();
   const navigate = useNavigate();
   const { profile, loaded: profileLoaded } = useAccessProfile();
@@ -236,12 +241,14 @@ const UploadApprovals: React.FC = () => {
 
   if (profileLoaded && !isAdmin) {
     return (
-      <div className="page" data-testid="admin-upload-approvals-page">
-        <PageHeader
-          title={t('upload.approvalsTitle')}
-          fallbackTo="/dashboard"
-          testId="upload-approvals-header"
-        />
+      <div className={embedded ? undefined : 'page'} data-testid="admin-upload-approvals-page">
+        {embedded ? null : (
+          <PageHeader
+            title={t('upload.approvalsTitle')}
+            fallbackTo="/dashboard"
+            testId="upload-approvals-header"
+          />
+        )}
         <Alert
           type="error"
           showIcon
@@ -259,18 +266,20 @@ const UploadApprovals: React.FC = () => {
   }
 
   return (
-    <div className="page" data-testid="admin-upload-approvals-page">
-      <PageHeader
-        title={t('upload.approvalsTitle')}
-        subtitle={t('upload.approvalsSubtitle')}
-        fallbackTo="/dashboard"
-        testId="upload-approvals-header"
-        extra={
-          <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()} data-testid="upload-approvals-refresh">
-            {t('common.refresh')}
-          </Button>
-        }
-      />
+    <div className={embedded ? undefined : 'page'} data-testid="admin-upload-approvals-page">
+      {embedded ? null : (
+        <PageHeader
+          title={t('upload.approvalsTitle')}
+          subtitle={t('upload.approvalsSubtitle')}
+          fallbackTo="/dashboard"
+          testId="upload-approvals-header"
+          extra={
+            <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()} data-testid="upload-approvals-refresh">
+              {t('common.refresh')}
+            </Button>
+          }
+        />
+      )}
       <Card
         className="page-group"
         size="small"

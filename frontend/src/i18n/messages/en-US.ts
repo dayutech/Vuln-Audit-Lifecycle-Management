@@ -309,6 +309,8 @@ export const enUS: MessageCatalog = {
   'users.emptyRoles': 'This user has no roles',
   'users.deleteTitle': 'Confirm deletion',
   'users.removeRoleTitle': 'Remove role',
+  'approvals.modeAccess': 'Access approvals',
+  'approvals.modeUpload': 'Upload approvals',
   'approvals.title': 'Approval center',
   'approvals.colAssetId': 'Asset ID',
   'approvals.colApplicantId': 'Applicant ID',

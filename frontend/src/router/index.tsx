@@ -42,7 +42,6 @@ import Projects from '@/pages/projects/index';
 import ProjectFormPage from '@/pages/projects/ProjectForm';
 import ProjectDetail from '@/pages/projects/Detail';
 import Settings from '@/pages/settings/index';
-import UploadApprovals from '@/pages/admin/UploadApprovals';
 import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
 import SsoCallback from '@/pages/SsoCallback';
@@ -141,11 +140,6 @@ const router = createBrowserRouter([
       {
         path: '/assets/:id',
         element: <AssetDetail />,
-      },
-      {
-        // t143：资产分组已并入标签体系（V30 迁移）；旧书签重定向到资产中心
-        path: '/asset-groups',
-        element: <Navigate to="/assets" replace />,
       },
       {
         path: '/vulnerabilities',
@@ -252,9 +246,9 @@ const router = createBrowserRouter([
         element: <TagsAdmin />,
       },
       {
-        // t161：大文件上传审批（仅 ADMIN；页面内再判一次，非管理员显示 403 提示）
+        // t194：上传审批已并入「审批中心」（系统与管理 → 审批与合规）；旧地址保留重定向
         path: '/admin/upload-approvals',
-        element: <UploadApprovals />,
+        element: <Navigate to="/approvals?mode=upload" replace />,
       },
       {
         // t106：账号设置 - 社交账号绑定（登录用户都可访问，只操作自己）
